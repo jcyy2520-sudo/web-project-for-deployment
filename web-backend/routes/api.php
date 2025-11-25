@@ -489,6 +489,10 @@ Route::get('/health', function () {
     ]);
 });
 
+// Public routes for landing page
+Route::get('/services', [ServiceController::class, 'allServices']);
+Route::get('/stats/summary', [StatsController::class, 'summary']);
+
 // Protected routes
 Route::middleware(['auth:sanctum'])->group(function () {
     // Auth routes
