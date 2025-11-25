@@ -1,6 +1,4 @@
 {
-  "buildCommand": "npm run build",
-  "outputDirectory": "web-frontend/dist",
-  "installCommand": "npm install",
-  "installPath": "web-frontend"
+  "buildCommand": "npm --prefix ./web-frontend run build",
+  "outputDirectory": "web-frontend/dist"
 }
