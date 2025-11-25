@@ -1,7 +1,6 @@
 {
-  "root": "web-frontend",
-  "buildCommand": "npm run build",
-  "outputDirectory": "dist",
+  "buildCommand": "cd web-frontend && npm run build",
+  "outputDirectory": "web-frontend/dist",
   "nodeVersion": "18.x",
   "env": {
     "VITE_API_URL": "@vite_api_url"
