@@ -11,24 +11,27 @@ import {
   ExclamationTriangleIcon,
   FunnelIcon,
   ChevronLeftIcon,
-  ChevronRightIcon
+  ChevronRightIcon,
+  TrashIcon
 } from '@heroicons/react/24/outline';
+import axios from 'axios';
 
 const ClientAppointments = () => {
   const { user } = useAuth();
   const { callApi, loading } = useApi();
   const [appointments, setAppointments] = useState([]);
   const [isBookModalOpen, setIsBookModalOpen] = useState(false);
+  const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
+  const [selectedAppointmentToCancel, setSelectedAppointmentToCancel] = useState(null);
   const [availableSlots, setAvailableSlots] = useState([]);
   const [selectedDate, setSelectedDate] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [sortBy, setSortBy] = useState('date');
+  const [sortBy, setSortBy] = useState('newest');
   const [currentPage, setCurrentPage] = useState(1);
   const appointmentsPerPage = 8;
   const [formData, setFormData] = useState({
     appointment_date: '',
     appointment_time: '',
-    purpose: '',
     notes: ''
   });
 
@@ -63,6 +66,8 @@ const ClientAppointments = () => {
     const sorted = [...filteredAppointments];
     
     switch (sortBy) {
+      case 'newest':
+        return sorted.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
       case 'date':
         return sorted.sort((a, b) => new Date(a.appointment_date) - new Date(b.appointment_date));
       case 'date-desc':
@@ -105,7 +110,6 @@ const ClientAppointments = () => {
       setFormData({
         appointment_date: '',
         appointment_time: '',
-        purpose: '',
         notes: ''
       });
       loadAppointments();
@@ -113,7 +117,25 @@ const ClientAppointments = () => {
     }
   };
 
-  const getStatusIcon = (status) => {
+  const handleCancelAppointment = async () => {
+    if (!selectedAppointmentToCancel) return;
+
+    const result = await callApi((signal) =>
+      axios.put(`/api/appointments/${selectedAppointmentToCancel.id}/cancel`, {}, { signal })
+    );
+
+    if (result.success) {
+      setIsCancelModalOpen(false);
+      setSelectedAppointmentToCancel(null);
+      await loadAppointments();
+      alert('Appointment cancelled successfully!');
+    }
+  };
+
+  const openCancelModal = (appointment) => {
+    setSelectedAppointmentToCancel(appointment);
+    setIsCancelModalOpen(true);
+  };  const getStatusIcon = (status) => {
     switch (status) {
       case 'completed':
         return <CheckCircleIcon className="h-5 w-5 text-green-500" />;
@@ -208,6 +230,7 @@ const ClientAppointments = () => {
                       }}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black"
                     >
+                      <option value="newest">Newest First</option>
                       <option value="date">Date (Oldest First)</option>
                       <option value="date-desc">Date (Newest First)</option>
                       <option value="status">Status</option>
@@ -236,7 +259,6 @@ const ClientAppointments = () => {
                             <h4 className="font-semibold text-gray-900">
                               {new Date(appointment.appointment_date).toLocaleDateString()} at {appointment.appointment_time}
                             </h4>
-                            <p className="text-sm text-gray-600">{appointment.purpose}</p>
                             {appointment.staff_notes && (
                               <p className="text-sm text-gray-500 mt-1">
                                 Staff notes: {appointment.staff_notes}
@@ -252,6 +274,15 @@ const ClientAppointments = () => {
                             <span className="text-sm text-gray-600">
                               Staff: {appointment.staff.first_name} {appointment.staff.last_name}
                             </span>
+                          )}
+                          {(appointment.status === 'pending' || appointment.status === 'approved') && (
+                            <button
+                              onClick={() => openCancelModal(appointment)}
+                              className="text-red-500 hover:text-red-700 transition-colors duration-200 p-1 rounded hover:bg-red-100"
+                              title="Cancel appointment"
+                            >
+                              <TrashIcon className="h-4 w-4" />
+                            </button>
                           )}
                         </div>
                       </div>
@@ -291,6 +322,63 @@ const ClientAppointments = () => {
           )}
         </div>
       </main>
+
+      {/* Cancel Appointment Modal */}
+      <Modal
+        isOpen={isCancelModalOpen}
+        onClose={() => {
+          setIsCancelModalOpen(false);
+          setSelectedAppointmentToCancel(null);
+        }}
+        title="Cancel Appointment"
+        size="md"
+      >
+        {selectedAppointmentToCancel && (
+          <div className="space-y-4">
+            <div className="bg-red-50 border border-red-200 rounded p-4">
+              <p className="text-sm text-red-800">
+                <strong>Warning:</strong> Are you sure you want to cancel this appointment?
+              </p>
+            </div>
+
+            <div className="bg-gray-50 rounded p-4 space-y-2">
+              <div className="text-sm">
+                <strong>Date:</strong> {new Date(selectedAppointmentToCancel.appointment_date).toLocaleDateString()} at {selectedAppointmentToCancel.appointment_time}
+              </div>
+              {selectedAppointmentToCancel.staff && (
+                <div className="text-sm">
+                  <strong>Staff:</strong> {selectedAppointmentToCancel.staff.first_name} {selectedAppointmentToCancel.staff.last_name}
+                </div>
+              )}
+            </div>
+
+            <p className="text-sm text-gray-600">
+              A cancellation notification will be sent to your email, and the admin will be notified.
+            </p>
+
+            <div className="flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsCancelModalOpen(false);
+                  setSelectedAppointmentToCancel(null);
+                }}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50"
+              >
+                Keep Appointment
+              </button>
+              <button
+                type="button"
+                onClick={handleCancelAppointment}
+                disabled={loading}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-red-600 rounded hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? 'Cancelling...' : 'Cancel Appointment'}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       {/* Book Appointment Modal */}
       <Modal
@@ -341,20 +429,6 @@ const ClientAppointments = () => {
               )}
             </div>
           )}
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Purpose
-            </label>
-            <textarea
-              value={formData.purpose}
-              onChange={(e) => setFormData(prev => ({ ...prev, purpose: e.target.value }))}
-              className="input-field"
-              rows="3"
-              required
-              placeholder="Describe the purpose of your notarization..."
-            />
-          </div>
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">

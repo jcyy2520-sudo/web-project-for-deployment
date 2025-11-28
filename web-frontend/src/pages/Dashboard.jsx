@@ -466,10 +466,6 @@ const AppointmentDetailModal = ({ isOpen, onClose, appointment }) => {
                     <span className="text-xs text-gray-500">Service Type</span>
                     <p className="text-amber-50 font-medium text-sm">{appointment.service_type || appointment.type}</p>
                   </div>
-                  <div>
-                    <span className="text-xs text-gray-500">Purpose</span>
-                    <p className="text-amber-50 text-sm">{appointment.purpose || 'Not specified'}</p>
-                  </div>
                 </div>
               </div>
 
@@ -706,9 +702,6 @@ const ThankYouModal = ({ isOpen, onClose, appointment }) => {
                 <p className="text-xs text-amber-400/70 mb-1">
                   <strong>Time:</strong> {appointment.appointment_time}
                 </p>
-                <p className="text-xs text-amber-400/70 mb-1">
-                  <strong>Purpose:</strong> {appointment.purpose}
-                </p>
                 <p className="text-xs text-amber-400/70">
                   <strong>Status:</strong> <StatusBadge status="pending" />
                 </p>
@@ -805,7 +798,6 @@ const Dashboard = () => {
     type: '',
     appointment_date: '',
     appointment_time: '',
-    purpose: '',
     notes: '',
     custom_service_type: ''
   });
@@ -965,7 +957,11 @@ const Dashboard = () => {
     );
     
     if (result.success) {
-      setAppointments(result.data.data || []);
+      // Sort appointments by created_at in descending order (newest first)
+      const sortedAppointments = (result.data.data || []).sort((a, b) => 
+        new Date(b.created_at) - new Date(a.created_at)
+      );
+      setAppointments(sortedAppointments);
     }
   };
 
@@ -1147,7 +1143,6 @@ const Dashboard = () => {
     if (!appointmentData.type) errors.type = 'Appointment type is required';
     if (!appointmentData.appointment_date) errors.appointment_date = 'Date is required';
     if (!appointmentData.appointment_time) errors.appointment_time = 'Time is required';
-    if (!appointmentData.purpose) errors.purpose = 'Purpose is required';
     if (appointmentData.type === 'other' && !appointmentData.custom_service_type) {
       errors.type = 'Please specify the service type';
     }
@@ -1212,7 +1207,6 @@ const Dashboard = () => {
       type: appointmentData.type,
       appointment_date: appointmentData.appointment_date,
       appointment_time: appointmentData.appointment_time,
-      purpose: appointmentData.purpose,
       notes: appointmentData.notes,
       service_type: appointmentData.type === 'other' ? appointmentData.custom_service_type : appointmentData.type
     };
@@ -1230,7 +1224,6 @@ const Dashboard = () => {
         type: '',
         appointment_date: '',
         appointment_time: '',
-        purpose: '',
         notes: '',
         custom_service_type: ''
       });
@@ -1493,29 +1486,6 @@ const Dashboard = () => {
 
             <div className="lg:col-span-2">
               <label className="block text-xs font-medium text-amber-50 mb-1">
-                Purpose of Notarization *
-              </label>
-              <input
-                type="text"
-                name="purpose"
-                value={appointmentData.purpose}
-                onChange={handleAppointmentChange}
-                placeholder="Briefly describe what documents need notarization..."
-                className={`w-full px-3 py-2 bg-gray-800 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 transition-all duration-200 text-sm text-white placeholder-gray-400 ${
-                  formErrors.purpose ? 'border-red-500' : 'border-gray-600 focus:border-amber-500'
-                }`}
-                required
-              />
-              {formErrors.purpose && (
-                <p className="text-red-400 text-xs mt-1 flex items-center">
-                  <ExclamationTriangleIcon className="h-3 w-3 mr-1" />
-                  {formErrors.purpose}
-                </p>
-              )}
-            </div>
-
-            <div className="lg:col-span-2">
-              <label className="block text-xs font-medium text-amber-50 mb-1">
                 Additional Notes (Optional)
               </label>
               <textarea
@@ -1620,9 +1590,6 @@ const Dashboard = () => {
                       <p className="text-xs text-amber-400/70 mt-1">
                         {new Date(appointment.appointment_date).toLocaleDateString()} at {appointment.appointment_time}
                       </p>
-                      {appointment.purpose && (
-                        <p className="text-sm text-amber-50 mt-1">{appointment.purpose}</p>
-                      )}
                       {appointment.staff && (
                         <div className="flex items-center space-x-1 mt-1 text-xs text-amber-400/70">
                           <span>Assigned to:</span>

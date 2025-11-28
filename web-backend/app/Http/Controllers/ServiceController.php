@@ -172,18 +172,37 @@ class ServiceController extends Controller
     public function getStats()
     {
         try {
-            $stats = Service::withCount('appointments')
-                ->orderBy('appointments_count', 'desc')
-                ->get()
-                ->map(function($service) {
-                    return [
-                        'id' => $service->id,
-                        'name' => $service->name,
-                        'description' => $service->description,
-                        'count' => $service->appointments_count,
-                        'is_active' => $service->is_active
-                    ];
-                });
+            // Get all services
+            $services = Service::withTrashed()->get();
+            
+            $stats = $services->map(function($service) {
+                // Count appointments by service_id (new way)
+                $countByServiceId = \DB::table('appointments')
+                    ->where('service_id', $service->id)
+                    ->count();
+                
+                // Count appointments by service_type matching service name (legacy way)
+                $countByServiceType = \DB::table('appointments')
+                    ->where('service_type', $service->name)
+                    ->count();
+                
+                // Total count is the sum of both methods
+                $totalCount = $countByServiceId + $countByServiceType;
+                
+                return [
+                    'id' => $service->id,
+                    'name' => $service->name,
+                    'description' => $service->description,
+                    'count' => $totalCount,
+                    'is_active' => $service->is_active
+                ];
+            })
+            ->filter(function($stat) {
+                // Only return services that have been used (count > 0) or are active
+                return $stat['count'] > 0 || $stat['is_active'];
+            })
+            ->sortByDesc('count')
+            ->values();
 
             return response()->json([
                 'data' => $stats,

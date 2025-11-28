@@ -62,7 +62,7 @@ const LandingPageEnhanced = () => {
   const faqs = [
     {
       question: 'How does online notarization work?',
-      answer: 'Our notaries are certified professionals available 24/7. Simply book an appointment, upload your documents, and we\'ll verify your identity and notarize securely online.'
+      answer: 'Our notaries are certified professionals available 8/5. Simply book an appointment, upload your documents, and we\'ll verify your identity and notarize securely online.'
     },
     {
       question: 'Is it legally binding?',

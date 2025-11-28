@@ -118,8 +118,7 @@ class AdminController extends Controller
         $perPage = $request->get('per_page', 10);
 
         if ($limit) {
-            $appointments = $query->orderBy('appointment_date', 'desc')
-                ->orderBy('appointment_time', 'desc')
+            $appointments = $query->orderBy('created_at', 'desc')
                 ->limit($limit)
                 ->get();
 
@@ -129,8 +128,7 @@ class AdminController extends Controller
             ];
         }
 
-        $appointments = $query->orderBy('appointment_date', 'desc')
-            ->orderBy('appointment_time', 'desc')
+        $appointments = $query->orderBy('created_at', 'desc')
             ->paginate($perPage);
 
         return $appointments;

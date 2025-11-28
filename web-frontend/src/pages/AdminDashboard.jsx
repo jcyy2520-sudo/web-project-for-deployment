@@ -1753,6 +1753,13 @@ const AdminDashboard = () => {
           usersData = Object.values(payload).filter(item => item && typeof item === 'object');
         }
         
+        // Sort by created_at in descending order (newest first)
+        usersData.sort((a, b) => {
+          const dateA = new Date(a.created_at || 0);
+          const dateB = new Date(b.created_at || 0);
+          return dateB - dateA;
+        });
+        
         return { 
           data: usersData.map(user => ({ 
             ...user, 
@@ -1790,6 +1797,14 @@ const AdminDashboard = () => {
         
         // Fixed: Show admin + staff accounts in Admin Accounts tab
         const adminsData = allUsers.filter(user => user.role === 'admin' || user.role === 'staff');
+        
+        // Sort by created_at in descending order (newest first)
+        adminsData.sort((a, b) => {
+          const dateA = new Date(a.created_at || 0);
+          const dateB = new Date(b.created_at || 0);
+          return dateB - dateA;
+        });
+        
         return { 
           data: adminsData.map(admin => ({ 
             ...admin, 
@@ -1854,6 +1869,13 @@ const AdminDashboard = () => {
         } else if (payload && typeof payload === 'object') {
           appointmentsData = Object.values(payload).filter(item => item && typeof item === 'object');
         }
+        
+        // Sort by created_at in descending order (newest first)
+        appointmentsData.sort((a, b) => {
+          const dateA = new Date(a.created_at || 0);
+          const dateB = new Date(b.created_at || 0);
+          return dateB - dateA;
+        });
         
         return { data: appointmentsData };
       });
@@ -3807,9 +3829,6 @@ const AdminDashboard = () => {
                   </td>
                   <td className="px-3 py-2">
                     <div className="text-xs text-amber-50 font-medium">{appointment.service_type || appointment.type}</div>
-                    {appointment.purpose && (
-                      <div className="text-xs text-gray-400 mt-0.5 line-clamp-2">{appointment.purpose}</div>
-                    )}
                     {appointment.decline_reason && (
                       <div className="text-xs text-red-400 mt-0.5 font-medium">Reason: {appointment.decline_reason}</div>
                     )}

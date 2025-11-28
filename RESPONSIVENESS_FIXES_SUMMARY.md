@@ -187,4 +187,10 @@ Fixed critical responsiveness issues across all admin sections that had buttons 
 
 
 
-What do i do to make this system of mine an application which other people can download in desktop or any devices.
+I notice that in the Reports section of the admin the count, percentage, and usage distribution dont work.
+
+Also i notice that in all appoinrments in admin, when there is a new appointments is adds randomly in middle, i want that when there is a new appointment, it add in the top, same issue when there is a new users or admin, it add randomly in the middle, i want it that it add at the top.
+
+Also in the booking appointment of the user, remove the purpose, and since purpose will be remove update the other parts of the system aswell, that connected to the purpose.
+
+Also i want you to add a cancel function in my appointments of the users, and when cancelled, it updates the admin system, and sends a message to the users email.

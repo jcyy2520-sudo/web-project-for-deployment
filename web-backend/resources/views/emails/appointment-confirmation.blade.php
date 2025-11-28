@@ -44,12 +44,6 @@
                     <div class="detail-label">Service:</div>
                     <div class="detail-value">{{ $appointment->service_type ?? \App\Models\Appointment::getTypes()[$appointment->type] ?? $appointment->type }}</div>
                 </div>
-                @if($appointment->purpose)
-                <div class="detail-row">
-                    <div class="detail-label">Purpose:</div>
-                    <div class="detail-value">{{ $appointment->purpose }}</div>
-                </div>
-                @endif
                 <div class="detail-row">
                     <div class="detail-label">Status:</div>
                     <div class="detail-value"><span class="status">Pending Review</span></div>

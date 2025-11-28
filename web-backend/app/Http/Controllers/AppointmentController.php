@@ -92,7 +92,7 @@ class AppointmentController extends Controller
             'service_type' => 'nullable|string|max:255',
             'appointment_date' => 'required|date|after:today',
             'appointment_time' => 'required|date_format:H:i',
-            'purpose' => 'required|string|max:500',
+            'purpose' => 'nullable|string|max:500',
             'documents' => 'nullable|array',
             'notes' => 'nullable|string|max:1000',
         ]);
@@ -136,7 +136,7 @@ class AppointmentController extends Controller
             'service_type' => $request->service_type,
             'appointment_date' => $request->appointment_date,
             'appointment_time' => $request->appointment_time,
-            'purpose' => $request->purpose,
+            'purpose' => $request->purpose ?? null,
             'documents' => $request->documents,
             'notes' => $request->notes,
             'status' => 'pending',
@@ -616,11 +616,39 @@ class AppointmentController extends Controller
             ], 422);
         }
 
+        $oldStatus = $appointment->status;
         $appointment->update(['status' => 'cancelled']);
+
+        // Clear relevant caches to ensure admin dashboard updates
+        // Clear admin stats cache
+        if (auth()->id()) {
+            Cache::forget('admin_stats_' . auth()->id());
+        }
+        
+        // Clear all admin appointment caches by flushing with a prefix
+        // Use a pattern that matches common cache keys
+        $cacheTagsToFlush = ['admin', 'appointments', 'admin_appointments', 'admin_stats'];
+        foreach ($cacheTagsToFlush as $tag) {
+            try {
+                Cache::tags($tag)->flush();
+            } catch (\Exception $e) {
+                // If tags not supported, try direct key deletion
+                \Log::debug('Cache tags not supported for: ' . $tag);
+            }
+        }
 
         // Send cancellation email
         try {
+            // Reload appointment to get fresh relationships
+            $appointment->refresh();
+            $appointment->load(['user', 'staff']);
+            
             Mail::to($user->email)->send(new AppointmentStatusMail($appointment));
+            
+            // Also send to staff if assigned
+            if ($appointment->staff_id && $appointment->staff) {
+                Mail::to($appointment->staff->email)->send(new AppointmentStatusMail($appointment));
+            }
         } catch (\Exception $e) {
             \Log::error('Failed to send cancellation email: ' . $e->getMessage());
         }

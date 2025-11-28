@@ -184,17 +184,17 @@ const LandingPage = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-gradient-to-b from-gray-900 via-gray-800 to-gray-900">
       {/* Navigation */}
-      <nav className="fixed w-full bg-white/95 backdrop-blur-md z-50 border-b border-amber-100 shadow-sm">
+      <nav className="fixed w-full bg-gray-900/80 backdrop-blur-lg z-50 border-b border-amber-500/10 shadow-lg">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             {/* Logo */}
             <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 bg-gradient-to-br from-amber-500 to-amber-600 rounded-xl flex items-center justify-center shadow-md">
+              <div className="w-10 h-10 bg-gradient-to-br from-amber-500 to-amber-600 rounded-xl flex items-center justify-center shadow-lg shadow-amber-500/30">
                 <span className="text-white font-bold text-sm">⚖️</span>
               </div>
-              <span className="text-xl font-bold text-amber-900">Legal Ease</span>
+              <span className="text-xl font-bold text-white">Legal Ease</span>
             </div>
 
             {/* Desktop Menu */}
@@ -203,7 +203,7 @@ const LandingPage = () => {
                 <button
                   key={item}
                   onClick={() => scrollToSection(item.toLowerCase().replace(/\s+/g, ''))}
-                  className="text-gray-700 hover:text-amber-600 font-medium transition-colors text-sm"
+                  className="text-gray-300 hover:text-amber-400 font-medium transition-colors text-sm"
                 >
                   {item}
                 </button>
@@ -214,13 +214,13 @@ const LandingPage = () => {
             <div className="hidden md:flex items-center space-x-4">
               <button
                 onClick={() => setIsLoginModalOpen(true)}
-                className="text-gray-700 hover:text-amber-600 font-medium text-sm"
+                className="text-gray-300 hover:text-amber-400 font-medium text-sm transition-colors"
               >
                 Sign In
               </button>
               <button
                 onClick={() => setIsRegisterModalOpen(true)}
-                className="bg-gradient-to-r from-amber-500 to-amber-600 text-white px-6 py-2.5 rounded-lg font-semibold hover:shadow-lg hover:shadow-amber-300/30 transition-all duration-300"
+                className="bg-gradient-to-r from-amber-500 to-amber-600 text-white px-6 py-2.5 rounded-lg font-semibold hover:shadow-lg hover:shadow-amber-500/40 transition-all duration-300"
               >
                 Get Started
               </button>
@@ -229,9 +229,9 @@ const LandingPage = () => {
             {/* Mobile Menu Button */}
             <button
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-              className="md:hidden p-2 rounded-lg hover:bg-amber-100 transition-colors"
+              className="md:hidden p-2 rounded-lg hover:bg-gray-700 transition-colors"
             >
-              <svg className="w-6 h-6 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-6 h-6 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
               </svg>
             </button>
@@ -240,20 +240,20 @@ const LandingPage = () => {
 
         {/* Mobile Menu */}
         {isMobileMenuOpen && (
-          <div className="md:hidden bg-white border-t border-amber-100 px-4 py-4 space-y-4">
+          <div className="md:hidden bg-gray-800 border-t border-amber-500/10 px-4 py-4 space-y-4">
             {['Home', 'Services', 'How It Works', 'Reviews'].map((item) => (
               <button
                 key={item}
                 onClick={() => scrollToSection(item.toLowerCase().replace(/\s+/g, ''))}
-                className="block w-full text-left text-gray-700 hover:text-amber-600 font-medium py-2"
+                className="block w-full text-left text-gray-300 hover:text-amber-400 font-medium py-2"
               >
                 {item}
               </button>
             ))}
-            <div className="pt-4 space-y-3 border-t border-amber-100">
+            <div className="pt-4 space-y-3 border-t border-amber-500/10">
               <button
                 onClick={() => setIsLoginModalOpen(true)}
-                className="block w-full text-left text-gray-700 hover:text-amber-600 font-medium py-2"
+                className="block w-full text-left text-gray-300 hover:text-amber-400 font-medium py-2"
               >
                 Sign In
               </button>
@@ -269,83 +269,84 @@ const LandingPage = () => {
       </nav>
 
       {/* Hero Section */}
-      <section id="home" className="pt-24 pb-20 md:pt-32 md:pb-24 bg-gradient-to-br from-white via-amber-50 to-orange-50">
+      <section id="home" className="pt-24 pb-20 md:pt-32 md:pb-24 bg-gradient-to-b from-gray-900 via-gray-800 to-gray-900">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid lg:grid-cols-2 gap-12 items-center">
             {/* Hero Content */}
             <div className="text-center lg:text-left">
-              <div className="inline-block mb-6 px-4 py-2 bg-amber-100 rounded-full">
-                <span className="text-amber-700 text-sm font-semibold">✨ Trusted Legal Notary Service</span>
+              <div className="inline-block mb-6 px-4 py-2 bg-amber-500/10 border border-amber-500/30 rounded-full">
+                <span className="text-amber-300 text-sm font-semibold">✨ Trusted Legal Notary Service</span>
               </div>
-              <h1 className="text-5xl md:text-6xl lg:text-7xl font-bold text-gray-900 leading-tight mb-6">
+              <h1 className="text-5xl md:text-6xl lg:text-7xl font-bold text-white leading-tight mb-6">
                 Professional Notary Services
-                <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-500 to-orange-600"> Made Easy</span>
+                <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-amber-500"> Made Easy</span>
               </h1>
-              <p className="text-lg md:text-xl text-gray-600 mb-8 leading-relaxed max-w-2xl">
+              <p className="text-lg md:text-xl text-gray-300 mb-8 leading-relaxed max-w-2xl">
                 Get your documents notarized online in minutes. Secure, convenient, and professional. No hidden fees, no complicated process.
               </p>
               <div className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start">
                 <button
                   onClick={() => setIsRegisterModalOpen(true)}
-                  className="bg-gradient-to-r from-amber-500 to-orange-600 text-white px-8 py-4 rounded-xl font-semibold hover:shadow-xl hover:shadow-amber-400/40 transition-all duration-300 transform hover:-translate-y-1"
+                  className="bg-gradient-to-r from-amber-500 to-amber-600 text-white px-8 py-4 rounded-xl font-semibold hover:shadow-xl hover:shadow-amber-500/40 transition-all duration-300 transform hover:-translate-y-1"
                 >
                   Book Your Appointment
                 </button>
                 <button
                   onClick={() => scrollToSection('howitworks')}
-                  className="border-2 border-amber-500 text-amber-600 px-8 py-4 rounded-xl font-semibold hover:bg-amber-50 transition-all duration-300"
+                  className="border-2 border-amber-500/30 text-amber-300 px-8 py-4 rounded-xl font-semibold hover:bg-amber-500/10 hover:border-amber-400/50 transition-all duration-300"
                 >
                   Learn More
                 </button>
               </div>
 
               {/* Trust Indicators */}
-              <div className="mt-12 flex flex-col sm:flex-row gap-6 pt-8 border-t border-amber-200">
+              <div className="mt-12 flex flex-col sm:flex-row gap-6 pt-8 border-t border-gray-700">
                 <div>
-                  <p className="text-2xl font-bold text-amber-600">{stats.totalAppointments || '500+'}</p>
-                  <p className="text-gray-600 text-sm">Documents Notarized</p>
+                  <p className="text-2xl font-bold text-amber-400">{stats.totalAppointments || '500+'}</p>
+                  <p className="text-gray-400 text-sm">Documents Notarized</p>
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-amber-600">{stats.totalUsers || '1000+'}</p>
-                  <p className="text-gray-600 text-sm">Satisfied Clients</p>
+                  <p className="text-2xl font-bold text-amber-400">{stats.totalUsers || '1000+'}</p>
+                  <p className="text-gray-400 text-sm">Satisfied Clients</p>
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-amber-600">24/7</p>
-                  <p className="text-gray-600 text-sm">Available Anytime</p>
+                  <p className="text-2xl font-bold text-amber-400">8/5</p>
+                  <p className="text-gray-400 text-sm">Available Anytime</p>
                 </div>
               </div>
             </div>
 
             {/* Hero Visual */}
             <div className="relative hidden lg:block">
-              <div className="bg-gradient-to-br from-amber-100 to-orange-100 rounded-3xl shadow-2xl p-8">
-                <div className="aspect-square bg-gradient-to-br from-amber-200 to-orange-200 rounded-2xl flex items-center justify-center">
+              <div className="bg-gradient-to-br from-gray-800 to-gray-700 border border-gray-700 rounded-3xl shadow-2xl p-8">
+                <div className="aspect-square bg-gradient-to-br from-amber-500/20 to-amber-600/20 border border-amber-500/20 rounded-2xl flex items-center justify-center">
                   <div className="text-center">
-                    <div className="w-32 h-32 bg-white rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg">
+                    <div className="w-32 h-32 bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg border border-amber-500/20">
                       <span className="text-6xl">⚖️</span>
                     </div>
-                    <p className="text-amber-900 font-semibold">Fast & Secure Notary Process</p>
+                    <p className="text-gray-300 font-semibold">Fast & Secure Notary Process</p>
                   </div>
                 </div>
               </div>
-              <div className="absolute top-0 right-0 w-40 h-40 bg-amber-300/20 rounded-full blur-3xl"></div>
-              <div className="absolute bottom-0 left-0 w-40 h-40 bg-orange-300/20 rounded-full blur-3xl"></div>
+              <div className="absolute top-0 right-0 w-40 h-40 bg-amber-500/10 rounded-full blur-3xl"></div>
+              <div className="absolute bottom-0 left-0 w-40 h-40 bg-amber-600/10 rounded-full blur-3xl"></div>
             </div>
           </div>
         </div>
       </section>
 
       {/* Services Section */}
-      <section id="services" className="py-24 bg-white">
+      <section id="services" className="py-24 bg-gray-900">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
-            <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-6">
-              {services.length > 0 ? 'Our Services' : 'Complete Notary Solutions'}
+            <div className="inline-block mb-4 px-4 py-2 bg-amber-500/10 border border-amber-500/30 rounded-full">
+              <span className="text-amber-300 text-sm font-semibold">Our Services</span>
+            </div>
+            <h2 className="text-4xl md:text-5xl font-bold text-white mb-6">
+              Complete Notary Solutions
             </h2>
-            <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-              {services.length > 0 
-                ? 'Professional notarization services tailored to your legal needs'
-                : 'From document verification to certified signatures, we handle all your notary requirements with expertise and care.'}
+            <p className="text-xl text-gray-400 max-w-3xl mx-auto">
+              Professional notarization services tailored to your legal needs
             </p>
           </div>
 
@@ -353,21 +354,24 @@ const LandingPage = () => {
             {loading ? (
               // Loading skeleton
               [1, 2, 3, 4].map((_, index) => (
-                <div key={index} className="bg-gray-50 border border-gray-200 rounded-2xl p-8 shadow-sm animate-pulse">
-                  <div className="w-16 h-16 bg-gray-200 rounded-xl mb-6"></div>
-                  <div className="h-6 bg-gray-200 rounded w-3/4 mb-4"></div>
+                <div key={index} className="bg-gray-800 border border-gray-700 rounded-2xl p-8 shadow-sm animate-pulse">
+                  <div className="w-16 h-16 bg-gray-700 rounded-xl mb-6"></div>
+                  <div className="h-6 bg-gray-700 rounded w-3/4 mb-4"></div>
                   <div className="space-y-3">
-                    <div className="h-4 bg-gray-200 rounded"></div>
-                    <div className="h-4 bg-gray-200 rounded w-5/6"></div>
+                    <div className="h-4 bg-gray-700 rounded"></div>
+                    <div className="h-4 bg-gray-700 rounded w-5/6"></div>
                   </div>
                 </div>
               ))
             ) : (
               features.map((feature, index) => (
-                <div key={index} className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-8 shadow-md hover:shadow-xl transition-all duration-300 transform hover:-translate-y-2">
-                  <div className="text-5xl mb-6">{feature.icon}</div>
-                  <h3 className="text-xl font-bold text-gray-900 mb-3">{feature.title}</h3>
-                  <p className="text-gray-600 leading-relaxed">{feature.description}</p>
+                <div key={index} className="group relative bg-gradient-to-br from-gray-800/50 to-gray-900/50 border border-gray-700 rounded-2xl p-8 hover:border-amber-500/30 transition-all duration-300 hover:shadow-xl hover:shadow-amber-500/10 transform hover:-translate-y-2">
+                  <div className="absolute inset-0 bg-gradient-to-r from-amber-500/0 to-amber-500/0 group-hover:from-amber-500/5 group-hover:to-amber-500/10 rounded-2xl transition-all duration-300"></div>
+                  <div className="relative z-10">
+                    <div className="text-5xl mb-6">{feature.icon}</div>
+                    <h3 className="text-xl font-bold text-white mb-3">{feature.title}</h3>
+                    <p className="text-gray-400 leading-relaxed">{feature.description}</p>
+                  </div>
                 </div>
               ))
             )}
@@ -376,13 +380,16 @@ const LandingPage = () => {
       </section>
 
       {/* How It Works Section */}
-      <section id="howitworks" className="py-24 bg-gradient-to-b from-amber-50 to-white">
+      <section id="howitworks" className="py-24 bg-gradient-to-b from-gray-900 via-gray-800 to-gray-900">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
-            <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-6">
+            <div className="inline-block mb-4 px-4 py-2 bg-amber-500/10 border border-amber-500/30 rounded-full">
+              <span className="text-amber-300 text-sm font-semibold">How It Works</span>
+            </div>
+            <h2 className="text-4xl md:text-5xl font-bold text-white mb-6">
               Simple 4-Step Process
             </h2>
-            <p className="text-xl text-gray-600 max-w-3xl mx-auto">
+            <p className="text-xl text-gray-400 max-w-3xl mx-auto">
               Get your documents notarized in minutes with our streamlined process
             </p>
           </div>
@@ -393,15 +400,15 @@ const LandingPage = () => {
               {processSteps.map((step, index) => (
                 <div key={index} className="flex gap-6 group">
                   <div className="flex-shrink-0">
-                    <div className="flex items-center justify-center h-20 w-20 rounded-full bg-gradient-to-br from-amber-500 to-orange-600 text-white shadow-lg group-hover:scale-110 transition-transform duration-300">
+                    <div className="flex items-center justify-center h-20 w-20 rounded-full bg-gradient-to-br from-amber-500 to-amber-600 text-white shadow-lg group-hover:scale-110 transition-transform duration-300 border border-amber-400/30">
                       <span className="text-2xl font-bold">{step.step}</span>
                     </div>
                   </div>
                   <div className="pt-2">
-                    <h3 className="text-2xl font-bold text-gray-900 mb-2">
+                    <h3 className="text-2xl font-bold text-white mb-2">
                       {step.title}
                     </h3>
-                    <p className="text-gray-600 text-lg">{step.description}</p>
+                    <p className="text-gray-400 text-lg">{step.description}</p>
                   </div>
                 </div>
               ))}
@@ -409,28 +416,31 @@ const LandingPage = () => {
 
             {/* Process Visual */}
             <div className="relative hidden lg:block">
-              <div className="bg-gradient-to-br from-amber-200 to-orange-200 rounded-3xl shadow-2xl p-8">
-                <div className="aspect-square bg-gradient-to-br from-white to-amber-100 rounded-2xl flex items-center justify-center">
+              <div className="bg-gradient-to-br from-gray-800 to-gray-700 border border-gray-700 rounded-3xl shadow-2xl p-8">
+                <div className="aspect-square bg-gradient-to-br from-gray-800 to-gray-700 border border-amber-500/20 rounded-2xl flex items-center justify-center">
                   <div className="text-center">
                     <div className="text-6xl mb-4">📋</div>
-                    <p className="text-gray-800 font-semibold">Secure Document Processing</p>
+                    <p className="text-gray-300 font-semibold">Secure Document Processing</p>
                   </div>
                 </div>
               </div>
-              <div className="absolute top-0 right-0 w-40 h-40 bg-orange-300/30 rounded-full blur-3xl"></div>
+              <div className="absolute top-0 right-0 w-40 h-40 bg-amber-500/10 rounded-full blur-3xl"></div>
             </div>
           </div>
         </div>
       </section>
 
       {/* Reviews/Testimonials Section */}
-      <section id="reviews" className="py-24 bg-white">
+      <section id="reviews" className="py-24 bg-gray-900">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
-            <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-6">
+            <div className="inline-block mb-4 px-4 py-2 bg-amber-500/10 border border-amber-500/30 rounded-full">
+              <span className="text-amber-300 text-sm font-semibold">Testimonials</span>
+            </div>
+            <h2 className="text-4xl md:text-5xl font-bold text-white mb-6">
               Trusted by Hundreds of Clients
             </h2>
-            <p className="text-xl text-gray-600 max-w-3xl mx-auto">
+            <p className="text-xl text-gray-400 max-w-3xl mx-auto">
               Real feedback from clients who have experienced our professional notary service
             </p>
           </div>
@@ -439,59 +449,65 @@ const LandingPage = () => {
             {loading ? (
               // Loading skeleton
               [1, 2, 3].map((item) => (
-                <div key={item} className="bg-gray-50 border border-gray-200 rounded-2xl p-8 shadow-sm animate-pulse">
+                <div key={item} className="bg-gray-800 border border-gray-700 rounded-2xl p-8 shadow-sm animate-pulse">
                   <div className="flex items-center mb-6">
-                    <div className="w-14 h-14 bg-gray-200 rounded-full mr-4"></div>
+                    <div className="w-14 h-14 bg-gray-700 rounded-full mr-4"></div>
                     <div className="flex-1">
-                      <div className="h-4 bg-gray-200 rounded w-24 mb-2"></div>
-                      <div className="h-3 bg-gray-200 rounded w-16"></div>
+                      <div className="h-4 bg-gray-700 rounded w-24 mb-2"></div>
+                      <div className="h-3 bg-gray-700 rounded w-16"></div>
                     </div>
                   </div>
                   <div className="space-y-3">
-                    <div className="h-4 bg-gray-200 rounded"></div>
-                    <div className="h-4 bg-gray-200 rounded w-5/6"></div>
+                    <div className="h-4 bg-gray-700 rounded"></div>
+                    <div className="h-4 bg-gray-700 rounded w-5/6"></div>
                   </div>
                 </div>
               ))
             ) : testimonials.length > 0 ? (
               // Real testimonials
               testimonials.map((item) => (
-                <div key={item.id} className="bg-gray-50 border border-gray-200 rounded-2xl p-8 shadow-md hover:shadow-lg transition-all duration-300">
-                  <div className="flex items-center mb-6">
-                    <div className="w-14 h-14 bg-gradient-to-br from-amber-500 to-orange-600 rounded-full flex items-center justify-center text-white font-bold text-lg shadow-md">
-                      {item.clientName.charAt(0).toUpperCase()}
-                    </div>
-                    <div className="ml-4">
-                      <div className="font-bold text-gray-900">{item.clientName}</div>
-                      <div className="text-amber-500 text-sm">
-                        {'★'.repeat(item.rating)}
+                <div key={item.id} className="group relative bg-gradient-to-br from-gray-800/50 to-gray-900/50 border border-gray-700 rounded-2xl p-8 hover:border-amber-500/30 transition-all duration-300 hover:shadow-xl hover:shadow-amber-500/10">
+                  <div className="absolute inset-0 bg-gradient-to-r from-amber-500/0 to-amber-500/0 group-hover:from-amber-500/5 group-hover:to-amber-500/10 rounded-2xl transition-all duration-300"></div>
+                  <div className="relative z-10">
+                    <div className="flex items-center mb-6">
+                      <div className="w-14 h-14 bg-gradient-to-br from-amber-500 to-amber-600 rounded-full flex items-center justify-center text-white font-bold text-lg shadow-md border border-amber-400/30">
+                        {item.clientName.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="ml-4">
+                        <div className="font-bold text-white">{item.clientName}</div>
+                        <div className="text-amber-400 text-sm">
+                          {'★'.repeat(item.rating)}
+                        </div>
                       </div>
                     </div>
+                    <p className="text-gray-300 mb-4 leading-relaxed">
+                      "{item.message || `Successfully completed ${item.serviceType}`}"
+                    </p>
+                    <span className="inline-block text-xs font-semibold text-amber-300 bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/20">
+                      {item.serviceType}
+                    </span>
                   </div>
-                  <p className="text-gray-700 mb-4 leading-relaxed">
-                    "{item.message || `Successfully completed ${item.serviceType}`}"
-                  </p>
-                  <span className="inline-block text-xs font-semibold text-amber-600 bg-amber-100 px-3 py-1 rounded-full">
-                    {item.serviceType}
-                  </span>
                 </div>
               ))
             ) : (
               // Fallback testimonials
               [1, 2, 3].map((item) => (
-                <div key={item} className="bg-gray-50 border border-gray-200 rounded-2xl p-8 shadow-md">
-                  <div className="flex items-center mb-6">
-                    <div className="w-14 h-14 bg-gradient-to-br from-amber-500 to-orange-600 rounded-full flex items-center justify-center text-white font-bold text-lg">
-                      C{item}
+                <div key={item} className="group relative bg-gradient-to-br from-gray-800/50 to-gray-900/50 border border-gray-700 rounded-2xl p-8 hover:border-amber-500/30 transition-all duration-300 hover:shadow-xl hover:shadow-amber-500/10">
+                  <div className="absolute inset-0 bg-gradient-to-r from-amber-500/0 to-amber-500/0 group-hover:from-amber-500/5 group-hover:to-amber-500/10 rounded-2xl transition-all duration-300"></div>
+                  <div className="relative z-10">
+                    <div className="flex items-center mb-6">
+                      <div className="w-14 h-14 bg-gradient-to-br from-amber-500 to-amber-600 rounded-full flex items-center justify-center text-white font-bold text-lg border border-amber-400/30">
+                        C{item}
+                      </div>
+                      <div className="ml-4">
+                        <div className="font-bold text-white">Client {item}</div>
+                        <div className="text-amber-400 text-sm">★★★★★</div>
+                      </div>
                     </div>
-                    <div className="ml-4">
-                      <div className="font-bold text-gray-900">Client {item}</div>
-                      <div className="text-amber-500 text-sm">★★★★★</div>
-                    </div>
+                    <p className="text-gray-300">
+                      "Professional and reliable notary service. Made my document process so much easier!"
+                    </p>
                   </div>
-                  <p className="text-gray-700">
-                    "Professional and reliable notary service. Made my document process so much easier!"
-                  </p>
                 </div>
               ))
             )}
@@ -500,7 +516,7 @@ const LandingPage = () => {
       </section>
 
       {/* CTA Section */}
-      <section className="py-24 bg-gradient-to-r from-amber-500 to-orange-600 text-white">
+      <section className="py-24 bg-gradient-to-r from-amber-600 to-amber-700 text-white">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <h2 className="text-4xl md:text-5xl font-bold mb-6">
             Ready to Get Your Documents Notarized?
@@ -511,7 +527,7 @@ const LandingPage = () => {
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <button
               onClick={() => setIsRegisterModalOpen(true)}
-              className="bg-white text-amber-600 px-8 py-4 rounded-xl font-bold text-lg hover:bg-gray-50 transition-all duration-300 transform hover:-translate-y-1 shadow-lg"
+              className="bg-white text-amber-700 px-8 py-4 rounded-xl font-bold text-lg hover:bg-gray-100 transition-all duration-300 transform hover:-translate-y-1 shadow-lg"
             >
               Start Now
             </button>
@@ -526,16 +542,16 @@ const LandingPage = () => {
       </section>
 
       {/* Footer */}
-      <footer className="bg-gray-900 text-white pt-16 pb-8">
+      <footer className="bg-gray-950 text-gray-300 pt-16 pb-8 border-t border-gray-800">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8 mb-12">
             {/* Company Info */}
             <div>
               <div className="flex items-center space-x-3 mb-4">
-                <div className="w-10 h-10 bg-gradient-to-br from-amber-500 to-orange-600 rounded-lg flex items-center justify-center">
+                <div className="w-10 h-10 bg-gradient-to-br from-amber-500 to-amber-600 rounded-lg flex items-center justify-center">
                   <span className="text-white font-bold">⚖️</span>
                 </div>
-                <span className="text-xl font-bold">Legal Notary</span>
+                <span className="text-xl font-bold text-white">Legal Notary</span>
               </div>
               <p className="text-gray-400 text-sm mb-4">
                 Professional notary services for the modern world
@@ -544,7 +560,7 @@ const LandingPage = () => {
 
             {/* Quick Links */}
             <div>
-              <h4 className="font-semibold mb-4">Services</h4>
+              <h4 className="font-semibold text-white mb-4">Services</h4>
               <ul className="space-y-2 text-sm text-gray-400">
                 {['Notarization', 'Verification', 'Certification', 'Signing'].map((item) => (
                   <li key={item}>
@@ -556,7 +572,7 @@ const LandingPage = () => {
 
             {/* Support */}
             <div>
-              <h4 className="font-semibold mb-4">Support</h4>
+              <h4 className="font-semibold text-white mb-4">Support</h4>
               <ul className="space-y-2 text-sm text-gray-400">
                 <li>
                   <button className="hover:text-amber-400 transition-colors">Help Center</button>
@@ -572,13 +588,13 @@ const LandingPage = () => {
 
             {/* Contact */}
             <div>
-              <h4 className="font-semibold mb-4">Get Started</h4>
+              <h4 className="font-semibold text-white mb-4">Get Started</h4>
               <p className="text-gray-400 text-sm mb-4">
                 Have questions? Our team is here to help.
               </p>
               <button
                 onClick={() => setIsRegisterModalOpen(true)}
-                className="w-full bg-gradient-to-r from-amber-500 to-orange-600 text-white py-2 rounded-lg font-semibold hover:shadow-lg transition-all duration-300"
+                className="w-full bg-gradient-to-r from-amber-500 to-amber-600 text-white py-2 rounded-lg font-semibold hover:shadow-lg hover:shadow-amber-500/40 transition-all duration-300"
               >
                 Get Started
               </button>
@@ -586,7 +602,7 @@ const LandingPage = () => {
           </div>
 
           <div className="border-t border-gray-800 pt-8 text-center">
-            <p className="text-gray-400 text-sm">
+            <p className="text-gray-500 text-sm">
               &copy; 2024 Legal Notary System. All rights reserved. | Privacy | Terms
             </p>
           </div>
