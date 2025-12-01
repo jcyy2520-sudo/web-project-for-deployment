@@ -22,12 +22,16 @@ class Appointment extends Model
         'purpose',
         'documents',
         'notes',
-        'staff_notes'
+        'staff_notes',
+        'completed_at',
+        'completion_notes',
+        'completed_by'
     ];
 
     protected $casts = [
         'appointment_date' => 'date',
         'documents' => 'array',
+        'completed_at' => 'datetime',
     ];
 
     public function user()
@@ -43,6 +47,11 @@ class Appointment extends Model
     public function service()
     {
         return $this->belongsTo(Service::class, 'service_id');
+    }
+
+    public function completedBy()
+    {
+        return $this->belongsTo(User::class, 'completed_by');
     }
 
     // Add this method for appointment types
@@ -64,5 +73,36 @@ class Appointment extends Model
             'will_and_testament' => 'Will and Testament',
             'other' => 'Other Legal Services'
         ];
+    }
+
+    /**
+     * Check if appointment can be completed
+     * Only approved appointments can be marked as completed
+     */
+    public function canBeCompleted(): bool
+    {
+        return $this->status === 'approved' && !$this->completed_at;
+    }
+
+    /**
+     * Get completion information
+     */
+    public function getCompletionInfo()
+    {
+        return [
+            'is_completed' => $this->status === 'completed',
+            'completed_at' => $this->completed_at,
+            'completion_notes' => $this->completion_notes,
+            'completed_by' => $this->completedBy ? $this->completedBy->name : null,
+            'can_be_completed' => $this->canBeCompleted()
+        ];
+    }
+
+    /**
+     * Get formatted completion date
+     */
+    public function getFormattedCompletionDate(): ?string
+    {
+        return $this->completed_at ? $this->completed_at->format('F d, Y \a\t g:i A') : null;
     }
 }

@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo } from 'react';
 import { useApi } from '../hooks/useApi';
 import axios from 'axios';
+import { formatServiceName } from '../../utils/format';
 import {
   MagnifyingGlassIcon,
   FunnelIcon,
@@ -49,7 +50,7 @@ const GlobalSearch = ({ isDarkMode = true }) => {
         results.push(...appointmentsRes.data.data.map(apt => ({
           id: `apt-${apt.id}`,
           type: 'appointment',
-          title: `Appointment: ${apt.service_type || 'N/A'}`,
+          title: `Appointment: ${formatServiceName(apt) || 'N/A'}`,
           subtitle: `Status: ${apt.status}`,
           date: apt.appointment_date,
           object: apt

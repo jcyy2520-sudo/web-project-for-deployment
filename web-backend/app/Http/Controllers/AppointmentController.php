@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\Appointment;
 use App\Models\CalendarEvent;
 use App\Models\UnavailableDate;
+use App\Models\TimeSlotCapacity;
+use App\Models\BlackoutDate;
 use App\Models\User;
 use App\Models\Message;
 use Illuminate\Http\Request;
@@ -13,6 +15,7 @@ use Illuminate\Support\Facades\Cache;
 use App\Mail\AppointmentConfirmationMail;
 use App\Mail\AppointmentStatusMail;
 use Illuminate\Support\Facades\DB;
+use Carbon\Carbon;
 
 class AppointmentController extends Controller
 {
@@ -37,7 +40,7 @@ class AppointmentController extends Controller
     // Helper method to fetch appointments
     private function fetchAppointments($request)
     {
-        $query = Appointment::with(['user:id,email,first_name,last_name', 'staff:id,email,first_name,last_name'])
+        $query = Appointment::with(['user:id,email,first_name,last_name', 'staff:id,email,first_name,last_name', 'service:id,name,price'])
             ->select([
                 'id', 'user_id', 'staff_id', 'type', 'service_id', 'service_type',
                 'appointment_date', 'appointment_time', 'purpose', 'status',
@@ -97,7 +100,39 @@ class AppointmentController extends Controller
             'notes' => 'nullable|string|max:1000',
         ]);
 
-        // FIXED: Check for unavailable dates/times first - Use UnavailableDate model
+        $appointmentDate = Carbon::createFromFormat('Y-m-d', $request->appointment_date);
+        $appointmentTime = $request->appointment_time;
+
+        // NEW VALIDATION: Check for weekend (Saturday=6, Sunday=0)
+        $dayOfWeek = $appointmentDate->dayOfWeek;
+        if ($dayOfWeek === 0 || $dayOfWeek === 6) {
+            return response()->json([
+                'message' => 'Appointments cannot be booked on weekends'
+            ], 422);
+        }
+
+        // NEW VALIDATION: Check working hours (8 AM to 5 PM)
+        $timeObj = Carbon::createFromFormat('H:i', $appointmentTime);
+        $workingHourStart = Carbon::createFromFormat('H:i', '08:00');
+        $workingHourEnd = Carbon::createFromFormat('H:i', '17:00');
+        
+        if ($timeObj < $workingHourStart || $timeObj >= $workingHourEnd) {
+            return response()->json([
+                'message' => 'Appointments can only be booked between 8:00 AM and 5:00 PM'
+            ], 422);
+        }
+
+        // NEW VALIDATION: Check lunch break (12 PM to 1 PM)
+        $lunchStart = Carbon::createFromFormat('H:i', '12:00');
+        $lunchEnd = Carbon::createFromFormat('H:i', '13:00');
+        
+        if ($timeObj >= $lunchStart && $timeObj < $lunchEnd) {
+            return response()->json([
+                'message' => 'This time is during lunch break. Please select a different time'
+            ], 422);
+        }
+
+        // EXISTING VALIDATION: Check for unavailable dates/times - Use UnavailableDate model
         $isUnavailable = UnavailableDate::where('date', $request->appointment_date)
             ->where(function($query) use ($request) {
                 // Check all-day unavailability
@@ -117,7 +152,53 @@ class AppointmentController extends Controller
             ], 422);
         }
 
-        // Check for existing appointment at same time
+        // NEW VALIDATION: Check for blackout dates (both specific and recurring)
+        $blackoutDate = BlackoutDate::where(function($query) use ($request, $appointmentDate) {
+            // Check specific date
+            $query->where('date', $request->appointment_date)
+                  // Or check recurring blackout on this day of week
+                  ->orWhere(function($q) use ($appointmentDate) {
+                      $dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+                      $dayName = $dayNames[$appointmentDate->dayOfWeek];
+                      
+                      $q->where('is_recurring', true)
+                        ->whereJsonContains('recurring_days', $dayName);
+                  });
+        })->first();
+
+        if ($blackoutDate) {
+            // Check if entire day is blocked or specific time range
+            if (!$blackoutDate->start_time && !$blackoutDate->end_time) {
+                return response()->json([
+                    'message' => 'All-day blackout: ' . $blackoutDate->reason
+                ], 422);
+            }
+
+            // Check if time falls within blackout time range
+            $blackoutStart = Carbon::createFromFormat('H:i', $blackoutDate->start_time);
+            $blackoutEnd = Carbon::createFromFormat('H:i', $blackoutDate->end_time);
+            
+            if ($timeObj >= $blackoutStart && $timeObj < $blackoutEnd) {
+                return response()->json([
+                    'message' => 'Time slot is blocked: ' . $blackoutDate->reason
+                ], 422);
+            }
+        }
+
+        // NEW VALIDATION: Check capacity limits
+        $slotCapacity = $this->getSlotCapacity($appointmentDate, $appointmentTime);
+        $appointmentCount = Appointment::where('appointment_date', $request->appointment_date)
+            ->where('appointment_time', $request->appointment_time)
+            ->whereIn('status', ['pending', 'approved'])
+            ->count();
+
+        if ($appointmentCount >= $slotCapacity) {
+            return response()->json([
+                'message' => 'This time slot is at full capacity. Please select another time'
+            ], 422);
+        }
+
+        // EXISTING VALIDATION: Check for existing appointment at same time (redundant but kept for safety)
         $existingAppointment = Appointment::where('appointment_date', $request->appointment_date)
             ->where('appointment_time', $request->appointment_time)
             ->whereIn('status', ['pending', 'approved'])
@@ -156,11 +237,36 @@ class AppointmentController extends Controller
         ]);
     }
 
+    /**
+     * Get the capacity limit for a specific time slot
+     * 
+     * @param Carbon $date
+     * @param string $time (format: H:i)
+     * @return int
+     */
+    private function getSlotCapacity(Carbon $date, $time)
+    {
+        // Try to find specific capacity configuration
+        $capacity = TimeSlotCapacity::where(function($query) use ($date) {
+            $dayOfWeek = strtolower(['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][$date->dayOfWeek]);
+            
+            $query->where('day_of_week', $dayOfWeek)
+                  ->orWhereNull('day_of_week'); // Also match "all days" configurations
+        })
+        ->where('start_time', '<=', $time)
+        ->where('end_time', '>', $time)
+        ->where('is_active', true)
+        ->orderByRaw('CASE WHEN day_of_week IS NOT NULL THEN 0 ELSE 1 END') // Specific days first
+        ->first();
+
+        return $capacity ? $capacity->max_appointments_per_slot : 3; // Default to 3 if no configuration
+    }
+
     public function show(Appointment $appointment)
     {
         $this->authorize('view', $appointment);
         return response()->json([
-            'data' => $appointment->load(['user', 'staff']),
+            'data' => $appointment->load(['user', 'staff', 'service']),
             'success' => true
         ]);
     }
@@ -201,9 +307,12 @@ class AppointmentController extends Controller
             }
         }
 
+        // Invalidate stats cache when appointment status changes (especially important for completed status which affects revenue)
+        $this->invalidateStatsCache();
+
         return response()->json([
             'message' => 'Appointment status updated successfully',
-            'data' => $appointment->load(['user', 'staff']),
+            'data' => $appointment->load(['user', 'staff', 'service']),
             'success' => true
         ]);
     }
@@ -225,10 +334,8 @@ class AppointmentController extends Controller
                 'staff_id' => $appointment->staff_id
             ]);
 
-            // PERFORMANCE OPTIMIZATION: Clear cached data when appointment status changes
-            Cache::forget('admin_stats_*');
-            Cache::forget('admin_appointments_*');
-            Cache::forget('appointments_*');
+            // Invalidate stats cache when appointment status changes
+            $this->invalidateStatsCache();
 
             // Log the action
             $serviceType = $appointment->service_type ?? $appointment->type;
@@ -244,7 +351,7 @@ class AppointmentController extends Controller
                 try {
                     // Reload appointment to get fresh relationships
                     $appointment->refresh();
-                    $appointment->load(['user', 'staff']);
+                    $appointment->load(['user', 'staff', 'service']);
                     
                     Mail::to($appointment->user->email)->send(new AppointmentStatusMail($appointment));
                     
@@ -280,7 +387,7 @@ class AppointmentController extends Controller
 
             return response()->json([
                 'message' => 'Appointment approved successfully',
-                'data' => $appointment->load(['user', 'staff']),
+                'data' => $appointment->load(['user', 'staff', 'service']),
                 'success' => true
             ]);
         } catch (\Exception $e) {
@@ -306,10 +413,8 @@ class AppointmentController extends Controller
                 'decline_reason' => $declineReason ?: null
             ]);
 
-            // PERFORMANCE OPTIMIZATION: Clear cached data when appointment status changes
-            Cache::forget('admin_stats_*');
-            Cache::forget('admin_appointments_*');
-            Cache::forget('appointments_*');
+            // Invalidate stats cache when appointment status changes
+            $this->invalidateStatsCache();
 
             // Log action
             try {
@@ -330,7 +435,7 @@ class AppointmentController extends Controller
                 try {
                     // Reload appointment to get fresh relationships
                     $appointment->refresh();
-                    $appointment->load(['user', 'staff']);
+                    $appointment->load(['user', 'staff', 'service']);
                     
                     Mail::to($appointment->user->email)->send(new AppointmentStatusMail($appointment));
                     
@@ -367,7 +472,7 @@ class AppointmentController extends Controller
 
             return response()->json([
                 'message' => 'Appointment declined successfully',
-                'data' => $appointment->load(['user', 'staff']),
+                'data' => $appointment->load(['user', 'staff', 'service']),
                 'success' => true
             ]);
         } catch (\Exception $e) {
@@ -380,17 +485,36 @@ class AppointmentController extends Controller
         }
     }
 
-    public function complete(Appointment $appointment)
+    public function complete(Request $request, Appointment $appointment)
     {
         $this->authorize('update', $appointment);
 
-        $oldStatus = $appointment->status;
+        // Validate that only approved appointments can be completed
+        if ($appointment->status !== 'approved') {
+            return response()->json([
+                'message' => 'Only approved appointments can be marked as completed',
+                'current_status' => $appointment->status
+            ], 422);
+        }
 
-        $appointment->update([
-            'status' => 'completed'
+        $request->validate([
+            'completion_notes' => 'nullable|string|max:1000'
         ]);
 
-        // Log action
+        $oldStatus = $appointment->status;
+        $completionTime = now();
+        $adminUser = $request->user();
+
+        $appointment->update([
+            'status' => 'completed',
+            'completed_at' => $completionTime,
+            'completion_notes' => $request->input('completion_notes'),
+            'completed_by' => $adminUser->id
+        ]);
+
+        // Invalidate stats cache when appointment status changes to completed (affects revenue)
+        $this->invalidateStatsCache();
+
         try {
             $serviceType = $appointment->service_type ?? $appointment->type ?? 'Unknown';
             \App\Models\ActionLog::log(
@@ -403,27 +527,55 @@ class AppointmentController extends Controller
             \Log::error('Failed to log appointment completion: ' . $e->getMessage());
         }
 
-        // Send status update email to client
+        // Send completion email and create message notification
         if ($oldStatus !== 'completed') {
             try {
                 // Reload appointment to get fresh relationships
                 $appointment->refresh();
-                $appointment->load(['user', 'staff']);
+                $appointment->load(['user', 'staff', 'service', 'completedBy']);
                 
-                Mail::to($appointment->user->email)->send(new AppointmentStatusMail($appointment));
+                // Send email with new completion mail class
+                Mail::to($appointment->user->email)->send(new \App\Mail\AppointmentCompletionMail($appointment, $adminUser));
                 
                 // Also send to staff if assigned and staff exists
                 if ($appointment->staff_id && $appointment->staff) {
-                    Mail::to($appointment->staff->email)->send(new AppointmentStatusMail($appointment));
+                    Mail::to($appointment->staff->email)->send(new \App\Mail\AppointmentCompletionMail($appointment, $adminUser));
                 }
+                
+                // Create message notification for user
+                $appointmentDate = \Carbon\Carbon::parse($appointment->appointment_date)->format('l, F d, Y');
+                $appointmentTime = \Carbon\Carbon::parse($appointment->appointment_time)->format('g:i A');
+                $serviceType = $appointment->service_type ?? \App\Models\Appointment::getTypes()[$appointment->type] ?? $appointment->type;
+                
+                $messageText = "✓ Your appointment has been COMPLETED!\n\n";
+                $messageText .= "📅 Date: " . $appointmentDate . "\n";
+                $messageText .= "⏰ Time: " . $appointmentTime . "\n";
+                $messageText .= "📋 Service: " . $serviceType . "\n";
+                
+                if ($request->input('completion_notes')) {
+                    $messageText .= "\n📝 Notes: " . $request->input('completion_notes') . "\n";
+                }
+                
+                $messageText .= "\nThank you for using our services. If you have any questions or need further assistance, please feel free to contact us.";
+                
+                Message::create([
+                    'sender_id' => $adminUser->id,
+                    'receiver_id' => $appointment->user_id,
+                    'message' => $messageText,
+                    'read' => false,
+                    'type' => 'appointment_completion'
+                ]);
+                
             } catch (\Exception $e) {
-                \Log::error('Failed to send completion email: ' . $e->getMessage());
+                \Log::error('Failed to send completion email or create message: ' . $e->getMessage());
+                \Log::error('Exception trace: ' . $e->getTraceAsString());
+                // Still return success even if email fails
             }
         }
 
         return response()->json([
-            'message' => 'Appointment marked as completed',
-            'data' => $appointment->load(['user', 'staff']),
+            'message' => 'Appointment marked as completed successfully',
+            'data' => $appointment->load(['user', 'staff', 'service', 'completedBy']),
             'success' => true
         ]);
     }
@@ -577,7 +729,7 @@ class AppointmentController extends Controller
         $user = $request->user();
         
         $appointments = $user->appointments()
-            ->with('staff')
+            ->with(['staff', 'service'])
             ->orderBy('appointment_date', 'desc')
             ->orderBy('appointment_time', 'desc')
             ->get();
@@ -593,7 +745,7 @@ class AppointmentController extends Controller
         $user = $request->user();
         
         $appointments = $user->staffAppointments()
-            ->with('user')
+            ->with(['user', 'service'])
             ->orderBy('appointment_date', 'desc')
             ->orderBy('appointment_time', 'desc')
             ->get();
@@ -756,5 +908,160 @@ class AppointmentController extends Controller
             'cancelled' => (int)$stats->cancelled,
             'declined' => (int)$stats->declined,
         ]);
+    }
+
+    /**
+     * Suggest alternative dates and times when preferred slot is unavailable
+     */
+    public function suggestAlternative(Request $request)
+    {
+        $request->validate([
+            'preferred_date' => 'required|date',
+            'days_ahead' => 'nullable|integer|min:1|max:60',
+        ]);
+
+        $preferredDate = Carbon::parse($request->preferred_date);
+        $daysAhead = $request->days_ahead ?? 14;
+
+        $alternatives = [];
+        $maxSlots = 3; // Show up to 3 alternatives
+
+        // Check next 14 days (or specified days_ahead)
+        for ($i = 0; $i < $daysAhead && count($alternatives) < $maxSlots; $i++) {
+            $checkDate = $preferredDate->copy()->addDays($i);
+
+            // Skip weekends
+            if ($checkDate->isWeekend()) {
+                continue;
+            }
+
+            // Skip blackout dates
+            $isBlackedOut = BlackoutDate::where('date', $checkDate->toDateString())
+                ->where(function ($q) {
+                    $q->whereNull('is_recurring')
+                      ->orWhere('is_recurring', false);
+                })
+                ->exists();
+
+            if ($isBlackedOut) {
+                continue;
+            }
+
+            // Check for legacy unavailable dates
+            $isUnavailable = UnavailableDate::where('date', $checkDate->toDateString())->exists();
+            if ($isUnavailable) {
+                continue;
+            }
+
+            // Get available time slots for this date
+            $availableSlots = $this->getAvailableSlotsForDate($checkDate->toDateString());
+
+            if (!empty($availableSlots)) {
+                // Get first 2-3 available times
+                $availableTimes = array_slice($availableSlots, 0, 2);
+                $timeStrings = array_map(fn($slot) => substr($slot['time'], 0, 5), $availableTimes);
+
+                $alternatives[] = [
+                    'date' => $checkDate->toDateString(),
+                    'day_name' => $checkDate->format('l'), // e.g., "Monday"
+                    'available_times' => $timeStrings,
+                    'available_slots' => count($availableSlots),
+                    'first_available_time' => $availableTimes[0]['time'] ?? null,
+                ];
+
+                if (count($alternatives) >= $maxSlots) {
+                    break;
+                }
+            }
+        }
+
+        return response()->json([
+            'success' => true,
+            'preferred_date' => $preferredDate->toDateString(),
+            'alternatives' => $alternatives,
+            'total_alternatives' => count($alternatives),
+            'message' => count($alternatives) > 0
+                ? "We found {$maxSlots} available alternatives for you!"
+                : "Unfortunately, no slots available in the next {$daysAhead} days. Please contact support."
+        ]);
+    }
+
+    /**
+     * Helper method to get available slots for a specific date
+     */
+    private function getAvailableSlotsForDate($date)
+    {
+        $date = Carbon::parse($date)->toDateString();
+        $dayOfWeek = Carbon::parse($date)->dayName;
+        $availableSlots = [];
+
+        // Define business hours: 8 AM to 5 PM (30-minute slots, excluding lunch 12-1 PM)
+        $startTime = strtotime('08:00');
+        $endTime = strtotime('17:00');
+        $lunchStart = strtotime('12:00');
+        $lunchEnd = strtotime('13:00');
+
+        $currentTime = $startTime;
+        while ($currentTime < $endTime) {
+            $timeSlot = date('H:i', $currentTime);
+            
+            // Skip lunch break
+            if ($currentTime >= $lunchStart && $currentTime < $lunchEnd) {
+                $currentTime = strtotime('+30 minutes', $currentTime);
+                continue;
+            }
+
+            // Check if slot is at capacity
+            $capacityRecord = TimeSlotCapacity::where(function ($q) use ($date, $dayOfWeek, $timeSlot) {
+                $q->whereNull('day_of_week')
+                  ->orWhere('day_of_week', strtolower($dayOfWeek));
+            })
+            ->where('start_time', '<=', $timeSlot)
+            ->where('end_time', '>', $timeSlot)
+            ->where('is_active', true)
+            ->first();
+
+            // Count existing appointments for this slot
+            $bookedCount = Appointment::where('appointment_date', $date)
+                ->where('appointment_time', $timeSlot)
+                ->whereIn('status', ['pending', 'approved', 'completed'])
+                ->count();
+
+            $maxCapacity = $capacityRecord ? $capacityRecord->max_appointments_per_slot : 3;
+
+            if ($bookedCount < $maxCapacity) {
+                $availableSlots[] = [
+                    'time' => $timeSlot,
+                    'display' => date('g:i A', $currentTime),
+                    'capacity_remaining' => $maxCapacity - $bookedCount
+                ];
+            }
+
+            $currentTime = strtotime('+30 minutes', $currentTime);
+        }
+
+        return $availableSlots;
+    }
+
+    /**
+     * Invalidate all stats-related cache keys
+     * This ensures that revenue calculations are updated when appointments change status
+     * Important: Call this whenever appointment status changes, especially to 'completed'
+     */
+    private function invalidateStatsCache()
+    {
+        // Clear batch dashboard caches that include revenue calculations
+        Cache::forget('admin_batch_dashboard_daily');
+        Cache::forget('admin_batch_dashboard_weekly');
+        Cache::forget('admin_batch_dashboard_monthly');
+        Cache::forget('admin_batch_dashboard_yearly');
+        Cache::forget('admin_batch_dashboard_all');
+        
+        // Clear the full dashboard load cache
+        Cache::forget('admin_batch_full_load_daily');
+        Cache::forget('admin_batch_full_load_weekly');
+        Cache::forget('admin_batch_full_load_monthly');
+        Cache::forget('admin_batch_full_load_yearly');
+        Cache::forget('admin_batch_full_load_all');
     }
 }

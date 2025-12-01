@@ -43,12 +43,12 @@ const TimePicker = ({ value, onChange, error }) => {
     }
   };
 
-  const hours = Array.from({ length: 12 }, (_, i) => {
-    const hour = i + 1;
-    return String(hour).padStart(2, '0');
-  });
+  // Business hours: 8:00 - 16:30 (8 AM - 5 PM excluding 12:00-12:59 lunch)
+  // Display hours in 12-hour format (exclude 12)
+  const hours = [8,9,10,11,1,2,3,4].map(h => String(h).padStart(2, '0'));
 
-  const minutes = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'));
+  // Only allow 30-minute increments
+  const minutes = ['00', '30'];
 
   const displayValue = value 
     ? (() => {

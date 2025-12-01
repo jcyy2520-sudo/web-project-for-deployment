@@ -1,2 +1,49 @@
 {
+  "files.watcherExclude": {
+    "**/node_modules/**": true,
+    "**/vendor/**": true,
+    "**/storage/**": true,
+    "**/.git/**": true,
+    "**/public/storage/**": true,
+    "**/web-backend/vendor/**": true,
+    "**/web-backend/storage/**": true
+  },
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/vendor": true,
+    "**/dist": true,
+    "**/public/storage": true
+  },
+  "files.exclude": {
+    "**/.cache": true,
+    "**/node_modules": true,
+    "**/vendor": true,
+    "**/dist": true
+  }
+}
+{
+  "files.watcherExclude": {
+    "**/node_modules/**": true,
+    "**/vendor/**": true,
+    "**/dist/**": true,
+    "**/.git/**": true,
+    "**/storage/**": true,
+    "**/public/storage/**": true
+  },
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/vendor": true,
+    "**/dist": true,
+    "**/storage": true,
+    "**/public/storage": true
+  },
+  "files.exclude": {
+    "**/node_modules": true,
+    "**/vendor": true,
+    "**/dist": true
+  },
+  "editor.largeFileOptimizations": true,
+  "search.followSymlinks": false
+}
+{
 }

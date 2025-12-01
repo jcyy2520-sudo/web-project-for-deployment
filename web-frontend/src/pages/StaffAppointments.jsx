@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { useApi } from '../hooks/useApi';
 import Modal from '../components/Modal';
 import LoadingSpinner from '../components/LoadingSpinner';
+import { formatServiceName } from '../utils/format';
 import { 
   CheckCircleIcon,
   XCircleIcon,
@@ -221,7 +222,12 @@ const StaffAppointments = () => {
                             <p className="text-sm text-gray-600">
                               {new Date(appointment.appointment_date).toLocaleDateString()} at {appointment.appointment_time}
                             </p>
-                            <p className="text-sm text-gray-500">{appointment.purpose}</p>
+                            <p className="text-sm text-gray-500">
+                              {formatServiceName(appointment)}
+                              {appointment.service?.price && (
+                                <span className="text-sm text-gray-700 font-medium"> &nbsp;— &nbsp;${parseFloat(appointment.service.price).toFixed(2)}</span>
+                              )}
+                            </p>
                           </div>
                         </div>
                         
@@ -328,7 +334,7 @@ const StaffAppointments = () => {
 
             {selectedAppointment.staff_notes && (
               <div>
-                <label className="block text-sm font-medium text-gray-700">Staff Notes</label>
+                <label className="block text-sm font-medium text-gray-700">Internal Notes</label>
                 <p className="mt-1 text-sm text-gray-900">{selectedAppointment.staff_notes}</p>
               </div>
             )}

@@ -43,11 +43,15 @@ import {
   UserMinusIcon
 } from '@heroicons/react/24/outline';
 import LoadingSpinner from '../components/LoadingSpinner';
+import { formatServiceName, formatPrice } from '../utils/format';
 import AdminMessages from '../components/admin/AdminMessages';
 import AdminActionLogs from '../components/admin/AdminActionLogs';
 import AdminServices from '../components/admin/AdminServices';
 import DocumentManagement from '../components/admin/DocumentManagement';
 import DeclineModal from '../components/modals/DeclineModal';
+import CalendarManagement from '../components/admin/CalendarManagement';
+import AdminDecisionSupport from '../components/admin/AdminDecisionSupport';
+import AffectedAppointmentsModal from '../components/admin/AffectedAppointmentsModal';
 
 // Chart Components
 const BarChart = ({ data, title, color = 'amber', height = 160 }) => {
@@ -58,7 +62,7 @@ const BarChart = ({ data, title, color = 'amber', height = 160 }) => {
   const maxValue = Math.max(...safeData.map(item => item.value), 1);
   
   return (
-    <div className="bg-gray-900 border border-amber-500/20 rounded-lg shadow p-4 hover:border-amber-500/40 transition-all duration-300">
+    <div className="bg-gray-900 border border-amber-500/20 rounded-lg shadow p-4 hover:border-amber-500/40 transition-all duration-300 overflow-auto max-h-[280px]">
       <h3 className="text-sm font-semibold text-amber-50 mb-3 flex items-center">
         <ChartBarIcon className="h-4 w-4 mr-2" />
         {title}
@@ -661,7 +665,6 @@ const UserFormModal = ({ isOpen, onClose, user, onSave, loading }) => {
                 disabled={loading}
               >
                 <option value="client">Client</option>
-                <option value="staff">Staff</option>
                 <option value="admin">Admin</option>
               </select>
             </div>
@@ -1215,7 +1218,6 @@ const UserDetailModal = ({ isOpen, onClose, user, onDeactivate, loading }) => {
                     <span className="text-gray-300 text-sm">Role</span>
                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                       user.role === 'admin' ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30' :
-                      user.role === 'staff' ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30' :
                       'bg-green-500/20 text-green-300 border border-green-500/30'
                     }`}>
                       {user.role}
@@ -1504,10 +1506,12 @@ const AdminDashboard = () => {
   
   // Ref for AdminMessages component to trigger refresh
   const adminMessagesRef = useRef(null);
+  const timeframeRef = useRef('monthly');
   const [activeTab, setActiveTab] = useState('dashboard');
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
   const [isCollapsedDesktop, setIsCollapsedDesktop] = useState(false);
   const [stats, setStats] = useState({});
+  const [timeframe, setTimeframe] = useState('monthly');
   const [users, setUsers] = useState([]);
   const [appointments, setAppointments] = useState([]);
   const [unavailableDates, setUnavailableDates] = useState([]);
@@ -1525,6 +1529,9 @@ const AdminDashboard = () => {
   const [showUserModal, setShowUserModal] = useState(false);
   const [showAdminModal, setShowAdminModal] = useState(false);
   const [showUnavailableModal, setShowUnavailableModal] = useState(false);
+  const [showAffectedModal, setShowAffectedModal] = useState(false);
+  const [affectedAppointments, setAffectedAppointments] = useState([]);
+  const [pendingUnavailableDate, setPendingUnavailableDate] = useState(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showUserDetailModal, setShowUserDetailModal] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
@@ -1565,6 +1572,25 @@ const AdminDashboard = () => {
   });
 
   const [dashboardLoading, setDashboardLoading] = useState(false);
+
+  // Prevent any native form submit causing full page reloads
+  useEffect(() => {
+    const preventSubmit = (e) => {
+      if (e && e.preventDefault) e.preventDefault();
+    };
+    document.addEventListener('submit', preventSubmit, true);
+    return () => document.removeEventListener('submit', preventSubmit, true);
+  }, []);
+
+  // Ensure buttons without an explicit type won't act as submit (defensive fix)
+  useEffect(() => {
+    try {
+      const buttons = Array.from(document.querySelectorAll('button')).filter(b => !b.hasAttribute('type'));
+      buttons.forEach(b => b.setAttribute('type', 'button'));
+    } catch (e) {
+      // ignore in non-DOM environments
+    }
+  }, []);
 
   // Theme and settings state
   const [isDarkMode, setIsDarkMode] = useState(true);
@@ -1673,6 +1699,11 @@ const AdminDashboard = () => {
     clearError();
   }, [activeTab, clearError]);
 
+  // Keep timeframeRef in sync with timeframe state
+  useEffect(() => {
+    timeframeRef.current = timeframe;
+  }, [timeframe]);
+
   // Theme management - apply theme to document
   useEffect(() => {
     const root = document.documentElement;
@@ -1703,16 +1734,18 @@ const AdminDashboard = () => {
   }, []);
 
   // Fixed API calls with proper error handling
-  const loadDashboardData = useCallback(async () => {
+  const loadDashboardData = useCallback(async (tf, realtime = false) => {
     try {
       setDashboardLoading(true);
       const startTime = performance.now();
-      
       const result = await callApi(async () => {
+        const params = { timeframe: tf };
+        if (realtime) params.realtime = true;
         const response = await axios.get('/api/admin/stats', { 
-          timeout: 10000
+          timeout: 10000,
+          params
         });
-        
+
         const payload = response.data?.data || response.data || {};
         return { data: { stats: payload } };
       });
@@ -1795,8 +1828,8 @@ const AdminDashboard = () => {
           allUsers = Object.values(payload).filter(item => item && typeof item === 'object');
         }
         
-        // Fixed: Show admin + staff accounts in Admin Accounts tab
-        const adminsData = allUsers.filter(user => user.role === 'admin' || user.role === 'staff');
+        // Fixed: Show admin accounts in Admin Accounts tab (staff removed)
+        const adminsData = allUsers.filter(user => user.role === 'admin');
         
         // Sort by created_at in descending order (newest first)
         adminsData.sort((a, b) => {
@@ -1996,7 +2029,7 @@ const AdminDashboard = () => {
         // Filter deactivated users (is_active === false)
         const deactivated = userData.filter(user => user.is_active === false);
         const deactivatedUsersList = deactivated.filter(user => user.role === 'client');
-        const deactivatedAdminsList = deactivated.filter(user => user.role === 'admin' || user.role === 'staff');
+        const deactivatedAdminsList = deactivated.filter(user => user.role === 'admin');
         
         return { 
           deactivatedUsers: deactivatedUsersList,
@@ -2102,7 +2135,31 @@ const AdminDashboard = () => {
     loadDeactivatedAccounts
   ]);
 
+  // Helper: check if a date is within the selected timeframe
+  const isWithinTimeframe = useCallback((dateStr, tf) => {
+    if (!dateStr) return false;
+    const d = new Date(dateStr);
+    if (isNaN(d)) return false;
+    const now = new Date();
+    const diff = now.getTime() - d.getTime();
+    const day = 24 * 60 * 60 * 1000;
+
+    switch (tf) {
+      case 'daily':
+        return d.toDateString() === now.toDateString();
+      case 'weekly':
+        return diff <= 7 * day;
+      case 'monthly':
+        return diff <= 30 * day;
+      case 'yearly':
+        return diff <= 365 * day;
+      default:
+        return true;
+    }
+  }, []);
+
   // Fixed: "All Users" now shows only clients
+
   const filteredUsers = useMemo(() => {
     let filtered = users || [];
     
@@ -2122,9 +2179,16 @@ const AdminDashboard = () => {
     if (roleFilter !== 'all') {
       filtered = filtered.filter(user => user.role === roleFilter);
     }
-    
+
+    // Apply global timeframe filter to users (based on account creation date)
+    if (timeframe) {
+      filtered = filtered.filter(user => isWithinTimeframe(user.created_at || user.createdAt, timeframe));
+    }
+
     return filtered;
-  }, [users, debouncedSearchTerm, roleFilter]);
+  }, [users, debouncedSearchTerm, roleFilter, timeframe, isWithinTimeframe]);
+
+  
 
   const sortedUsers = useMemo(() => {
     if (!sortConfig.key) return filteredUsers;
@@ -2144,6 +2208,39 @@ const AdminDashboard = () => {
     return sortedUsers.slice(startIndex, startIndex + itemsPerPage);
   }, [sortedUsers, currentPage, itemsPerPage]);
 
+  // Archived and deactivated filtered lists respect the global timeframe
+  const filteredArchivedUsers = useMemo(() => {
+    let list = archivedUsers || [];
+    if (timeframe) {
+      list = list.filter(u => isWithinTimeframe(u.deleted_at || u.deletedAt || u.created_at, timeframe));
+    }
+    return list;
+  }, [archivedUsers, timeframe, isWithinTimeframe]);
+
+  const filteredArchivedAppointments = useMemo(() => {
+    let list = archivedAppointments || [];
+    if (timeframe) {
+      list = list.filter(a => isWithinTimeframe(a.deleted_at || a.deletedAt || a.appointment_date || a.appointmentDate, timeframe));
+    }
+    return list;
+  }, [archivedAppointments, timeframe, isWithinTimeframe]);
+
+  const filteredDeactivatedUsers = useMemo(() => {
+    let list = deactivatedUsers || [];
+    if (timeframe) {
+      list = list.filter(u => isWithinTimeframe(u.updated_at || u.updatedAt || u.created_at, timeframe));
+    }
+    return list;
+  }, [deactivatedUsers, timeframe, isWithinTimeframe]);
+
+  const filteredDeactivatedAdmins = useMemo(() => {
+    let list = deactivatedAdmins || [];
+    if (timeframe) {
+      list = list.filter(u => isWithinTimeframe(u.updated_at || u.updatedAt || u.created_at, timeframe));
+    }
+    return list;
+  }, [deactivatedAdmins, timeframe, isWithinTimeframe]);
+
   // Fixed: Admin Accounts shows admin + staff accounts
   const filteredAdmins = useMemo(() => {
     let filtered = admins || [];
@@ -2157,9 +2254,13 @@ const AdminDashboard = () => {
         (admin.phone?.toLowerCase() || '').includes(searchLower)
       );
     }
-    
+    // Apply global timeframe filter to admins (based on account creation date)
+    if (timeframe) {
+      filtered = filtered.filter(admin => isWithinTimeframe(admin.created_at || admin.createdAt, timeframe));
+    }
+
     return filtered;
-  }, [admins, debouncedSearchTerm]);
+  }, [admins, debouncedSearchTerm, timeframe, isWithinTimeframe]);
 
   const sortedAdmins = useMemo(() => {
     if (!sortConfig.key) return filteredAdmins;
@@ -2195,9 +2296,13 @@ const AdminDashboard = () => {
     if (statusFilter !== 'all') {
       filtered = filtered.filter(apt => apt.status === statusFilter);
     }
-    
+    // Apply global timeframe filter to appointments (based on appointment date)
+    if (timeframe) {
+      filtered = filtered.filter(apt => isWithinTimeframe(apt.appointment_date || apt.appointmentDate || apt.created_at, timeframe));
+    }
+
     return filtered;
-  }, [appointments, debouncedSearchTerm, statusFilter]);
+  }, [appointments, debouncedSearchTerm, statusFilter, timeframe, isWithinTimeframe]);
 
   const sortedAppointments = useMemo(() => {
     if (!sortConfig.key) return filteredAppointments;
@@ -2323,6 +2428,18 @@ const AdminDashboard = () => {
 
   const handleAddUnavailableDate = useCallback(async (dateData) => {
     try {
+      // First ask the server which appointments would be affected by this blackout
+      const affectedRes = await callApi(() => axios.post('/api/admin/unavailable-dates/affected', dateData, { timeout: 15000 }));
+
+      if (affectedRes.success && Array.isArray(affectedRes.data?.data) && affectedRes.data.data.length > 0) {
+        // Let admin preview affected appointments before creating the blackout
+        setAffectedAppointments(affectedRes.data.data);
+        setPendingUnavailableDate(dateData);
+        setShowAffectedModal(true);
+        return;
+      }
+
+      // No affected appointments or endpoint not available — proceed to create the blackout
       const result = await callApi(() => axios({
         method: 'POST',
         url: '/api/admin/unavailable-dates',
@@ -2332,18 +2449,40 @@ const AdminDashboard = () => {
 
       if (result.success) {
         const newDate = result.data?.data || result.data;
-        
-        if (newDate) {
-          setUnavailableDates(prev => [...prev, newDate]);
-        }
-
+        if (newDate) setUnavailableDates(prev => [...prev, newDate]);
         setShowUnavailableModal(false);
-        
         setDataLoaded(prev => ({ ...prev, calendar: false }));
         await loadUnavailableDates();
       }
     } catch (error) {
       console.error('Error adding unavailable date:', error);
+    }
+  }, [callApi, loadUnavailableDates]);
+
+  // Called when admin confirms in the AffectedAppointmentsModal
+  const handleConfirmAddUnavailable = useCallback(async ({ dateData, affectedIds = [] }) => {
+    try {
+      // include affectedIds when present so server can optionally reschedule or mark
+      const payload = { ...dateData, affected_appointment_ids: affectedIds };
+      const result = await callApi(() => axios({
+        method: 'POST',
+        url: '/api/admin/unavailable-dates',
+        data: payload,
+        timeout: 20000
+      }));
+
+      if (result.success) {
+        const newDate = result.data?.data || result.data;
+        if (newDate) setUnavailableDates(prev => [...prev, newDate]);
+        setShowAffectedModal(false);
+        setPendingUnavailableDate(null);
+        setAffectedAppointments([]);
+        setShowUnavailableModal(false);
+        setDataLoaded(prev => ({ ...prev, calendar: false }));
+        await loadUnavailableDates();
+      }
+    } catch (error) {
+      console.error('Error applying unavailable date with affected appointments:', error);
     }
   }, [callApi, loadUnavailableDates]);
 
@@ -2680,6 +2819,44 @@ const AdminDashboard = () => {
     }
   }, [activeTab, loadDashboardData, loadUsers, loadAdmins, loadAppointments, loadUnavailableDates]);
 
+  // Poll dashboard stats for near real-time updates when on dashboard
+  // Increased polling interval from 15s to 30s to reduce server load
+  // Polling is disabled during network errors to prevent hammering backend
+  useEffect(() => {
+    let timerId = null;
+    let networkErrorCount = 0;
+    const maxConsecutiveErrors = 3;
+    
+    if (activeTab === 'dashboard') {
+      // initial load with current timeframe
+      loadDashboardData(timeframeRef.current);
+      timerId = setInterval(() => {
+        // Skip polling if we've had too many consecutive network errors
+        if (networkErrorCount >= maxConsecutiveErrors) {
+          console.warn('⚠️ Polling disabled: Too many network errors. User can manually refresh.');
+          return;
+        }
+        loadDashboardData(timeframeRef.current);
+      }, 30000); // every 30 seconds (increased from 15s)
+    }
+
+    return () => {
+      if (timerId) clearInterval(timerId);
+    };
+  }, [activeTab, loadDashboardData]);
+
+  // When timeframe changes, reload dashboard stats with new timeframe
+  // This ensures charts and data reflect the selected period
+  useEffect(() => {
+    if (activeTab === 'dashboard') {
+      // Immediately reload stats when timeframe changes
+      loadDashboardData(timeframe);
+      // Reset pagination for new data
+      setCurrentPage(1);
+      setAppointmentPage(1);
+    }
+  }, [timeframe, activeTab, loadDashboardData]);
+
   // Chart data
   const appointmentStatusData = useMemo(() => [
     { label: 'Pending', value: (appointments || []).filter(a => a.status === 'pending').length, color: '#f59e0b' },
@@ -2691,35 +2868,17 @@ const AdminDashboard = () => {
 
   const userRoleData = useMemo(() => [
     { label: 'Clients', value: (users || []).filter(u => u.role === 'client').length, color: '#10b981' },
-    { label: 'Staff', value: (users || []).filter(u => u.role === 'staff').length, color: '#3b82f6' },
     { label: 'Admins', value: (users || []).filter(u => u.role === 'admin').length, color: '#8b5cf6' }
   ], [users]);
 
-  const monthlyAppointmentsData = useMemo(() => {
-    const last6Months = Array.from({ length: 6 }, (_, i) => {
-      const date = new Date();
-      date.setMonth(date.getMonth() - i);
-      return date.toLocaleString('default', { month: 'short' });
-    }).reverse();
+  // Use server-provided series when available (appointmentsByPeriod, revenueByPeriod)
+  const appointmentsByPeriod = useMemo(() => {
+    return stats.appointmentsByPeriod || stats.appointmentsByMonth || [];
+  }, [stats]);
 
-    return last6Months.map(month => ({
-      label: month,
-      value: Math.floor(Math.random() * 20) + 5
-    }));
-  }, []);
-
-  const revenueData = useMemo(() => {
-    const last6Months = Array.from({ length: 6 }, (_, i) => {
-      const date = new Date();
-      date.setMonth(date.getMonth() - i);
-      return date.toLocaleString('default', { month: 'short' });
-    }).reverse();
-
-    return last6Months.map(month => ({
-      label: month,
-      value: Math.floor(Math.random() * 15000) + 5000
-    }));
-  }, []);
+  const revenueByPeriod = useMemo(() => {
+    return stats.revenueByPeriod || [];
+  }, [stats]);
 
   // Theme helper - returns conditional classes based on isDarkMode
   const themeClass = useCallback((darkClasses, lightClasses = '') => {
@@ -2793,6 +2952,7 @@ const AdminDashboard = () => {
           <p className="text-gray-400 text-sm">Restore or permanently delete archived items</p>
         </div>
         <button
+          type="button"
           onClick={() => {
             loadArchivedUsers();
             loadArchivedAppointments();
@@ -2818,7 +2978,7 @@ const AdminDashboard = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-gray-400 text-xs">Archived Users</p>
-              <p className="text-2xl font-bold text-blue-400 mt-1">{archivedUsers.length}</p>
+              <p className="text-2xl font-bold text-blue-400 mt-1">{filteredArchivedUsers.length}</p>
             </div>
             <UserGroupIcon className={`h-8 w-8 ${archiveTab === 'users' ? 'text-blue-400' : 'text-gray-500'}`} />
           </div>
@@ -2835,7 +2995,7 @@ const AdminDashboard = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-gray-400 text-xs">Archived Appointments</p>
-              <p className="text-2xl font-bold text-green-400 mt-1">{archivedAppointments.length}</p>
+              <p className="text-2xl font-bold text-green-400 mt-1">{filteredArchivedAppointments.length}</p>
             </div>
             <CalendarIcon className={`h-8 w-8 ${archiveTab === 'appointments' ? 'text-green-400' : 'text-gray-500'}`} />
           </div>
@@ -2843,14 +3003,14 @@ const AdminDashboard = () => {
       </div>
 
       {/* Empty State */}
-      {archiveTab === 'users' && archivedUsers.length === 0 && (
+      {archiveTab === 'users' && filteredArchivedUsers.length === 0 && (
         <div className="bg-gray-800/30 border border-gray-700 rounded-lg p-8 text-center">
           <UserGroupIcon className="h-12 w-12 text-gray-500 mx-auto mb-2 opacity-50" />
           <p className="text-gray-400">No archived users</p>
         </div>
       )}
 
-      {archiveTab === 'appointments' && archivedAppointments.length === 0 && (
+      {archiveTab === 'appointments' && filteredArchivedAppointments.length === 0 && (
         <div className="bg-gray-800/30 border border-gray-700 rounded-lg p-8 text-center">
           <CalendarIcon className="h-12 w-12 text-gray-500 mx-auto mb-2 opacity-50" />
           <p className="text-gray-400">No archived appointments</p>
@@ -2858,13 +3018,13 @@ const AdminDashboard = () => {
       )}
 
       {/* Archived Users Cards View */}
-      {archiveTab === 'users' && archivedUsers.length > 0 && (
+      {archiveTab === 'users' && filteredArchivedUsers.length > 0 && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-amber-50">Users ({archivedUsers.length})</h3>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[500px] overflow-y-auto pr-2">
-            {archivedUsers.map((user) => (
+            {filteredArchivedUsers.map((user) => (
               <div key={user.id} className="bg-gray-800/50 border border-gray-700 rounded-lg p-4 hover:border-blue-500/30 transition-all">
                 <div className="mb-3">
                   <p className="text-sm font-semibold text-amber-50">{user.first_name} {user.last_name}</p>
@@ -2898,19 +3058,19 @@ const AdminDashboard = () => {
       )}
 
       {/* Archived Appointments Cards View */}
-      {archiveTab === 'appointments' && archivedAppointments.length > 0 && (
+      {archiveTab === 'appointments' && filteredArchivedAppointments.length > 0 && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-amber-50">Appointments ({archivedAppointments.length})</h3>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[500px] overflow-y-auto pr-2">
-            {archivedAppointments.map((apt) => (
+            {filteredArchivedAppointments.map((apt) => (
               <div key={apt.id} className="bg-gray-800/50 border border-gray-700 rounded-lg p-4 hover:border-green-500/30 transition-all">
                 <div className="mb-3">
                   <p className="text-sm font-semibold text-amber-50">{apt.user?.first_name} {apt.user?.last_name}</p>
                   <p className="text-xs text-gray-400">{apt.appointment_date}</p>
-                  <div className="flex items-center gap-2 mt-2">
-                    <span className="text-xs px-2 py-0.5 rounded bg-green-900/50 text-green-300">{apt.service_type}</span>
+                    <div className="flex items-center gap-2 mt-2">
+                    <span className="text-xs px-2 py-0.5 rounded bg-green-900/50 text-green-300">{formatServiceName(apt)}</span>
                     <span className={`text-xs px-2 py-0.5 rounded ${
                       apt.status === 'approved' ? 'bg-green-900/50 text-green-300' :
                       apt.status === 'declined' ? 'bg-red-900/50 text-red-300' :
@@ -3067,6 +3227,7 @@ const AdminDashboard = () => {
 
         <div className={`mt-4 pt-4 border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-300'} transition-colors duration-300`}>
           <button
+            type="button"
             onClick={() => {
               localStorage.setItem('systemSettings', JSON.stringify(systemSettings));
               alert('System settings saved successfully!');
@@ -3104,6 +3265,7 @@ const AdminDashboard = () => {
         </div>
         <div className="flex space-x-2">
           <button
+            type="button"
             onClick={handleRefresh}
             className="px-3 py-1.5 border border-amber-500/30 text-amber-50 rounded hover:bg-amber-500/10 transition-all duration-200 font-medium text-sm flex items-center"
             title="Refresh data"
@@ -3335,14 +3497,18 @@ const AdminDashboard = () => {
         />
       </div>
 
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold text-amber-50">Trends</h3>
+      </div>
+
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         <LineChart 
-          data={monthlyAppointmentsData} 
-          title="Monthly Appointments" 
+          data={appointmentsByPeriod} 
+          title={`${timeframe.charAt(0).toUpperCase() + timeframe.slice(1)} Appointments`} 
           color="blue"
         />
         <BarChart 
-          data={revenueData} 
+          data={revenueByPeriod} 
           title="Revenue" 
           color="green"
           height={160}
@@ -3403,7 +3569,6 @@ const AdminDashboard = () => {
             >
               <option value="all">All Roles</option>
               <option value="client">Client</option>
-              <option value="staff">Staff</option>
               <option value="admin">Admin</option>
             </select>
           </div>
@@ -3475,11 +3640,9 @@ const AdminDashboard = () => {
                   </td>
                   <td className="px-3 py-2">
                     <span className={`inline-flex px-2 py-0.5 text-xs font-semibold rounded-full border transition-all duration-200 ${
-                      userItem.role === 'admin' ? 'bg-purple-500/20 text-purple-300 border-purple-500/30 shadow-purple-500/20 group-hover:shadow-purple-500/40' :
-                      userItem.role === 'staff' ? 'bg-blue-500/20 text-blue-300 border-blue-500/30 shadow-blue-500/20 group-hover:shadow-blue-500/40' :
-                      'bg-green-500/20 text-green-300 border-green-500/30 shadow-green-500/20 group-hover:shadow-green-500/40'
-                    }`}>
-                      {userItem.role}
+                      userItem.role === 'admin' ? (isDarkMode ? 'bg-purple-500/20 text-purple-300 border-purple-500/30 shadow-purple-500/20 group-hover:shadow-purple-500/40' : 'bg-purple-100 text-purple-800 border-purple-300') :
+                      (isDarkMode ? 'bg-green-500/20 text-green-300 border-green-500/30 shadow-green-500/20 group-hover:shadow-green-500/40' : 'bg-green-100 text-green-800 border-green-300')
+                    }`}>{userItem.role}
                     </span>
                   </td>
                   <td className="px-3 py-2">
@@ -3784,6 +3947,9 @@ const AdminDashboard = () => {
                 <th className="px-3 py-2 text-left text-xs font-medium text-amber-400 uppercase tracking-wider hidden sm:table-cell">
                   Type & Details
                 </th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-amber-400 uppercase tracking-wider hidden lg:table-cell">
+                  Price
+                </th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-amber-400 uppercase tracking-wider cursor-pointer hover:bg-gray-700 transition-colors" onClick={() => handleAppointmentSort('appointment_date')}>
                   <div className="flex items-center gap-1">
                     Date
@@ -3828,10 +3994,15 @@ const AdminDashboard = () => {
                     </div>
                   </td>
                   <td className="px-3 py-2">
-                    <div className="text-xs text-amber-50 font-medium">{appointment.service_type || appointment.type}</div>
+                    <div className="text-xs text-amber-50 font-medium">{formatServiceName(appointment)}</div>
                     {appointment.decline_reason && (
                       <div className="text-xs text-red-400 mt-0.5 font-medium">Reason: {appointment.decline_reason}</div>
                     )}
+                  </td>
+                  <td className="px-3 py-2 hidden lg:table-cell">
+                    <div className="text-xs text-amber-50 font-medium">
+                      {appointment.service?.price ? formatPrice(appointment.service.price) : '—'}
+                    </div>
                   </td>
                   <td className="px-3 py-2">
                     <div className="text-xs text-amber-50">
@@ -3941,99 +4112,35 @@ const AdminDashboard = () => {
     );
   };
 
-  // Calendar render function
-  const renderCalendar = () => (
-    <div className="space-y-4">
-      <div className="flex justify-between items-center">
+  // Calendar render function - full width with optional decision support section
+  const renderCalendar = () => {
+    return (
+      <div className="space-y-6">
+        {/* Calendar Management - Full Width */}
         <div>
-          <h2 className="text-lg font-bold text-amber-50">Calendar Management</h2>
-          <p className="text-gray-400 text-sm">Manage unavailable dates and times</p>
+          <CalendarManagement isDarkMode={isDarkMode} />
         </div>
-        <button 
-          onClick={() => setShowUnavailableModal(true)}
-          className="px-3 py-1.5 bg-gradient-to-r from-amber-600 to-amber-700 text-white rounded hover:from-amber-700 hover:to-amber-800 transition-all duration-200 font-medium text-sm flex items-center shadow transform hover:-translate-y-0.5 border border-amber-500/30"
-        >
-          <PlusIcon className="h-3 w-3 mr-1" />
-          Add Unavailable Date
-        </button>
-      </div>
 
-      <div className="bg-gray-900 border border-amber-500/20 rounded-lg shadow overflow-hidden hover:border-amber-500/40 transition-all duration-300">
-        <div className="p-4 border-b border-gray-700 flex justify-between items-center">
-          <h3 className="text-sm font-semibold text-amber-50 flex items-center">
-            <CalendarDaysIcon className="h-4 w-4 mr-2" />
-            Unavailable Dates ({unavailableDates.length})
-          </h3>
-          <div className="text-xs text-gray-400">
-            {unavailableDates.length} dates configured
+        {/* Decision Support - Optional, below calendar */}
+        <div className={`rounded-lg shadow-lg border ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+          <div className={`p-4 border-b ${isDarkMode ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-gray-50'}`}>
+            <h3 className={`text-lg font-bold flex items-center gap-2 ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>
+              <span>📊 Quick Analytics & Insights</span>
+              <span className={`text-xs font-normal px-2 py-1 rounded ${isDarkMode ? 'bg-amber-500/20 text-amber-300' : 'bg-amber-100 text-amber-700'}`}>
+                Optional
+              </span>
+            </h3>
+            <p className={`text-sm mt-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+              Suggested time slots and booking analytics to assist with scheduling decisions
+            </p>
+          </div>
+          <div className="p-4">
+            <AdminDecisionSupport isDarkMode={isDarkMode} onRefresh={loadUnavailableDates} />
           </div>
         </div>
-        <div className="p-4">
-          {apiLoading && !dataLoaded.calendar ? (
-            <LoadingSpinner size="sm" />
-          ) : unavailableDates.length === 0 ? (
-            <div className="text-center py-8">
-              <CalendarIcon className="mx-auto h-12 w-12 text-gray-600" />
-              <h3 className="mt-2 text-sm font-medium text-amber-50">No unavailable dates</h3>
-              <p className="mt-1 text-xs text-gray-400">Add dates when you're not available for appointments</p>
-              <button 
-                onClick={() => setShowUnavailableModal(true)}
-                className="mt-4 px-3 py-1.5 bg-amber-600 text-white rounded hover:bg-amber-700 transition-colors duration-200 font-medium text-sm"
-              >
-                Add Your First Date
-              </button>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {unavailableDates.map((date) => (
-                <div key={date.id} className="flex flex-col p-3 border border-gray-700 rounded-lg hover:border-amber-500/30 hover:bg-amber-500/5 transition-all duration-200 group">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="text-sm font-semibold text-amber-50 group-hover:text-amber-300">
-                      {new Date(date.date).toLocaleDateString('en-US', { 
-                        weekday: 'short', 
-                        year: 'numeric', 
-                        month: 'short', 
-                        day: 'numeric' 
-                      })}
-                    </div>
-                    <button
-                      onClick={() => handleDeleteUnavailableDate(date.id)}
-                      className="text-red-400 hover:text-red-300 transition-colors duration-200 p-1 rounded hover:bg-red-500/10 opacity-0 group-hover:opacity-100"
-                      title="Delete unavailable date"
-                    >
-                      <TrashIcon className="h-3 w-3" />
-                    </button>
-                  </div>
-                  
-                  <div className="space-y-1.5 flex-1">
-                    {date.all_day ? (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                        <ClockIcon className="w-2.5 h-2.5 mr-0.5" />
-                        All Day
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-500/20 text-blue-300 border border-blue-500/30">
-                        <ClockIcon className="w-2.5 h-2.5 mr-0.5" />
-                        {date.start_time} - {date.end_time}
-                      </span>
-                    )}
-                    
-                    {date.reason && (
-                      <p className="text-xs text-gray-400 mt-1.5 line-clamp-2">{date.reason}</p>
-                    )}
-                  </div>
-                  
-                  <div className="mt-2 pt-2 border-t border-gray-600 text-xs text-gray-500">
-                    Added {new Date(date.created_at).toLocaleDateString()}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   // Reports render function
   const renderReports = () => (
@@ -4190,7 +4297,7 @@ const AdminDashboard = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-gray-400 text-xs">Deactivated Users</p>
-              <p className="text-2xl font-bold text-blue-400 mt-1">{deactivatedUsers.length}</p>
+              <p className="text-2xl font-bold text-blue-400 mt-1">{filteredDeactivatedUsers.length}</p>
             </div>
             <UserGroupIcon className={`h-8 w-8 ${deactivatedTab === 'users' ? 'text-blue-400' : 'text-gray-500'}`} />
           </div>
@@ -4207,7 +4314,7 @@ const AdminDashboard = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-gray-400 text-xs">Deactivated Admin Accounts</p>
-              <p className="text-2xl font-bold text-purple-400 mt-1">{deactivatedAdmins.length}</p>
+              <p className="text-2xl font-bold text-purple-400 mt-1">{filteredDeactivatedAdmins.length}</p>
             </div>
             <ShieldCheckIcon className={`h-8 w-8 ${deactivatedTab === 'admins' ? 'text-purple-400' : 'text-gray-500'}`} />
           </div>
@@ -4215,14 +4322,14 @@ const AdminDashboard = () => {
       </div>
 
       {/* Empty State */}
-      {deactivatedTab === 'users' && deactivatedUsers.length === 0 && (
+      {deactivatedTab === 'users' && filteredDeactivatedUsers.length === 0 && (
         <div className="bg-gray-800/30 border border-gray-700 rounded-lg p-8 text-center">
           <UserGroupIcon className="h-12 w-12 text-gray-500 mx-auto mb-2 opacity-50" />
           <p className="text-gray-400">No deactivated users</p>
         </div>
       )}
 
-      {deactivatedTab === 'admins' && deactivatedAdmins.length === 0 && (
+      {deactivatedTab === 'admins' && filteredDeactivatedAdmins.length === 0 && (
         <div className="bg-gray-800/30 border border-gray-700 rounded-lg p-8 text-center">
           <ShieldCheckIcon className="h-12 w-12 text-gray-500 mx-auto mb-2 opacity-50" />
           <p className="text-gray-400">No deactivated admin accounts</p>
@@ -4230,7 +4337,7 @@ const AdminDashboard = () => {
       )}
 
       {/* Deactivated Users Table */}
-      {deactivatedTab === 'users' && deactivatedUsers.length > 0 && (
+      {deactivatedTab === 'users' && filteredDeactivatedUsers.length > 0 && (
         <div className="bg-gray-900 border border-amber-500/20 rounded-lg shadow overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
@@ -4243,7 +4350,7 @@ const AdminDashboard = () => {
               </tr>
             </thead>
             <tbody>
-              {deactivatedUsers.map((user) => (
+              {filteredDeactivatedUsers.map((user) => (
                 <tr key={user.id} className="border-b border-gray-700 hover:bg-gray-800/30 transition-colors duration-200">
                   <td className="px-4 py-3 text-amber-50 font-medium">{user.first_name} {user.last_name}</td>
                   <td className="px-3 py-3 text-gray-300">{user.email}</td>
@@ -4266,7 +4373,7 @@ const AdminDashboard = () => {
       )}
 
       {/* Deactivated Admin Accounts Table */}
-      {deactivatedTab === 'admins' && deactivatedAdmins.length > 0 && (
+      {deactivatedTab === 'admins' && filteredDeactivatedAdmins.length > 0 && (
         <div className="bg-gray-900 border border-amber-500/20 rounded-lg shadow overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
@@ -4280,7 +4387,7 @@ const AdminDashboard = () => {
               </tr>
             </thead>
             <tbody>
-              {deactivatedAdmins.map((admin) => (
+              {filteredDeactivatedAdmins.map((admin) => (
                 <tr key={admin.id} className="border-b border-gray-700 hover:bg-gray-800/30 transition-colors duration-200">
                   <td className="px-4 py-3 text-amber-50 font-medium">{admin.first_name} {admin.last_name}</td>
                   <td className="px-3 py-3 text-gray-300">{admin.email}</td>
@@ -4494,13 +4601,14 @@ const AdminDashboard = () => {
                 )}
               </div>
               
-              {/* Fixed: Added logout button with confirmation modal */}
+              {/* Fixed: Added logout button with confirmation modal - shows icon only when collapsed */}
               <button
                 onClick={() => setShowLogoutModal(true)}
-                className="w-full mt-2 px-3 py-2 border border-red-500/30 text-red-400 rounded text-xs font-medium hover:bg-red-500/10 transition-colors duration-200 flex items-center justify-center"
+                className={`w-full mt-2 px-3 py-2 border border-red-500/30 text-red-400 rounded text-xs font-medium hover:bg-red-500/10 transition-colors duration-200 flex items-center ${isCollapsedDesktop ? 'lg:justify-center' : 'justify-center lg:justify-start'}`}
+                title={isCollapsedDesktop ? 'Logout' : ''}
               >
-                <ArrowPathIcon className="h-3 w-3 mr-1 transform rotate-180" />
-                Logout
+                <ArrowPathIcon className={`h-3 w-3 transform rotate-180 flex-shrink-0 ${!isCollapsedDesktop ? 'mr-1' : ''}`} />
+                {!isCollapsedDesktop && <span>Logout</span>}
               </button>
             </div>
           </div>
@@ -4533,7 +4641,8 @@ const AdminDashboard = () => {
                 </div>
                 {activeTab !== 'dashboard' && (
                   <button
-                    onClick={handleRefresh}
+                      type="button"
+                      onClick={handleRefresh}
                     className={`p-1.5 ml-2 flex-shrink-0 ${isDarkMode ? 'text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 border-amber-500/30' : 'text-amber-700 hover:text-amber-600 hover:bg-amber-500/20 border-amber-300/30'} rounded border transition-colors duration-200`}
                     title="Refresh data"
                   >
@@ -4541,7 +4650,7 @@ const AdminDashboard = () => {
                   </button>
                 )}
               </div>
-              <div className="flex-shrink-0">
+              <div className="flex-shrink-0 flex items-center space-x-3">
                 <div className={`text-xs lg:text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} transition-colors duration-300 hidden sm:block text-right`}>
                   {new Date().toLocaleDateString('en-US', { 
                     weekday: 'short', 
@@ -4549,6 +4658,45 @@ const AdminDashboard = () => {
                     month: 'short', 
                     day: 'numeric' 
                   })}
+                </div>
+
+                {/* Refresh button - always available on dashboard */}
+                {activeTab === 'dashboard' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDataLoaded(prev => ({ ...prev, dashboard: false }));
+                      loadDashboardData(timeframeRef.current);
+                    }}
+                    className={`p-1.5 flex-shrink-0 ${isDarkMode ? 'text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 border-amber-500/30' : 'text-amber-700 hover:text-amber-600 hover:bg-amber-500/20 border-amber-300/30'} rounded border transition-colors duration-200`}
+                    title="Refresh dashboard"
+                  >
+                    <ArrowPathIcon className="h-3 w-3 lg:h-4 lg:w-4" />
+                  </button>
+                )}
+
+                <div className="ml-2">
+                  <label htmlFor="global-timeframe-select" className="sr-only">Timeframe</label>
+                  <select
+                    id="global-timeframe-select"
+                    value={timeframe}
+                    onChange={(e) => {
+                      const tf = e.target.value;
+                      timeframeRef.current = tf;
+                      setTimeframe(tf);
+                      // Only reset pagination - charts auto-update via useMemo
+                      // No need to reload data - stats endpoint uses timeframe param
+                      setCurrentPage(1);
+                      setAppointmentPage(1);
+                    }}
+                    aria-label="Select timeframe"
+                    className={`px-2 py-1 text-xs rounded bg-gray-800 border border-gray-700 text-gray-300 focus:outline-none focus:ring-1 focus:ring-amber-500 transition-colors`}
+                  >
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="monthly">Monthly</option>
+                    <option value="yearly">Yearly</option>
+                  </select>
                 </div>
               </div>
             </div>
@@ -4603,6 +4751,19 @@ const AdminDashboard = () => {
         isOpen={showUnavailableModal}
         onClose={() => setShowUnavailableModal(false)}
         onSave={handleAddUnavailableDate}
+        loading={apiLoading}
+      />
+
+      <AffectedAppointmentsModal
+        isOpen={showAffectedModal}
+        onClose={() => {
+          setShowAffectedModal(false);
+          setPendingUnavailableDate(null);
+          setAffectedAppointments([]);
+        }}
+        affected={affectedAppointments}
+        dateData={pendingUnavailableDate}
+        onConfirm={handleConfirmAddUnavailable}
         loading={apiLoading}
       />
 

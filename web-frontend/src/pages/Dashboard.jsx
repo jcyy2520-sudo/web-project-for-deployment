@@ -6,6 +6,7 @@ import axios from 'axios';
 import TimePicker from '../components/TimePicker';
 import ActionLogViewer from '../components/ActionLogViewer';
 import MessageCenter from './MessageCenter';
+import { formatServiceName } from '../utils/format';
 import { 
   HomeIcon,
   CalendarIcon, 
@@ -125,10 +126,17 @@ const ServiceTypeDropdown = ({
           error ? 'border-red-500' : 'border-gray-600 focus:border-amber-500'
         }`}
       >
-        <span className={!value ? 'text-gray-400' : 'text-white'}>
-          {value ? options.find(opt => opt.value === value)?.label || 'Other (Custom)' : 'Select service type...'}
-        </span>
-        <ChevronDownIcon className={`h-4 w-4 text-amber-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+        <div className="flex flex-col gap-0.5">
+          <span className={!value ? 'text-gray-400' : 'text-white'}>
+            {value ? options.find(opt => opt.value === value)?.label || 'Other (Custom)' : 'Select service type...'}
+          </span>
+          {value && options.find(opt => opt.value === value)?.price && (
+            <span className="text-amber-400/70 text-xs">
+              ${parseFloat(options.find(opt => opt.value === value).price).toFixed(2)}
+            </span>
+          )}
+        </div>
+        <ChevronDownIcon className={`h-4 w-4 text-amber-400 transition-transform flex-shrink-0 ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
       {/* Dropdown Menu */}
@@ -158,7 +166,12 @@ const ServiceTypeDropdown = ({
                 onClick={() => handleSelect(option.value, option.label)}
                 className="w-full px-3 py-2 text-left text-xs text-amber-50 hover:bg-amber-500/10 hover:text-amber-300 transition-colors duration-200 flex items-center justify-between"
               >
-                <span>{option.label}</span>
+                <div className="flex flex-col gap-0.5">
+                  <span>{option.label}</span>
+                  {option.price && (
+                    <span className="text-amber-400/70 text-xs">${parseFloat(option.price).toFixed(2)}</span>
+                  )}
+                </div>
                 {option.value === value && (
                   <CheckCircleIcon className="h-3 w-3 text-amber-400" />
                 )}
@@ -208,6 +221,7 @@ const EnhancedCalendar = ({ value, onChange, error }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(value ? new Date(value) : null);
+  const [unavailableDates, setUnavailableDates] = useState([]);
 
   const today = new Date();
   const minDate = new Date(today);
@@ -241,8 +255,50 @@ const EnhancedCalendar = ({ value, onChange, error }) => {
   };
 
   const isDateDisabled = (date) => {
-    return date < minDate;
+    const dateStr = date.toISOString().split('T')[0];
+
+    // Past dates disabled
+    if (date < minDate) return true;
+
+    // Weekends disabled
+    const day = date.getDay();
+    if (day === 0 || day === 6) return true;
+
+    // Admin-set unavailable/blackout dates
+    if (unavailableDates.some(u => {
+      const uDate = (u.date || '').toString().split('T')[0];
+      if (uDate && uDate === dateStr) return true;
+      // recurring blackout entries may include recurring_days array
+      if (u.is_recurring && u.recurring_days) {
+        const dayName = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][day];
+        if (u.recurring_days.includes(dayName)) return true;
+      }
+      // legacy types: some entries may have type === 'weekend' or 'blackout'
+      if (u.type === 'weekend' && (day === 0 || day === 6)) return true;
+      return false;
+    })) return true;
+
+    return false;
   };
+
+  // Load unavailable dates from admin endpoint
+  useEffect(() => {
+    let mounted = true;
+    const loadUnavailable = async () => {
+      try {
+        const res = await fetch('/api/unavailable-dates');
+        if (!mounted) return;
+        if (res.ok) {
+          const data = await res.json();
+          setUnavailableDates(data.data || data.unavailable_dates || []);
+        }
+      } catch (err) {
+        console.error('Failed to load unavailable dates:', err);
+      }
+    };
+    loadUnavailable();
+    return () => { mounted = false; };
+  }, []);
 
   const renderCalendarGrid = () => {
     const daysInMonth = getDaysInMonth(currentMonth);
@@ -444,7 +500,7 @@ const AppointmentDetailModal = ({ isOpen, onClose, appointment }) => {
                 <DocumentTextIcon className="h-5 w-5 text-amber-400" />
               </div>
               <div>
-                <h4 className="text-sm font-bold text-amber-50">{appointment.service_type || appointment.type}</h4>
+                <h4 className="text-sm font-bold text-amber-50">{formatServiceName(appointment)}</h4>
                 <StatusBadge status={appointment.status} />
               </div>
             </div>
@@ -464,13 +520,19 @@ const AppointmentDetailModal = ({ isOpen, onClose, appointment }) => {
                 <div className="space-y-2">
                   <div>
                     <span className="text-xs text-gray-500">Service Type</span>
-                    <p className="text-amber-50 font-medium text-sm">{appointment.service_type || appointment.type}</p>
+                    <p className="text-amber-50 font-medium text-sm">{formatServiceName(appointment)}</p>
                   </div>
+                  {appointment.service?.price && (
+                    <div>
+                      <span className="text-xs text-gray-500">Price</span>
+                      <p className="text-amber-300 font-semibold text-sm">${parseFloat(appointment.service.price).toFixed(2)}</p>
+                    </div>
+                  )}
                 </div>
               </div>
 
               <div className="p-3 bg-gray-800/30 rounded-lg border border-gray-600">
-                <label className="text-xs font-medium text-gray-400 mb-2 block">Assigned Staff</label>
+                <label className="text-xs font-medium text-gray-400 mb-2 block">Assignee</label>
                 {appointment.staff ? (
                   <div className="flex items-center space-x-2">
                     <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs font-bold shadow">
@@ -484,7 +546,7 @@ const AppointmentDetailModal = ({ isOpen, onClose, appointment }) => {
                     </div>
                   </div>
                 ) : (
-                  <p className="text-amber-400/70 text-sm">No staff assigned yet</p>
+                  <p className="text-amber-400/70 text-sm">No assignee yet</p>
                 )}
               </div>
             </div>
@@ -501,7 +563,7 @@ const AppointmentDetailModal = ({ isOpen, onClose, appointment }) => {
                   )}
                   {appointment.staff_notes && (
                     <div>
-                      <span className="text-xs text-gray-500">Staff Notes</span>
+                      <span className="text-xs text-gray-500">Internal Notes</span>
                       <p className="text-amber-50 text-sm">{appointment.staff_notes}</p>
                     </div>
                   )}
@@ -738,11 +800,6 @@ const Dashboard = () => {
       navigate('/admin/dashboard', { replace: true });
       return;
     }
-
-    if (user?.role === 'staff') {
-      navigate('/staff/appointments', { replace: true });
-      return;
-    }
   }, [user, navigate]);
 
   const [activeTab, setActiveTab] = useState('home');
@@ -814,50 +871,65 @@ const Dashboard = () => {
   const [replyingToMessage, setReplyingToMessage] = useState(null);
   const [remainingReplies, setRemainingReplies] = useState(3);
 
-  // Simplified navigation
+  // Simplified navigation with sections
   const navigation = [
-    { 
-      name: 'Dashboard', 
-      href: '#', 
-      icon: HomeIcon, 
-      current: activeTab === 'home',
-      badge: appointments.filter(apt => apt.status === 'pending').length
+    {
+      section: 'Main',
+      items: [
+        { 
+          name: 'Dashboard', 
+          href: '#', 
+          icon: HomeIcon, 
+          current: activeTab === 'home',
+          badge: appointments.filter(apt => apt.status === 'pending').length
+        },
+        { 
+          name: 'My Appointments', 
+          href: '#', 
+          icon: CalendarIcon, 
+          current: activeTab === 'appointments',
+          badge: appointments.length
+        }
+      ]
     },
-    { 
-      name: 'Book Appointment', 
-      href: '#', 
-      icon: PlusIcon, 
-      current: activeTab === 'book',
-      badge: null
+    {
+      section: 'Appointments',
+      items: [
+        { 
+          name: 'Book Appointment', 
+          href: '#', 
+          icon: PlusIcon, 
+          current: activeTab === 'book',
+          badge: null
+        },
+        { 
+          name: 'Messages', 
+          href: '#', 
+          icon: ChatBubbleLeftRightIcon, 
+          current: activeTab === 'messages',
+          badge: messages.filter(msg => !msg.read).length
+        }
+      ]
     },
-    { 
-      name: 'My Appointments', 
-      href: '#', 
-      icon: CalendarIcon, 
-      current: activeTab === 'appointments',
-      badge: appointments.length
-    },
-    { 
-      name: 'Messages', 
-      href: '#', 
-      icon: ChatBubbleLeftRightIcon, 
-      current: activeTab === 'messages',
-      badge: messages.filter(msg => !msg.read).length
-    },
-    { 
-      name: 'Action Logs', 
-      href: '#', 
-      icon: ClockIcon, 
-      current: activeTab === 'action-logs',
-      badge: null
-    },
-    { 
-      name: 'Profile', 
-      href: '#', 
-      icon: UserIcon, 
-      current: activeTab === 'profile',
-      badge: null
-    },
+    {
+      section: 'Account',
+      items: [
+        { 
+          name: 'Action Logs', 
+          href: '#', 
+          icon: ClockIcon, 
+          current: activeTab === 'action-logs',
+          badge: null
+        },
+        { 
+          name: 'Profile', 
+          href: '#', 
+          icon: UserIcon, 
+          current: activeTab === 'profile',
+          badge: null
+        }
+      ]
+    }
   ];
 
   // Load data on component mount and tab change
@@ -932,6 +1004,19 @@ const Dashboard = () => {
     return () => window.removeEventListener('servicesUpdated', handleServicesUpdate);
   }, []);
 
+  // Listen for slot capacity changes so availability reloads automatically
+  useEffect(() => {
+    const handleSlotCapacitiesChanged = () => {
+      if (appointmentData?.appointment_date) {
+        console.log('Slot capacities changed, reloading available slots for', appointmentData.appointment_date);
+        loadAvailableSlots(appointmentData.appointment_date);
+      }
+    };
+
+    window.addEventListener('slotCapacitiesChanged', handleSlotCapacitiesChanged);
+    return () => window.removeEventListener('slotCapacitiesChanged', handleSlotCapacitiesChanged);
+  }, [appointmentData?.appointment_date]);
+
   const loadInitialData = async () => {
     switch (activeTab) {
       case 'home':
@@ -973,10 +1058,13 @@ const Dashboard = () => {
       );
       
       if (servicesResult.success && servicesResult.data.data && Array.isArray(servicesResult.data.data)) {
-        // Map services to appointment type format
+        // Map services to appointment type format with pricing
         const serviceTypes = servicesResult.data.data.map(service => ({
           value: service.name.toLowerCase().replace(/\s+/g, '_'),
-          label: service.name
+          label: service.name,
+          price: service.price,
+          duration: service.duration,
+          id: service.id
         }));
         
         // Also add the static types for backward compatibility
@@ -1203,12 +1291,20 @@ const Dashboard = () => {
     
     if (!validateAppointmentForm()) return;
 
+    // Get the service ID from the selected appointment type
+    const selectedService = appointmentTypes.find(t => t.value === appointmentData.type);
+    const serviceId = selectedService?.id || null;
+
     const submitData = {
       type: appointmentData.type,
+      service_id: serviceId,
       appointment_date: appointmentData.appointment_date,
       appointment_time: appointmentData.appointment_time,
       notes: appointmentData.notes,
-      service_type: appointmentData.type === 'other' ? appointmentData.custom_service_type : appointmentData.type
+      // Store the human-friendly label when available so UI shows proper casing
+      service_type: appointmentData.type === 'other'
+        ? appointmentData.custom_service_type
+        : (selectedService?.label || appointmentData.type)
     };
 
     const result = await callApi((signal) => 
@@ -1427,7 +1523,7 @@ const Dashboard = () => {
                     </div>
                     <div>
                       <p className="font-medium text-amber-50 text-xs group-hover:text-amber-300">
-                        {appointment.service_type || appointment.type}
+                        {formatServiceName(appointment)}
                       </p>
                       <p className="text-xs text-amber-400/70 group-hover:text-amber-300">
                         {new Date(appointment.appointment_date).toLocaleDateString()} at {appointment.appointment_time}
@@ -1497,6 +1593,36 @@ const Dashboard = () => {
                 placeholder="Any special requirements, document details, or specific instructions..."
               />
             </div>
+
+            {/* Service Summary with Pricing */}
+            {appointmentData.type && appointmentTypes.find(t => t.value === appointmentData.type) && (
+              <div className="lg:col-span-2 bg-gradient-to-r from-amber-500/10 to-amber-500/5 border border-amber-500/30 rounded-lg p-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <p className="text-xs text-amber-400/70 font-medium">Service</p>
+                    <p className="text-sm text-amber-50 font-semibold">
+                      {appointmentTypes.find(t => t.value === appointmentData.type)?.label}
+                    </p>
+                  </div>
+                  {appointmentTypes.find(t => t.value === appointmentData.type)?.price && (
+                    <div>
+                      <p className="text-xs text-amber-400/70 font-medium">Price</p>
+                      <p className="text-sm text-amber-50 font-semibold">
+                        ${parseFloat(appointmentTypes.find(t => t.value === appointmentData.type).price).toFixed(2)}
+                      </p>
+                    </div>
+                  )}
+                  {appointmentTypes.find(t => t.value === appointmentData.type)?.duration && (
+                    <div>
+                      <p className="text-xs text-amber-400/70 font-medium">Duration</p>
+                      <p className="text-sm text-amber-50 font-semibold">
+                        {appointmentTypes.find(t => t.value === appointmentData.type).duration} minutes
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="flex flex-col sm:flex-row justify-between items-center space-y-3 sm:space-y-0 pt-4 border-t border-gray-700">
@@ -1583,7 +1709,7 @@ const Dashboard = () => {
                     <div className="flex-1">
                       <div className="flex items-center space-x-2">
                         <h3 className="text-sm font-semibold text-amber-50 group-hover:text-amber-300">
-                          {appointment.service_type || appointment.type}
+                          {formatServiceName(appointment)}
                         </h3>
                         <StatusBadge status={appointment.status} />
                       </div>
@@ -1936,7 +2062,7 @@ const Dashboard = () => {
   };
 
   // Show loading or redirect message while redirecting
-  if (user?.role === 'admin' || user?.role === 'staff') {
+  if (user?.role === 'admin') {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-900 to-black flex items-center justify-center">
         <div className="text-center">
@@ -2010,41 +2136,52 @@ const Dashboard = () => {
           </div>
 
           {/* Navigation */}
-          <nav className="flex-1 px-3 py-4 space-y-2 lg:space-y-3 overflow-y-auto">
-            {navigation.map((item) => (
-              <button
-                key={item.name}
-                onClick={() => {
-                  let tabName = item.name;
-                  if (tabName === 'Book Appointment') tabName = 'book';
-                  else if (tabName === 'My Appointments') tabName = 'appointments';
-                  else if (tabName === 'Action Logs') tabName = 'action-logs';
-                  else tabName = tabName.toLowerCase().replace(/\s+/g, '-');
-                  handleNavClick(tabName);
-                  setShowMobileSidebar(false);
-                }}
-                className={`w-full flex items-center justify-between px-3 py-2.5 text-xs lg:text-xs font-medium rounded-lg transition-all duration-200 border group relative overflow-hidden ${
-                  item.current
-                    ? `${isDarkMode ? 'bg-gradient-to-r from-amber-500/15 to-amber-600/10' : 'bg-gradient-to-r from-amber-200/30 to-amber-100/20'} text-amber-400 border-amber-500/50 shadow-lg shadow-amber-500/10`
-                    : `text-gray-400 border-transparent hover:${isDarkMode ? 'bg-amber-500/8' : 'bg-amber-300/10'} hover:text-amber-300 hover:border-amber-500/20`
-                }`}
-              >
-                <div className="flex items-center flex-1 min-w-0">
-                  <item.icon className={`mr-2.5 h-4 w-4 transition-all duration-200 flex-shrink-0 ${
-                    item.current ? 'text-amber-400 scale-110' : 'text-gray-500 group-hover:text-amber-400 group-hover:scale-105'
-                  }`} />
-                  <span className="truncate">{item.name}</span>
-                </div>
-                {item.badge !== null && item.badge > 0 && (
-                  <span className={`ml-2 px-2 py-0.5 rounded-full text-xs font-bold flex-shrink-0 ${
-                    item.current
-                      ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/30'
-                      : `${isDarkMode ? 'bg-gray-700 text-gray-200' : 'bg-gray-200 text-gray-700'} group-hover:bg-amber-500 group-hover:text-white`
-                  }`}>
-                    {item.badge}
+          <nav className="flex-1 px-3 py-4 space-y-4 overflow-y-auto">
+            {navigation.map((section) => (
+              <div key={section.section} className="space-y-2">
+                <div className="px-3 py-1">
+                  <span className={`text-xs font-semibold ${isDarkMode ? 'text-amber-400/70' : 'text-amber-700/70'} uppercase tracking-wider`}>
+                    {section.section}
                   </span>
-                )}
-              </button>
+                </div>
+                <div className="space-y-1">
+                  {section.items.map((item) => (
+                    <button
+                      key={item.name}
+                      onClick={() => {
+                        let tabName = item.name;
+                        if (tabName === 'Book Appointment') tabName = 'book';
+                        else if (tabName === 'My Appointments') tabName = 'appointments';
+                        else if (tabName === 'Action Logs') tabName = 'action-logs';
+                        else tabName = tabName.toLowerCase().replace(/\s+/g, '-');
+                        handleNavClick(tabName);
+                        setShowMobileSidebar(false);
+                      }}
+                      className={`w-full flex items-center justify-between px-3 py-2.5 text-xs lg:text-xs font-medium rounded-lg transition-all duration-200 border group relative overflow-hidden ${
+                        item.current
+                          ? `${isDarkMode ? 'bg-gradient-to-r from-amber-500/15 to-amber-600/10' : 'bg-gradient-to-r from-amber-200/30 to-amber-100/20'} text-amber-400 border-amber-500/50 shadow-lg shadow-amber-500/10`
+                          : `text-gray-400 border-transparent hover:${isDarkMode ? 'bg-amber-500/8' : 'bg-amber-300/10'} hover:text-amber-300 hover:border-amber-500/20`
+                      }`}
+                    >
+                      <div className="flex items-center flex-1 min-w-0">
+                        <item.icon className={`mr-2.5 h-4 w-4 transition-all duration-200 flex-shrink-0 ${
+                          item.current ? 'text-amber-400 scale-110' : 'text-gray-500 group-hover:text-amber-400 group-hover:scale-105'
+                        }`} />
+                        <span className="truncate">{item.name}</span>
+                      </div>
+                      {item.badge !== null && item.badge > 0 && (
+                        <span className={`ml-2 px-2 py-0.5 rounded-full text-xs font-bold flex-shrink-0 ${
+                          item.current
+                            ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/30'
+                            : `${isDarkMode ? 'bg-gray-700 text-gray-200' : 'bg-gray-200 text-gray-700'} group-hover:bg-amber-500 group-hover:text-white`
+                        }`}>
+                          {item.badge}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
             ))}
           </nav>
 
@@ -2109,7 +2246,13 @@ const Dashboard = () => {
             <div className="flex items-center space-x-3 min-w-0">
               <div>
                 <h1 className={`text-base lg:text-lg font-bold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} transition-colors duration-300`}>
-                  {navigation.find(item => item.current)?.name || 'Dashboard'}
+                  {(() => {
+                    for (const section of navigation) {
+                      const found = section.items?.find(item => item.current);
+                      if (found) return found.name;
+                    }
+                    return 'Dashboard';
+                  })()}
                 </h1>
                 <p className={`${isDarkMode ? 'text-amber-400/70' : 'text-amber-700/70'} mt-0.5 text-xs lg:text-sm capitalize transition-colors duration-300 hidden sm:block`}>
                   Welcome back, {user?.first_name} {user?.last_name}
@@ -2180,7 +2323,7 @@ const Dashboard = () => {
         }}
         onConfirm={handleCancelAppointment}
         title="Cancel Appointment"
-        message={`Are you sure you want to cancel your ${selectedAppointment?.type} appointment on ${selectedAppointment ? new Date(selectedAppointment.appointment_date).toLocaleDateString() : ''}? This action cannot be undone.`}
+        message={`Are you sure you want to cancel your ${formatServiceName(selectedAppointment)} appointment on ${selectedAppointment ? new Date(selectedAppointment.appointment_date).toLocaleDateString() : ''}? This action cannot be undone.`}
         confirmText="Cancel Appointment"
         type="danger"
         loading={loading}

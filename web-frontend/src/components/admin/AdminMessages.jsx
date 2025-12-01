@@ -8,11 +8,100 @@ import {
   XMarkIcon,
   MagnifyingGlassIcon,
   ArrowPathIcon,
-  TrashIcon
+  TrashIcon,
+  EllipsisVerticalIcon,
+  ClockIcon
 } from '@heroicons/react/24/outline';
+
+// Message Details Modal
+const MessageDetailsModal = ({ isOpen, onClose, message, isDarkMode }) => {
+  if (!isOpen || !message) return null;
+
+  const senderName = message.sender?.first_name && message.sender?.last_name 
+    ? `${message.sender.first_name} ${message.sender.last_name}`
+    : 'Unknown';
+
+  const formatDateTime = (date) => {
+    return new Date(date).toLocaleString([], { 
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+  };
+
+  const formatRelativeTime = (date) => {
+    const now = new Date();
+    const messageDate = new Date(date);
+    const diffMs = now - messageDate;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return messageDate.toLocaleDateString();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} border rounded-lg shadow-xl w-full max-w-md max-h-[80vh] overflow-auto`}>
+        <div className={`p-4 border-b ${isDarkMode ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-gray-50'} sticky top-0`}>
+          <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>Message Details</h3>
+        </div>
+        <div className={`p-6 space-y-4 text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+          {/* From Section */}
+          <div className={`p-3 rounded-lg ${isDarkMode ? 'bg-gray-700/50' : 'bg-amber-50'}`}>
+            <p className={`text-xs font-semibold uppercase tracking-wide mb-2 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>From:</p>
+            <p className={`text-base font-semibold ${isDarkMode ? 'text-amber-200' : 'text-amber-900'}`}>{senderName}</p>
+            {message.sender?.email && (
+              <p className={`text-xs mt-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>{message.sender.email}</p>
+            )}
+          </div>
+
+          {/* Sent Time Section */}
+          <div className={`p-3 rounded-lg ${isDarkMode ? 'bg-gray-700/50' : 'bg-blue-50'}`}>
+            <p className={`text-xs font-semibold uppercase tracking-wide mb-2 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Sent At:</p>
+            <p className={`text-base font-mono ${isDarkMode ? 'text-blue-200' : 'text-blue-900'}`}>{formatDateTime(message.created_at)}</p>
+            <p className={`text-xs mt-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+              <ClockIcon className="inline h-3 w-3 mr-1" />
+              {formatRelativeTime(message.created_at)}
+            </p>
+          </div>
+
+          {/* Subject Section */}
+          {message.subject && (
+            <div className={`p-3 rounded-lg ${isDarkMode ? 'bg-gray-700/50' : 'bg-purple-50'}`}>
+              <p className={`text-xs font-semibold uppercase tracking-wide mb-2 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Subject:</p>
+              <p className={`text-sm ${isDarkMode ? 'text-gray-200' : 'text-gray-900'}`}>{message.subject}</p>
+            </div>
+          )}
+        </div>
+        <div className={`p-4 border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-200'} flex justify-end sticky bottom-0 ${isDarkMode ? 'bg-gray-900' : 'bg-white'}`}>
+          <button
+            onClick={onClose}
+            className={`px-4 py-2 text-sm font-medium rounded transition-colors ${
+              isDarkMode
+                ? 'bg-amber-600 text-white hover:bg-amber-700'
+                : 'bg-amber-50 text-amber-900 hover:bg-amber-100'
+            }`}
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 // Message Thread Component
 const MessageThread = ({ messages, currentUserId, isDarkMode }) => {
+  const [selectedMessage, setSelectedMessage] = useState(null);
+
   if (!messages || messages.length === 0) {
     return (
       <div className={`flex flex-col items-center justify-center py-12 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
@@ -22,35 +111,76 @@ const MessageThread = ({ messages, currentUserId, isDarkMode }) => {
     );
   }
 
+  const formatMessageTime = (date) => {
+    const messageDate = new Date(date);
+    const now = new Date();
+    const isToday = messageDate.toDateString() === now.toDateString();
+    
+    if (isToday) {
+      return messageDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } else {
+      return messageDate.toLocaleDateString([], { month: 'short', day: 'numeric' }) + 
+             ' at ' + 
+             messageDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+  };
+
   return (
-    <div className="space-y-4">
-      {messages.map((msg) => {
-        const isOwn = msg.sender_id === currentUserId;
-        return (
-          <div key={msg.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
-            <div
-              className={`max-w-xs px-4 py-2 rounded-lg ${
-                isOwn
-                  ? 'bg-amber-500 text-white rounded-br-none'
-                  : isDarkMode
-                  ? 'bg-gray-700 text-gray-100 rounded-bl-none'
-                  : 'bg-gray-200 text-gray-900 rounded-bl-none'
-              }`}
-            >
-              {msg.subject && (
-                <p className={`text-xs font-semibold mb-1 ${isOwn ? 'text-amber-100' : isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                  {msg.subject}
-                </p>
-              )}
-              <p className="text-sm break-words">{msg.message}</p>
-              <p className={`text-xs mt-1 ${isOwn ? 'text-amber-100' : isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              </p>
+    <>
+      <div className="space-y-4">
+        {messages.map((msg) => {
+          const isOwn = msg.sender_id === currentUserId;
+          return (
+            <div key={msg.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'} group`}>
+              <div className="flex items-end gap-1 max-w-full">
+                <div
+                  className={`max-w-xs md:max-w-md px-4 py-2 rounded-lg relative ${
+                    isOwn
+                      ? 'bg-amber-500 text-white rounded-br-none'
+                      : isDarkMode
+                      ? 'bg-gray-700 text-gray-100 rounded-bl-none'
+                      : 'bg-gray-200 text-gray-900 rounded-bl-none'
+                  }`}
+                >
+                  {msg.subject && (
+                    <p className={`text-xs font-semibold mb-1 ${isOwn ? 'text-amber-100' : isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                      {msg.subject}
+                    </p>
+                  )}
+                  <p className="text-sm break-words">{msg.message}</p>
+                  <div className={`flex items-center justify-between mt-1 ${isOwn ? 'text-amber-100' : isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                    <p className={`text-xs ${isOwn ? 'text-amber-100/80' : isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                      {formatMessageTime(msg.created_at)}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-col items-center gap-1">
+                  <button
+                    onClick={() => setSelectedMessage(msg)}
+                    className={`flex-shrink-0 p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity ${
+                      isOwn
+                        ? 'text-amber-100 hover:bg-amber-600/30'
+                        : isDarkMode
+                        ? 'text-gray-400 hover:bg-gray-600/30'
+                        : 'text-gray-600 hover:bg-gray-300/30'
+                    }`}
+                    title="View message details"
+                  >
+                    <EllipsisVerticalIcon className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
             </div>
-          </div>
-        );
-      })}
-    </div>
+          );
+        })}
+      </div>
+      <MessageDetailsModal 
+        isOpen={!!selectedMessage} 
+        onClose={() => setSelectedMessage(null)} 
+        message={selectedMessage}
+        isDarkMode={isDarkMode}
+      />
+    </>
   );
 };
 
@@ -174,6 +304,13 @@ const AdminMessages = forwardRef(({ isDarkMode }, ref) => {
           return true;
         });
         
+        // Sort conversations by last message date (newest first) - most recent messages at top
+        convs.sort((a, b) => {
+          const dateA = new Date(a.last_message?.created_at || a.created_at || 0);
+          const dateB = new Date(b.last_message?.created_at || b.created_at || 0);
+          return dateB.getTime() - dateA.getTime(); // Explicitly use getTime() for clarity
+        });
+        
         setConversations(convs);
       }
     } catch (error) {
@@ -293,6 +430,21 @@ const AdminMessages = forwardRef(({ isDarkMode }, ref) => {
 
   const unreadCount = conversations.reduce((sum, conv) => sum + (conv.unread_count || 0), 0);
 
+  const getLastMessageTime = (conversation) => {
+    if (conversation.last_message?.created_at) {
+      const date = new Date(conversation.last_message.created_at);
+      const now = new Date();
+      const isToday = date.toDateString() === now.toDateString();
+      
+      if (isToday) {
+        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      } else {
+        return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+      }
+    }
+    return '';
+  };
+
   return (
     <div className={`h-full flex flex-col ${isDarkMode ? 'bg-gray-900' : 'bg-white'} rounded-lg border ${isDarkMode ? 'border-gray-800' : 'border-gray-200'}`}>
       {/* Header */}
@@ -369,12 +521,25 @@ const AdminMessages = forwardRef(({ isDarkMode }, ref) => {
                       </p>
                       <p className={`text-xs truncate ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>{conv.user?.email}</p>
                       {conv.last_message && (
-                        <p className={`text-xs truncate line-clamp-1 mt-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-600'}`}>
-                          {conv.last_message.message}
-                        </p>
+                        <div className="flex items-center gap-1 mt-1">
+                          <p className={`text-xs truncate line-clamp-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-600'}`}>
+                            {conv.last_message.message}
+                          </p>
+                        </div>
                       )}
                     </div>
-                    {conv.unread_count > 0 && <div className="bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full flex-shrink-0">{conv.unread_count}</div>}
+                    <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                      {conv.last_message?.created_at && (
+                        <span className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+                          {getLastMessageTime(conv)}
+                        </span>
+                      )}
+                      {conv.unread_count > 0 && (
+                        <div className="bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+                          {conv.unread_count}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </button>
               ))

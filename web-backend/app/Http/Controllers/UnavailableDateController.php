@@ -3,21 +3,35 @@
 namespace App\Http\Controllers;
 
 use App\Models\UnavailableDate;
+use App\Models\BlackoutDate;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
+use App\Events\UnavailableDatesUpdated;
 
 class UnavailableDateController extends Controller
 {
     public function index()
     {
         try {
-            Log::info('Fetching unavailable dates');
-            $dates = UnavailableDate::orderBy('date', 'desc')->get();
+            Log::info('Fetching unavailable dates (both legacy and blackout)');
             
-            Log::info('Found ' . $dates->count() . ' unavailable dates');
+            // Get legacy unavailable dates
+            $legacyDates = UnavailableDate::orderBy('date', 'desc')->get();
+            
+            // Get new blackout dates
+            $blackoutDates = BlackoutDate::orderBy('date', 'desc')->get();
+            
+            Log::info('Found ' . $legacyDates->count() . ' legacy unavailable dates and ' . $blackoutDates->count() . ' blackout dates');
+            
+            // Merge both collections
+            $allUnavailableDates = $legacyDates->concat($blackoutDates);
+            
             return response()->json([
-                'data' => $dates,
+                'data' => $allUnavailableDates,
+                'legacy_count' => $legacyDates->count(),
+                'blackout_count' => $blackoutDates->count(),
                 'success' => true
             ]);
         } catch (\Exception $e) {
@@ -64,6 +78,15 @@ class UnavailableDateController extends Controller
             ]);
 
             Log::info('Unavailable date created successfully with ID: ' . $unavailableDate->id);
+            // Update last-update cache so clients can poll for changes
+            try {
+                Cache::put('unavailable_dates_last_update', now()->toDateTimeString());
+                // Clear any cached lists
+                Cache::forget('unavailable_dates');
+                event(new UnavailableDatesUpdated());
+            } catch (\Exception $e) {
+                Log::error('Failed to set unavailable dates cache or broadcast: ' . $e->getMessage());
+            }
             return response()->json([
                 'data' => $unavailableDate,
                 'message' => 'Unavailable date added successfully',
@@ -87,6 +110,15 @@ class UnavailableDateController extends Controller
             $date = UnavailableDate::findOrFail($id);
             $date->delete();
 
+            // Clear caches and broadcast change
+            try {
+                Cache::put('unavailable_dates_last_update', now()->toDateTimeString());
+                Cache::forget('unavailable_dates');
+                event(new UnavailableDatesUpdated());
+            } catch (\Exception $e) {
+                Log::error('Failed to set unavailable dates cache or broadcast on delete: ' . $e->getMessage());
+            }
+
             Log::info('Unavailable date deleted successfully');
             return response()->json([
                 'message' => 'Unavailable date deleted successfully',
@@ -98,6 +130,25 @@ class UnavailableDateController extends Controller
                 'message' => 'Failed to delete unavailable date',
                 'error' => $e->getMessage(),
                 'success' => false
+            ], 500);
+        }
+    }
+
+    /**
+     * Return last update timestamp for unavailable dates so clients can poll
+     */
+    public function lastUpdate()
+    {
+        try {
+            $ts = Cache::get('unavailable_dates_last_update');
+            return response()->json([
+                'success' => true,
+                'last_update' => $ts
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'error' => $e->getMessage()
             ], 500);
         }
     }

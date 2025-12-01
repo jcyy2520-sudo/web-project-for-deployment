@@ -175,7 +175,6 @@ const UserFormModal = ({ isOpen, onClose, user, onSave, loading }) => {
                 disabled={loading}
               >
                 <option value="client">Client</option>
-                <option value="staff">Staff</option>
                 <option value="admin">Admin</option>
               </select>
             </div>

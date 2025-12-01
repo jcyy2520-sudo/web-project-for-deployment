@@ -41,8 +41,11 @@ class AdminController extends Controller
                 $pendingAppointments = $stats->pending_appointments ?? 0;
                 $completedAppointments = $stats->completed_appointments ?? 0;
                 
-                // Calculate revenue - using completed appointments as placeholder
-                $revenue = $completedAppointments * 100; // $100 per completed appointment
+                // Calculate revenue - based on completed appointments with their service prices
+                $revenue = DB::table('appointments')
+                    ->join('services', 'appointments.service_id', '=', 'services.id')
+                    ->where('appointments.status', 'completed')
+                    ->sum(DB::raw('COALESCE(services.price, 0)'));
 
                 return [
                     'totalUsers' => $totalUsers,
@@ -50,7 +53,7 @@ class AdminController extends Controller
                     'totalAppointments' => $totalAppointments,
                     'pendingAppointments' => $pendingAppointments,
                     'completedAppointments' => $completedAppointments,
-                    'revenue' => $revenue,
+                    'revenue' => (float) ($revenue ?? 0),
                 ];
             });
 
@@ -98,7 +101,7 @@ class AdminController extends Controller
     // Helper method to fetch appointments (refactored for caching)
     private function fetchAppointments($request)
     {
-        $query = Appointment::with(['user', 'staff']);
+        $query = Appointment::with(['user', 'staff', 'service']);
 
         // Apply filters
         if ($request->has('status')) {

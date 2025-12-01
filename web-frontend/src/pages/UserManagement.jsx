@@ -23,7 +23,7 @@ const UserManagement = () => {
     username: '',
     email: '',
     password: '',
-    role: 'staff',
+    role: 'client',
     first_name: '',
     last_name: '',
     phone: '',
@@ -90,7 +90,7 @@ const UserManagement = () => {
       username: '',
       email: '',
       password: '',
-      role: 'staff',
+      role: 'client',
       first_name: '',
       last_name: '',
       phone: '',
@@ -124,7 +124,6 @@ const UserManagement = () => {
   const getRoleColor = (role) => {
     switch (role) {
       case 'admin': return 'bg-purple-100 text-purple-800';
-      case 'staff': return 'bg-blue-100 text-blue-800';
       case 'client': return 'bg-green-100 text-green-800';
       default: return 'bg-gray-100 text-gray-800';
     }
@@ -138,7 +137,7 @@ const UserManagement = () => {
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-3 sm:gap-4">
             <div>
               <h1 className="text-xl sm:text-2xl font-bold text-gray-900">User Management</h1>
-              <p className="text-sm sm:text-base text-gray-600">Manage staff and client accounts</p>
+              <p className="text-sm sm:text-base text-gray-600">Manage user accounts</p>
             </div>
             <button
               onClick={() => setIsCreateModalOpen(true)}
@@ -171,7 +170,6 @@ const UserManagement = () => {
             >
               <option value="all">All Roles</option>
               <option value="admin">Admin</option>
-              <option value="staff">Staff</option>
               <option value="client">Client</option>
             </select>
           </div>
@@ -344,7 +342,6 @@ const UserManagement = () => {
                 className="input-field"
                 required
               >
-                <option value="staff">Staff</option>
                 <option value="admin">Admin</option>
                 <option value="client">Client</option>
               </select>
@@ -474,7 +471,6 @@ const UserManagement = () => {
                   className="input-field"
                   required
                 >
-                  <option value="staff">Staff</option>
                   <option value="admin">Admin</option>
                   <option value="client">Client</option>
                 </select>

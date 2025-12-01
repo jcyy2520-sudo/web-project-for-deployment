@@ -15,6 +15,10 @@ use App\Http\Controllers\AuditLogController;
 use App\Http\Controllers\ServiceController;
 use App\Http\Controllers\ActionLogController;
 use App\Http\Controllers\StatsController;
+use App\Http\Controllers\BatchController;
+use App\Http\Controllers\DecisionSupportController;
+use App\Http\Controllers\TimeSlotCapacityController;
+use App\Http\Controllers\BlackoutDateController;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Mail;
 use App\Mail\VerificationCodeMail;
@@ -493,6 +497,10 @@ Route::get('/health', function () {
 Route::get('/services', [ServiceController::class, 'allServices']);
 Route::get('/stats/summary', [StatsController::class, 'summary']);
 
+// Public unavailable dates endpoint for clients (merged legacy + new blackout dates)
+Route::get('/unavailable-dates', [UnavailableDateController::class, 'index']);
+Route::get('/unavailable-dates/last-update', [UnavailableDateController::class, 'lastUpdate']);
+
 // Protected routes
 Route::middleware(['auth:sanctum'])->group(function () {
     // Auth routes
@@ -504,6 +512,10 @@ Route::middleware(['auth:sanctum'])->group(function () {
         // Optimized admin stats
         Route::get('/stats/summary', [StatsController::class, 'summary']);
         Route::get('/stats', [StatsController::class, 'index']);
+        
+        // BATCH ENDPOINTS - Combine multiple API calls into one request
+        Route::get('/batch/dashboard', [BatchController::class, 'dashboardData']);
+        Route::get('/batch/full-load', [BatchController::class, 'fullDashboardLoad']);
         
         // Admin appointments endpoint
         Route::get('/appointments', [AdminController::class, 'getAllAppointments']);
@@ -522,6 +534,24 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/unavailable-dates', [UnavailableDateController::class, 'index']);
         Route::post('/unavailable-dates', [UnavailableDateController::class, 'store']);
         Route::delete('/unavailable-dates/{id}', [UnavailableDateController::class, 'destroy']);
+        
+        // Time Slot Capacity Management
+        Route::prefix('slot-capacities')->group(function () {
+            Route::get('/', [TimeSlotCapacityController::class, 'index']);
+            Route::post('/apply-all', [TimeSlotCapacityController::class, 'applyAll']);
+            Route::post('/', [TimeSlotCapacityController::class, 'store']);
+            Route::put('/{timeSlotCapacity}', [TimeSlotCapacityController::class, 'update']);
+            Route::delete('/{timeSlotCapacity}', [TimeSlotCapacityController::class, 'destroy']);
+            Route::get('/summary', [TimeSlotCapacityController::class, 'getCapacitySummary']);
+        });
+        
+        // Blackout Dates Management
+        Route::prefix('blackout-dates')->group(function () {
+            Route::get('/', [BlackoutDateController::class, 'index']);
+            Route::post('/', [BlackoutDateController::class, 'store']);
+            Route::put('/{blackoutDate}', [BlackoutDateController::class, 'update']);
+            Route::delete('/{blackoutDate}', [BlackoutDateController::class, 'destroy']);
+        });
         
         // Services management
         Route::get('/services', [ServiceController::class, 'adminServices']);
@@ -564,6 +594,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::prefix('appointments')->group(function () {
         Route::get('/', [AppointmentController::class, 'index']);
         Route::post('/', [AppointmentController::class, 'store']);
+        Route::post('/suggest-alternative', [AppointmentController::class, 'suggestAlternative']);
         Route::get('/today', [AppointmentController::class, 'getTodayAppointments']);
         Route::get('/stats', [AppointmentController::class, 'getStats']);
         Route::get('/archived/list', [AppointmentController::class, 'getArchived']);
@@ -591,6 +622,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::prefix('calendar')->group(function () {
         Route::get('/', [CalendarController::class, 'index']);
         Route::get('/available-slots', [CalendarController::class, 'getAvailableSlots']);
+        Route::get('/unavailable-dates', [CalendarController::class, 'getUnavailableDates']); // Public - for clients
+        Route::get('/slot-capacities', [CalendarController::class, 'getSlotCapacities']); // Public - for clients
         Route::post('/', [CalendarController::class, 'store'])->middleware(['role:admin,staff']);
         Route::put('/{calendarEvent}', [CalendarController::class, 'update'])->middleware(['role:admin,staff']);
         Route::delete('/{calendarEvent}', [CalendarController::class, 'destroy'])->middleware(['role:admin,staff']);
@@ -612,7 +645,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     });
 
     // UNAVAILABLE DATES ROUTES (Admin only)
-    Route::prefix('unavailable-dates')->middleware(['role:admin'])->group(function () {
+    Route::prefix('admin/unavailable-dates')->middleware(['role:admin'])->group(function () {
         Route::get('/', [UnavailableDateController::class, 'index']);
         Route::post('/', [UnavailableDateController::class, 'store']);
         Route::delete('/{id}', [UnavailableDateController::class, 'destroy']);
@@ -687,6 +720,15 @@ Route::middleware(['auth:sanctum'])->group(function () {
             Route::post('/sync/appointments', [ServiceController::class, 'syncServicesFromAppointments']);
             Route::post('/sync/defaults', [ServiceController::class, 'syncDefaultAppointmentTypes']);
         });
+    });
+
+    // DECISION SUPPORT ROUTES (Staff and Admin)
+    Route::prefix('decision-support')->middleware(['role:staff,admin'])->group(function () {
+        Route::get('/staff-recommendations', [DecisionSupportController::class, 'getStaffRecommendations']);
+        Route::get('/time-slot-recommendations', [DecisionSupportController::class, 'getTimeSlotRecommendations']);
+        Route::get('/appointment-risk/{appointmentId}', [DecisionSupportController::class, 'getAppointmentRisk']);
+        Route::get('/workload-optimization', [DecisionSupportController::class, 'getWorkloadOptimization']);
+        Route::get('/dashboard', [DecisionSupportController::class, 'getDashboard']);
     });
 });
 

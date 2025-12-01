@@ -36,6 +36,10 @@ export default defineConfig({
     host: '0.0.0.0',
     strictPort: false,
     middlewareMode: false,
+    // Reduce filesystem watchers to avoid high CPU / editor lag on large workspaces
+    watch: {
+      ignored: ['**/node_modules/**', '**/vendor/**', '**/dist/**', '**/.git/**', '**/web-backend/vendor/**', '**/web-backend/storage/**']
+    },
     proxy: {
       '/api': {
         target: process.env.VITE_API_URL || 'http://127.0.0.1:8000',

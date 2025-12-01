@@ -49,7 +49,7 @@ export const useUserAPI = () => {
           allUsers = Object.values(payload).filter(item => item && typeof item === 'object');
         }
         
-        const adminsData = allUsers.filter(user => user.role === 'admin' || user.role === 'staff');
+        const adminsData = allUsers.filter(user => user.role === 'admin');
         return { 
           data: adminsData.map(admin => ({ 
             ...admin, 

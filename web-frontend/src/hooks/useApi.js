@@ -49,12 +49,12 @@ const isCacheValid = (timestamp, ttlSeconds) => {
 
 // Get cache duration based on endpoint
 const getCacheTTL = (endpoint) => {
-  if (endpoint.includes('/stats')) return 120; // 2 minutes for stats
-  if (endpoint.includes('/appointments')) return 30; // 30 seconds for appointments
-  if (endpoint.includes('/users')) return 60; // 1 minute for users
-  if (endpoint.includes('/services')) return 600; // 10 minutes for services
-  if (endpoint.includes('/unavailable')) return 300; // 5 minutes for unavailable dates
-  return 60; // Default: 1 minute
+  if (endpoint.includes('/stats')) return 180; // 3 minutes for stats (was 2 minutes)
+  if (endpoint.includes('/appointments')) return 60; // 60 seconds for appointments (was 30s)
+  if (endpoint.includes('/users')) return 120; // 2 minutes for users (was 1 minute)
+  if (endpoint.includes('/services')) return 900; // 15 minutes for services (was 10 min)
+  if (endpoint.includes('/unavailable')) return 600; // 10 minutes for unavailable dates (was 5 min)
+  return 120; // Default: 2 minutes (was 1 minute)
 };
 
 export const useApi = () => {
@@ -82,7 +82,8 @@ export const useApi = () => {
       cache = true,
       skipCache = false,
       maxRetries = 2,
-      retryDelay = 500
+      retryDelay = 500,
+      maxRetryDelay = 5000 // Cap retry delay to prevent exponential explosion
     } = options;
 
     // Extract endpoint for caching purposes
@@ -231,9 +232,11 @@ export const useApi = () => {
           
           if (isNetworkError && retryCount < maxRetries) {
             retryCount++;
-            logger.warn(`⚠️ Network error on attempt ${retryCount}, retrying in ${retryDelay}ms...`, err.message);
+            // Exponential backoff with max cap: 500ms, 1000ms, 2000ms, etc.
+            const exponentialDelay = Math.min(retryDelay * Math.pow(2, retryCount - 1), maxRetryDelay);
+            logger.warn(`⚠️ Network error on attempt ${retryCount}, retrying in ${exponentialDelay}ms...`, err.message);
             // Wait before retrying
-            await new Promise(resolve => setTimeout(resolve, retryDelay));
+            await new Promise(resolve => setTimeout(resolve, exponentialDelay));
             continue; // Retry the request
           }
           

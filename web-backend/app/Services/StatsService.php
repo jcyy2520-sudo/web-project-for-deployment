@@ -81,14 +81,20 @@ class StatsService
     }
 
     /**
-     * Calculate revenue
+     * Calculate revenue from completed appointments with service prices
      */
     private function calculateRevenue(): float
     {
         try {
-            // This is a placeholder - implement based on your payment system
-            return 0.00;
+            $revenue = \DB::table('appointments')
+                ->leftJoin('services', 'appointments.service_id', '=', 'services.id')
+                ->where('appointments.status', 'completed')
+                ->select(\DB::raw('COALESCE(SUM(services.price), 0) as total'))
+                ->value('total');
+            
+            return (float)$revenue;
         } catch (Exception $e) {
+            \Log::error('Revenue calculation failed: ' . $e->getMessage());
             return 0.00;
         }
     }

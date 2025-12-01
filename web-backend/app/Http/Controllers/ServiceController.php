@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Service;
 use App\Models\ActionLog;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 class ServiceController extends Controller
 {
@@ -237,6 +238,9 @@ class ServiceController extends Controller
 
             ActionLog::log('create', 'Created new service: ' . $service->name, 'Service', $service->id);
 
+            // Clear stats cache when service is created
+            $this->invalidateStatsCache();
+
             return response()->json([
                 'message' => 'Service created successfully',
                 'data' => $service,
@@ -263,6 +267,7 @@ class ServiceController extends Controller
             ]);
 
             $oldName = $service->name;
+            $oldPrice = $service->price;
             
             $service->update([
                 'name' => $request->name,
@@ -272,7 +277,10 @@ class ServiceController extends Controller
                 'is_active' => $request->is_active ?? $service->is_active
             ]);
 
-            ActionLog::log('update', "Updated service: $oldName -> {$service->name}", 'Service', $service->id);
+            ActionLog::log('update', "Updated service: $oldName -> {$service->name}" . ($oldPrice != $request->price ? " (Price: \$$oldPrice -> \${$request->price})" : ""), 'Service', $service->id);
+
+            // Clear stats cache when service is updated (especially important for price changes)
+            $this->invalidateStatsCache();
 
             return response()->json([
                 'message' => 'Service updated successfully',
@@ -296,6 +304,9 @@ class ServiceController extends Controller
 
             ActionLog::log('delete', 'Deleted service: ' . $serviceName, 'Service', $service->id);
 
+            // Clear stats cache when service is deleted
+            $this->invalidateStatsCache();
+
             return response()->json([
                 'message' => 'Service archived successfully',
                 'success' => true
@@ -316,6 +327,9 @@ class ServiceController extends Controller
             $service->restore();
 
             ActionLog::log('restore', 'Restored service: ' . $service->name, 'Service', $service->id);
+
+            // Clear stats cache when service is restored
+            $this->invalidateStatsCache();
 
             return response()->json([
                 'message' => 'Service restored successfully',
@@ -358,6 +372,9 @@ class ServiceController extends Controller
 
             ActionLog::log('permanent_delete', 'Permanently deleted service: ' . $serviceName, 'Service', $id);
 
+            // Clear stats cache when service is permanently deleted
+            $this->invalidateStatsCache();
+
             return response()->json([
                 'message' => 'Service permanently deleted',
                 'success' => true
@@ -369,5 +386,26 @@ class ServiceController extends Controller
                 'success' => false
             ], 500);
         }
+    }
+
+    /**
+     * Invalidate all stats-related cache keys
+     * This ensures that revenue calculations are updated when services change
+     */
+    private function invalidateStatsCache()
+    {
+        // Clear batch dashboard caches that include revenue calculations
+        Cache::forget('admin_batch_dashboard_daily');
+        Cache::forget('admin_batch_dashboard_weekly');
+        Cache::forget('admin_batch_dashboard_monthly');
+        Cache::forget('admin_batch_dashboard_yearly');
+        Cache::forget('admin_batch_dashboard_all');
+        
+        // Clear the full dashboard load cache
+        Cache::forget('admin_batch_full_load_daily');
+        Cache::forget('admin_batch_full_load_weekly');
+        Cache::forget('admin_batch_full_load_monthly');
+        Cache::forget('admin_batch_full_load_yearly');
+        Cache::forget('admin_batch_full_load_all');
     }
 }

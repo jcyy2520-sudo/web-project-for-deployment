@@ -61,7 +61,6 @@ const UserDetailModal = ({ isOpen, onClose, user, onDeactivate, loading }) => {
                     <span className="text-gray-300 text-sm">Role</span>
                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                       user.role === 'admin' ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30' :
-                      user.role === 'staff' ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30' :
                       'bg-green-500/20 text-green-300 border border-green-500/30'
                     }`}>
                       {user.role}

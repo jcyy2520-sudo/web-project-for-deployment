@@ -51,6 +51,7 @@ export const apiConfig = {
     '/api/verify-code',
     '/api/logout',
     '/api/messages',       // Messages - need to be fresh
+    '/api/unavailable-dates', // Unavailable dates - needs to be fresh for booking
   ],
 
   // Endpoints that should use aggressive caching
