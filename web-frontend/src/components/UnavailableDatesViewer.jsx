@@ -34,13 +34,20 @@ const UnavailableDatesViewer = ({ isDarkMode = true, onDateSelect = null }) => {
 
   // Check if a date is unavailable
   const isDateUnavailable = (date) => {
-    const dateStr = date.toISOString().split('T')[0];
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const dateStr = `${year}-${month}-${day}`;
     return unavailableDates.some(u => u.date === dateStr || isBlackedOut(date));
   };
 
   // Check for blackout dates
   const isBlackedOut = (date) => {
     const dayOfWeek = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][date.getDay()];
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const dateStr = `${year}-${month}-${day}`;
 
     return unavailableDates.some(u => {
       // Weekend check
@@ -49,7 +56,7 @@ const UnavailableDatesViewer = ({ isDarkMode = true, onDateSelect = null }) => {
       }
 
       // Specific blackout date
-      if (u.date && u.date === date.toISOString().split('T')[0]) {
+      if (u.date && u.date === dateStr) {
         return true;
       }
 
@@ -64,7 +71,10 @@ const UnavailableDatesViewer = ({ isDarkMode = true, onDateSelect = null }) => {
 
   // Get unavailable reason
   const getUnavailableReason = (date) => {
-    const dateStr = date.toISOString().split('T')[0];
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const dateStr = `${year}-${month}-${day}`;
     const dayOfWeek = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][date.getDay()];
 
     const matching = unavailableDates.find(u => {

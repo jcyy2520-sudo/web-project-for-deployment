@@ -47,11 +47,15 @@ import { formatServiceName, formatPrice } from '../utils/format';
 import AdminMessages from '../components/admin/AdminMessages';
 import AdminActionLogs from '../components/admin/AdminActionLogs';
 import AdminServices from '../components/admin/AdminServices';
+import AdminAnalyticsDashboard from '../components/admin/AdminAnalyticsDashboard';
 import DocumentManagement from '../components/admin/DocumentManagement';
 import DeclineModal from '../components/modals/DeclineModal';
+import CompletionModal from '../components/modals/CompletionModal';
 import CalendarManagement from '../components/admin/CalendarManagement';
+import AppointmentSettingsManagement from '../components/admin/AppointmentSettingsManagement';
 import AdminDecisionSupport from '../components/admin/AdminDecisionSupport';
 import AffectedAppointmentsModal from '../components/admin/AffectedAppointmentsModal';
+import CancelBulkAppointmentsModal from '../components/admin/CancelBulkAppointmentsModal';
 
 // Chart Components
 const BarChart = ({ data, title, color = 'amber', height = 160 }) => {
@@ -1538,10 +1542,14 @@ const AdminDashboard = () => {
   const [showMessageModal, setShowMessageModal] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [showDeclineModal, setShowDeclineModal] = useState(false);
+  const [showCompletionModal, setShowCompletionModal] = useState(false);
+  const [showCancelBulkModal, setShowCancelBulkModal] = useState(false);
+  const [bulkCancelData, setBulkCancelData] = useState(null);
   const [selectedUser, setSelectedUser] = useState(null);
   const [selectedAdmin, setSelectedAdmin] = useState(null);
   const [itemToDelete, setItemToDelete] = useState(null);
   const [appointmentToDecline, setAppointmentToDecline] = useState(null);
+  const [appointmentToComplete, setAppointmentToComplete] = useState(null);
   
   // Search and filter states
   const [searchTerm, setSearchTerm] = useState('');
@@ -1551,9 +1559,9 @@ const AdminDashboard = () => {
   const [messagePage, setMessagePage] = useState(1);
   const [archivedPage, setArchivedPage] = useState(1);
   const [itemsPerPage] = useState(8);
-  const [appointmentsPerPage] = useState(10);
+  const [appointmentsPerPage, setAppointmentsPerPage] = useState(10);
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
-  const [appointmentSort, setAppointmentSort] = useState({ key: 'appointment_date', direction: 'desc' });
+  const [appointmentSort, setAppointmentSort] = useState({ key: 'created_at', direction: 'desc' });
   const [statusFilter, setStatusFilter] = useState('all');
   const [roleFilter, setRoleFilter] = useState('all');
   const [appointmentTab, setAppointmentTab] = useState('all'); // 'all', 'pending', 'approved', 'declined'
@@ -1621,6 +1629,11 @@ const AdminDashboard = () => {
           key: 'calendar'
         },
         { 
+          name: 'Appointment Settings', 
+          icon: CogIcon, 
+          key: 'appointment-settings'
+        },
+        { 
           name: `Services (${services.length || 0})`, 
           icon: DocumentTextIcon, 
           key: 'services'
@@ -1665,6 +1678,11 @@ const AdminDashboard = () => {
     { 
       section: 'Reports & Analytics',
       items: [
+        { 
+          name: 'Smart Analytics', 
+          icon: ChartBarIcon, 
+          key: 'analytics'
+        },
         { 
           name: 'Reports', 
           icon: DocumentChartBarIcon, 
@@ -1773,7 +1791,7 @@ const AdminDashboard = () => {
   const loadUsers = useCallback(async () => {
     try {
       const result = await callApi(async () => {
-        const response = await axios.get('/api/users', { 
+        const response = await axios.get('/api/users?role=client', { 
           timeout: 10000
         });
         
@@ -1815,21 +1833,18 @@ const AdminDashboard = () => {
   const loadAdmins = useCallback(async () => {
     try {
       const result = await callApi(async () => {
-        const response = await axios.get('/api/users', { 
+        const response = await axios.get('/api/admin/users?role=admin', { 
           timeout: 10000
         });
         
-        let allUsers = [];
+        let adminsData = [];
         const payload = response.data?.data || response.data || response.data?.users || response.data;
         
         if (Array.isArray(payload)) {
-          allUsers = payload;
+          adminsData = payload;
         } else if (payload && typeof payload === 'object') {
-          allUsers = Object.values(payload).filter(item => item && typeof item === 'object');
+          adminsData = Object.values(payload).filter(item => item && typeof item === 'object');
         }
-        
-        // Fixed: Show admin accounts in Admin Accounts tab (staff removed)
-        const adminsData = allUsers.filter(user => user.role === 'admin');
         
         // Sort by created_at in descending order (newest first)
         adminsData.sort((a, b) => {
@@ -1890,17 +1905,17 @@ const AdminDashboard = () => {
   const loadAppointments = useCallback(async () => {
     try {
       const result = await callApi(async () => {
-        const response = await axios.get('/api/admin/appointments', { 
+        const response = await axios.get('/api/admin/appointments?limit=1000', { 
           timeout: 10000
         });
         
         let appointmentsData = [];
-        const payload = response.data?.data || response.data?.data?.data || response.data || response.data?.appointments || response.data;
         
-        if (Array.isArray(payload)) {
-          appointmentsData = payload;
-        } else if (payload && typeof payload === 'object') {
-          appointmentsData = Object.values(payload).filter(item => item && typeof item === 'object');
+        // Backend always returns { data: [...], success: true } format now
+        if (response.data?.data && Array.isArray(response.data.data)) {
+          appointmentsData = response.data.data;
+        } else if (Array.isArray(response.data)) {
+          appointmentsData = response.data;
         }
         
         // Sort by created_at in descending order (newest first)
@@ -2013,7 +2028,8 @@ const AdminDashboard = () => {
   const loadDeactivatedAccounts = useCallback(async () => {
     try {
       const result = await callApi(async () => {
-        const response = await axios.get('/api/users', { 
+        // Fetch all users with high per_page to get them all in one call
+        const response = await axios.get('/api/users?per_page=1000', { 
           timeout: 10000
         });
         
@@ -2027,13 +2043,12 @@ const AdminDashboard = () => {
         }
         
         // Filter deactivated users (is_active === false)
-        const deactivated = userData.filter(user => user.is_active === false);
-        const deactivatedUsersList = deactivated.filter(user => user.role === 'client');
-        const deactivatedAdminsList = deactivated.filter(user => user.role === 'admin');
+        const deactivatedUsers = userData.filter(user => user.is_active === false && user.role === 'client');
+        const deactivatedAdmins = userData.filter(user => user.is_active === false && user.role === 'admin');
         
         return { 
-          deactivatedUsers: deactivatedUsersList,
-          deactivatedAdmins: deactivatedAdminsList
+          deactivatedUsers,
+          deactivatedAdmins
         };
       });
 
@@ -2382,7 +2397,7 @@ const AdminDashboard = () => {
 
   const handleSaveAdmin = useCallback(async (adminData) => {
     try {
-      const url = selectedAdmin ? `/api/users/${selectedAdmin.id}` : '/api/users';
+      const url = selectedAdmin ? `/api/admin/users/${selectedAdmin.id}` : '/api/admin/users';
       const method = selectedAdmin ? 'PUT' : 'POST';
 
       const requestData = {
@@ -2390,6 +2405,7 @@ const AdminDashboard = () => {
         last_name: adminData.last_name,
         email: adminData.email,
         phone: adminData.phone,
+        address: adminData.address || '',
         role: 'admin',
         ...(adminData.password && { password: adminData.password })
       };
@@ -2486,6 +2502,65 @@ const AdminDashboard = () => {
     }
   }, [callApi, loadUnavailableDates]);
 
+  // Called when admin wants to cancel selected appointments from affected list
+  const handleCancelSelectedAppointments = useCallback(({ affected, selectedIds, dateData }) => {
+    // Transition from affected modal to cancel bulk modal
+    setShowAffectedModal(false);
+    setBulkCancelData({
+      affected: affected.filter(apt => selectedIds.includes(apt.id)),
+      dateData
+    });
+    setShowCancelBulkModal(true);
+  }, []);
+
+  // Called from CancelBulkAppointmentsModal to execute bulk cancellation with messaging
+  const handleConfirmBulkCancel = useCallback(async (cancelData) => {
+    try {
+      const {
+        appointmentIds,
+        cancellationReason,
+        messageOption,
+        includeReason,
+        unavailableDate
+      } = cancelData;
+
+      const payload = {
+        appointment_ids: appointmentIds,
+        cancellation_reason: cancellationReason,
+        message_type: messageOption, // 'individual' or 'group'
+        include_reason_in_message: includeReason,
+        unavailable_date: unavailableDate
+      };
+
+      const result = await callApi(() => axios({
+        method: 'POST',
+        url: '/api/admin/cancel-bulk-appointments',
+        data: payload,
+        timeout: 30000
+      }));
+
+      if (result.success) {
+        // Close modals and refresh data
+        setShowCancelBulkModal(false);
+        setShowAffectedModal(false);
+        setPendingUnavailableDate(null);
+        setBulkCancelData(null);
+        setAffectedAppointments([]);
+        setShowUnavailableModal(false);
+        
+        // Refresh appointments and calendar
+        setDataLoaded(prev => ({ ...prev, appointments: false, calendar: false }));
+        await loadAppointments();
+        await loadUnavailableDates();
+
+        alert(`Successfully cancelled ${appointmentIds.length} appointment${appointmentIds.length !== 1 ? 's' : ''} and notified users.`);
+      }
+    } catch (error) {
+      console.error('Error cancelling bulk appointments:', error);
+      alert('Failed to cancel appointments. Please try again.');
+    }
+  }, [callApi, loadAppointments, loadUnavailableDates]);
+
   const handleDeleteUser = useCallback(async () => {
     if (!itemToDelete) return;
 
@@ -2540,7 +2615,7 @@ const AdminDashboard = () => {
       setAdmins(prev => prev.filter(admin => admin.id !== itemToDelete.id));
 
       const result = await callApi(() => 
-        axios.delete(`/api/users/${itemToDelete.id}`, { 
+        axios.delete(`/api/admin/users/${itemToDelete.id}`, { 
           timeout: 15000 
         })
       );
@@ -2562,20 +2637,9 @@ const AdminDashboard = () => {
   }, [itemToDelete, callApi, loadAdmins, loadDashboardData]);
 
   const handleToggleUserStatus = useCallback(async (userItem) => {
-    const newStatus = !userItem.is_active;
-    
     try {
-      setUsers(prev => prev.map(user => 
-        user.id === userItem.id ? { ...user, is_active: newStatus } : user
-      ));
-      setAdmins(prev => prev.map(admin => 
-        admin.id === userItem.id ? { ...admin, is_active: newStatus } : admin
-      ));
-
       const result = await callApi(() => 
-        axios.put(`/api/users/${userItem.id}`, { 
-          is_active: newStatus 
-        }, { 
+        axios.put(`/api/users/${userItem.id}/toggle-status`, {}, { 
           timeout: 15000 
         })
       );
@@ -2583,11 +2647,9 @@ const AdminDashboard = () => {
       if (result.success) {
         setDataLoaded(prev => ({ ...prev, users: false, adminProfile: false, deactivated: false }));
         
-        if (activeTab === 'users') {
-          await loadUsers();
-        } else if (activeTab === 'adminProfile') {
-          await loadAdmins();
-        }
+        // Always reload both users and admins to ensure proper display regardless of current tab
+        await loadUsers();
+        await loadAdmins();
         
         // Reload deactivated accounts to reflect the change
         await loadDeactivatedAccounts();
@@ -2597,51 +2659,49 @@ const AdminDashboard = () => {
           setSelectedUser(null);
         }
       } else {
-        if (activeTab === 'users') {
-          await loadUsers();
-        } else if (activeTab === 'adminProfile') {
-          await loadAdmins();
-        }
+        // Reload on failure too
+        await loadUsers();
+        await loadAdmins();
+        await loadDeactivatedAccounts();
       }
     } catch (error) {
       console.error('Error toggling user status:', error);
-      if (activeTab === 'users') {
-        await loadUsers();
-      } else if (activeTab === 'adminProfile') {
-        await loadAdmins();
-      }
+      // Reload on error too
+      await loadUsers();
+      await loadAdmins();
+      await loadDeactivatedAccounts();
     }
-  }, [callApi, showUserDetailModal, activeTab, loadUsers, loadAdmins, loadDeactivatedAccounts]);
+  }, [callApi, showUserDetailModal, loadUsers, loadAdmins, loadDeactivatedAccounts]);
 
   const handleToggleAdminStatus = useCallback(async (adminItem) => {
-    const newStatus = !adminItem.is_active;
-    
     try {
-      setAdmins(prev => prev.map(admin => 
-        admin.id === adminItem.id ? { ...admin, is_active: newStatus } : admin
-      ));
-
       const result = await callApi(() => 
-        axios.put(`/api/users/${adminItem.id}/toggle-status`, { 
-          is_active: newStatus 
-        }, { 
+        axios.put(`/api/users/${adminItem.id}/toggle-status`, {}, { 
           timeout: 15000 
         })
       );
 
       if (result.success) {
-        setDataLoaded(prev => ({ ...prev, adminProfile: false, deactivated: false }));
+        setDataLoaded(prev => ({ ...prev, users: false, adminProfile: false, deactivated: false }));
+        // Always reload both users and admins to ensure proper display regardless of current tab
+        await loadUsers();
         await loadAdmins();
         // Reload deactivated accounts to reflect the change
         await loadDeactivatedAccounts();
       } else {
+        // Reload on failure too
+        await loadUsers();
         await loadAdmins();
+        await loadDeactivatedAccounts();
       }
     } catch (error) {
       console.error('Error toggling admin status:', error);
+      // Reload on error too
+      await loadUsers();
       await loadAdmins();
+      await loadDeactivatedAccounts();
     }
-  }, [callApi, loadAdmins, loadDeactivatedAccounts]);
+  }, [callApi, loadUsers, loadAdmins, loadDeactivatedAccounts]);
 
   const handleDeleteUnavailableDate = useCallback(async (dateId) => {
     try {
@@ -2666,14 +2726,24 @@ const AdminDashboard = () => {
   }, [callApi, loadUnavailableDates]);
 
   // FIXED: Enhanced appointment approval/decline with proper API calls and immediate UI update
-  const handleAppointmentAction = useCallback(async (appointmentId, action, declineReason = null) => {
+  const handleAppointmentAction = useCallback(async (appointmentId, action, data = null) => {
     try {
+      // For complete action, open modal instead of executing directly
+      if (action === 'complete') {
+        const appointmentToComplete = appointments.find(apt => apt.id === appointmentId);
+        if (appointmentToComplete) {
+          setAppointmentToComplete(appointmentToComplete);
+          setShowCompletionModal(true);
+        }
+        return;
+      }
+
       // Optimistically update the UI immediately
       setAppointments(prev => prev.map(apt => 
         apt.id === appointmentId ? { ...apt, status: action } : apt
       ));
 
-      const payload = action === 'decline' && declineReason ? { decline_reason: declineReason } : {};
+      const payload = (action === 'decline' && data) ? { decline_reason: data } : {};
 
       const result = await callApi(() => 
         axios.put(`/api/appointments/${appointmentId}/${action}`, payload, { 
@@ -2697,7 +2767,7 @@ const AdminDashboard = () => {
       // Revert the optimistic update on error
       await loadAppointments();
     }
-  }, [callApi, loadAppointments, loadDashboardData]);
+  }, [callApi, loadAppointments, loadDashboardData, appointments]);
 
   // Message sending functionality - Save to database and send email
   const handleSendMessage = useCallback(async (messageData) => {
@@ -2735,6 +2805,37 @@ const AdminDashboard = () => {
       console.error('Error sending message:', error);
     }
   }, [callApi]);
+
+  // Handle Appointment Completion
+  const handleAppointmentCompletion = useCallback(async (completionNotes) => {
+    if (!appointmentToComplete) return;
+
+    try {
+      const result = await callApi(() => 
+        axios.put(`/api/appointments/${appointmentToComplete.id}/complete`, {
+          completion_notes: completionNotes
+        }, { 
+          timeout: 15000 
+        })
+      );
+
+      if (result.success) {
+        console.log('Appointment completed successfully:', result.data);
+        // Close modal and reset
+        setShowCompletionModal(false);
+        setAppointmentToComplete(null);
+        
+        // Refresh appointments and dashboard data
+        setDataLoaded(prev => ({ ...prev, appointments: false, dashboard: false }));
+        await loadAppointments();
+        await loadDashboardData();
+      } else {
+        console.error('Failed to complete appointment:', result);
+      }
+    } catch (error) {
+      console.error('Error completing appointment:', error);
+    }
+  }, [appointmentToComplete, callApi, loadAppointments, loadDashboardData]);
 
   // Report Generation Handler
   const handleGenerateReport = useCallback(async (reportData) => {
@@ -3805,6 +3906,10 @@ const AdminDashboard = () => {
       let aValue, bValue;
       
       switch(appointmentSort.key) {
+        case 'created_at':
+          aValue = new Date(a.created_at);
+          bValue = new Date(b.created_at);
+          break;
         case 'appointment_date':
           aValue = new Date(a.appointment_date);
           bValue = new Date(b.appointment_date);
@@ -3958,6 +4063,14 @@ const AdminDashboard = () => {
                     )}
                   </div>
                 </th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-amber-400 uppercase tracking-wider hidden md:table-cell cursor-pointer hover:bg-gray-700 transition-colors" onClick={() => handleAppointmentSort('created_at')}>
+                  <div className="flex items-center gap-1">
+                    Booked
+                    {appointmentSort.key === 'created_at' && (
+                      <span className="text-amber-300">{appointmentSort.direction === 'asc' ? '↑' : '↓'}</span>
+                    )}
+                  </div>
+                </th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-amber-400 uppercase tracking-wider hidden md:table-cell cursor-pointer hover:bg-gray-700 transition-colors" onClick={() => handleAppointmentSort('status')}>
                   <div className="flex items-center gap-1">
                     Status
@@ -4009,6 +4122,12 @@ const AdminDashboard = () => {
                       {new Date(appointment.appointment_date).toLocaleDateString()}
                     </div>
                     <div className="text-xs text-gray-400 hidden sm:block">{appointment.appointment_time}</div>
+                  </td>
+                  <td className="px-3 py-2 hidden md:table-cell">
+                    <div className="text-xs text-amber-50">
+                      {new Date(appointment.created_at).toLocaleDateString()}
+                    </div>
+                    <div className="text-xs text-gray-400">{new Date(appointment.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
                   </td>
                   <td className="px-3 py-2 hidden md:table-cell">
                     <StatusBadge status={appointment.status} />
@@ -4081,32 +4200,124 @@ const AdminDashboard = () => {
         )}
 
         {/* Pagination Controls */}
-        {totalPages > 1 && (
-          <div className={`flex justify-between items-center px-4 py-3 border-t border-gray-700 bg-gray-800/50`}>
+        <div className={`border-t border-gray-700 bg-gray-800/50 px-4 py-3`}>
+          <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+            {/* Left: Items per page selector */}
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => setAppointmentPage(Math.max(1, appointmentPage - 1))}
-                disabled={appointmentPage === 1}
-                className="px-3 py-1 text-xs font-medium text-gray-300 border border-gray-600 rounded hover:border-amber-500/40 hover:text-amber-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+              <label className="text-xs text-gray-400 font-medium">Show:</label>
+              <select
+                value={appointmentsPerPage}
+                onChange={(e) => {
+                  setAppointmentsPerPage(Number(e.target.value));
+                  setAppointmentPage(1); // Reset to first page
+                }}
+                className="px-2 py-1 text-xs bg-gray-700 border border-gray-600 rounded text-gray-300 hover:border-amber-500/40 focus:outline-none focus:border-amber-500 transition-all"
               >
-                ← Previous
-              </button>
+                <option value={5}>5 per page</option>
+                <option value={10}>10 per page</option>
+                <option value={15}>15 per page</option>
+                <option value={20}>20 per page</option>
+                <option value={50}>50 per page</option>
+                <option value={100}>100 per page</option>
+              </select>
               <span className="text-xs text-gray-400">
-                Page <span className="font-semibold text-amber-300">{appointmentPage}</span> of <span className="font-semibold text-amber-300">{totalPages}</span>
+                Showing {filtered.length > 0 ? startIdx + 1 : 0}-{Math.min(startIdx + appointmentsPerPage, filtered.length)} of {filtered.length}
               </span>
-              <button
-                onClick={() => setAppointmentPage(Math.min(totalPages, appointmentPage + 1))}
-                disabled={appointmentPage === totalPages}
-                className="px-3 py-1 text-xs font-medium text-gray-300 border border-gray-600 rounded hover:border-amber-500/40 hover:text-amber-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-              >
-                Next →
-              </button>
             </div>
-            <div className="text-xs text-gray-400">
-              Showing {startIdx + 1}-{Math.min(startIdx + appointmentsPerPage, filtered.length)} of {filtered.length}
+
+            {/* Center: Page navigation */}
+            {totalPages > 1 && (
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setAppointmentPage(1)}
+                  disabled={appointmentPage === 1}
+                  className="px-2 py-1 text-xs font-medium text-gray-300 border border-gray-600 rounded hover:border-amber-500/40 hover:text-amber-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                  title="First page"
+                >
+                  ⏮
+                </button>
+                <button
+                  onClick={() => setAppointmentPage(Math.max(1, appointmentPage - 1))}
+                  disabled={appointmentPage === 1}
+                  className="px-2 py-1 text-xs font-medium text-gray-300 border border-gray-600 rounded hover:border-amber-500/40 hover:text-amber-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                  title="Previous page"
+                >
+                  ←
+                </button>
+                
+                {/* Page numbers */}
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    let pageNum;
+                    if (totalPages <= 5) {
+                      pageNum = i + 1;
+                    } else if (appointmentPage <= 3) {
+                      pageNum = i + 1;
+                    } else if (appointmentPage >= totalPages - 2) {
+                      pageNum = totalPages - 4 + i;
+                    } else {
+                      pageNum = appointmentPage - 2 + i;
+                    }
+                    return (
+                      <button
+                        key={pageNum}
+                        onClick={() => setAppointmentPage(pageNum)}
+                        className={`px-2 py-1 text-xs font-medium rounded transition-all ${
+                          appointmentPage === pageNum
+                            ? 'bg-amber-500/30 border border-amber-400 text-amber-300'
+                            : 'text-gray-300 border border-gray-600 hover:border-amber-500/40 hover:text-amber-400'
+                        }`}
+                      >
+                        {pageNum}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <button
+                  onClick={() => setAppointmentPage(Math.min(totalPages, appointmentPage + 1))}
+                  disabled={appointmentPage === totalPages}
+                  className="px-2 py-1 text-xs font-medium text-gray-300 border border-gray-600 rounded hover:border-amber-500/40 hover:text-amber-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                  title="Next page"
+                >
+                  →
+                </button>
+                <button
+                  onClick={() => setAppointmentPage(totalPages)}
+                  disabled={appointmentPage === totalPages}
+                  className="px-2 py-1 text-xs font-medium text-gray-300 border border-gray-600 rounded hover:border-amber-500/40 hover:text-amber-400 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                  title="Last page"
+                >
+                  ⏭
+                </button>
+              </div>
+            )}
+
+            {/* Right: Page info input */}
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-400">
+                Page <span className="font-semibold text-amber-300">{appointmentPage}</span> of <span className="font-semibold text-amber-300">{totalPages || 1}</span>
+              </span>
+              {totalPages > 1 && (
+                <>
+                  <span className="text-gray-600">|</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max={totalPages}
+                    value={appointmentPage}
+                    onChange={(e) => {
+                      const pageNum = Math.max(1, Math.min(totalPages, Number(e.target.value) || 1));
+                      setAppointmentPage(pageNum);
+                    }}
+                    className="w-12 px-1 py-1 text-xs text-center bg-gray-700 border border-gray-600 rounded text-gray-300 hover:border-amber-500/40 focus:outline-none focus:border-amber-500 transition-all"
+                    title="Jump to page"
+                  />
+                </>
+              )}
             </div>
           </div>
-        )}
+        </div>
       </div>
     </div>
     );
@@ -4137,6 +4348,17 @@ const AdminDashboard = () => {
           <div className="p-4">
             <AdminDecisionSupport isDarkMode={isDarkMode} onRefresh={loadUnavailableDates} />
           </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Appointment Settings render function
+  const renderAppointmentSettings = () => {
+    return (
+      <div className="space-y-6">
+        <div>
+          <AppointmentSettingsManagement isDarkMode={isDarkMode} />
         </div>
       </div>
     );
@@ -4443,7 +4665,9 @@ const AdminDashboard = () => {
       case 'adminProfile': return renderAdminProfile();
       case 'appointments': return renderAppointments();
       case 'calendar': return renderCalendar();
+      case 'appointment-settings': return renderAppointmentSettings();
       case 'services': return <AdminServices isDarkMode={isDarkMode} />;
+      case 'analytics': return <AdminAnalyticsDashboard />;
       case 'reports': return renderReports();
       case 'archive': return renderArchive();
       case 'deactivated': return renderDeactivatedAccounts();
@@ -4764,6 +4988,19 @@ const AdminDashboard = () => {
         affected={affectedAppointments}
         dateData={pendingUnavailableDate}
         onConfirm={handleConfirmAddUnavailable}
+        onCancelSelected={handleCancelSelectedAppointments}
+        loading={apiLoading}
+      />
+
+      <CancelBulkAppointmentsModal
+        isOpen={showCancelBulkModal}
+        onClose={() => {
+          setShowCancelBulkModal(false);
+          setBulkCancelData(null);
+        }}
+        affected={bulkCancelData?.affected || []}
+        unavailableDate={bulkCancelData?.dateData}
+        onConfirm={handleConfirmBulkCancel}
         loading={apiLoading}
       />
 
@@ -4797,6 +5034,20 @@ const AdminDashboard = () => {
           setShowDeclineModal(false);
           await handleAppointmentAction(appointmentToDecline.id, 'decline', reason);
           setAppointmentToDecline(null);
+        }}
+        loading={apiLoading}
+      />
+
+      {/* Completion Modal */}
+      <CompletionModal
+        isOpen={showCompletionModal}
+        onClose={() => {
+          setShowCompletionModal(false);
+          setAppointmentToComplete(null);
+        }}
+        appointment={appointmentToComplete}
+        onConfirm={async (completionNotes) => {
+          await handleAppointmentCompletion(completionNotes);
         }}
         loading={apiLoading}
       />

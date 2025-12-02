@@ -119,8 +119,19 @@ class UserController extends Controller
         ]);
 
         try {
+            // Generate unique username from email
+            $emailPart = explode('@', $request->email)[0];
+            $username = $emailPart;
+            $counter = 1;
+            
+            // Ensure username is unique
+            while (User::where('username', $username)->exists()) {
+                $username = $emailPart . $counter;
+                $counter++;
+            }
+            
             $user = User::create([
-                'username' => $request->email, // Use email as username if not provided
+                'username' => $username,
                 'email' => $request->email,
                 'password' => Hash::make($request->password),
                 'role' => $request->role,
@@ -157,13 +168,6 @@ class UserController extends Controller
     public function update(Request $request, User $user)
     {
         $request->validate([
-            'username' => [
-                'required',
-                'string',
-                'min:3',
-                'max:255',
-                Rule::unique('users')->ignore($user->id),
-            ],
             'email' => [
                 'required',
                 'email',
@@ -173,21 +177,38 @@ class UserController extends Controller
             'role' => 'required|in:admin,staff,client',
             'first_name' => 'required|string|max:255',
             'last_name' => 'required|string|max:255',
-            'phone' => 'required|string|max:20',
-            'address' => 'required|string',
-            'is_active' => 'required|boolean',
+            'phone' => 'nullable|string|max:20',
+            'address' => 'nullable|string',
+            'is_active' => 'nullable|boolean',
+            'password' => 'nullable|string|min:6',
         ]);
 
         try {
             $oldData = $user->only([
-                'username', 'email', 'role', 'first_name', 
+                'email', 'role', 'first_name', 
                 'last_name', 'phone', 'address', 'is_active'
             ]);
             
-            $user->update($request->only([
-                'username', 'email', 'role', 'first_name', 
-                'last_name', 'phone', 'address', 'is_active'
-            ]));
+            // Auto-generate username from email if not already set
+            if (!$user->username && $request->has('email')) {
+                $user->username = explode('@', $request->email)[0];
+            }
+            
+            $updateData = [
+                'email' => $request->email,
+                'role' => $request->role,
+                'first_name' => $request->first_name,
+                'last_name' => $request->last_name,
+                'phone' => $request->phone ?? $user->phone,
+                'address' => $request->address ?? $user->address,
+            ];
+            
+            // Only update is_active if explicitly provided
+            if ($request->has('is_active')) {
+                $updateData['is_active'] = $request->is_active;
+            }
+            
+            $user->update($updateData);
 
             if ($request->has('password') && $request->password) {
                 $user->update(['password' => Hash::make($request->password)]);

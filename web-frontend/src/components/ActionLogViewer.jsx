@@ -9,8 +9,10 @@ import {
   ExclamationTriangleIcon,
   ArrowPathIcon,
   MagnifyingGlassIcon,
-  CalendarIcon
+  CalendarIcon,
+  EyeIcon
 } from '@heroicons/react/24/outline';
+import ActionLogDetailModal from './modals/ActionLogDetailModal';
 
 const ActionLogViewer = ({ isDarkMode = true }) => {
   const [logs, setLogs] = useState([]);
@@ -20,6 +22,8 @@ const ActionLogViewer = ({ isDarkMode = true }) => {
   const [totalPages, setTotalPages] = useState(1);
   const [searchTerm, setSearchTerm] = useState('');
   const [actionFilter, setActionFilter] = useState('');
+  const [selectedLog, setSelectedLog] = useState(null);
+  const [showDetailModal, setShowDetailModal] = useState(false);
 
   useEffect(() => {
     loadLogs();
@@ -97,6 +101,11 @@ const ActionLogViewer = ({ isDarkMode = true }) => {
   const handleActionFilter = (action) => {
     setActionFilter(action === actionFilter ? '' : action);
     setCurrentPage(1);
+  };
+
+  const handleViewDetails = (log) => {
+    setSelectedLog(log);
+    setShowDetailModal(true);
   };
 
   return (
@@ -226,6 +235,15 @@ const ActionLogViewer = ({ isDarkMode = true }) => {
                     <td className={`px-2 sm:px-4 py-2 sm:py-3 text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} hidden md:table-cell`}>
                       {log.model_type || '-'}
                     </td>
+                    <td className="px-2 sm:px-4 py-2 sm:py-3 text-center">
+                      <button
+                        onClick={() => handleViewDetails(log)}
+                        className={`p-1 rounded transition-colors ${isDarkMode ? 'text-amber-400 hover:text-amber-300 hover:bg-amber-500/10' : 'text-amber-600 hover:text-amber-700 hover:bg-amber-50'}`}
+                        title="View details"
+                      >
+                        <EyeIcon className="h-3.5 w-3.5" />
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -256,6 +274,17 @@ const ActionLogViewer = ({ isDarkMode = true }) => {
           </div>
         )}
       </div>
+
+      {/* Action Log Detail Modal */}
+      <ActionLogDetailModal
+        isOpen={showDetailModal}
+        onClose={() => {
+          setShowDetailModal(false);
+          setSelectedLog(null);
+        }}
+        log={selectedLog}
+        isDarkMode={isDarkMode}
+      />
     </div>
   );
 };

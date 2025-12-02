@@ -134,7 +134,17 @@ class AdminController extends Controller
         $appointments = $query->orderBy('created_at', 'desc')
             ->paginate($perPage);
 
-        return $appointments;
+        // Always return in consistent format with data array
+        return [
+            'data' => $appointments->items(),
+            'success' => true,
+            'pagination' => [
+                'current_page' => $appointments->currentPage(),
+                'total' => $appointments->total(),
+                'per_page' => $appointments->perPage(),
+                'last_page' => $appointments->lastPage()
+            ]
+        ];
     }
 
     public function generateReport(Request $request)
@@ -213,21 +223,31 @@ class AdminController extends Controller
                 'read' => false
             ]);
 
-            // Send email to user
-            Mail::to($user->email)->send(new AdminMessageMail(
-                $user,
-                $request->subject,
-                $request->message,
-                $request->type
-            ));
+            // Send email to user (fail silently if email fails)
+            try {
+                Mail::to($user->email)->send(new AdminMessageMail(
+                    $user,
+                    $request->subject,
+                    $request->message,
+                    $request->type
+                ));
+            } catch (\Exception $emailError) {
+                \Log::warning('Failed to send admin message email: ' . $emailError->getMessage());
+                // Don't fail the API request if email fails
+            }
 
             // Log the message
-            \App\Models\ActionLog::log(
-                'message',
-                "Sent message to {$user->first_name} {$user->last_name}. Message content: {$request->message}",
-                'Message',
-                $messageModel->id
-            );
+            try {
+                \App\Models\ActionLog::log(
+                    'message',
+                    "Sent message to {$user->first_name} {$user->last_name}. Message content: {$request->message}",
+                    'Message',
+                    $messageModel->id
+                );
+            } catch (\Exception $logError) {
+                \Log::warning('Failed to log message action: ' . $logError->getMessage());
+                // Don't fail the API request if logging fails
+            }
 
             return response()->json([
                 'success' => true,
@@ -235,11 +255,19 @@ class AdminController extends Controller
                 'data' => $messageModel->load(['sender', 'receiver'])
             ]);
 
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors' => $e->errors()
+            ], 422);
         } catch (\Exception $e) {
             \Log::error('Failed to send admin message', [
                 'error' => $e->getMessage(),
                 'user_id' => $request->userId ?? null,
-                'admin_id' => $request->user()->id
+                'admin_id' => $request->user()->id,
+                'file' => $e->getFile(),
+                'line' => $e->getLine()
             ]);
 
             return response()->json([
@@ -611,5 +639,264 @@ class AdminController extends Controller
                 'errorRate' => '0.1%'
             ]
         ];
+    }
+
+    /**
+     * Cancel multiple appointments due to unavailable date
+     * Sends cancellation notifications individually or as a group
+     */
+    public function cancelBulkAppointments(Request $request)
+    {
+        try {
+            $request->validate([
+                'appointment_ids' => 'required|array|min:1',
+                'appointment_ids.*' => 'integer|exists:appointments,id',
+                'cancellation_reason' => 'required|string|max:500',
+                'message_type' => 'required|in:individual,group',
+                'include_reason_in_message' => 'boolean',
+                'unavailable_date' => 'required|array'
+            ]);
+
+            $appointmentIds = $request->input('appointment_ids');
+            $cancellationReason = $request->input('cancellation_reason');
+            $messageType = $request->input('message_type'); // individual or group
+            $includeReason = $request->boolean('include_reason_in_message', true);
+            $unavailableDate = $request->input('unavailable_date');
+
+            // Fetch all appointments to be cancelled
+            $appointments = Appointment::with(['user', 'staff', 'service'])
+                ->whereIn('id', $appointmentIds)
+                ->get();
+
+            if ($appointments->isEmpty()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No appointments found to cancel'
+                ], 404);
+            }
+
+            // Cancel all appointments
+            $cancelledCount = Appointment::whereIn('id', $appointmentIds)
+                ->update(['status' => 'cancelled']);
+
+            // Log the action
+            \App\Models\ActionLog::log(
+                'bulk_cancel_appointments',
+                "Cancelled {$cancelledCount} appointments due to unavailable date ({$unavailableDate['date']}). Reason: {$cancellationReason}",
+                'Appointment',
+                null
+            );
+
+            // Send notifications based on message type
+            if ($messageType === 'individual') {
+                // Send individual messages to each user
+                foreach ($appointments as $appointment) {
+                    $this->sendAppointmentCancellationMessage(
+                        $appointment,
+                        $cancellationReason,
+                        $includeReason
+                    );
+                }
+            } else {
+                // Send one group message to all affected users
+                $this->sendGroupCancellationMessage(
+                    $appointments,
+                    $cancellationReason,
+                    $includeReason,
+                    $unavailableDate['date']
+                );
+            }
+
+            // Clear relevant caches
+            Cache::tags(['admin', 'appointments'])->flush();
+            if (auth()->id()) {
+                Cache::forget('admin_stats_' . auth()->id());
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => "Successfully cancelled {$cancelledCount} appointment(s) and sent notifications",
+                'cancelled_count' => $cancelledCount,
+                'message_type' => $messageType
+            ]);
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation error',
+                'errors' => $e->errors()
+            ], 422);
+        } catch (\Exception $e) {
+            \Log::error('Error cancelling bulk appointments: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to cancel appointments',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Send individual cancellation message for a single appointment
+     */
+    private function sendAppointmentCancellationMessage($appointment, $reason, $includeReason)
+    {
+        try {
+            // Create in-app message
+            $messageContent = "Your appointment on " . 
+                $appointment->appointment_date->format('F d, Y') . 
+                " at " . $appointment->appointment_time;
+            
+            if ($includeReason) {
+                $messageContent .= " has been cancelled. Reason: " . $reason;
+            } else {
+                $messageContent .= " has been cancelled.";
+            }
+
+            \App\Models\Message::create([
+                'sender_id' => auth()->id(), // Admin sending the message
+                'receiver_id' => $appointment->user_id,
+                'subject' => 'Appointment Cancelled',
+                'message' => $messageContent,
+                'type' => 'cancellation',
+                'read' => false
+            ]);
+
+            // Send email notification
+            if ($appointment->user && $appointment->user->email) {
+                try {
+                    Mail::to($appointment->user->email)->send(
+                        new \App\Mail\AppointmentStatusMail($appointment)
+                    );
+                } catch (\Exception $e) {
+                    \Log::error('Failed to send cancellation email for appointment ' . $appointment->id . ': ' . $e->getMessage());
+                }
+            }
+        } catch (\Exception $e) {
+            \Log::error('Error sending appointment cancellation message: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Send group cancellation message to all affected users
+     */
+    private function sendGroupCancellationMessage($appointments, $reason, $includeReason, $unavailableDate)
+    {
+        try {
+            // Get unique users
+            $userIds = $appointments->pluck('user_id')->unique();
+
+            // Create group message for each user
+            foreach ($userIds as $userId) {
+                $userAppointments = $appointments->where('user_id', $userId);
+                
+                $messageContent = "Multiple appointments have been cancelled due to an unavailable date (" . 
+                    (new Carbon($unavailableDate))->format('F d, Y') . "):\n\n";
+
+                foreach ($userAppointments as $apt) {
+                    $messageContent .= "• " . $apt->appointment_date->format('F d, Y') . " at " . $apt->appointment_time . " - " . 
+                        ($apt->service_type ?? $apt->type) . "\n";
+                }
+
+                if ($includeReason) {
+                    $messageContent .= "\nReason: " . $reason;
+                }
+
+                // Create message for this user
+                \App\Models\Message::create([
+                    'sender_id' => auth()->id(), // Admin sending the message
+                    'receiver_id' => $userId,
+                    'subject' => 'Multiple Appointments Cancelled',
+                    'message' => $messageContent,
+                    'type' => 'cancellation',
+                    'read' => false
+                ]);
+            }
+
+            // Also send individual emails to each user for better notification
+            foreach ($appointments as $appointment) {
+                if ($appointment->user && $appointment->user->email) {
+                    try {
+                        Mail::to($appointment->user->email)->send(
+                            new \App\Mail\AppointmentStatusMail($appointment)
+                        );
+                    } catch (\Exception $e) {
+                        \Log::error('Failed to send group cancellation email: ' . $e->getMessage());
+                    }
+                }
+            }
+        } catch (\Exception $e) {
+            \Log::error('Error sending group cancellation message: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Reserve a suggested time slot
+     * POST /api/admin/reserve-suggested-slot
+     * Called from AdminDecisionSupport component
+     */
+    public function reserveSuggestedSlot(Request $request)
+    {
+        $request->validate([
+            'slot' => 'required|array',
+            'slot.time' => 'required|date_format:H:i',
+        ]);
+
+        try {
+            $slotData = $request->input('slot');
+            
+            // Get the suggested time slot and check availability
+            $timeSlot = $slotData['time'];
+            
+            // This is informational - admin can use this to understand recommended slots
+            // In practice, admin would manually create the appointment through the regular flow
+            return response()->json([
+                'success' => true,
+                'message' => 'Slot reservation acknowledged. Suggested time: ' . $timeSlot,
+                'data' => [
+                    'recommended_time' => $timeSlot,
+                    'action' => 'Consider booking at this time for optimal availability',
+                ]
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error reserving suggested slot: ' . $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Assign staff based on decision support recommendations
+     * POST /api/admin/assign-staff
+     * Called from AdminDecisionSupport component
+     */
+    public function assignStaff(Request $request)
+    {
+        $request->validate([
+            'recommendation' => 'required|array',
+        ]);
+
+        try {
+            $recommendation = $request->input('recommendation');
+            
+            // This endpoint acknowledges the staff recommendation from decision support
+            // The actual appointment assignment happens through the regular appointment update flow
+            // This is informational for admins to understand which staff are recommended
+            return response()->json([
+                'success' => true,
+                'message' => 'Staff assignment recommendation acknowledged.',
+                'data' => [
+                    'recommended_staff_id' => $recommendation['staff_id'] ?? null,
+                    'reasoning' => $recommendation['reasoning'] ?? [],
+                    'action' => 'Consider assigning this staff member based on the recommendations',
+                ]
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error processing staff assignment: ' . $e->getMessage(),
+            ], 500);
+        }
     }
 }

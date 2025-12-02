@@ -13,13 +13,28 @@ const AdminDecisionSupport = ({ isDarkMode = true, onRefresh = () => {} }) => {
   const [actionLoading, setActionLoading] = useState(false);
 
   useEffect(() => {
-    loadDashboard();
-  }, []);
+    // Load dashboard with initial selected date
+    if (selectedDate) {
+      loadDashboard(selectedDate);
+    }
+  }, [selectedDate]);
 
-  const loadDashboard = async () => {
+  // Convert 24-hour time to 12-hour format
+  const formatTimeAmPm = (timeStr) => {
+    if (!timeStr) return timeStr;
+    const [hours, minutes] = timeStr.split(':');
+    const hour = parseInt(hours);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    const displayHour = hour > 12 ? hour - 12 : (hour === 0 ? 12 : hour);
+    return `${displayHour}:${minutes} ${ampm}`;
+  };
+
+  const loadDashboard = async (date = selectedDate) => {
     setLoading(true);
     try {
-      const res = await axios.get('/api/decision-support/dashboard');
+      const res = await axios.get('/api/decision-support/dashboard', { 
+        params: { appointment_date: date } 
+      });
       setDashboard(res.data?.data || res.data || null);
     } catch (err) {
       console.error('Failed to load decision support dashboard', err);
@@ -32,7 +47,9 @@ const AdminDecisionSupport = ({ isDarkMode = true, onRefresh = () => {} }) => {
   const fetchTimeRecommendations = async (date) => {
     setLoading(true);
     try {
-      const res = await axios.get('/api/decision-support/time-slot-recommendations', { params: { date } });
+      const res = await axios.get('/api/decision-support/time-slot-recommendations', { 
+        params: { appointment_date: date } 
+      });
       setTimeRecommendations(res.data?.data || res.data || []);
     } catch (err) {
       console.error('Failed to fetch time recommendations', err);
@@ -81,7 +98,10 @@ const AdminDecisionSupport = ({ isDarkMode = true, onRefresh = () => {} }) => {
         </h3>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => { loadDashboard(); fetchTimeRecommendations(selectedDate); fetchStaffRecommendations(selectedDate); }}
+            onClick={() => { 
+              loadDashboard(selectedDate); 
+              fetchTimeRecommendations(selectedDate); 
+            }}
             className="text-xs px-2 py-1 border border-amber-500/30 rounded text-amber-50 hover:bg-amber-500/10"
             title="Refresh"
           >
@@ -118,7 +138,7 @@ const AdminDecisionSupport = ({ isDarkMode = true, onRefresh = () => {} }) => {
           {timeRecommendations.map((t, idx) => (
             <div key={idx} className="p-2 bg-gray-800/30 border border-gray-700 rounded flex items-center justify-between text-xs">
               <div>
-                <div className="font-medium text-amber-50">{t.time || t.slot || `${t.start} - ${t.end}`}</div>
+                <div className="font-medium text-amber-50">{formatTimeAmPm(t.time) || formatTimeAmPm(t.slot) || `${formatTimeAmPm(t.start)} - ${formatTimeAmPm(t.end)}`}</div>
                 <div className="text-gray-400">Available slots: {t.available_slots ?? t.capacity ?? t.available_capacity ?? 'N/A'}</div>
               </div>
               <div className="flex items-center gap-2">

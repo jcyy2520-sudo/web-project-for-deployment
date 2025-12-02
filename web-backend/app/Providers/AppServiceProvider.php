@@ -22,9 +22,35 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        // Configure rate limiting
+        // Configure granular rate limiting for different API endpoints
         RateLimiter::for('api', function (Request $request) {
-            return Limit::perMinute(60)->by($request->user()?->id ?: $request->ip());
+            // Stricter limits for auth endpoints
+            if ($request->is('api/auth/*') || $request->is('api/register') || $request->is('api/login')) {
+                return Limit::perMinute(5)->by($request->ip());
+            }
+
+            // Moderate limits for batch operations (heavy database work)
+            if ($request->is('api/*/batch/*') || $request->is('api/*/bulk/*')) {
+                return Limit::perMinute(10)->by($request->user()?->id ?: $request->ip());
+            }
+
+            // Standard limits for authenticated users
+            if ($request->user()) {
+                return Limit::perMinute(60)->by($request->user()->id);
+            }
+
+            // Strict limits for guests
+            return Limit::perMinute(20)->by($request->ip());
+        });
+
+        // Rate limit for password reset attempts
+        RateLimiter::for('password-reset', function (Request $request) {
+            return Limit::perMinute(5)->by($request->email);
+        });
+
+        // Rate limit for verification codes
+        RateLimiter::for('verification', function (Request $request) {
+            return Limit::perMinute(3)->by($request->ip());
         });
 
         // Sync default appointment types to services on app boot

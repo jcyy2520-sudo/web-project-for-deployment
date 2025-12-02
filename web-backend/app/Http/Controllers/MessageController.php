@@ -11,179 +11,209 @@ class MessageController extends Controller
 {
     public function index(Request $request)
     {
-        $user = $request->user();
-        
-        // Get all users the current user has messaged with
-        $userIds = Message::where(function($query) use ($user) {
-                $query->where('sender_id', $user->id)
-                      ->orWhere('receiver_id', $user->id);
-            })
-            ->get(['sender_id', 'receiver_id'])
-            ->map(function($msg) use ($user) {
-                return $msg->sender_id === $user->id ? $msg->receiver_id : $msg->sender_id;
-            })
-            ->unique()
-            ->values();
-
-        // Build conversations array - one per user
-        $conversations = $userIds->map(function($otherUserId) use ($user) {
-            // Get the most recent message with this user
-            $lastMessage = Message::where(function($query) use ($user, $otherUserId) {
+        try {
+            $user = $request->user();
+            
+            // Get all users the current user has messaged with
+            $userIds = Message::where(function($query) use ($user) {
                     $query->where('sender_id', $user->id)
-                          ->where('receiver_id', $otherUserId);
+                          ->orWhere('receiver_id', $user->id);
                 })
-                ->orWhere(function($query) use ($user, $otherUserId) {
-                    $query->where('sender_id', $otherUserId)
-                          ->where('receiver_id', $user->id);
+                ->get(['sender_id', 'receiver_id'])
+                ->map(function($msg) use ($user) {
+                    return $msg->sender_id === $user->id ? $msg->receiver_id : $msg->sender_id;
                 })
-                ->latest()
-                ->with(['sender', 'receiver'])
-                ->first();
+                ->unique()
+                ->values();
 
-            // Get the other user
-            $otherUser = User::find($otherUserId);
+            // Build conversations array - one per user
+            $conversations = $userIds->map(function($otherUserId) use ($user) {
+                // Get the most recent message with this user
+                $lastMessage = Message::where(function($query) use ($user, $otherUserId) {
+                        $query->where('sender_id', $user->id)
+                              ->where('receiver_id', $otherUserId);
+                    })
+                    ->orWhere(function($query) use ($user, $otherUserId) {
+                        $query->where('sender_id', $otherUserId)
+                              ->where('receiver_id', $user->id);
+                    })
+                    ->latest()
+                    ->with(['sender', 'receiver'])
+                    ->first();
 
-            // Count unread messages from this user
-            $unreadCount = Message::where('sender_id', $otherUserId)
-                ->where('receiver_id', $user->id)
-                ->where('read', false)
-                ->count();
+                // Get the other user
+                $otherUser = User::find($otherUserId);
 
-            return [
-                'user' => $otherUser,
-                'last_message' => $lastMessage,
-                'unread_count' => $unreadCount,
-            ];
-        })->values();
+                // Count unread messages from this user
+                $unreadCount = Message::where('sender_id', $otherUserId)
+                    ->where('receiver_id', $user->id)
+                    ->where('read', false)
+                    ->count();
 
-        return response()->json([
-            'data' => $conversations,
-            'success' => true
-        ]);
+                return [
+                    'user' => $otherUser,
+                    'last_message' => $lastMessage,
+                    'unread_count' => $unreadCount,
+                ];
+            })->values();
+
+            return response()->json([
+                'data' => $conversations,
+                'success' => true
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Message index error: ' . $e->getMessage());
+            return response()->json([
+                'message' => 'Failed to load messages',
+                'error' => $e->getMessage(),
+                'success' => false
+            ], 500);
+        }
     }
 
     public function show(Request $request, User $otherUser)
     {
-        $user = $request->user();
+        try {
+            $user = $request->user();
 
-        $messages = Message::where(function ($query) use ($user, $otherUser) {
-                $query->where('sender_id', $user->id)
-                      ->where('receiver_id', $otherUser->id);
-            })
-            ->orWhere(function ($query) use ($user, $otherUser) {
-                $query->where('sender_id', $otherUser->id)
-                      ->where('receiver_id', $user->id);
-            })
-            ->with(['sender', 'receiver'])
-            ->orderBy('created_at', 'asc')
-            ->get();
+            $messages = Message::where(function ($query) use ($user, $otherUser) {
+                    $query->where('sender_id', $user->id)
+                          ->where('receiver_id', $otherUser->id);
+                })
+                ->orWhere(function ($query) use ($user, $otherUser) {
+                    $query->where('sender_id', $otherUser->id)
+                          ->where('receiver_id', $user->id);
+                })
+                ->with(['sender', 'receiver'])
+                ->orderBy('created_at', 'asc')
+                ->get();
 
-        // Mark messages as read
-        Message::where('sender_id', $otherUser->id)
-            ->where('receiver_id', $user->id)
-            ->where('read', false)
-            ->update(['read' => true]);
+            // Mark messages as read
+            Message::where('sender_id', $otherUser->id)
+                ->where('receiver_id', $user->id)
+                ->where('read', false)
+                ->update(['read' => true]);
 
-        return response()->json([
-            'data' => [
-                'messages' => $messages,
-                'other_user' => $otherUser
-            ],
-            'success' => true
-        ]);
+            return response()->json([
+                'data' => [
+                    'messages' => $messages,
+                    'other_user' => $otherUser
+                ],
+                'success' => true
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Message show error: ' . $e->getMessage());
+            return response()->json([
+                'message' => 'Failed to load conversation',
+                'error' => $e->getMessage(),
+                'success' => false
+            ], 500);
+        }
     }
 
     public function store(Request $request)
     {
-        $request->validate([
-            'receiver_id' => 'required|exists:users,id',
-            'message' => 'required|string|max:1000',
-            'reply_to_message_id' => 'nullable|exists:messages,id',
-            'subject' => 'nullable|string|max:255',
-            'type' => 'nullable|string|max:50'
-        ]);
+        try {
+            $request->validate([
+                'receiver_id' => 'required|exists:users,id',
+                'message' => 'required|string|max:1000',
+                'reply_to_message_id' => 'nullable|exists:messages,id',
+                'subject' => 'nullable|string|max:255',
+                'type' => 'nullable|string|max:50'
+            ]);
 
-        $user = $request->user();
-        $receiver = User::findOrFail($request->receiver_id);
+            $user = $request->user();
+            $receiver = User::findOrFail($request->receiver_id);
 
-        // If user is a client, they can only message if the receiver (admin/staff) has already messaged them
-        if ($user->isClient()) {
-            $hasConversation = Message::where(function($query) use ($user, $receiver) {
-                $query->where('sender_id', $receiver->id)
-                      ->where('receiver_id', $user->id);
-            })->exists();
-
-            if (!$hasConversation) {
-                return response()->json([
-                    'message' => 'You can only message after receiving a message from the admin or staff',
-                    'success' => false
-                ], 403);
-            }
-
-            // Check 3-reply limit for clients
-            if ($request->reply_to_message_id) {
-                $parentMessage = Message::findOrFail($request->reply_to_message_id);
-                
-                // Verify the parent message is from the receiver (admin/staff)
-                if ($parentMessage->sender_id !== $receiver->id) {
+            // If user is a client, they can only message admin/staff
+            // Note: Admin/staff can always message anyone
+            if ($user->isClient()) {
+                // Check if receiver is admin or staff
+                if (!$receiver->isAdmin() && !$receiver->isStaff()) {
                     return response()->json([
-                        'message' => 'Invalid message to reply to',
+                        'message' => 'You can only message admins or staff',
                         'success' => false
-                    ], 400);
+                    ], 403);
                 }
 
-                // Count replies from this user to this parent message
-                $replyCount = Message::where('reply_to_message_id', $parentMessage->id)
-                    ->where('sender_id', $user->id)
-                    ->count();
+                // Check 3-reply limit for clients on specific parent messages
+                if ($request->reply_to_message_id) {
+                    $parentMessage = Message::findOrFail($request->reply_to_message_id);
+                    
+                    // Verify the parent message is from the receiver (admin/staff)
+                    if ($parentMessage->sender_id !== $receiver->id) {
+                        return response()->json([
+                            'message' => 'Invalid message to reply to',
+                            'success' => false
+                        ], 400);
+                    }
 
-                if ($replyCount >= 3) {
-                    return response()->json([
-                        'message' => 'You have reached the 3-reply limit for this message. Wait for the admin to send another message to continue.',
-                        'success' => false,
-                        'error_code' => 'REPLY_LIMIT_EXCEEDED'
-                    ], 429);
+                    // Count replies from this user to this parent message
+                    $replyCount = Message::where('reply_to_message_id', $parentMessage->id)
+                        ->where('sender_id', $user->id)
+                        ->count();
+
+                    if ($replyCount >= 3) {
+                        return response()->json([
+                            'message' => 'You have reached the 3-reply limit for this message. Wait for the admin to send another message to continue.',
+                            'success' => false,
+                            'error_code' => 'REPLY_LIMIT_EXCEEDED'
+                        ], 429);
+                    }
                 }
             }
-        }
 
-        $message = Message::create([
-            'sender_id' => $request->user()->id,
-            'receiver_id' => $request->receiver_id,
-            'message' => $request->message,
-            'subject' => $request->subject ?? null,
-            'type' => $request->type ?? null,
-            'reply_to_message_id' => $request->reply_to_message_id ?? null
-        ]);
+            $message = Message::create([
+                'sender_id' => $request->user()->id,
+                'receiver_id' => $request->receiver_id,
+                'message' => $request->message,
+                'subject' => $request->subject ?? null,
+                'type' => $request->type ?? null,
+                'reply_to_message_id' => $request->reply_to_message_id ?? null
+            ]);
 
-        // Send email if sender is admin/staff and receiver is client
-        if ($request->user()->isAdmin() || $request->user()->isStaff()) {
-            try {
-                \Illuminate\Support\Facades\Mail::to($receiver->email)->send(new \App\Mail\AdminMessageMail(
-                    $receiver,
-                    $request->subject ?? 'New Message',
-                    $request->message,
-                    $request->type ?? 'general'
-                ));
-            } catch (\Exception $e) {
-                \Log::error('Failed to send message email: ' . $e->getMessage());
-                // Don't fail the API request if email fails
+            // Send email if sender is admin/staff and receiver is client
+            if ($request->user()->isAdmin() || $request->user()->isStaff()) {
+                try {
+                    \Illuminate\Support\Facades\Mail::to($receiver->email)->send(new \App\Mail\AdminMessageMail(
+                        $receiver,
+                        $request->subject ?? 'New Message',
+                        $request->message,
+                        $request->type ?? 'general'
+                    ));
+                } catch (\Exception $e) {
+                    \Log::error('Failed to send message email: ' . $e->getMessage());
+                    // Don't fail the API request if email fails
+                }
             }
+
+            // Log the message action with full message content
+            ActionLog::log(
+                'message',
+                "Sent message to {$receiver->first_name} {$receiver->last_name}. Message content: {$request->message}",
+                'Message',
+                $message->id
+            );
+
+            return response()->json([
+                'message' => 'Message sent successfully',
+                'data' => $message->load(['sender', 'receiver']),
+                'success' => true
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'message' => 'Validation failed',
+                'errors' => $e->errors(),
+                'success' => false
+            ], 422);
+        } catch (\Exception $e) {
+            \Log::error('Message store error: ' . $e->getMessage());
+            return response()->json([
+                'message' => 'Failed to send message',
+                'error' => $e->getMessage(),
+                'success' => false
+            ], 500);
         }
-
-        // Log the message action with full message content
-        ActionLog::log(
-            'message',
-            "Sent message to {$receiver->first_name} {$receiver->last_name}. Message content: {$request->message}",
-            'Message',
-            $message->id
-        );
-
-        return response()->json([
-            'message' => 'Message sent successfully',
-            'data' => $message->load(['sender', 'receiver']),
-            'success' => true
-        ]);
     }
 
     public function getUsers(Request $request)
@@ -308,32 +338,41 @@ class MessageController extends Controller
     // NEW: Delete entire conversation with a user
     public function deleteConversation(Request $request, $userId)
     {
-        $user = $request->user();
-        $otherUser = User::findOrFail($userId);
+        try {
+            $user = $request->user();
+            $otherUser = User::findOrFail($userId);
 
-        // Delete all messages between the two users
-        $deletedCount = Message::where(function($query) use ($user, $otherUser) {
-                $query->where('sender_id', $user->id)
-                      ->where('receiver_id', $otherUser->id);
-            })
-            ->orWhere(function($query) use ($user, $otherUser) {
-                $query->where('sender_id', $otherUser->id)
-                      ->where('receiver_id', $user->id);
-            })
-            ->delete();
+            // Delete all messages between the two users
+            $deletedCount = Message::where(function($query) use ($user, $otherUser) {
+                    $query->where('sender_id', $user->id)
+                          ->where('receiver_id', $otherUser->id);
+                })
+                ->orWhere(function($query) use ($user, $otherUser) {
+                    $query->where('sender_id', $otherUser->id)
+                          ->where('receiver_id', $user->id);
+                })
+                ->delete();
 
-        // Log the deletion action
-        ActionLog::log(
-            'delete',
-            "Deleted conversation with {$otherUser->first_name} {$otherUser->last_name} ({$deletedCount} messages)",
-            'Message',
-            null
-        );
+            // Log the deletion action
+            ActionLog::log(
+                'delete',
+                "Deleted conversation with {$otherUser->first_name} {$otherUser->last_name} ({$deletedCount} messages)",
+                'Message',
+                null
+            );
 
-        return response()->json([
-            'message' => 'Conversation deleted successfully',
-            'deleted_count' => $deletedCount,
-            'success' => true
-        ]);
+            return response()->json([
+                'message' => 'Conversation deleted successfully',
+                'deleted_count' => $deletedCount,
+                'success' => true
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Delete conversation error: ' . $e->getMessage());
+            return response()->json([
+                'message' => 'Failed to delete conversation',
+                'error' => $e->getMessage(),
+                'success' => false
+            ], 500);
+        }
     }
 }

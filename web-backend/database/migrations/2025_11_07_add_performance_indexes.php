@@ -25,7 +25,9 @@ return new class extends Migration
             $table->index(['sender_id', 'receiver_id'], 'idx_messages_sender_receiver');
             
             // Index for reply counting queries
-            $table->index(['reply_to_message_id', 'sender_id'], 'idx_messages_reply_sender');
+            if (Schema::hasColumn('messages', 'reply_to_message_id')) {
+                $table->index(['reply_to_message_id', 'sender_id'], 'idx_messages_reply_sender');
+            }
             
             // Index for read status queries
             $table->index(['receiver_id', 'read'], 'idx_messages_receiver_read');
@@ -45,7 +47,11 @@ return new class extends Migration
         Schema::table('users', function (Blueprint $table) {
             // Index for common lookups
             $table->index('role', 'idx_users_role');
-            $table->index(['email', 'deleted_at'], 'idx_users_email_deleted');
+            
+            // Only add this index if deleted_at column exists
+            if (Schema::hasColumn('users', 'deleted_at')) {
+                $table->index(['email', 'deleted_at'], 'idx_users_email_deleted');
+            }
         });
     }
 

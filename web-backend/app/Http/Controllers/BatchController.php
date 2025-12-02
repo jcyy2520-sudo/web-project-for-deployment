@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\User;
 use App\Models\Appointment;
 use App\Models\Service;
+use App\Traits\SafeExperimentalFeature;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
@@ -16,6 +17,7 @@ use Illuminate\Http\Request;
  */
 class BatchController extends Controller
 {
+    use SafeExperimentalFeature;
     /**
      * Get all dashboard data in a single request
      * Combines: stats, appointments summary, users summary, services
@@ -25,21 +27,23 @@ class BatchController extends Controller
      */
     public function dashboardData(Request $request)
     {
-        $timeframe = $request->query('timeframe', 'monthly') ?? 'monthly';
-        $realtime = filter_var($request->query('realtime', false), FILTER_VALIDATE_BOOLEAN);
-        
-        $cacheKey = "admin_batch_dashboard_{$timeframe}";
-        $ttl = 15; // seconds
+        return $this->wrapExperimental(function () use ($request) {
+            $timeframe = $request->query('timeframe', 'monthly') ?? 'monthly';
+            $realtime = filter_var($request->query('realtime', false), FILTER_VALIDATE_BOOLEAN);
+            
+            $cacheKey = "admin_batch_dashboard_{$timeframe}";
+            $ttl = 15; // seconds
 
-        if ($realtime) {
-            $data = $this->computeDashboardData($timeframe);
-        } else {
-            $data = Cache::remember($cacheKey, $ttl, function () use ($timeframe) {
-                return $this->computeDashboardData($timeframe);
-            });
-        }
+            if ($realtime) {
+                $data = $this->computeDashboardData($timeframe);
+            } else {
+                $data = Cache::remember($cacheKey, $ttl, function () use ($timeframe) {
+                    return $this->computeDashboardData($timeframe);
+                });
+            }
 
-        return response()->json(['data' => $data]);
+            return response()->json(['data' => $data]);
+        }, 'batch_dashboard');
     }
 
     /**
@@ -146,17 +150,19 @@ class BatchController extends Controller
      */
     public function fullDashboardLoad(Request $request)
     {
-        $timeframe = $request->query('timeframe', 'monthly') ?? 'monthly';
+        return $this->wrapExperimental(function () use ($request) {
+            $timeframe = $request->query('timeframe', 'monthly') ?? 'monthly';
 
-        // Use batch cache key to avoid duplicate requests while loading
-        $cacheKey = "admin_full_load_{$timeframe}_" . auth()->id();
-        $ttl = 10; // seconds - short TTL during initial load
+            // Use batch cache key to avoid duplicate requests while loading
+            $cacheKey = "admin_full_load_{$timeframe}_" . auth()->id();
+            $ttl = 10; // seconds - short TTL during initial load
 
-        $data = Cache::remember($cacheKey, $ttl, function () use ($timeframe) {
-            return $this->computeFullLoad($timeframe);
-        });
+            $data = Cache::remember($cacheKey, $ttl, function () use ($timeframe) {
+                return $this->computeFullLoad($timeframe);
+            });
 
-        return response()->json(['data' => $data]);
+            return response()->json(['data' => $data]);
+        }, 'batch_full_load');
     }
 
     /**

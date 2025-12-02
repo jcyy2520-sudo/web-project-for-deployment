@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ChevronDownIcon } from '@heroicons/react/24/outline';
 
-const TimePicker = ({ value, onChange, error }) => {
+const TimePicker = ({ value, onChange, error, disabled = false }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [selectedHour, setSelectedHour] = useState('');
   const [selectedMinute, setSelectedMinute] = useState('');
@@ -28,6 +28,7 @@ const TimePicker = ({ value, onChange, error }) => {
   }, [value]);
 
   const handleSelect = () => {
+    if (disabled) return;
     if (selectedHour && selectedMinute) {
       let hours = parseInt(selectedHour);
       
@@ -69,8 +70,11 @@ const TimePicker = ({ value, onChange, error }) => {
       
       <button
         type="button"
-        onClick={() => setIsOpen(!isOpen)}
+        disabled={disabled}
+        onClick={() => !disabled && setIsOpen(!isOpen)}
         className={`w-full px-3 py-2 bg-gray-800 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 transition-all duration-200 text-sm text-white text-left flex justify-between items-center ${
+          disabled ? 'opacity-50 cursor-not-allowed bg-gray-900' : ''
+        } ${
           error ? 'border-red-500' : 'border-gray-600 focus:border-amber-500'
         }`}
       >
@@ -80,7 +84,7 @@ const TimePicker = ({ value, onChange, error }) => {
         <ChevronDownIcon className={`h-4 w-4 text-amber-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
-      {isOpen && (
+      {isOpen && !disabled && (
         <div className="absolute z-50 w-full mt-1 bg-gray-800 border border-amber-500/30 rounded-lg shadow-lg shadow-amber-500/10 p-4">
           <div className="grid grid-cols-3 gap-2 mb-4">
             {/* Hours */}

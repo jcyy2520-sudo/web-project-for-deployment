@@ -5,30 +5,34 @@ namespace App\Http\Controllers;
 use App\Models\User;
 use App\Models\Appointment;
 use App\Models\Service;
+use App\Traits\SafeExperimentalFeature;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 class StatsController extends Controller
 {
+    use SafeExperimentalFeature;
     /**
      * Get critical stats only (fast endpoint)
      * Cached for 2 minutes
      */
     public function summary()
     {
-        $cacheKey = 'admin_stats_summary';
-        $ttl = 15; // seconds - shorter TTL for near-real-time
+        return $this->wrapExperimental(function () {
+            $cacheKey = 'admin_stats_summary';
+            $ttl = 15; // seconds - shorter TTL for near-real-time
 
-        $stats = Cache::remember($cacheKey, $ttl, function () {
-            return [
-                'totalUsers' => User::where('role', 'client')->count(),
-                'totalAppointments' => Appointment::count(),
-                'pendingAppointments' => Appointment::where('status', 'pending')->count(),
-                'completedAppointments' => Appointment::where('status', 'completed')->count(),
-            ];
-        });
+            $stats = Cache::remember($cacheKey, $ttl, function () {
+                return [
+                    'totalUsers' => User::where('role', 'client')->count(),
+                    'totalAppointments' => Appointment::count(),
+                    'pendingAppointments' => Appointment::where('status', 'pending')->count(),
+                    'completedAppointments' => Appointment::where('status', 'completed')->count(),
+                ];
+            });
 
-        return response()->json(['data' => $stats]);
+            return response()->json(['data' => $stats]);
+        }, 'stats.summary');
     }
 
     /**
@@ -37,21 +41,23 @@ class StatsController extends Controller
      */
     public function index()
     {
-        $timeframe = request()->query('timeframe', 'monthly');
-        $realtime = filter_var(request()->query('realtime', false), FILTER_VALIDATE_BOOLEAN);
-        $cacheKey = "admin_stats_detailed_{$timeframe}";
-        $ttl = 15; // seconds - short TTL for near-real-time
+        return $this->wrapExperimental(function () {
+            $timeframe = request()->query('timeframe', 'monthly');
+            $realtime = filter_var(request()->query('realtime', false), FILTER_VALIDATE_BOOLEAN);
+            $cacheKey = "admin_stats_detailed_{$timeframe}";
+            $ttl = 15; // seconds - short TTL for near-real-time
 
-        if ($realtime) {
-            // Bypass cache for ad-hoc realtime requests
-            $stats = $this->computeStats($timeframe);
-        } else {
-            $stats = Cache::remember($cacheKey, $ttl, function () use ($timeframe) {
-                return $this->computeStats($timeframe);
-            });
-        }
+            if ($realtime) {
+                // Bypass cache for ad-hoc realtime requests
+                $stats = $this->computeStats($timeframe);
+            } else {
+                $stats = Cache::remember($cacheKey, $ttl, function () use ($timeframe) {
+                    return $this->computeStats($timeframe);
+                });
+            }
 
-        return response()->json(['data' => $stats]);
+            return response()->json(['data' => $stats]);
+        }, 'stats.index');
     }
 
     /**

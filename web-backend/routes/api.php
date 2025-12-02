@@ -19,6 +19,8 @@ use App\Http\Controllers\BatchController;
 use App\Http\Controllers\DecisionSupportController;
 use App\Http\Controllers\TimeSlotCapacityController;
 use App\Http\Controllers\BlackoutDateController;
+use App\Http\Controllers\AnalyticsController;
+use App\Http\Controllers\AppointmentSettingsController;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Mail;
 use App\Mail\VerificationCodeMail;
@@ -43,442 +45,8 @@ Route::post('/register-step1', [AuthController::class, 'registerStep1']);
 Route::post('/verify-code', [AuthController::class, 'verifyCode']);
 Route::post('/complete-registration', [AuthController::class, 'completeRegistration']);
 Route::post('/login', [AuthController::class, 'login']);
-// Add to public routes
 Route::post('/resend-verification', [AuthController::class, 'resendVerificationCode']);
 Route::get('/check-verification-status', [AuthController::class, 'checkVerificationStatus']);
-
-// Debug routes for email registration issues
-Route::get('/debug-email/{email}', [AuthController::class, 'debugEmailStatus']);
-Route::get('/debug-cache-clear', function () {
-    try {
-        \Illuminate\Support\Facades\Artisan::call('cache:clear');
-        \Illuminate\Support\Facades\Artisan::call('config:clear');
-        \Illuminate\Support\Facades\Artisan::call('route:clear');
-        \Illuminate\Support\Facades\Artisan::call('view:clear');
-        
-        return response()->json([
-            'status' => 'success',
-            'message' => 'All caches cleared successfully',
-            'commands_executed' => [
-                'cache:clear',
-                'config:clear', 
-                'route:clear',
-                'view:clear'
-            ]
-        ]);
-    } catch (\Exception $e) {
-        return response()->json([
-            'status' => 'error',
-            'message' => $e->getMessage()
-        ], 500);
-    }
-});
-
-// Debug route to check verification codes for an email
-Route::get('/debug-verification-codes/{email}', function ($email) {
-    try {
-        $codes = VerificationCode::where('email', $email)
-            ->orderBy('created_at', 'desc')
-            ->get();
-            
-        return response()->json([
-            'email' => $email,
-            'verification_codes_count' => $codes->count(),
-            'verification_codes' => $codes->map(function($code) {
-                return [
-                    'id' => $code->id,
-                    'code' => $code->code,
-                    'used' => $code->used,
-                    'expires_at' => $code->expires_at,
-                    'created_at' => $code->created_at,
-                    'is_valid' => !$code->used && $code->expires_at->isFuture(),
-                    'minutes_until_expiry' => $code->expires_at->diffInMinutes(now())
-                ];
-            })
-        ]);
-    } catch (\Exception $e) {
-        return response()->json([
-            'error' => $e->getMessage()
-        ], 500);
-    }
-});
-
-// Test if email exists in database
-Route::get('/debug-check-email/{email}', function ($email) {
-    $userExists = \App\Models\User::where('email', $email)->exists();
-    $verificationCodes = \App\Models\VerificationCode::where('email', $email)->count();
-    
-    return response()->json([
-        'email' => $email,
-        'user_exists' => $userExists,
-        'verification_codes_count' => $verificationCodes,
-        'can_register' => !$userExists
-    ]);
-});
-
-// Test sending verification code directly
-Route::post('/debug-send-code', function (Request $request) {
-    $request->validate(['email' => 'required|email']);
-    
-    // Clean up old codes
-    \App\Models\VerificationCode::where('email', $request->email)->delete();
-    
-    // Create new code
-    $code = sprintf("%06d", random_int(1, 999999));
-    $verification = \App\Models\VerificationCode::create([
-        'email' => $request->email,
-        'code' => $code,
-        'expires_at' => now()->addMinutes(30),
-        'used' => false,
-    ]);
-    
-    try {
-        Mail::to($request->email)->send(new \App\Mail\VerificationCodeMail($code));
-        return response()->json([
-            'success' => true,
-            'message' => 'Code sent successfully',
-            'code' => $code, // Only for debugging - remove in production
-            'email' => $request->email
-        ]);
-    } catch (\Exception $e) {
-        return response()->json([
-            'success' => false,
-            'message' => 'Failed to send email: ' . $e->getMessage()
-        ], 500);
-    }
-});
-
-// Test verification code directly
-Route::post('/debug-verify-code', function (Request $request) {
-    $request->validate([
-        'email' => 'required|email',
-        'code' => 'required|string'
-    ]);
-    
-    $verification = \App\Models\VerificationCode::where('email', $request->email)
-        ->where('code', $request->code)
-        ->where('used', false)
-        ->where('expires_at', '>', now())
-        ->first();
-    
-    if ($verification) {
-        $verification->update(['used' => true]);
-        return response()->json([
-            'success' => true,
-            'message' => 'Code verified successfully',
-            'verified' => true
-        ]);
-    }
-    
-    return response()->json([
-        'success' => false,
-        'message' => 'Invalid or expired code',
-        'verified' => false
-    ], 422);
-});
-
-// Add this debug route to test the verification flow
-Route::post('/debug-test-verification', function (Request $request) {
-    $request->validate([
-        'email' => 'required|email',
-        'code' => 'required|string'
-    ]);
-    
-    Log::info('DEBUG VERIFICATION TEST', [
-        'email' => $request->email,
-        'code_attempted' => $request->code
-    ]);
-    
-    $verification = VerificationCode::where('email', $request->email)
-        ->where('code', $request->code)
-        ->where('used', false)
-        ->where('expires_at', '>', now())
-        ->first();
-    
-    if ($verification) {
-        Log::info('DEBUG: Code is VALID', ['verification_id' => $verification->id]);
-        return response()->json([
-            'success' => true,
-            'message' => 'Code is valid',
-            'verified' => true
-        ]);
-    }
-    
-    Log::warning('DEBUG: Code is INVALID', [
-        'email' => $request->email,
-        'available_codes' => VerificationCode::where('email', $request->email)->get()->pluck('code')
-    ]);
-    
-    return response()->json([
-        'success' => false,
-        'message' => 'Code is invalid',
-        'verified' => false
-    ], 422);
-});
-
-// Test routes for debugging (remove in production)
-Route::get('/test-email-sandbox', function () {
-    try {
-        $code = sprintf("%06d", mt_rand(1, 999999));
-        Log::info('Sandbox email test with code: ' . $code);
-        
-        // Test with any email - will go to Mailtrap sandbox
-        Mail::to('test@lawnotary.com')->send(new VerificationCodeMail($code));
-        
-        return response()->json([
-            'status' => 'success',
-            'message' => 'Sandbox email sent. Check Mailtrap Testing Inbox at: https://mailtrap.io/inboxes',
-            'test_code' => $code,
-            'instructions' => '1. Go to https://mailtrap.io 2. Login 3. Check "Demo Inbox"',
-            'mail_config' => [
-                'host' => config('mail.mailers.smtp.host'),
-                'port' => config('mail.mailers.smtp.port'),
-                'username' => config('mail.mailers.smtp.username'),
-                'from_address' => config('mail.from.address'),
-                'from_name' => config('mail.from.name')
-            ]
-        ]);
-    } catch (\Exception $e) {
-        Log::error('Sandbox email test failed: ' . $e->getMessage());
-        return response()->json([
-            'status' => 'error',
-            'message' => $e->getMessage(),
-            'mail_config' => [
-                'host' => config('mail.mailers.smtp.host'),
-                'port' => config('mail.mailers.smtp.port'),
-                'username' => config('mail.mailers.smtp.username'),
-                'password_set' => !empty(config('mail.mailers.smtp.password'))
-            ]
-        ], 500);
-    }
-});
-
-Route::get('/test-email-live', function () {
-    try {
-        $code = sprintf("%06d", mt_rand(1, 999999));
-        Log::info('Live email test with code: ' . $code);
-        
-        // Test with a real email address
-        Mail::to('jcfajutagana3@gmail.com')->send(new VerificationCodeMail($code));
-        
-        return response()->json([
-            'status' => 'success',
-            'message' => 'Live email sent to jcfajutagana3@gmail.com. Check your Gmail inbox.',
-            'test_code' => $code,
-            'mail_config' => [
-                'host' => config('mail.mailers.smtp.host'),
-                'port' => config('mail.mailers.smtp.port'),
-                'username' => config('mail.mailers.smtp.username')
-            ]
-        ]);
-    } catch (\Exception $e) {
-        Log::error('Live email test failed: ' . $e->getMessage());
-        return response()->json([
-            'status' => 'error',
-            'message' => $e->getMessage(),
-            'trace' => $e->getTraceAsString()
-        ], 500);
-    }
-});
-
-Route::get('/test-email-log', function () {
-    try {
-        $code = sprintf("%06d", mt_rand(1, 999999));
-        Log::info('Log email test with code: ' . $code);
-        
-        // This will log the email instead of sending it
-        Mail::to('test@example.com')->send(new VerificationCodeMail($code));
-        
-        return response()->json([
-            'status' => 'success',
-            'message' => 'Email logged (not sent). Check Laravel logs for the verification code.',
-            'test_code' => $code,
-            'log_file' => storage_path('logs/laravel.log')
-        ]);
-    } catch (\Exception $e) {
-        Log::error('Log email test failed: ' . $e->getMessage());
-        return response()->json([
-            'status' => 'error',
-            'message' => $e->getMessage()
-        ], 500);
-    }
-});
-
-Route::get('/test-db', function () {
-    try {
-        // Test database connection
-        DB::connection()->getPdo();
-        
-        // Test creating verification code
-        $code = sprintf("%06d", mt_rand(1, 999999));
-        $verification = VerificationCode::create([
-            'email' => 'test@example.com',
-            'code' => $code,
-            'expires_at' => now()->addMinutes(30),
-        ]);
-        
-        // Count verification codes
-        $count = VerificationCode::count();
-        
-        // Get all tables
-        $tables = DB::select('SHOW TABLES');
-        $tableNames = array_map(function($table) {
-            return array_values((array)$table)[0];
-        }, $tables);
-        
-        return response()->json([
-            'status' => 'success',
-            'message' => 'Database test passed',
-            'verification_code_saved' => $code,
-            'total_verification_codes' => $count,
-            'verification_id' => $verification->id,
-            'database_tables' => $tableNames,
-            'database_name' => config('database.connections.mysql.database')
-        ]);
-        
-    } catch (\Exception $e) {
-        return response()->json([
-            'status' => 'error',
-            'message' => $e->getMessage(),
-            'database_config' => [
-                'host' => config('database.connections.mysql.host'),
-                'database' => config('database.connections.mysql.database'),
-                'username' => config('database.connections.mysql.username')
-            ]
-        ], 500);
-    }
-});
-
-Route::get('/debug-config', function () {
-    return response()->json([
-        'mail' => [
-            'default' => config('mail.default'),
-            'mailers' => [
-                'smtp' => [
-                    'transport' => config('mail.mailers.smtp.transport'),
-                    'host' => config('mail.mailers.smtp.host'),
-                    'port' => config('mail.mailers.smtp.port'),
-                    'encryption' => config('mail.mailers.smtp.encryption'),
-                    'username' => config('mail.mailers.smtp.username'),
-                    'password' => config('mail.mailers.smtp.password') ? '***' : 'empty',
-                ]
-            ],
-            'from' => [
-                'address' => config('mail.from.address'),
-                'name' => config('mail.from.name')
-            ]
-        ],
-        'database' => [
-            'default' => config('database.default'),
-            'connections' => [
-                'mysql' => [
-                    'host' => config('database.connections.mysql.host'),
-                    'port' => config('database.connections.mysql.port'),
-                    'database' => config('database.connections.mysql.database'),
-                    'username' => config('database.connections.mysql.username'),
-                    'password' => config('database.connections.mysql.password') ? '***' : 'empty',
-                ]
-            ]
-        ],
-        'app' => [
-            'url' => config('app.url'),
-            'env' => config('app.env'),
-            'debug' => config('app.debug')
-        ]
-    ]);
-});
-
-Route::get('/test-registration-flow', function () {
-    try {
-        // Test the entire flow
-        $testEmail = 'test-' . time() . '@example.com';
-        $testUsername = 'testuser-' . time();
-        $testCode = sprintf("%06d", mt_rand(1, 999999));
-        
-        Log::info('Testing registration flow for: ' . $testEmail);
-        
-        // Step 1: Create verification code
-        VerificationCode::where('email', $testEmail)->delete();
-        $verification = VerificationCode::create([
-            'email' => $testEmail,
-            'code' => $testCode,
-            'expires_at' => now()->addMinutes(30),
-        ]);
-        
-        // Step 2: Send email
-        Mail::to($testEmail)->send(new VerificationCodeMail($testCode));
-        
-        return response()->json([
-            'status' => 'success',
-            'message' => 'Registration flow test completed',
-            'test_data' => [
-                'email' => $testEmail,
-                'username' => $testUsername,
-                'verification_code' => $testCode,
-                'verification_id' => $verification->id
-            ],
-            'steps' => [
-                '1. Verification code saved to database',
-                '2. Email sent with verification code',
-                '3. You can now test the registration form'
-            ]
-        ]);
-        
-    } catch (\Exception $e) {
-        Log::error('Registration flow test failed: ' . $e->getMessage());
-        return response()->json([
-            'status' => 'error',
-            'message' => $e->getMessage(),
-            'suggestion' => 'Try using MAIL_MAILER=log in your .env file for development'
-        ], 500);
-    }
-});
-
-Route::get('/check-logs', function () {
-    try {
-        $logFile = storage_path('logs/laravel.log');
-        if (file_exists($logFile)) {
-            $content = file_get_contents($logFile);
-            $lines = explode("\n", $content);
-            $recentLines = array_slice($lines, -50); // Last 50 lines
-            return response()->json([
-                'status' => 'success',
-                'recent_logs' => implode("\n", $recentLines)
-            ]);
-        }
-        return response()->json([
-            'status' => 'error',
-            'message' => 'No log file found at: ' . $logFile
-        ]);
-    } catch (\Exception $e) {
-        return response()->json([
-            'status' => 'error',
-            'message' => $e->getMessage()
-        ], 500);
-    }
-});
-
-Route::get('/clear-logs', function () {
-    try {
-        $logFile = storage_path('logs/laravel.log');
-        if (file_exists($logFile)) {
-            file_put_contents($logFile, '');
-            return response()->json([
-                'status' => 'success',
-                'message' => 'Logs cleared successfully'
-            ]);
-        }
-        return response()->json([
-            'status' => 'error',
-            'message' => 'No log file found'
-        ]);
-    } catch (\Exception $e) {
-        return response()->json([
-            'status' => 'error',
-            'message' => $e->getMessage()
-        ], 500);
-    }
-});
 
 // Health check route
 Route::get('/health', function () {
@@ -497,9 +65,17 @@ Route::get('/health', function () {
 Route::get('/services', [ServiceController::class, 'allServices']);
 Route::get('/stats/summary', [StatsController::class, 'summary']);
 
+// User-facing analytics (public for checking slot availability)
+Route::get('/analytics/cancellation-risk', [AnalyticsController::class, 'cancellationRisk']);
+Route::get('/analytics/alternative-slots', [AnalyticsController::class, 'alternativeSlots']);
+
 // Public unavailable dates endpoint for clients (merged legacy + new blackout dates)
 Route::get('/unavailable-dates', [UnavailableDateController::class, 'index']);
 Route::get('/unavailable-dates/last-update', [UnavailableDateController::class, 'lastUpdate']);
+
+// Public appointment settings (for user booking limit checks)
+Route::get('/appointment-settings/current', [AppointmentSettingsController::class, 'index']);
+Route::get('/appointment-settings/user-limit/{userId}/{date?}', [AppointmentSettingsController::class, 'getUserLimit']);
 
 // Protected routes
 Route::middleware(['auth:sanctum'])->group(function () {
@@ -513,15 +89,31 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/stats/summary', [StatsController::class, 'summary']);
         Route::get('/stats', [StatsController::class, 'index']);
         
+        // ANALYTICS ROUTES - Smart Insights Dashboard
+        Route::prefix('analytics')->group(function () {
+            Route::get('/dashboard', [AnalyticsController::class, 'dashboard']);
+            Route::get('/slot-utilization', [AnalyticsController::class, 'slotUtilization']);
+            Route::get('/no-show-patterns', [AnalyticsController::class, 'noShowPatterns']);
+            Route::get('/demand-forecast', [AnalyticsController::class, 'demandForecast']);
+            Route::get('/quality-report', [AnalyticsController::class, 'qualityReport']);
+            Route::get('/auto-alerts', [AnalyticsController::class, 'autoAlerts']);
+            Route::post('/clear-cache', [AnalyticsController::class, 'clearCache']);
+        });
+        
         // BATCH ENDPOINTS - Combine multiple API calls into one request
         Route::get('/batch/dashboard', [BatchController::class, 'dashboardData']);
         Route::get('/batch/full-load', [BatchController::class, 'fullDashboardLoad']);
         
         // Admin appointments endpoint
         Route::get('/appointments', [AdminController::class, 'getAllAppointments']);
+        Route::post('/cancel-bulk-appointments', [AdminController::class, 'cancelBulkAppointments']);
         
         // Reports
         Route::post('/reports/generate', [AdminController::class, 'generateReport']);
+        
+        // Decision Support Actions
+        Route::post('/reserve-suggested-slot', [AdminController::class, 'reserveSuggestedSlot']);
+        Route::post('/assign-staff', [AdminController::class, 'assignStaff']);
         
         // User management with role filtering
         Route::get('/users', [UserController::class, 'getUsersByRole']);
@@ -551,6 +143,13 @@ Route::middleware(['auth:sanctum'])->group(function () {
             Route::post('/', [BlackoutDateController::class, 'store']);
             Route::put('/{blackoutDate}', [BlackoutDateController::class, 'update']);
             Route::delete('/{blackoutDate}', [BlackoutDateController::class, 'destroy']);
+        });
+
+        // Appointment Settings Management
+        Route::prefix('appointment-settings')->group(function () {
+            Route::get('/', [AppointmentSettingsController::class, 'index']);
+            Route::put('/', [AppointmentSettingsController::class, 'update']);
+            Route::get('/history', [AppointmentSettingsController::class, 'getHistory']);
         });
         
         // Services management
@@ -686,6 +285,12 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/{id}/versions', [DocumentController::class, 'getVersions']);
     });
 
+    // APPOINTMENT SETTINGS ROUTES (User can check their limits)
+    Route::prefix('appointment-settings')->group(function () {
+        Route::get('/user-limit/{userId}/{date?}', [AppointmentSettingsController::class, 'getUserLimit']);
+        Route::get('/can-book/{userId}', [AppointmentSettingsController::class, 'canUserBook']);
+    });
+
     // AUDIT LOGS ROUTES (Admin only)
     Route::prefix('audit-logs')->middleware(['role:admin'])->group(function () {
         Route::get('/', [AuditLogController::class, 'index']);
@@ -736,29 +341,5 @@ Route::middleware(['auth:sanctum'])->group(function () {
 Route::fallback(function () {
     return response()->json([
         'message' => 'API endpoint not found',
-        'available_endpoints' => [
-            'POST /api/register-step1',
-            'POST /api/verify-code', 
-            'POST /api/complete-registration',
-            'POST /api/login',
-            'POST /api/resend-verification',
-            'GET /api/check-verification-status',
-            'GET /api/debug-email/{email}',
-            'GET /api/debug-verification-codes/{email}',
-            'GET /api/debug-check-email/{email}',
-            'POST /api/debug-send-code',
-            'POST /api/debug-verify-code',
-            'POST /api/debug-test-verification',
-            'GET /api/debug-cache-clear',
-            'GET /api/test-email-sandbox',
-            'GET /api/test-email-live',
-            'GET /api/test-email-log',
-            'GET /api/test-db',
-            'GET /api/debug-config',
-            'GET /api/test-registration-flow',
-            'GET /api/health',
-            'GET /api/check-logs',
-            'GET /api/clear-logs'
-        ]
     ], 404);
 });

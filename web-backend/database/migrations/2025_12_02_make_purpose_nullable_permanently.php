@@ -11,9 +11,9 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('messages', function (Blueprint $table) {
-            $table->string('subject')->nullable()->after('message');
-            $table->string('type')->nullable()->after('subject');
+        Schema::table('appointments', function (Blueprint $table) {
+            // Make purpose column nullable permanently
+            $table->text('purpose')->nullable()->change();
         });
     }
 
@@ -22,8 +22,9 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('messages', function (Blueprint $table) {
-            $table->dropColumn(['subject', 'type']);
+        // Don't revert this - purpose should remain nullable
+        Schema::table('appointments', function (Blueprint $table) {
+            $table->text('purpose')->nullable()->change();
         });
     }
 };

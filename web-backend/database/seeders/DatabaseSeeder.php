@@ -22,7 +22,7 @@ class DatabaseSeeder extends Seeder
                 'role' => 'admin',
                 'first_name' => 'System',
                 'last_name' => 'Administrator',
-                'phone' => '+1234567890',
+                'phone' => '09123456789',
                 'address' => 'System Address',
                 'is_active' => true,
                 'email_verified_at' => now(),
@@ -32,5 +32,11 @@ class DatabaseSeeder extends Seeder
         $this->command->info('Admin user created/verified successfully!');
         $this->command->info('Email: admin@gmail.com');
         $this->command->info('Password: admin123');
+        
+        // Run other seeders
+        $this->call([
+            TestUserSeeder::class,
+            TestAppointmentsSeeder::class,
+        ]);
     }
 }

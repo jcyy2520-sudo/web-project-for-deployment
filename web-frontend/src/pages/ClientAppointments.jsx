@@ -7,6 +7,7 @@ import TimeSlotRecommendations from '../components/TimeSlotRecommendations';
 import AppointmentRiskAssessment from '../components/AppointmentRiskAssessment';
 import UnavailableDatesViewer from '../components/UnavailableDatesViewer';
 import BookingDecisionSupport from '../components/BookingDecisionSupport';
+import CancellationRiskNotice from '../components/CancellationRiskNotice';
 import UnavailabilityMessage from '../components/UnavailabilityMessage';
 import { 
   CalendarIcon, 
@@ -44,6 +45,7 @@ const ClientAppointments = () => {
   const [formData, setFormData] = useState({
     appointment_date: '',
     appointment_time: '',
+    type: 'consultation',
     notes: ''
   });
   const [calendarMonth, setCalendarMonth] = useState(new Date());
@@ -96,7 +98,10 @@ const ClientAppointments = () => {
   };
 
   const isDateUnavailable = (date) => {
-    const dateStr = date.toISOString().split('T')[0];
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const dateStr = `${year}-${month}-${day}`;
     const dayOfWeek = date.getDay();
     
     // Check for weekend
@@ -114,7 +119,10 @@ const ClientAppointments = () => {
   };
 
   const getUnavailableReason = (date) => {
-    const dateStr = date.toISOString().split('T')[0];
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const dateStr = `${year}-${month}-${day}`;
     const dayOfWeek = date.getDay();
 
     if (dayOfWeek === 0 || dayOfWeek === 6) {
@@ -219,6 +227,7 @@ const ClientAppointments = () => {
       setFormData({
         appointment_date: '',
         appointment_time: '',
+        type: 'consultation',
         notes: ''
       });
       loadAppointments();
@@ -378,6 +387,11 @@ const ClientAppointments = () => {
                                 Notes: {appointment.staff_notes}
                               </p>
                             )}
+                            {appointment.status === 'completed' && appointment.completed_at && (
+                              <p className="text-sm text-green-600 mt-1">
+                                ✓ Completed on {new Date(appointment.completed_at).toLocaleDateString()} at {new Date(appointment.completed_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                              </p>
+                            )}
                           </div>
                         </div>
                         <div className="flex items-center space-x-4">
@@ -400,6 +414,14 @@ const ClientAppointments = () => {
                           )}
                         </div>
                       </div>
+                      
+                      {/* Completion Information */}
+                      {appointment.status === 'completed' && appointment.completion_notes && (
+                        <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+                          <p className="text-xs font-semibold text-green-800 mb-1">Completion Notes:</p>
+                          <p className="text-sm text-green-700">{appointment.completion_notes}</p>
+                        </div>
+                      )}
                       
                       {/* Risk Assessment for pending/approved appointments */}
                       {(appointment.status === 'pending' || appointment.status === 'approved') && (
@@ -510,7 +532,7 @@ const ClientAppointments = () => {
         onClose={() => {
           setIsBookModalOpen(false);
           setSelectedDate('');
-          setFormData({ appointment_date: '', appointment_time: '', notes: '' });
+          setFormData({ appointment_date: '', appointment_time: '', type: 'consultation', notes: '' });
           setCalendarMonth(new Date());
         }}
         title="Book New Appointment"
@@ -568,9 +590,14 @@ const ClientAppointments = () => {
                   // Days
                   for (let day = 1; day <= daysInMonth; day++) {
                     const date = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), day);
-                    const dateStr = date.toISOString().split('T')[0];
-                    const isToday = dateStr === new Date().toISOString().split('T')[0];
-                    const isPast = date < new Date() && !isToday;
+                    const year = date.getFullYear();
+                    const month = String(date.getMonth() + 1).padStart(2, '0');
+                    const dayStr = String(day).padStart(2, '0');
+                    const dateStr = `${year}-${month}-${dayStr}`;
+                    const todayDate = new Date();
+                    const todayStr = `${todayDate.getFullYear()}-${String(todayDate.getMonth() + 1).padStart(2, '0')}-${String(todayDate.getDate()).padStart(2, '0')}`;
+                    const isToday = dateStr === todayStr;
+                    const isPast = date < todayDate && !isToday;
                     const isUnavail = isDateUnavailable(date);
                     const isSelected = selectedDate === dateStr;
 
@@ -660,6 +687,23 @@ const ClientAppointments = () => {
                       ...prev, 
                       appointment_date: alt.date,
                       appointment_time: alt.time 
+                    }));
+                  }}
+                />
+              )}
+
+              {/* Cancellation Risk Notice - Shows when a slot is busy */}
+              {selectedDate && selectedTime && !slotUnavailabilityReason && (
+                <CancellationRiskNotice 
+                  appointmentDate={selectedDate}
+                  appointmentTime={selectedTime}
+                  onAlternativeSelected={(date, time) => {
+                    setSelectedDate(date);
+                    setSelectedTime(time);
+                    setFormData(prev => ({ 
+                      ...prev, 
+                      appointment_date: date,
+                      appointment_time: time 
                     }));
                   }}
                 />
@@ -759,6 +803,33 @@ const ClientAppointments = () => {
             </div>
           )}
 
+          {/* Appointment Type */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Service Type <span className="text-red-500">*</span>
+            </label>
+            <select
+              value={formData.type}
+              onChange={(e) => setFormData(prev => ({ ...prev, type: e.target.value }))}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black"
+            >
+              <option value="consultation">Legal Consultation</option>
+              <option value="document_review">Document Review</option>
+              <option value="contract_drafting">Contract Drafting</option>
+              <option value="court_representation">Court Representation</option>
+              <option value="notary_services">Notary Services</option>
+              <option value="legal_opinion">Legal Opinion</option>
+              <option value="case_evaluation">Case Evaluation</option>
+              <option value="document_notarization">Document Notarization</option>
+              <option value="affidavit">Affidavit</option>
+              <option value="power_of_attorney">Power of Attorney</option>
+              <option value="loan_signing">Loan Signing</option>
+              <option value="real_estate_documents">Real Estate Documents</option>
+              <option value="will_and_testament">Will and Testament</option>
+              <option value="other">Other Legal Services</option>
+            </select>
+          </div>
+
           {/* Notes */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -781,7 +852,7 @@ const ClientAppointments = () => {
                 setSelectedDate('');
                 setSelectedTime('');
                 setSlotUnavailabilityReason(null);
-                setFormData({ appointment_date: '', appointment_time: '', notes: '' });
+                setFormData({ appointment_date: '', appointment_time: '', type: 'consultation', notes: '' });
                 setCalendarMonth(new Date());
               }}
               className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50"

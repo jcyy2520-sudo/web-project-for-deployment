@@ -5,18 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Appointment Booking Confirmed - Legal Ease</title>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; margin: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #1f2937; margin: 0; background-color: #f9fafb; }
         .container { max-width: 500px; margin: 0 auto; padding: 20px; }
-        .header { background: #f59e0b; color: white; padding: 20px; text-align: center; }
-        .header h1 { margin: 0; font-size: 24px; font-weight: 600; }
-        .content { background: #fff; border: 1px solid #e5e7eb; padding: 30px 20px; }
+        .header { background: white; padding: 24px 20px; text-align: center; border-bottom: 2px solid #e5e7eb; }
+        .header h1 { margin: 0; font-size: 24px; font-weight: 700; color: #111827; }
+        .content { background: white; padding: 32px 20px; margin-top: 0; }
         .text { font-size: 14px; color: #4b5563; margin: 12px 0; line-height: 1.6; }
-        .details-box { background: #f9fafb; border-left: 4px solid #f59e0b; padding: 16px; margin: 20px 0; }
-        .detail-row { display: flex; padding: 8px 0; font-size: 14px; }
-        .detail-label { font-weight: 600; color: #4b5563; min-width: 100px; }
-        .detail-value { color: #1f2937; }
-        .status { display: inline-block; background: #fbbf24; color: #78350f; padding: 4px 8px; border-radius: 3px; font-size: 12px; font-weight: 600; }
-        .footer { font-size: 12px; color: #6b7280; text-align: center; margin-top: 20px; padding-top: 20px; border-top: 1px solid #e5e7eb; }
+        .details-box { background: #f9fafb; border: 1px solid #d1d5db; padding: 16px; margin: 20px 0; border-radius: 4px; }
+        .detail-row { display: flex; padding: 8px 0; font-size: 13px; }
+        .detail-label { font-weight: 600; color: #4b5563; min-width: 90px; }
+        .detail-value { color: #1f2937; flex: 1; }
+        .status-text { display: inline-block; font-weight: 700; color: #1f2937; }
+        .footer { font-size: 12px; color: #6b7280; text-align: center; margin-top: 24px; padding-top: 20px; border-top: 1px solid #e5e7eb; }
     </style>
 </head>
 <body>
@@ -31,7 +31,7 @@
             <p class="text">Thank you for booking an appointment with us. We have received your request and it is now pending review by our team.</p>
             
             <div class="details-box">
-                <strong>Appointment Details:</strong>
+                <strong style="font-size: 13px;">Appointment Details:</strong>
                 <div class="detail-row">
                     <div class="detail-label">Date:</div>
                     <div class="detail-value">{{ $appointment->appointment_date->format('F d, Y') }}</div>
@@ -46,7 +46,7 @@
                 </div>
                 <div class="detail-row">
                     <div class="detail-label">Status:</div>
-                    <div class="detail-value"><span class="status">Pending Review</span></div>
+                    <div class="detail-value"><span class="status-text">PENDING REVIEW</span></div>
                 </div>
             </div>
             

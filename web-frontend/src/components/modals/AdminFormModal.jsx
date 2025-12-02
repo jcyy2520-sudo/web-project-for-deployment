@@ -7,6 +7,7 @@ const AdminFormModal = ({ isOpen, onClose, admin, onSave, loading }) => {
     last_name: '',
     email: '',
     phone: '',
+    address: '',
     password: '',
     role: 'admin'
   });
@@ -20,6 +21,7 @@ const AdminFormModal = ({ isOpen, onClose, admin, onSave, loading }) => {
         last_name: admin.last_name || '',
         email: admin.email || '',
         phone: admin.phone || '',
+        address: admin.address || '',
         password: '',
         role: 'admin'
       });
@@ -29,6 +31,7 @@ const AdminFormModal = ({ isOpen, onClose, admin, onSave, loading }) => {
         last_name: '',
         email: '',
         phone: '',
+        address: '',
         password: '',
         role: 'admin'
       });
@@ -158,6 +161,20 @@ const AdminFormModal = ({ isOpen, onClose, admin, onSave, loading }) => {
               className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm text-white placeholder-gray-400"
               disabled={loading}
               placeholder="Enter phone number"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-amber-50 mb-1">
+              Address
+            </label>
+            <textarea
+              value={formData.address}
+              onChange={(e) => setFormData(prev => ({ ...prev, address: e.target.value }))}
+              rows="2"
+              className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm text-white placeholder-gray-400 resize-none"
+              disabled={loading}
+              placeholder="Enter address (optional)"
             />
           </div>
 

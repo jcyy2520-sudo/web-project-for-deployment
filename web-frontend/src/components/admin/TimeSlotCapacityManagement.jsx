@@ -29,6 +29,15 @@ const TimeSlotCapacityManagement = ({ isDarkMode = true }) => {
     '08:00','09:00','10:00','11:00','13:00','14:00','15:00','16:00'
   ];
 
+  // Convert 24-hour time to 12-hour format
+  const formatTimeAmPm = (timeStr) => {
+    const [hours, minutes] = timeStr.split(':');
+    const hour = parseInt(hours);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    const displayHour = hour > 12 ? hour - 12 : (hour === 0 ? 12 : hour);
+    return `${displayHour}:${minutes} ${ampm}`;
+  };
+
   useEffect(() => {
     loadCapacities();
   }, []);
@@ -44,11 +53,23 @@ const TimeSlotCapacityManagement = ({ isDarkMode = true }) => {
       const customMap = {};
       capacities.forEach(cap => {
         if (cap.start_time && cap.end_time) {
-          const slotId = `${cap.start_time}-${cap.end_time}`;
-          customMap[slotId] = cap.max_appointments_per_slot;
+          // Map by the hour (start time) for display purposes
+          // e.g., "08:00" to represent both 08:00-08:30 and 08:30-09:00
+          if (cap.start_time.endsWith(':00')) {
+            customMap[cap.start_time] = cap.max_appointments_per_slot;
+          }
         }
       });
       setCustomCapacities(customMap);
+      
+      // Also set the global capacity to the first hour's capacity if all are the same
+      if (Object.keys(customMap).length > 0) {
+        const firstCapacity = Object.values(customMap)[0];
+        const allSame = Object.values(customMap).every(cap => cap === firstCapacity);
+        if (allSame) {
+          setGlobalCapacity(firstCapacity);
+        }
+      }
     }
   };
 
@@ -62,22 +83,21 @@ const TimeSlotCapacityManagement = ({ isDarkMode = true }) => {
     setSuccess(null);
 
     try {
-      const result = await callApi(() =>
-        axios.post('/api/admin/slot-capacities/apply-all', {
-          max_appointments_per_slot: globalCapacity
-        })
-      );
+      // Call the backend endpoint to apply to all slots at once
+      const response = await axios.post('/api/admin/slot-capacities/apply-all', {
+        max_appointments_per_slot: globalCapacity
+      });
 
-      if (result.success) {
-        setSuccess(`All time slots updated to ${globalCapacity} max appointments!`);
+      if (response.data.success) {
+        setSuccess(`All time slots updated to ${globalCapacity} max appointments! (${response.data.data.total} slots configured)`);
         await loadCapacities();
         // notify clients
         window.dispatchEvent(new CustomEvent('slotCapacitiesChanged'));
       } else {
-        setError(result.message || 'Failed to apply capacity');
+        setError(response.data.message || 'Failed to apply capacity to all slots');
       }
     } catch (err) {
-      setError('An error occurred: ' + (err.message || 'Unknown error'));
+      setError('An error occurred: ' + (err.response?.data?.message || err.message || 'Unknown error'));
     }
   };
   // Save capacities for an hour (applies to both half-hour slots in that hour)
@@ -105,25 +125,23 @@ const TimeSlotCapacityManagement = ({ isDarkMode = true }) => {
         // For each hour, post two half-hour entries
         for (const [h, cap] of Object.entries(saves)) {
           const [hh, mm] = h.split(':');
-          const start1 = `${hh}:${mm}`; // e.g., 08:00
-          const end1 = `${hh}:${mm === '30' ? '59' : '30'}`; // unused fallback
 
           // First half slot: hh:00 - hh:30
-          await callApi(() => axios.post('/api/admin/slot-capacities', {
+          await axios.post('/api/admin/slot-capacities', {
             start_time: `${hh}:00`,
             end_time: `${hh}:30`,
             day_of_week: null,
             max_appointments_per_slot: cap
-          }));
+          });
 
           // Second half slot: hh:30 - (hh+1):00
           const nextHour = String(Number(hh) + 1).padStart(2, '0');
-          await callApi(() => axios.post('/api/admin/slot-capacities', {
+          await axios.post('/api/admin/slot-capacities', {
             start_time: `${hh}:30`,
             end_time: `${nextHour}:00`,
             day_of_week: null,
             max_appointments_per_slot: cap
-          }));
+          });
         }
 
         setSuccess('Updated selected hours');
@@ -131,7 +149,7 @@ const TimeSlotCapacityManagement = ({ isDarkMode = true }) => {
         // notify clients that capacities changed
         window.dispatchEvent(new CustomEvent('slotCapacitiesChanged'));
       } catch (err) {
-        setError('An error occurred: ' + (err.message || 'Unknown error'));
+        setError('An error occurred: ' + (err.response?.data?.message || err.message || 'Unknown error'));
       }
     }, 700);
   };
@@ -256,7 +274,7 @@ const TimeSlotCapacityManagement = ({ isDarkMode = true }) => {
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                   {hours.map(h => (
                     <div key={h} className={`flex items-center justify-between p-3 rounded-lg border ${isDarkMode ? 'bg-gray-700 border-gray-600' : 'bg-gray-50 border-gray-200'}`}>
-                      <label className={`text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>{h}</label>
+                      <label className={`text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>{formatTimeAmPm(h)}</label>
                       <input
                         type="number"
                         min="1"

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useApi } from '../hooks/useApi';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
@@ -86,7 +86,8 @@ const ServiceTypeDropdown = ({
   options, 
   error, 
   onOtherChange,
-  otherValue 
+  otherValue,
+  disabled = false
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -97,6 +98,7 @@ const ServiceTypeDropdown = ({
   );
 
   const handleSelect = (optionValue, optionLabel) => {
+    if (disabled) return;
     if (optionValue === 'other') {
       setShowOtherInput(true);
       onChange('other');
@@ -109,6 +111,7 @@ const ServiceTypeDropdown = ({
   };
 
   const handleOtherInputChange = (e) => {
+    if (disabled) return;
     onOtherChange(e.target.value);
   };
 
@@ -121,8 +124,11 @@ const ServiceTypeDropdown = ({
       {/* Dropdown Trigger */}
       <button
         type="button"
-        onClick={() => setIsOpen(!isOpen)}
+        disabled={disabled}
+        onClick={() => !disabled && setIsOpen(!isOpen)}
         className={`w-full px-3 py-2 bg-gray-800 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 transition-all duration-200 text-sm text-white text-left flex justify-between items-center ${
+          disabled ? 'opacity-50 cursor-not-allowed bg-gray-900' : ''
+        } ${
           error ? 'border-red-500' : 'border-gray-600 focus:border-amber-500'
         }`}
       >
@@ -140,7 +146,7 @@ const ServiceTypeDropdown = ({
       </button>
 
       {/* Dropdown Menu */}
-      {isOpen && (
+      {isOpen && !disabled && (
         <div className="absolute z-50 w-full mt-1 bg-gray-800 border border-amber-500/30 rounded-lg shadow-lg shadow-amber-500/10 max-h-60 overflow-y-auto">
           {/* Search Input */}
           <div className="p-2 border-b border-gray-600 sticky top-0 bg-gray-800">
@@ -198,10 +204,13 @@ const ServiceTypeDropdown = ({
         <div className="mt-2">
           <input
             type="text"
+            disabled={disabled}
             placeholder="Please specify the service type..."
             value={otherValue}
             onChange={handleOtherInputChange}
-            className="w-full px-3 py-2 bg-gray-800 border border-amber-500/30 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 transition-all duration-200 text-sm text-white placeholder-gray-400"
+            className={`w-full px-3 py-2 bg-gray-800 border border-amber-500/30 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 transition-all duration-200 text-sm text-white placeholder-gray-400 ${
+              disabled ? 'opacity-50 cursor-not-allowed bg-gray-900' : ''
+            }`}
           />
         </div>
       )}
@@ -217,7 +226,7 @@ const ServiceTypeDropdown = ({
 };
 
 // Enhanced Calendar Component
-const EnhancedCalendar = ({ value, onChange, error }) => {
+const EnhancedCalendar = ({ value, onChange, error, disabled = false }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(value ? new Date(value) : null);
@@ -248,21 +257,28 @@ const EnhancedCalendar = ({ value, onChange, error }) => {
   };
 
   const handleDateSelect = (date) => {
-    const dateString = date.toISOString().split('T')[0];
+    if (disabled) return;
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const dateString = `${year}-${month}-${day}`;
     setSelectedDate(date);
     onChange(dateString);
     setIsOpen(false);
   };
 
   const isDateDisabled = (date) => {
-    const dateStr = date.toISOString().split('T')[0];
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const dateStr = `${year}-${month}-${day}`;
 
     // Past dates disabled
     if (date < minDate) return true;
 
     // Weekends disabled
-    const day = date.getDay();
-    if (day === 0 || day === 6) return true;
+    const dayOfWeek = date.getDay();
+    if (dayOfWeek === 0 || dayOfWeek === 6) return true;
 
     // Admin-set unavailable/blackout dates
     if (unavailableDates.some(u => {
@@ -270,11 +286,11 @@ const EnhancedCalendar = ({ value, onChange, error }) => {
       if (uDate && uDate === dateStr) return true;
       // recurring blackout entries may include recurring_days array
       if (u.is_recurring && u.recurring_days) {
-        const dayName = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][day];
+        const dayName = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][dayOfWeek];
         if (u.recurring_days.includes(dayName)) return true;
       }
       // legacy types: some entries may have type === 'weekend' or 'blackout'
-      if (u.type === 'weekend' && (day === 0 || day === 6)) return true;
+      if (u.type === 'weekend' && (dayOfWeek === 0 || dayOfWeek === 6)) return true;
       return false;
     })) return true;
 
@@ -381,8 +397,11 @@ const EnhancedCalendar = ({ value, onChange, error }) => {
       
       <button
         type="button"
-        onClick={() => setIsOpen(!isOpen)}
+        disabled={disabled}
+        onClick={() => !disabled && setIsOpen(!isOpen)}
         className={`w-full px-3 py-2 bg-gray-800 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 transition-all duration-200 text-sm text-white text-left flex justify-between items-center ${
+          disabled ? 'opacity-50 cursor-not-allowed bg-gray-900' : ''
+        } ${
           error ? 'border-red-500' : 'border-gray-600 focus:border-amber-500'
         }`}
       >
@@ -397,7 +416,7 @@ const EnhancedCalendar = ({ value, onChange, error }) => {
         <CalendarDaysIcon className="h-4 w-4 text-amber-400" />
       </button>
 
-      {isOpen && (
+      {isOpen && !disabled && (
         <div className="absolute z-50 w-full mt-1 bg-gray-800 border border-amber-500/30 rounded-lg shadow-lg shadow-amber-500/10 p-3">
           {/* Calendar Header */}
           <div className="flex items-center justify-between mb-3">
@@ -818,6 +837,16 @@ const Dashboard = () => {
   const [messages, setMessages] = useState([]);
   const [staff, setStaff] = useState([]);
   
+  // Daily appointment limit state
+  const [dailyLimitInfo, setDailyLimitInfo] = useState({
+    limit: null,
+    used: 0,
+    remaining: null,
+    hasReachedLimit: false,
+    message: null,
+    bookingsToday: []
+  });
+  
   // Modal states
   const [showAppointmentDetail, setShowAppointmentDetail] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
@@ -1004,6 +1033,34 @@ const Dashboard = () => {
     return () => window.removeEventListener('servicesUpdated', handleServicesUpdate);
   }, []);
 
+  // Define checkDailyLimit FIRST before useEffect hooks that use it
+  const checkDailyLimit = useCallback(async (dateToCheck = null) => {
+    try {
+      // Use the selected date or today's date
+      const checkDate = dateToCheck || new Date().toISOString().split('T')[0];
+      
+      const result = await callApi((signal) =>
+        axios.get(`/api/appointment-settings/user-limit/${user?.id}/${checkDate}`, { signal })
+      );
+
+      if (result.success && result.data) {
+        setDailyLimitInfo({
+          limit: result.data.limit,
+          used: result.data.used || 0,
+          remaining: result.data.remaining,
+          hasReachedLimit: result.data.has_reached_limit || false,
+          message: result.data.message,
+          bookingsToday: result.data.bookings_today || [],
+          date: checkDate
+        });
+      }
+    } catch (error) {
+      console.error('Failed to check daily limit:', error);
+      // Silently fail - limits may not be configured
+    }
+  }, [user?.id, callApi]);
+
+  // NOW define the useEffect hooks that depend on checkDailyLimit
   // Listen for slot capacity changes so availability reloads automatically
   useEffect(() => {
     const handleSlotCapacitiesChanged = () => {
@@ -1017,15 +1074,28 @@ const Dashboard = () => {
     return () => window.removeEventListener('slotCapacitiesChanged', handleSlotCapacitiesChanged);
   }, [appointmentData?.appointment_date]);
 
+  // Listen for appointment settings changes and refresh daily limit
+  useEffect(() => {
+    const handleAppointmentSettingsChanged = () => {
+      console.log('Appointment settings changed, checking daily limit...');
+      checkDailyLimit(appointmentData?.appointment_date);
+    };
+
+    window.addEventListener('appointmentSettingsChanged', handleAppointmentSettingsChanged);
+    return () => window.removeEventListener('appointmentSettingsChanged', handleAppointmentSettingsChanged);
+  }, [appointmentData?.appointment_date, checkDailyLimit]);
+
   const loadInitialData = async () => {
     switch (activeTab) {
       case 'home':
       case 'book':
         await loadAppointmentTypes();
         await loadAppointments();
+        await checkDailyLimit();
         break;
       case 'appointments':
         await loadAppointments();
+        await checkDailyLimit();
         break;
       case 'messages':
         await loadMessages();
@@ -1190,9 +1260,10 @@ const Dashboard = () => {
       [name]: value
     }));
 
-    // Load available slots when date changes
+    // Load available slots and check limit when date changes
     if (name === 'appointment_date') {
       loadAvailableSlots(value);
+      checkDailyLimit(value);
     }
 
     // Clear errors when user starts typing
@@ -1291,6 +1362,14 @@ const Dashboard = () => {
     
     if (!validateAppointmentForm()) return;
 
+    // Check if user has reached daily limit
+    if (dailyLimitInfo.hasReachedLimit) {
+      setFormErrors({
+        appointment_date: `You have reached your daily booking limit of ${dailyLimitInfo.limit} appointments. ${dailyLimitInfo.message || 'You can book again tomorrow.'}`
+      });
+      return;
+    }
+
     // Get the service ID from the selected appointment type
     const selectedService = appointmentTypes.find(t => t.value === appointmentData.type);
     const serviceId = selectedService?.id || null;
@@ -1324,14 +1403,35 @@ const Dashboard = () => {
         custom_service_type: ''
       });
       setAvailableSlots([]);
+      setFormErrors({});
       
-      // Reload appointments
+      // Reload appointments and check daily limit
       await loadAppointments();
+      await checkDailyLimit();
     } else {
-      if (result.error?.includes('not available') || result.error?.includes('unavailable')) {
-        setFormErrors({
-          appointment_time: 'The selected date and time is not available. Please choose another time slot.'
-        });
+      // Handle different error cases
+      if (result.error) {
+        if (result.error.includes('daily booking limit') || result.error.includes('reached')) {
+          setFormErrors({
+            appointment_date: 'Daily booking limit reached. ' + result.error
+          });
+        } else if (result.error.includes('capacity') || result.error.includes('full')) {
+          setFormErrors({
+            appointment_time: 'This time slot is at full capacity. Please select another time.'
+          });
+        } else if (result.error.includes('not available') || result.error.includes('unavailable')) {
+          setFormErrors({
+            appointment_time: 'The selected date and time is not available. Please choose another time slot.'
+          });
+        } else if (result.error.includes('blackout')) {
+          setFormErrors({
+            appointment_time: 'This time is blocked: ' + result.error
+          });
+        } else {
+          setFormErrors({
+            general: result.error
+          });
+        }
       }
     }
   };
@@ -1553,8 +1653,62 @@ const Dashboard = () => {
         </div>
       </div>
 
+      {/* Daily Limit Status */}
+      {dailyLimitInfo.limit && (
+        <div className={`rounded-lg border p-4 flex items-start gap-3 ${
+          dailyLimitInfo.hasReachedLimit
+            ? 'bg-red-900/20 border-red-500/30'
+            : 'bg-blue-900/20 border-blue-500/30'
+        }`}>
+          {dailyLimitInfo.hasReachedLimit ? (
+            <>
+              <ExclamationTriangleIcon className="h-5 w-5 flex-shrink-0 text-red-400 mt-0.5" />
+              <div>
+                <h3 className="font-semibold text-red-400">Daily Booking Limit Reached</h3>
+                <p className="text-sm text-red-300/80 mt-1">
+                  {dailyLimitInfo.message || `You have reached your daily booking limit of ${dailyLimitInfo.limit} appointments. You can book again tomorrow.`}
+                </p>
+                {dailyLimitInfo.bookingsToday?.length > 0 && (
+                  <div className="mt-3 text-xs text-red-300/70">
+                    <p className="font-medium mb-2">Your appointments today:</p>
+                    <ul className="space-y-1 ml-2">
+                      {dailyLimitInfo.bookingsToday.map((booking, idx) => (
+                        <li key={idx} className="flex items-center gap-2">
+                          <span>•</span>
+                          <span>{booking.time} - {booking.service}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              <CheckCircleIcon className="h-5 w-5 flex-shrink-0 text-blue-400 mt-0.5" />
+              <div>
+                <h3 className="font-semibold text-blue-400">Appointment Slots Available</h3>
+                <p className="text-sm text-blue-300/80 mt-1">
+                  You have {dailyLimitInfo.remaining} of {dailyLimitInfo.limit} daily appointment slots available.
+                </p>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
       <div className="bg-gray-900 border border-amber-500/20 rounded-lg shadow p-6 hover:border-amber-500/40 transition-all duration-300">
         <form onSubmit={handleAppointmentSubmit} className="space-y-4">
+          {/* Display general form errors */}
+          {formErrors.general && (
+            <div className="rounded-lg border border-red-500/30 bg-red-900/20 p-4 flex items-start gap-3">
+              <ExclamationTriangleIcon className="h-5 w-5 flex-shrink-0 text-red-400 mt-0.5" />
+              <div>
+                <p className="text-sm text-red-300/90">{formErrors.general}</p>
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {/* Service Type with Enhanced Dropdown */}
             <ServiceTypeDropdown
@@ -1564,6 +1718,7 @@ const Dashboard = () => {
               error={formErrors.type}
               onOtherChange={handleCustomServiceChange}
               otherValue={appointmentData.custom_service_type}
+              disabled={dailyLimitInfo.hasReachedLimit}
             />
 
             {/* Enhanced Calendar Component */}
@@ -1571,6 +1726,7 @@ const Dashboard = () => {
               value={appointmentData.appointment_date}
               onChange={(value) => handleAppointmentChange({ target: { name: 'appointment_date', value } })}
               error={formErrors.appointment_date}
+              disabled={dailyLimitInfo.hasReachedLimit}
             />
 
             {/* Time Input using TimePicker Component */}
@@ -1578,6 +1734,7 @@ const Dashboard = () => {
               value={appointmentData.appointment_time}
               onChange={(value) => handleAppointmentChange({ target: { name: 'appointment_time', value } })}
               error={formErrors.appointment_time}
+              disabled={dailyLimitInfo.hasReachedLimit}
             />
 
             <div className="lg:col-span-2">
@@ -1588,8 +1745,11 @@ const Dashboard = () => {
                 name="notes"
                 value={appointmentData.notes}
                 onChange={handleAppointmentChange}
+                disabled={dailyLimitInfo.hasReachedLimit}
                 rows="3"
-                className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm text-white placeholder-gray-400 resize-none"
+                className={`w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm text-white placeholder-gray-400 resize-none ${
+                  dailyLimitInfo.hasReachedLimit ? 'opacity-50 cursor-not-allowed bg-gray-900' : ''
+                }`}
                 placeholder="Any special requirements, document details, or specific instructions..."
               />
             </div>
@@ -1633,13 +1793,18 @@ const Dashboard = () => {
             </div>
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || dailyLimitInfo.hasReachedLimit}
               className="px-6 py-2 bg-gradient-to-r from-amber-600 to-amber-700 text-white rounded-lg hover:from-amber-700 hover:to-amber-800 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 focus:ring-offset-gray-900 transition-all duration-200 font-medium text-sm shadow border border-amber-500/30 disabled:opacity-50 disabled:cursor-not-allowed flex items-center transform hover:-translate-y-0.5"
             >
               {loading ? (
                 <>
                   <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
                   Scheduling...
+                </>
+              ) : dailyLimitInfo.hasReachedLimit ? (
+                <>
+                  <XCircleIcon className="h-4 w-4 mr-2" />
+                  Daily Limit Reached
                 </>
               ) : (
                 <>
@@ -2073,8 +2238,38 @@ const Dashboard = () => {
     );
   }
 
+  // Listen for real-time appointment settings updates
+  useEffect(() => {
+    const handleSettingsUpdate = (event) => {
+      // Refresh daily limit when settings are updated by admin
+      checkDailyLimit();
+    };
+
+    let channel = null;
+    try {
+      if (window.Echo && typeof window.Echo.channel === 'function') {
+        channel = window.Echo.channel('appointment-settings');
+        if (channel && typeof channel.listen === 'function') {
+          channel.listen('AppointmentSettingsUpdated', handleSettingsUpdate);
+        }
+      }
+    } catch (error) {
+      console.debug('Echo not available for appointment settings:', error);
+    }
+
+    return () => {
+      try {
+        if (channel && typeof channel.stopListening === 'function') {
+          channel.stopListening('AppointmentSettingsUpdated');
+        }
+      } catch (error) {
+        // Silently fail if Echo cleanup doesn't work
+      }
+    };
+  }, [user?.id, checkDailyLimit]);
+
   return (
-    <div className={`min-h-screen ${isDarkMode ? 'bg-gradient-to-br from-gray-900 to-black' : 'bg-gradient-to-br from-gray-100 to-gray-200'} flex flex-col lg:flex-row transition-colors duration-300`}>
+    <div className={`min-h-screen ${isDarkMode ? 'bg-gray-900' : 'bg-gray-50'} flex flex-col lg:flex-row transition-colors duration-300`}>
       {/* Mobile Hamburger Menu */}
       <div className={`lg:hidden fixed top-0 left-0 right-0 z-40 ${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-gray-50 border-amber-300/40'} border-b shadow-md transition-colors duration-300`}>
         <div className="flex justify-between items-center px-4 py-3">
@@ -2099,12 +2294,12 @@ const Dashboard = () => {
       )}
 
       {/* Sidebar - Hidden on mobile by default, shown on desktop and when toggled on mobile */}
-      <div className={`fixed lg:static inset-y-0 right-0 lg:right-auto lg:left-0 z-40 w-64 ${isDarkMode ? 'bg-gradient-to-b from-gray-900 via-gray-800 to-black border-amber-500/20' : 'bg-gradient-to-b from-gray-50 via-gray-100 to-gray-100 border-amber-300/40'} border-l lg:border-l-0 lg:border-r shadow-xl transition-all duration-300 lg:translate-x-0 lg:w-64 ${
+      <div className={`fixed lg:static inset-y-0 right-0 lg:right-auto lg:left-0 z-40 w-64 ${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border-l lg:border-l-0 lg:border-r shadow-xl transition-all duration-300 lg:translate-x-0 lg:w-64 ${
         showMobileSidebar ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'
       }`}>
         <div className="flex flex-col h-full overflow-y-auto">
           {/* Logo Section */}
-          <div className={`p-4 shadow-md ${isDarkMode ? 'bg-gradient-to-r from-gray-900/80 to-gray-800/80 border-amber-500/30' : 'bg-gradient-to-r from-gray-50/80 to-gray-100/80 border-amber-300/50'} px-3 border-b transition-colors duration-300`}>
+          <div className={`p-4 shadow-md ${isDarkMode ? 'bg-gray-800 border-amber-500/30' : 'bg-gray-50 border-amber-300/50'} px-3 border-b transition-colors duration-300`}>
             <div className="flex items-center justify-center space-x-3">
               <div className="w-10 h-10 bg-gradient-to-br from-amber-400 to-amber-600 rounded-xl flex items-center justify-center shadow-lg shadow-amber-500/30 flex-shrink-0">
                 <BuildingLibraryIcon className="h-5 w-5 text-white" />

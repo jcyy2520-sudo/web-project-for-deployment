@@ -341,7 +341,7 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin }) => {
             </div>
 
             <div>
-              <label htmlFor="email" className="block text-xs font-medium text-amber-50 mb-1">
+              <label htmlFor="reg-email" className="block text-xs font-medium text-amber-50 mb-1">
                 Email Address *
               </label>
               <div className="relative">
@@ -350,7 +350,7 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin }) => {
                 </div>
                 <input
                   type="email"
-                  id="email"
+                  id="reg-email"
                   name="email"
                   value={formData.email}
                   onChange={handleChange}
@@ -362,7 +362,7 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin }) => {
             </div>
 
             <div>
-              <label htmlFor="password" className="block text-xs font-medium text-amber-50 mb-1">
+              <label htmlFor="reg-password" className="block text-xs font-medium text-amber-50 mb-1">
                 Password *
               </label>
               <div className="relative">
@@ -371,7 +371,7 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin }) => {
                 </div>
                 <input
                   type={showPassword ? "text" : "password"}
-                  id="password"
+                  id="reg-password"
                   name="password"
                   value={formData.password}
                   onChange={handleChange}
@@ -393,7 +393,7 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin }) => {
             </div>
 
             <div>
-              <label htmlFor="confirmPassword" className="block text-xs font-medium text-amber-50 mb-1">
+              <label htmlFor="reg-confirmPassword" className="block text-xs font-medium text-amber-50 mb-1">
                 Confirm Password *
               </label>
               <div className="relative">
@@ -402,7 +402,7 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin }) => {
                 </div>
                 <input
                   type={showConfirmPassword ? "text" : "password"}
-                  id="confirmPassword"
+                  id="reg-confirmPassword"
                   name="confirmPassword"
                   value={formData.confirmPassword}
                   onChange={handleChange}

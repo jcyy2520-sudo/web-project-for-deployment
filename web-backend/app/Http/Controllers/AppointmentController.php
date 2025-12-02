@@ -90,10 +90,10 @@ class AppointmentController extends Controller
     public function store(Request $request)
     {
         $request->validate([
-            'type' => 'required|string|in:' . implode(',', array_keys(Appointment::getTypes())),
+            'type' => 'required|string|max:255', // Flexible type - can be from static types or service names
             'service_id' => 'nullable|exists:services,id',
             'service_type' => 'nullable|string|max:255',
-            'appointment_date' => 'required|date|after:today',
+            'appointment_date' => 'required|date|after_or_equal:today', // Allow today
             'appointment_time' => 'required|date_format:H:i',
             'purpose' => 'nullable|string|max:500',
             'documents' => 'nullable|array',
@@ -183,6 +183,15 @@ class AppointmentController extends Controller
                     'message' => 'Time slot is blocked: ' . $blackoutDate->reason
                 ], 422);
             }
+        }
+
+        // NEW VALIDATION: Check daily appointment limit per user
+        $hasReachedLimit = \App\Models\AppointmentSettings::userHasReachedDailyLimit($request->user()->id, $request->appointment_date);
+        if ($hasReachedLimit) {
+            $settings = \App\Models\AppointmentSettings::getCurrent();
+            return response()->json([
+                'message' => "You have reached your daily booking limit of {$settings->daily_booking_limit_per_user} appointments for this day"
+            ], 422);
         }
 
         // NEW VALIDATION: Check capacity limits
@@ -1063,5 +1072,14 @@ class AppointmentController extends Controller
         Cache::forget('admin_batch_full_load_monthly');
         Cache::forget('admin_batch_full_load_yearly');
         Cache::forget('admin_batch_full_load_all');
+
+        // Clear analytics caches - when appointments change, analytics need to be recalculated
+        Cache::forget('analytics_slot_utilization_30');
+        Cache::forget('analytics_slot_utilization_7');
+        Cache::forget('analytics_no_show_patterns_90');
+        Cache::forget('analytics_demand_forecast_30');
+        Cache::forget('analytics_quality_report_90');
+        Cache::forget('analytics_auto_alerts');
+        Cache::forget('analytics_dashboard_comprehensive');
     }
 }

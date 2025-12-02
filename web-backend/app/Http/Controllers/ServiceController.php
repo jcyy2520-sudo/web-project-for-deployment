@@ -97,6 +97,8 @@ class ServiceController extends Controller
                     Service::create([
                         'name' => $label,
                         'description' => "Predefined appointment type",
+                        'price' => 0.00,
+                        'duration' => 60,
                         'is_active' => true
                     ]);
                     $servicesCreated++;
@@ -145,6 +147,8 @@ class ServiceController extends Controller
                     Service::create([
                         'name' => $serviceType,
                         'description' => "Service type from appointments",
+                        'price' => 0.00,
+                        'duration' => 60,
                         'is_active' => true
                     ]);
                     $servicesCreated++;

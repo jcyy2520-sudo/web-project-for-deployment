@@ -3,10 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Services\DecisionSupportService;
+use App\Traits\SafeExperimentalFeature;
 use Illuminate\Http\Request;
 
 class DecisionSupportController extends Controller
 {
+    use SafeExperimentalFeature;
+
     protected $decisionSupportService;
 
     public function __construct(DecisionSupportService $decisionSupportService)
@@ -16,18 +19,19 @@ class DecisionSupportController extends Controller
 
     /**
      * Get staff recommendations for an appointment
+     * EXPERIMENTAL: Wrapped with safety handler
      * GET /api/decision-support/staff-recommendations
      */
     public function getStaffRecommendations(Request $request)
     {
-        $request->validate([
-            'appointment_date' => 'required|date',
-            'appointment_time' => 'required|date_format:H:i',
-            'service_type' => 'nullable|string',
-            'customer_id' => 'nullable|exists:users,id',
-        ]);
+        return $this->wrapExperimental(function () use ($request) {
+            $request->validate([
+                'appointment_date' => 'required|date',
+                'appointment_time' => 'required|date_format:H:i',
+                'service_type' => 'nullable|string',
+                'customer_id' => 'nullable|exists:users,id',
+            ]);
 
-        try {
             $recommendations = $this->decisionSupportService->getStaffRecommendations(
                 $request->appointment_date,
                 $request->appointment_time,
@@ -38,14 +42,10 @@ class DecisionSupportController extends Controller
             return response()->json([
                 'success' => true,
                 'data' => $recommendations,
-                'message' => 'Staff recommendations retrieved successfully'
+                'message' => 'Staff recommendations retrieved successfully',
+                'experimental' => true,
             ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error retrieving staff recommendations: ' . $e->getMessage()
-            ], 500);
-        }
+        }, 'decision_support.staff_recommendations');
     }
 
     /**
@@ -54,28 +54,30 @@ class DecisionSupportController extends Controller
      */
     public function getTimeSlotRecommendations(Request $request)
     {
-        $request->validate([
-            'appointment_date' => 'required|date',
-            'duration_minutes' => 'nullable|integer|min:15|max:240',
-        ]);
-
-        try {
-            $recommendations = $this->decisionSupportService->getTimeSlotRecommendations(
-                $request->appointment_date,
-                $request->duration_minutes ?? 30
-            );
-
-            return response()->json([
-                'success' => true,
-                'data' => $recommendations,
-                'message' => 'Time slot recommendations retrieved successfully'
+        return $this->wrapExperimental(function () use ($request) {
+            $request->validate([
+                'appointment_date' => 'required|date',
+                'duration_minutes' => 'nullable|integer|min:15|max:240',
             ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error retrieving time slot recommendations: ' . $e->getMessage()
-            ], 500);
-        }
+
+            try {
+                $recommendations = $this->decisionSupportService->getTimeSlotRecommendations(
+                    $request->appointment_date,
+                    $request->duration_minutes ?? 30
+                );
+
+                return response()->json([
+                    'success' => true,
+                    'data' => $recommendations,
+                    'message' => 'Time slot recommendations retrieved successfully'
+                ]);
+            } catch (\Exception $e) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Error retrieving time slot recommendations: ' . $e->getMessage()
+                ], 500);
+            }
+        }, 'decision_support.time_slot_recommendations');
     }
 
     /**
@@ -84,27 +86,29 @@ class DecisionSupportController extends Controller
      */
     public function getAppointmentRisk($appointmentId)
     {
-        try {
-            $assessment = $this->decisionSupportService->getAppointmentRiskAssessment($appointmentId);
+        return $this->wrapExperimental(function () use ($appointmentId) {
+            try {
+                $assessment = $this->decisionSupportService->getAppointmentRiskAssessment($appointmentId);
 
-            if (!$assessment) {
+                if (!$assessment) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Appointment not found'
+                    ], 404);
+                }
+
+                return response()->json([
+                    'success' => true,
+                    'data' => $assessment,
+                    'message' => 'Risk assessment retrieved successfully'
+                ]);
+            } catch (\Exception $e) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Appointment not found'
-                ], 404);
+                    'message' => 'Error retrieving risk assessment: ' . $e->getMessage()
+                ], 500);
             }
-
-            return response()->json([
-                'success' => true,
-                'data' => $assessment,
-                'message' => 'Risk assessment retrieved successfully'
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error retrieving risk assessment: ' . $e->getMessage()
-            ], 500);
-        }
+        }, 'decision_support.appointment_risk');
     }
 
     /**
@@ -113,26 +117,28 @@ class DecisionSupportController extends Controller
      */
     public function getWorkloadOptimization(Request $request)
     {
-        $request->validate([
-            'appointment_date' => 'required|date',
-        ]);
-
-        try {
-            $recommendations = $this->decisionSupportService->getWorkloadOptimization(
-                $request->appointment_date
-            );
-
-            return response()->json([
-                'success' => true,
-                'data' => $recommendations,
-                'message' => 'Workload optimization recommendations retrieved successfully'
+        return $this->wrapExperimental(function () use ($request) {
+            $request->validate([
+                'appointment_date' => 'required|date',
             ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error retrieving workload recommendations: ' . $e->getMessage()
-            ], 500);
-        }
+
+            try {
+                $recommendations = $this->decisionSupportService->getWorkloadOptimization(
+                    $request->appointment_date
+                );
+
+                return response()->json([
+                    'success' => true,
+                    'data' => $recommendations,
+                    'message' => 'Workload optimization recommendations retrieved successfully'
+                ]);
+            } catch (\Exception $e) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Error retrieving workload recommendations: ' . $e->getMessage()
+                ], 500);
+            }
+        }, 'decision_support.workload_optimization');
     }
 
     /**
@@ -141,30 +147,32 @@ class DecisionSupportController extends Controller
      */
     public function getDashboard(Request $request)
     {
-        $request->validate([
-            'appointment_date' => 'required|date',
-        ]);
-
-        try {
-            $appointmentDate = $request->appointment_date;
-
-            $dashboard = [
-                'date' => $appointmentDate,
-                'workload_overview' => $this->decisionSupportService->getWorkloadOptimization($appointmentDate),
-                'time_slot_recommendations' => $this->decisionSupportService->getTimeSlotRecommendations($appointmentDate),
-                'generated_at' => now(),
-            ];
-
-            return response()->json([
-                'success' => true,
-                'data' => $dashboard,
-                'message' => 'Decision support dashboard retrieved successfully'
+        return $this->wrapExperimental(function () use ($request) {
+            $request->validate([
+                'appointment_date' => 'required|date',
             ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Error retrieving dashboard: ' . $e->getMessage()
-            ], 500);
-        }
+
+            try {
+                $appointmentDate = $request->appointment_date;
+
+                $dashboard = [
+                    'date' => $appointmentDate,
+                    'workload_overview' => $this->decisionSupportService->getWorkloadOptimization($appointmentDate),
+                    'time_slot_recommendations' => $this->decisionSupportService->getTimeSlotRecommendations($appointmentDate),
+                    'generated_at' => now(),
+                ];
+
+                return response()->json([
+                    'success' => true,
+                    'data' => $dashboard,
+                    'message' => 'Decision support dashboard retrieved successfully'
+                ]);
+            } catch (\Exception $e) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Error retrieving dashboard: ' . $e->getMessage()
+                ], 500);
+            }
+        }, 'decision_support.dashboard');
     }
 }

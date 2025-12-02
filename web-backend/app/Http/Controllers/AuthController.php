@@ -146,6 +146,24 @@ class AuthController extends Controller
         'code' => $request->code
     ]);
 
+    // SECURITY: Check if email has ANY verification record first
+    $emailExists = VerificationCode::where('email', $request->email)
+        ->where('used', false)
+        ->where('expires_at', '>', now())
+        ->exists();
+
+    if (!$emailExists) {
+        RateLimiter::hit($key, 300); // 5 minutes
+        Log::warning('Email not found in registration', [
+            'email' => $request->email,
+            'ip' => $request->ip()
+        ]);
+        
+        return response()->json([
+            'message' => 'Email not found. Please complete the registration process first.'
+        ], 422);
+    }
+
     // Find the verification code - FIXED: Check for exact match and validity
     $verification = VerificationCode::where('email', $request->email)
         ->where('code', $request->code)

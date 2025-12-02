@@ -184,92 +184,6 @@ const MessageThread = ({ messages, currentUserId, isDarkMode }) => {
   );
 };
 
-// Reply Modal Component
-const ReplyModal = ({ isOpen, onClose, conversation, onSend, loading, isDarkMode }) => {
-  const [replyMessage, setReplyMessage] = useState('');
-  const [subject, setSubject] = useState('');
-
-  useEffect(() => {
-    if (!isOpen) {
-      setReplyMessage('');
-      setSubject('');
-    }
-  }, [isOpen]);
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (replyMessage.trim()) {
-      onSend({
-        message: replyMessage,
-        subject: subject || 'Reply',
-        receiver_id: conversation?.user?.id,
-        type: 'reply'
-      });
-      setReplyMessage('');
-      setSubject('');
-    }
-  };
-
-  if (!isOpen || !conversation) return null;
-
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4">
-      <div className={`${isDarkMode ? 'bg-gray-800 border-amber-500/30' : 'bg-white border-amber-300/40'} border rounded-lg shadow-xl w-full max-w-md`}>
-        <div className={`flex justify-between items-center p-4 border-b ${isDarkMode ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-gray-50'}`}>
-          <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>
-            Reply to {conversation.user?.first_name}
-          </h3>
-          <button onClick={onClose} className={`${isDarkMode ? 'text-gray-400 hover:text-amber-400' : 'text-gray-600 hover:text-amber-600'} transition-colors`} disabled={loading}>
-            <XMarkIcon className="h-5 w-5" />
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="p-4 space-y-4">
-          <input
-            type="text"
-            placeholder="Subject"
-            value={subject}
-            onChange={(e) => setSubject(e.target.value)}
-            className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-500'}`}
-          />
-          <textarea
-            value={replyMessage}
-            onChange={(e) => setReplyMessage(e.target.value)}
-            rows="6"
-            placeholder="Enter your message..."
-            className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 resize-none ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-500'}`}
-            disabled={loading}
-            required
-          />
-
-          <div className="flex justify-end space-x-3 pt-2">
-            <button type="button" onClick={onClose} className={`px-4 py-2 border rounded-lg text-sm font-medium transition-colors ${isDarkMode ? 'border-gray-600 text-gray-300 hover:bg-gray-700' : 'border-gray-300 text-gray-700 hover:bg-gray-100'}`} disabled={loading}>
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700 transition-colors disabled:opacity-50 flex items-center"
-              disabled={loading}
-            >
-              {loading ? (
-                <>
-                  <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                  Sending...
-                </>
-              ) : (
-                <>
-                  <PaperAirplaneIcon className="h-4 w-4 mr-1" />
-                  Send
-                </>
-              )}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-};
-
 // Main Admin Messages Component
 const AdminMessages = forwardRef(({ isDarkMode }, ref) => {
   const { user } = useAuth();
@@ -279,7 +193,7 @@ const AdminMessages = forwardRef(({ isDarkMode }, ref) => {
   const [selectedConversation, setSelectedConversation] = useState(null);
   const [messages, setMessages] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [showReplyModal, setShowReplyModal] = useState(false);
+  const [replyMessage, setReplyMessage] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [loading, setLoading] = useState(false);
   const [initialLoadDone, setInitialLoadDone] = useState(false);
@@ -383,29 +297,36 @@ const AdminMessages = forwardRef(({ isDarkMode }, ref) => {
   }, [conversations, searchTerm]);
 
   const handleSendReply = useCallback(
-    async (replyData) => {
+    async (e) => {
+      e.preventDefault();
+      if (!replyMessage.trim() || !selectedConversation) return;
+
       try {
         setLoading(true);
         const result = await callApi(() =>
           axios.post('/api/messages', {
             receiver_id: selectedConversation?.user?.id,
-            message: replyData.message,
-            subject: replyData.subject
+            message: replyMessage,
+            subject: 'Message'
           }, { timeout: 15000 })
         );
 
         if (result.success) {
-          setShowReplyModal(false);
+          setReplyMessage('');
           await loadMessages(selectedConversation.user.id);
           await loadConversations();
+        } else {
+          console.error('Error sending reply:', result);
+          alert('Failed to send message. Please try again.');
         }
       } catch (error) {
         console.error('Error sending reply:', error);
+        alert('Error sending message: ' + (error.response?.data?.message || error.message));
       } finally {
         setLoading(false);
       }
     },
-    [callApi, selectedConversation, loadMessages, loadConversations]
+    [callApi, selectedConversation, replyMessage, loadMessages, loadConversations]
   );
 
   const handleDeleteConversation = useCallback(async () => {
@@ -576,16 +497,30 @@ const AdminMessages = forwardRef(({ isDarkMode }, ref) => {
               <div ref={messagesEndRef} />
             </div>
 
-            {/* Reply Input - Fixed at bottom */}
-            <div className={`flex-shrink-0 p-4 border-t ${isDarkMode ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-gray-50'}`}>
-              <button
-                onClick={() => setShowReplyModal(true)}
-                className="w-full px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700 transition-colors flex items-center justify-center"
-              >
-                <PaperAirplaneIcon className="h-4 w-4 mr-2" />
-                Send Message
-              </button>
-            </div>
+            {/* Reply Input Form - Fixed at bottom */}
+            <form onSubmit={handleSendReply} className={`flex-shrink-0 p-4 border-t ${isDarkMode ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-gray-50'}`}>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={replyMessage}
+                  onChange={(e) => setReplyMessage(e.target.value)}
+                  placeholder="Type your message..."
+                  className={`flex-1 px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-500'}`}
+                  disabled={loading}
+                />
+                <button
+                  type="submit"
+                  disabled={loading || !replyMessage.trim()}
+                  className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                >
+                  {loading ? (
+                    <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  ) : (
+                    <PaperAirplaneIcon className="h-4 w-4" />
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         ) : (
           <div className={`flex-1 flex items-center justify-center ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} border rounded-lg ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
@@ -629,16 +564,6 @@ const AdminMessages = forwardRef(({ isDarkMode }, ref) => {
           </div>
         </div>
       )}
-
-      {/* Reply Modal */}
-      <ReplyModal
-        isOpen={showReplyModal}
-        onClose={() => setShowReplyModal(false)}
-        conversation={selectedConversation}
-        onSend={handleSendReply}
-        loading={loading}
-        isDarkMode={isDarkMode}
-      />
     </div>
   );
 });
