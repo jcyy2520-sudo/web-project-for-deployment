@@ -15,7 +15,7 @@ class DatabaseSeeder extends Seeder
     {
         // Admin account - use firstOrCreate to prevent duplicates
         User::firstOrCreate(
-            ['email' => 'admin@gmail.com'],
+            ['email' => 'johncyy2025@gmail.com'],
             [
                 'username' => 'admin',
                 'password' => Hash::make('admin123'),
@@ -30,13 +30,13 @@ class DatabaseSeeder extends Seeder
         );
 
         $this->command->info('Admin user created/verified successfully!');
-        $this->command->info('Email: admin@gmail.com');
+        $this->command->info('Email: johncyy2025@gmail.com');
         $this->command->info('Password: admin123');
         
-        // Run other seeders
-        $this->call([
-            TestUserSeeder::class,
-            TestAppointmentsSeeder::class,
-        ]);
+        // Run other seeders (disabled to prevent test data in production)
+        // $this->call([
+        //     TestUserSeeder::class,
+        //     TestAppointmentsSeeder::class,
+        // ]);
     }
 }

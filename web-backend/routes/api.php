@@ -21,6 +21,7 @@ use App\Http\Controllers\TimeSlotCapacityController;
 use App\Http\Controllers\BlackoutDateController;
 use App\Http\Controllers\AnalyticsController;
 use App\Http\Controllers\AppointmentSettingsController;
+use App\Http\Controllers\ChatbotController;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Mail;
 use App\Mail\VerificationCodeMail;
@@ -334,6 +335,14 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/appointment-risk/{appointmentId}', [DecisionSupportController::class, 'getAppointmentRisk']);
         Route::get('/workload-optimization', [DecisionSupportController::class, 'getWorkloadOptimization']);
         Route::get('/dashboard', [DecisionSupportController::class, 'getDashboard']);
+    });
+
+    // CHATBOT ROUTES (All authenticated users)
+    Route::prefix('chatbot')->group(function () {
+        Route::get('/history', [ChatbotController::class, 'getHistory']);
+        Route::post('/send-message', [ChatbotController::class, 'sendMessage']);
+        Route::delete('/clear-history', [ChatbotController::class, 'clearHistory']);
+        Route::get('/conversation-summary', [ChatbotController::class, 'getConversationSummary']);
     });
 });
 

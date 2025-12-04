@@ -425,6 +425,7 @@ const LogoutConfirmationModal = ({ isOpen, onClose, onConfirm, loading }) => {
   );
 };
 
+// AdminLoginModal removed - login should use the main auth flows if needed
 // Modal Components
 const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, confirmText = "Delete", type = "danger", loading = false }) => {
   if (!isOpen) return null;
@@ -1791,7 +1792,7 @@ const AdminDashboard = () => {
   const loadUsers = useCallback(async () => {
     try {
       const result = await callApi(async () => {
-        const response = await axios.get('/api/users?role=client', { 
+        const response = await axios.get('/api/users?role=client&limit=1000', { 
           timeout: 10000
         });
         
@@ -2920,30 +2921,12 @@ const AdminDashboard = () => {
     }
   }, [activeTab, loadDashboardData, loadUsers, loadAdmins, loadAppointments, loadUnavailableDates]);
 
-  // Poll dashboard stats for near real-time updates when on dashboard
-  // Increased polling interval from 15s to 30s to reduce server load
-  // Polling is disabled during network errors to prevent hammering backend
+  // Load dashboard stats once when admin opens the dashboard.
+  // Removed automatic polling to prevent perceived "refreshing" behavior.
   useEffect(() => {
-    let timerId = null;
-    let networkErrorCount = 0;
-    const maxConsecutiveErrors = 3;
-    
     if (activeTab === 'dashboard') {
-      // initial load with current timeframe
       loadDashboardData(timeframeRef.current);
-      timerId = setInterval(() => {
-        // Skip polling if we've had too many consecutive network errors
-        if (networkErrorCount >= maxConsecutiveErrors) {
-          console.warn('⚠️ Polling disabled: Too many network errors. User can manually refresh.');
-          return;
-        }
-        loadDashboardData(timeframeRef.current);
-      }, 30000); // every 30 seconds (increased from 15s)
     }
-
-    return () => {
-      if (timerId) clearInterval(timerId);
-    };
   }, [activeTab, loadDashboardData]);
 
   // When timeframe changes, reload dashboard stats with new timeframe
@@ -3078,7 +3061,7 @@ const AdminDashboard = () => {
         >
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-gray-400 text-xs">Archived Users</p>
+              <p className="text-gray-400 text-xs">Archived Accounts</p>
               <p className="text-2xl font-bold text-blue-400 mt-1">{filteredArchivedUsers.length}</p>
             </div>
             <UserGroupIcon className={`h-8 w-8 ${archiveTab === 'users' ? 'text-blue-400' : 'text-gray-500'}`} />
@@ -3107,7 +3090,7 @@ const AdminDashboard = () => {
       {archiveTab === 'users' && filteredArchivedUsers.length === 0 && (
         <div className="bg-gray-800/30 border border-gray-700 rounded-lg p-8 text-center">
           <UserGroupIcon className="h-12 w-12 text-gray-500 mx-auto mb-2 opacity-50" />
-          <p className="text-gray-400">No archived users</p>
+          <p className="text-gray-400">No archived accounts</p>
         </div>
       )}
 
@@ -3118,11 +3101,11 @@ const AdminDashboard = () => {
         </div>
       )}
 
-      {/* Archived Users Cards View */}
+      {/* Archived Accounts View */}
       {archiveTab === 'users' && filteredArchivedUsers.length > 0 && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-amber-50">Users ({archivedUsers.length})</h3>
+            <h3 className="text-sm font-semibold text-amber-50">Archived Accounts ({filteredArchivedUsers.length})</h3>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[500px] overflow-y-auto pr-2">
             {filteredArchivedUsers.map((user) => (
@@ -3158,11 +3141,11 @@ const AdminDashboard = () => {
         </div>
       )}
 
-      {/* Archived Appointments Cards View */}
+      {/* Archived Appointments View */}
       {archiveTab === 'appointments' && filteredArchivedAppointments.length > 0 && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-amber-50">Appointments ({archivedAppointments.length})</h3>
+            <h3 className="text-sm font-semibold text-amber-50">Archived Appointments ({archivedAppointments.length})</h3>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[500px] overflow-y-auto pr-2">
             {filteredArchivedAppointments.map((apt) => (
@@ -4741,7 +4724,7 @@ const AdminDashboard = () => {
               </div>
             </div>
 
-            <nav className={`flex-1 py-3 lg:py-4 space-y-3 lg:space-y-4 overflow-y-auto transition-all duration-300 ${isCollapsedDesktop ? 'lg:px-2' : 'px-2 lg:px-3'}`}>
+            <nav className={`flex-1 py-3 lg:py-4 space-y-3 lg:space-y-4 overflow-y-auto transition-all duration-300 min-h-0 ${isCollapsedDesktop ? 'lg:px-2' : 'px-2 lg:px-3'}`}>
               {navigation.map((item, index) => {
                 if (item.section) {
                   return (
@@ -4807,33 +4790,9 @@ const AdminDashboard = () => {
             </nav>
 
             <div className={`p-2 lg:p-3 border-t border-amber-500/20 flex-shrink-0 transition-all duration-300 ${isCollapsedDesktop ? 'lg:flex lg:items-center lg:justify-center' : ''}`}>
-              <div className={`flex items-center space-x-2 p-2 bg-gray-800/50 rounded-lg border border-gray-600 ${
-                isCollapsedDesktop ? 'lg:space-x-0 lg:justify-center' : ''
-              }`}>
-                <div className="flex-shrink-0">
-                  <div className="w-8 h-8 bg-gradient-to-r from-amber-500 to-amber-600 rounded-full flex items-center justify-center text-white text-xs font-bold shadow">
-                    {user?.first_name?.charAt(0)}{user?.last_name?.charAt(0)}
-                  </div>
-                </div>
-                {!isCollapsedDesktop && (
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium text-amber-50 truncate">
-                      {user?.first_name} {user?.last_name}
-                    </p>
-                    <p className="text-xs text-amber-400/70 capitalize truncate">{user?.role}</p>
-                  </div>
-                )}
-              </div>
+              {/* sidebar profile removed per request (SA / System Administrator / admin) */}
               
-              {/* Fixed: Added logout button with confirmation modal - shows icon only when collapsed */}
-              <button
-                onClick={() => setShowLogoutModal(true)}
-                className={`w-full mt-2 px-3 py-2 border border-red-500/30 text-red-400 rounded text-xs font-medium hover:bg-red-500/10 transition-colors duration-200 flex items-center ${isCollapsedDesktop ? 'lg:justify-center' : 'justify-center lg:justify-start'}`}
-                title={isCollapsedDesktop ? 'Logout' : ''}
-              >
-                <ArrowPathIcon className={`h-3 w-3 transform rotate-180 flex-shrink-0 ${!isCollapsedDesktop ? 'mr-1' : ''}`} />
-                {!isCollapsedDesktop && <span>Logout</span>}
-              </button>
+              {/* sidebar logout removed per request - header will show confirmation-only logout */}
             </div>
           </div>
         </div>
@@ -4899,7 +4858,7 @@ const AdminDashboard = () => {
                   </button>
                 )}
 
-                <div className="ml-2">
+                <div className="ml-2 flex items-center">
                   <label htmlFor="global-timeframe-select" className="sr-only">Timeframe</label>
                   <select
                     id="global-timeframe-select"
@@ -4921,6 +4880,15 @@ const AdminDashboard = () => {
                     <option value="monthly">Monthly</option>
                     <option value="yearly">Yearly</option>
                   </select>
+
+                  {/* Admin Login removed per request (no credential prompt in header) */}
+                  <button
+                    type="button"
+                    onClick={() => setShowLogoutModal(true)}
+                    className="ml-2 px-2 py-1 text-xs rounded border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors"
+                  >
+                    Logout
+                  </button>
                 </div>
               </div>
             </div>
@@ -4970,6 +4938,8 @@ const AdminDashboard = () => {
         onSave={handleSaveAdmin}
         loading={apiLoading}
       />
+
+      {/* AdminLoginModal removed; header no longer shows credential input button */}
 
       <UnavailableDateModal
         isOpen={showUnavailableModal}

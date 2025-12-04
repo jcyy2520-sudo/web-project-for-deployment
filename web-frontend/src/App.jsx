@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import LoadingSpinner from './components/ui/LoadingSpinner';
 import ErrorBoundary from './components/ErrorBoundary';
 import ToastContainer from './components/notifications/ToastContainer';
+import ChatbotButton from './components/chatbot/ChatbotButton';
 import './css/animations.css';
 import { debugApiConfig } from './utils/debugApi';
 
@@ -176,6 +177,7 @@ function App() {
         <div className="min-h-screen bg-gray-900">
           <ToastContainer isDarkMode={true} />
           <AppContent />
+          <ChatbotButton />
         </div>
       </Router>
     </AuthProvider>

@@ -153,23 +153,24 @@ class AppointmentSettingsController extends Controller
 
     /**
      * Get the next available time for a user to book
+     * Returns time in 12-hour format (e.g., "tomorrow (Dec 04)" instead of military time)
      */
     private function getNextAvailableBookingTime($userId, $currentDate)
     {
         $currentDateObj = \Carbon\Carbon::createFromFormat('Y-m-d', $currentDate);
         $today = now()->format('Y-m-d');
 
-        // If the current date is today
+        // If the current date is today, user can book tomorrow
         if ($currentDate === $today) {
-            // Return "tomorrow" with the date
+            // Return "tomorrow" with the date in readable format
             $tomorrow = $currentDateObj->addDay()->format('M d');
             return "tomorrow ({$tomorrow})";
         }
 
-        // If the current date is in the future
+        // If the current date is in the future, user can book the next day after that date
         if ($currentDateObj > \Carbon\Carbon::now()) {
-            $formattedDate = $currentDateObj->addDay()->format('M d');
-            return "on {$formattedDate}";
+            $nextAvailable = $currentDateObj->addDay()->format('M d');
+            return "on {$nextAvailable}";
         }
 
         // Default case

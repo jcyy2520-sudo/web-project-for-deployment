@@ -90,9 +90,21 @@ const TimeSlotCapacityManagement = ({ isDarkMode = true }) => {
 
       if (response.data.success) {
         setSuccess(`All time slots updated to ${globalCapacity} max appointments! (${response.data.data.total} slots configured)`);
-        await loadCapacities();
+        
+        // Update customCapacities state to reflect the change BEFORE switching modes
+        const updatedCapacities = {};
+        hours.forEach(hour => {
+          updatedCapacities[hour] = globalCapacity;
+        });
+        setCustomCapacities(updatedCapacities);
+        
         // notify clients
         window.dispatchEvent(new CustomEvent('slotCapacitiesChanged'));
+        
+        // Switch to customize mode to show the updated values immediately
+        setTimeout(() => {
+          setMode('customize');
+        }, 200);
       } else {
         setError(response.data.message || 'Failed to apply capacity to all slots');
       }

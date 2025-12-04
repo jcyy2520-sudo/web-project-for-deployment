@@ -1,0 +1,616 @@
+CHATBOT CONVERSATION STARTERS & SUGGESTED QUESTIONS
+
+Based on your system's features for Users (Clients), Staff, and Admins
+
+================================================================================
+FOR CLIENT USERS
+================================================================================
+
+APPOINTMENT BOOKING & SCHEDULING
+================================
+
+General Questions:
+- "How do I book an appointment?"
+- "What services do you offer?"
+- "How far in advance can I book an appointment?"
+- "What time slots are available?"
+- "Can I request a specific date?"
+
+Service-Related:
+- "What's included in the legal consultation service?"
+- "How long does a typical appointment take?"
+- "What should I bring to my appointment if i choose this [service]?"
+- "Do you offer video call appointments?"
+
+
+Booking Issues:
+- "I can't find an available slot. What should I do?"
+- "What if my preferred time slot is full?"
+- "Are there alternative times available next week?"
+- "Can I change my appointment to a different day?"
+- "How many appointments can I book at once?"
+
+Status & Confirmation:
+- "Has my appointment been confirmed?"
+- "What's the status of my booking?"
+- "When will I get confirmation?"
+- "Do you send reminders before my appointment?"
+- "How will you contact me about my appointment?"
+
+
+APPOINTMENT MANAGEMENT
+=======================
+
+Viewing Appointments:
+- "When is my next appointment?"
+- "Can I see all my scheduled appointments?"
+- "What appointments do I have next month?"
+- "Show me my appointment details"
+
+Cancellations & Changes:
+- "How do I cancel my appointment?"
+- "Can I reschedule my appointment?"
+- "What's your cancellation policy?"
+- "How far in advance do I need to cancel?"
+- "Will I be charged if I cancel?"
+- "Can I change the appointment time?"
+- "What happens if I miss my appointment?"
+
+
+PROFILE & ACCOUNT
+=================
+
+Account Information:
+- "How do I update my profile information?"
+- "Can I change my phone number?"
+- "How do I update my address?"
+- "Can I reset my password?"
+
+
+Account Settings:
+- "How do I change my email address?"
+- "Can I delete my account?"
+- "How do I disable notifications?"
+- "Do you have a mobile app?"
+
+Privacy & Security:
+- "How is my data protected?"
+- "Who has access to my appointment details?"
+- "Is my information confidential?"
+
+
+COMMUNICATIONS & MESSAGES
+==========================
+
+Messages:
+- "Can I send a message to admin?"
+- "How do I contact support?"
+- "How long does it take to get a response?"
+- "Can I receive notifications via email?"
+- "Is there a messaging history?"
+
+General Support:
+- "Do you have FAQs?"
+- "What are your business hours?"
+- "How can I provide feedback?"
+- "Can I schedule a follow-up appointment?"
+- "Who should I contact for questions?"
+
+
+ACCOUNT ISSUES & HELP
+======================
+
+Login Issues:
+- "I can't log in. What should I do?"
+- "I forgot my password. How do I reset it?"
+- "My account seems locked. Why?"
+- "Can you help me regain access?"
+
+Technical Support:
+- "I'm getting an error message. What should I do?"
+- "Is the system down?"
+- "Why isn't the website loading properly?"
+- "I'm having trouble uploading a file"
+
+General Help:
+- "How do I use the dashboard?"
+- "Where can I find my appointment confirmation?"
+- "How do I print my appointment details?"
+- "Can you walk me through the booking process?"
+
+
+================================================================================
+FOR ADMIN
+================================================================================
+
+APPOINTMENT MANAGEMENT
+=======================
+
+Viewing & Managing:
+- "How many appointments do I have today?"
+- "Show me all pending appointments"
+- "Which appointments need my attention?"
+- "Who hasn't confirmed their appointment yet?"
+- "What appointments are scheduled for next week?"
+- "Which appointments have been declined?"
+- "Show me completed appointments"
+
+Appointment Details:
+- "What are the details for appointment #123?"
+- "Who is scheduled for 2 PM today?"
+- "What service will this appointment be?"
+- "Can I see the client's contact information?"
+- "What notes are on this appointment?"
+
+Appointment Status Updates:
+- "How do I approve an appointment?"
+- "How do I decline an appointment?"
+- "How do I mark an appointment as complete?"
+- "Can I cancel a client's appointment?"
+- "How do I change an appointment status?"
+- "What should I do with pending appointments?"
+- "How do I provide notes on an appointment?"
+
+Workload Management:
+- "What's my workload for this week?"
+- "Which time slots have the most bookings?"
+- "Do I have any high-risk appointments?"
+- "What are my upcoming commitments?"
+- "Show me my daily schedule"
+- "Can I see my appointment distribution?"
+
+
+DECISION SUPPORT & OPTIMIZATION
+=================================
+
+Recommendations:
+- "Should I add more appointment slots?"
+- "Which time slots should I prioritize?"
+- "What time slots are underutilized?"
+- "Which appointments are at risk of cancellation?"
+- "What's the best scheduling strategy?"
+- "Should I adjust my availability?"
+
+Performance Insights:
+- "What's my performance this month?"
+- "How many appointments did I complete?"
+- "What's my cancellation rate?"
+- "Are my clients satisfied?"
+- "What's my utilization rate?"
+- "How do I compare to other staff?"
+
+Analytics & Insights:
+- "What are the workload optimization recommendations?"
+- "Show me staff performance metrics"
+- "Which days are busiest?"
+- "What time slots are most popular?"
+- "What's the appointment completion rate?"
+
+
+CALENDAR & AVAILABILITY
+========================
+
+Calendar Management:
+- "How do I set my unavailable dates?"
+- "Can I block time for breaks?"
+- "How do I set my working hours?"
+- "How do I manage vacation time?"
+- "Can I create recurring unavailability?"
+- "How far in advance can I plan availability?"
+
+Time Slot Configuration:
+- "How do I set slot capacity limits?"
+- "Can I have different limits for different times?"
+- "How many people can book the same slot?"
+- "Can I adjust slot durations?"
+- "How do I configure 15-minute vs 1-hour slots?"
+
+Scheduling Conflicts:
+- "Can I see overlapping appointments?"
+- "What happens if a slot is double-booked?"
+- "How do I resolve scheduling conflicts?"
+
+
+ANALYTICS & REPORTING
+======================
+
+Dashboard Metrics:
+- "How many total appointments do we have?"
+- "What's the appointment status breakdown?"
+- "Show me the distribution by status"
+- "What's our pending vs approved ratio?"
+- "How many cancellations this month?"
+- "What's our completion rate?"
+
+Advanced Analytics:
+- "What's our no-show rate?"
+- "Which services are most popular?"
+- "What's the cancellation pattern?"
+- "What's our client retention rate?"
+- "Are there any trend patterns?"
+- "Show me demand forecasts"
+
+Reports & Export:
+- "Can I generate a report?"
+- "How do I export appointment data?"
+- "What data can I download?"
+- "Can I create custom reports?"
+- "How do I schedule automated reports?"
+
+Quality Metrics:
+- "What are the quality report metrics?"
+- "How do we measure service quality?"
+- "What's our average client satisfaction?"
+- "Are there any quality concerns?"
+- "What's our appointment accuracy rate?"
+
+
+USER MANAGEMENT (ADMIN ONLY)
+=============================
+
+Client Management:
+- "How do I add a new client?"
+- "How do I view all clients?"
+- "How do I update client information?"
+- "How do I deactivate a client account?"
+- "How many active clients do we have?"
+- "Which clients have the most appointments?"
+
+Staff Management:
+- "How do I add a new staff member?"
+- "How many staff members do I have?"
+- "Who is the top-performing staff?"
+- "How do I assign staff to appointments?"
+- "Can I manage staff schedules?"
+- "How do I remove a staff member?"
+
+Admin Accounts:
+- "How do I create an admin account?"
+- "How many admins do we have?"
+- "Can I change user roles?"
+- "How do I deactivate an account?"
+- "Can I see a list of all admins?"
+
+User Activity:
+- "Which users are most active?"
+- "Who hasn't logged in recently?"
+- "Can I see user login history?"
+- "What's the average usage per user?"
+
+
+SERVICE MANAGEMENT (ADMIN)
+===========================
+
+Service Configuration:
+- "How do I add a new service?"
+- "How do I update service details?"
+- "Can I delete a service?"
+- "What services are currently offered?"
+- "How many services do we have?"
+- "What's the pricing for each service?"
+
+Service Analytics:
+- "Which services are most popular?"
+- "What's the demand for each service?"
+- "Which services need promotion?"
+- "What's the revenue by service?"
+- "Are there unused services?"
+- "Should I discontinue any services?"
+
+
+SYSTEM SETTINGS & CONFIGURATION
+=================================
+
+Appointment Settings:
+- "What's the current booking limit?"
+- "How do I change the daily booking limit?"
+- "Can I disable booking limits?"
+- "What's the maximum appointments per slot?"
+- "How do I configure slot capacity?"
+- "Can different users have different limits?"
+
+Calendar Settings:
+- "How do I manage blackout dates?"
+- "How do I set company holidays?"
+- "Can I create recurring unavailability?"
+- "How do I manage time zone settings?"
+- "What's the timezone for appointments?"
+
+System Configuration:
+- "How do I change system settings?"
+- "What settings can I configure?"
+- "How do I manage email notifications?"
+- "Can I customize email templates?"
+- "How do I configure appointment reminders?"
+
+Business Rules:
+- "What's our cancellation policy?"
+- "What's our no-show policy?"
+- "How long can clients book in advance?"
+- "What's the minimum notice for changes?"
+- "Are there any restrictions on booking?"
+
+
+ALERTS & NOTIFICATIONS
+=======================
+
+Alert Management:
+- "What alerts are available?"
+- "How do I set up alerts?"
+- "What triggers an alert?"
+- "Can I customize alert conditions?"
+- "What high-risk alerts should I monitor?"
+
+Auto-Alerts:
+- "Show me auto-alerts for today"
+- "What appointments need attention?"
+- "Are there any critical issues?"
+- "What no-show risks exist?"
+- "Which appointments might get cancelled?"
+- "What slots are at capacity?"
+
+
+MESSAGES & COMMUNICATIONS
+===========================
+
+Messaging System:
+- "How do I send a message to a client?"
+- "Can I send bulk messages?"
+- "How do I view message history?"
+- "What's the conversation thread?"
+- "Can I search messages?"
+
+Notifications:
+- "How do I manage notifications?"
+- "What notification types are there?"
+- "Can I customize notification preferences?"
+- "How do I enable/disable notifications?"
+
+
+ACTION LOGS & AUDIT TRAIL
+==========================
+
+Activity Tracking:
+- "What action logs are available?"
+- "Who did what and when?"
+- "Can I see the audit trail?"
+- "What changes were made to this appointment?"
+- "When was this record last modified?"
+- "Who last updated this?"
+
+System Monitoring:
+- "What's the system activity?"
+- "Are there any suspicious activities?"
+- "What's the login history?"
+- "Can I export activity logs?"
+- "How long are logs retained?"
+
+
+REPORTS & INSIGHTS (ADMIN)
+===========================
+
+Report Types:
+- "What reports can I generate?"
+- "How do I create an appointment report?"
+- "Can I generate a user report?"
+- "What revenue reports exist?"
+- "What system usage reports are available?"
+
+Report Configuration:
+- "How do I set the date range?"
+- "Can I filter by user/staff?"
+- "Can I export reports?"
+- "What formats are available?"
+- "Can I schedule recurring reports?"
+
+Data Analysis:
+- "What's the trend over time?"
+- "What patterns do you see?"
+- "What's the forecast?"
+- "Are there any anomalies?"
+- "What insights can you provide?"
+- "What's the comparison to last period?"
+
+
+ARCHIVE & HISTORICAL DATA
+==========================
+
+Archive Management:
+- "How do I archive appointments?"
+- "Can I view archived data?"
+- "How do I restore archived records?"
+- "What's the data retention policy?"
+- "Can I permanently delete old data?"
+
+Historical Analysis:
+- "Show me historical trends"
+- "What was performance last month?"
+- "How have metrics changed?"
+- "Can I compare periods?"
+
+
+TROUBLESHOOTING & SUPPORT (ADMIN)
+===================================
+
+System Issues:
+- "Is the system running normally?"
+- "Are there any errors?"
+- "Can I check system status?"
+- "What's the uptime?"
+- "Are there any pending updates?"
+
+Data Issues:
+- "Can I verify data integrity?"
+- "Are there orphaned records?"
+- "Can I run a data validation check?"
+- "How do I handle data conflicts?"
+- "Can I see data inconsistencies?"
+
+Performance:
+- "Is the system performing optimally?"
+- "What's the response time?"
+- "Are there any bottlenecks?"
+- "How do I improve performance?"
+- "What's the database size?"
+
+Help & Support:
+- "Where's the documentation?"
+- "How do I get technical support?"
+- "What's the error code?"
+- "Can you help troubleshoot?"
+- "How do I report a bug?"
+
+
+================================================================================
+SUGGESTED TRAINING PROMPT FOR CHATBOT
+================================================================================
+
+For the Hugging Face Flan-T5 model, you might enhance the system prompt:
+
+"You are a helpful assistant for a professional appointment scheduling and management 
+system. You help users book, manage, and track appointments. You assist staff with 
+appointment management, scheduling decisions, and performance analytics. You help 
+administrators with system configuration, user management, and business intelligence.
+
+For clients:
+- Help with appointment booking, scheduling, and management
+- Answer questions about services and availability
+- Provide account and profile assistance
+- Guide through the booking process
+
+For staff:
+- Assist with appointment management and status updates
+- Provide workload optimization recommendations
+- Answer scheduling and calendar questions
+- Help with performance metrics and analytics
+
+For admins:
+- Help with system configuration and settings
+- Assist with user and service management
+- Provide business intelligence and reporting
+- Support with analytics and decision-making
+
+Always be professional, courteous, and concise. When you don't know something, 
+suggest they contact support or check the documentation. Never make up features 
+that don't exist in the system."
+
+
+================================================================================
+HOW TO USE THIS GUIDE
+================================================================================
+
+1. TRAIN YOUR CHATBOT:
+   - Feed these questions to fine-tune responses
+   - Use as examples of what users might ask
+   - Create FAQ responses based on these questions
+
+2. TEST THE CHATBOT:
+   - Try asking each question category
+   - Verify the chatbot understands context
+   - Test with variations of these questions
+
+3. MONITOR & IMPROVE:
+   - Track which questions get asked frequently
+   - Identify questions the bot struggles with
+   - Create training data from successful interactions
+
+4. USER EDUCATION:
+   - Show these examples to new users
+   - Use as tutorial for common tasks
+   - Reference in help documentation
+
+5. CUSTOMIZE:
+   - Add questions specific to your services
+   - Include your business policies
+   - Add pricing or location-specific info
+
+
+================================================================================
+QUESTION CATEGORIES BY COMPLEXITY
+================================================================================
+
+EASY (Should answer immediately):
+- Service times
+- Booking process
+- Account access
+- Status checks
+- Password reset
+- Contact info
+
+MODERATE (Requires some logic):
+- Appointment changes
+- Availability checking
+- Performance comparisons
+- Report generation
+- Analytics queries
+- Limit configuration
+
+COMPLEX (May need clarification):
+- Workload optimization
+- Risk assessment
+- Demand forecasting
+- System configuration
+- Bulk operations
+- Data export/analysis
+
+REFERENCE (Just information):
+- Policies
+- Guidelines
+- Features
+- System capabilities
+- Available reports
+
+
+================================================================================
+CONVERSATION FLOW EXAMPLES
+================================================================================
+
+Example 1 - Client:
+User: "Can I book an appointment?"
+Bot: "Yes! I can help. What service would you like to book?"
+User: "Legal consultation"
+Bot: "Great! When would you prefer? We have slots available on [dates]. How many 
+people will attend?"
+User: "Just me, next Tuesday at 2 PM"
+Bot: "Perfect! I found availability next Tuesday at 2 PM. Let me confirm your booking..."
+
+Example 2 - Staff:
+User: "What's my workload today?"
+Bot: "You have 6 appointments scheduled today: 3 pending confirmation, 2 approved, 
+and 1 completed. Would you like details on any specific appointment?"
+User: "Tell me about the high-risk ones"
+Bot: "You have 1 appointment at risk of cancellation based on client patterns. 
+It's at 3 PM with John Smith. Would you like recommendations?"
+
+Example 3 - Admin:
+User: "Generate a report"
+Bot: "What type of report would you like? Options include: Appointments, Users, 
+Revenue, or System Usage."
+User: "Appointments for December"
+Bot: "I'll generate that for you. What date range exactly? And any filters?"
+
+
+================================================================================
+NOTE ON QUESTION PHRASING
+================================================================================
+
+The chatbot works best with:
+✓ Natural language questions
+✓ Variations of the same question
+✓ Specific details (dates, names, numbers)
+✓ Follow-up questions
+✓ Clarifications
+
+The chatbot may struggle with:
+✗ Extremely technical jargon
+✗ Questions about features not in the system
+✗ Hypothetical scenarios
+✗ Complex calculations (better for reports)
+✗ Very long, complex sentences
+
+Train the chatbot to:
+1. Ask clarifying questions when needed
+2. Break complex queries into steps
+3. Offer alternatives when exact match isn't found
+4. Suggest related features or reports
+5. Know when to escalate to human support

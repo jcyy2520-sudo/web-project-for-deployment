@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
 use App\Models\User;
 use App\Models\Appointment;
 
@@ -94,6 +95,15 @@ class ArchiveController extends Controller
                 $user = User::onlyTrashed()->find($request->item_id);
                 if ($user) {
                     $user->restore();
+                    
+                    // Clear all users-related caches
+                    Cache::forget('users_index_' . md5(json_encode(['role' => 'client', 'limit' => '1000'])));
+                    Cache::forget('users_index_' . md5(json_encode(['per_page' => '1000'])));
+                    Cache::forget('users_index_' . md5(json_encode(['role' => 'client'])));
+                    
+                    // Clear all cache keys that start with 'users_index_'
+                    $keys = Cache::store('array')->tags('users')->flush();
+                    
                     return response()->json([
                         'success' => true,
                         'message' => 'User restored successfully'
@@ -103,6 +113,10 @@ class ArchiveController extends Controller
                 $appointment = Appointment::onlyTrashed()->find($request->item_id);
                 if ($appointment) {
                     $appointment->restore();
+                    
+                    // Clear appointments cache
+                    Cache::flush();
+                    
                     return response()->json([
                         'success' => true,
                         'message' => 'Appointment restored successfully'

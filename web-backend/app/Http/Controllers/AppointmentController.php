@@ -189,8 +189,31 @@ class AppointmentController extends Controller
         $hasReachedLimit = \App\Models\AppointmentSettings::userHasReachedDailyLimit($request->user()->id, $request->appointment_date);
         if ($hasReachedLimit) {
             $settings = \App\Models\AppointmentSettings::getCurrent();
+
+            // Calculate next available booking time (human friendly)
+            $currentDate = $request->appointment_date;
+            try {
+                $currentDateObj = \Carbon\Carbon::createFromFormat('Y-m-d', $currentDate);
+            } catch (\Exception $e) {
+                $currentDateObj = \Carbon\Carbon::parse($currentDate);
+            }
+            $today = now()->format('Y-m-d');
+
+            if ($currentDate === $today) {
+                $tomorrow = $currentDateObj->copy()->addDay()->format('M d');
+                $nextAvailableTime = "tomorrow ({$tomorrow})";
+            } elseif ($currentDateObj > \Carbon\Carbon::now()) {
+                $nextAvailable = $currentDateObj->copy()->addDay()->format('M d');
+                $nextAvailableTime = "on {$nextAvailable}";
+            } else {
+                $nextAvailableTime = "tomorrow";
+            }
+
             return response()->json([
-                'message' => "You have reached your daily booking limit of {$settings->daily_booking_limit_per_user} appointments for this day"
+                'message' => "You have reached your daily booking limit of {$settings->daily_booking_limit_per_user} appointments for this day",
+                'limit' => $settings->daily_booking_limit_per_user,
+                'next_available_time' => $nextAvailableTime,
+                'has_reached_limit' => true
             ], 422);
         }
 

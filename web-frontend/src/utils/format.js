@@ -40,8 +40,32 @@ export const formatAppointmentPrice = (appointment) => {
   return '—';
 };
 
+/**
+ * Convert military time (24-hour format) to 12-hour format with AM/PM
+ * Input: "14:30" or "14:30:00"
+ * Output: "2:30 PM"
+ */
+export const formatTime12Hour = (militaryTime) => {
+  if (!militaryTime) return '';
+  
+  // Extract hours and minutes from "HH:mm" or "HH:mm:ss" format
+  const [hours, minutes] = militaryTime.split(':');
+  let hour = parseInt(hours);
+  const min = minutes || '00';
+  
+  const period = hour >= 12 ? 'PM' : 'AM';
+  if (hour > 12) {
+    hour -= 12;
+  } else if (hour === 0) {
+    hour = 12;
+  }
+  
+  return `${hour}:${min} ${period}`;
+};
+
 export default {
   formatServiceName,
   formatPrice,
-  formatAppointmentPrice
+  formatAppointmentPrice,
+  formatTime12Hour
 };

@@ -384,11 +384,20 @@ const ForecastTab = ({ data }) => {
 };
 
 const QualityTab = ({ data }) => {
+  const [servicePageSize] = useState(10);
+  const [serviceCurrentPage, setServiceCurrentPage] = useState(1);
+  
   // The data is directly the analytics object
   const { quality_report = {} } = data;
   const { overall_stats = {}, service_stats = [], most_popular_services = [], least_popular_services = [] } = quality_report;
 
   console.log('QualityTab data:', { quality_report, overall_stats, service_stats });
+
+  // Calculate pagination for service stats
+  const serviceTotalPages = Math.ceil(service_stats.length / servicePageSize);
+  const serviceStartIdx = (serviceCurrentPage - 1) * servicePageSize;
+  const serviceEndIdx = serviceStartIdx + servicePageSize;
+  const paginatedServiceStats = service_stats.slice(serviceStartIdx, serviceEndIdx);
 
   return (
     <div className="space-y-6">
@@ -407,7 +416,12 @@ const QualityTab = ({ data }) => {
       {/* Service Performance */}
       {service_stats && service_stats.length > 0 ? (
         <div className="bg-gray-800 border border-gray-700 p-6 rounded-lg overflow-x-auto">
-          <h3 className="text-lg font-semibold text-amber-50 mb-4">Service Performance</h3>
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-lg font-semibold text-amber-50">Service Performance</h3>
+            <span className="text-xs text-gray-400">
+              Showing {serviceStartIdx + 1}-{Math.min(serviceEndIdx, service_stats.length)} of {service_stats.length}
+            </span>
+          </div>
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-gray-700">
@@ -419,7 +433,7 @@ const QualityTab = ({ data }) => {
               </tr>
             </thead>
             <tbody>
-              {service_stats.slice(0, 10).map((service, idx) => (
+              {paginatedServiceStats.map((service, idx) => (
                 <tr key={idx} className="border-b border-gray-700 hover:bg-gray-700/30">
                   <td className="py-2 px-4 font-medium text-amber-50">{service.service_name}</td>
                   <td className="py-2 px-4 text-gray-300">{service.completed || 0}</td>
@@ -430,6 +444,41 @@ const QualityTab = ({ data }) => {
               ))}
             </tbody>
           </table>
+          
+          {/* Pagination Controls */}
+          {serviceTotalPages > 1 && (
+            <div className="mt-4 flex items-center justify-between">
+              <button
+                onClick={() => setServiceCurrentPage(p => Math.max(1, p - 1))}
+                disabled={serviceCurrentPage === 1}
+                className="px-3 py-1.5 text-sm border border-gray-600 text-gray-300 rounded hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                ← Previous
+              </button>
+              <div className="flex items-center gap-2">
+                {Array.from({ length: serviceTotalPages }, (_, i) => i + 1).map(page => (
+                  <button
+                    key={page}
+                    onClick={() => setServiceCurrentPage(page)}
+                    className={`px-2.5 py-1 text-xs rounded transition-colors ${
+                      serviceCurrentPage === page
+                        ? 'bg-amber-600 text-white'
+                        : 'border border-gray-600 text-gray-300 hover:bg-gray-700'
+                    }`}
+                  >
+                    {page}
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={() => setServiceCurrentPage(p => Math.min(serviceTotalPages, p + 1))}
+                disabled={serviceCurrentPage === serviceTotalPages}
+                className="px-3 py-1.5 text-sm border border-gray-600 text-gray-300 rounded hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                Next →
+              </button>
+            </div>
+          )}
         </div>
       ) : (
         <p className="text-gray-400">No service performance data available</p>

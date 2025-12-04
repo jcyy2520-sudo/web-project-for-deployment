@@ -303,10 +303,17 @@ const AdminMessages = forwardRef(({ isDarkMode }, ref) => {
 
       try {
         setLoading(true);
+        
+        // Validate receiver_id exists
+        const receiverId = selectedConversation?.user?.id;
+        if (!receiverId) {
+          throw new Error('No recipient selected. Please select a conversation first.');
+        }
+
         const result = await callApi(() =>
           axios.post('/api/messages', {
-            receiver_id: selectedConversation?.user?.id,
-            message: replyMessage,
+            receiver_id: receiverId,
+            message: replyMessage.trim(),
             subject: 'Message'
           }, { timeout: 15000 })
         );
@@ -317,11 +324,12 @@ const AdminMessages = forwardRef(({ isDarkMode }, ref) => {
           await loadConversations();
         } else {
           console.error('Error sending reply:', result);
-          alert('Failed to send message. Please try again.');
+          alert('Failed to send message. ' + (result.message || 'Please try again.'));
         }
       } catch (error) {
         console.error('Error sending reply:', error);
-        alert('Error sending message: ' + (error.response?.data?.message || error.message));
+        const errorMsg = error.response?.data?.message || error.response?.data?.errors || error.message || 'Unknown error';
+        alert('Error sending message: ' + (typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg)));
       } finally {
         setLoading(false);
       }

@@ -48,14 +48,29 @@ class TestUserSeeder extends Seeder
 
         $phoneCounter = 9000000001; // Starts from 09000000001 (11 digits total with leading 0)
         $userCount = 0;
+        $createdCount = 0;
         
         foreach ($characters as $character) {
             $email = strtolower(str_replace(' ', '.', $character['first_name'] . '.' . $character['last_name'])) . '@gmail.com';
             $phone = '0' . $phoneCounter++;
             
-            User::firstOrCreate(
-                ['email' => $email],
-                [
+            // Check if user exists (including soft deleted)
+            $existingUser = User::withTrashed()->where('email', $email)->first();
+            
+            if ($existingUser) {
+                // User exists - restore if soft deleted
+                if ($existingUser->trashed()) {
+                    $existingUser->restore();
+                    $existingUser->update([
+                        'is_active' => true,
+                        'password' => bcrypt('password123')
+                    ]);
+                    $createdCount++;
+                }
+            } else {
+                // User doesn't exist - create new
+                User::create([
+                    'email' => $email,
                     'username' => $character['username'],
                     'password' => bcrypt('password123'),
                     'first_name' => $character['first_name'],
@@ -64,12 +79,14 @@ class TestUserSeeder extends Seeder
                     'role' => 'client',
                     'is_active' => true,
                     'address' => 'Philippines',
-                ]
-            );
+                ]);
+                $createdCount++;
+            }
             $userCount++;
         }
 
-        $this->command->info("$userCount test users created successfully!");
+        $this->command->info("✓ $userCount test users processed!");
+        $this->command->info("✓ $createdCount users created/restored");
         $this->command->line('All users have password: password123');
     }
 }

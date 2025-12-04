@@ -6,7 +6,7 @@ import axios from 'axios';
 import TimePicker from '../components/TimePicker';
 import ActionLogViewer from '../components/ActionLogViewer';
 import MessageCenter from './MessageCenter';
-import { formatServiceName } from '../utils/format';
+import { formatServiceName, formatTime12Hour } from '../utils/format';
 import { 
   HomeIcon,
   CalendarIcon, 
@@ -21,6 +21,7 @@ import {
   TrashIcon,
   EyeIcon,
   ExclamationTriangleIcon,
+  InformationCircleIcon,
   ArrowPathIcon,
   PhoneIcon,
   EnvelopeIcon,
@@ -72,7 +73,7 @@ const StatusBadge = ({ status }) => {
   const IconComponent = config.icon;
   
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${config.color} ${config.glow} shadow hover:scale-105 transition-transform duration-200`}>
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${config.color} ${config.glow} shadow`}>
       <IconComponent className="w-3 h-3 mr-1" />
       {status.charAt(0).toUpperCase() + status.slice(1)}
     </span>
@@ -126,7 +127,7 @@ const ServiceTypeDropdown = ({
         type="button"
         disabled={disabled}
         onClick={() => !disabled && setIsOpen(!isOpen)}
-        className={`w-full px-3 py-2 bg-gray-800 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 transition-all duration-200 text-sm text-white text-left flex justify-between items-center ${
+        className={`w-full px-3 py-2 bg-gray-800 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 text-sm text-white text-left flex justify-between items-center ${
           disabled ? 'opacity-50 cursor-not-allowed bg-gray-900' : ''
         } ${
           error ? 'border-red-500' : 'border-gray-600 focus:border-amber-500'
@@ -142,7 +143,7 @@ const ServiceTypeDropdown = ({
             </span>
           )}
         </div>
-        <ChevronDownIcon className={`h-4 w-4 text-amber-400 transition-transform flex-shrink-0 ${isOpen ? 'rotate-180' : ''}`} />
+        <ChevronDownIcon className={`h-4 w-4 text-amber-400 flex-shrink-0 ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
       {/* Dropdown Menu */}
@@ -170,7 +171,7 @@ const ServiceTypeDropdown = ({
                 key={option.value}
                 type="button"
                 onClick={() => handleSelect(option.value, option.label)}
-                className="w-full px-3 py-2 text-left text-xs text-amber-50 hover:bg-amber-500/10 hover:text-amber-300 transition-colors duration-200 flex items-center justify-between"
+                className="w-full px-3 py-2 text-left text-xs text-amber-50 hover:bg-amber-500/10 hover:text-amber-300 flex items-center justify-between"
               >
                 <div className="flex flex-col gap-0.5">
                   <span>{option.label}</span>
@@ -188,7 +189,7 @@ const ServiceTypeDropdown = ({
             <button
               type="button"
               onClick={() => handleSelect('other', 'Other (Specify)')}
-              className="w-full px-3 py-2 text-left text-xs text-amber-50 hover:bg-amber-500/10 hover:text-amber-300 transition-colors duration-200 flex items-center justify-between border-t border-gray-600"
+              className="w-full px-3 py-2 text-left text-xs text-amber-50 hover:bg-amber-500/10 hover:text-amber-300 flex items-center justify-between border-t border-gray-600"
             >
               <span>Other (Specify)</span>
               {value === 'other' && (
@@ -208,7 +209,7 @@ const ServiceTypeDropdown = ({
             placeholder="Please specify the service type..."
             value={otherValue}
             onChange={handleOtherInputChange}
-            className={`w-full px-3 py-2 bg-gray-800 border border-amber-500/30 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 transition-all duration-200 text-sm text-white placeholder-gray-400 ${
+            className={`w-full px-3 py-2 bg-gray-800 border border-amber-500/30 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 text-sm text-white placeholder-gray-400 ${
               disabled ? 'opacity-50 cursor-not-allowed bg-gray-900' : ''
             }`}
           />
@@ -355,7 +356,7 @@ const EnhancedCalendar = ({ value, onChange, error, disabled = false }) => {
             type="button"
             onClick={() => !isDisabled && handleDateSelect(date)}
             disabled={isDisabled}
-            className={`w-full h-8 flex items-center justify-center text-xs rounded border transition-all duration-200 hover:scale-105 ${
+            className={`w-full h-8 flex items-center justify-center text-xs rounded border ${
               isDisabled
                 ? 'text-gray-600 bg-gray-800/30 border-gray-700 cursor-not-allowed'
                 : isSelected
@@ -399,7 +400,7 @@ const EnhancedCalendar = ({ value, onChange, error, disabled = false }) => {
         type="button"
         disabled={disabled}
         onClick={() => !disabled && setIsOpen(!isOpen)}
-        className={`w-full px-3 py-2 bg-gray-800 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 transition-all duration-200 text-sm text-white text-left flex justify-between items-center ${
+        className={`w-full px-3 py-2 bg-gray-800 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 text-sm text-white text-left flex justify-between items-center ${
           disabled ? 'opacity-50 cursor-not-allowed bg-gray-900' : ''
         } ${
           error ? 'border-red-500' : 'border-gray-600 focus:border-amber-500'
@@ -423,7 +424,7 @@ const EnhancedCalendar = ({ value, onChange, error, disabled = false }) => {
             <button
               type="button"
               onClick={() => navigateMonth(-1)}
-              className="p-1 text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 rounded border border-amber-500/30 transition-colors duration-200"
+              className="p-1 text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 rounded border border-amber-500/30"
             >
               <ChevronDownIcon className="h-3 w-3 rotate-90" />
             </button>
@@ -435,7 +436,7 @@ const EnhancedCalendar = ({ value, onChange, error, disabled = false }) => {
             <button
               type="button"
               onClick={() => navigateMonth(1)}
-              className="p-1 text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 rounded border border-amber-500/30 transition-colors duration-200"
+              className="p-1 text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 rounded border border-amber-500/30"
             >
               <ChevronDownIcon className="h-3 w-3 -rotate-90" />
             </button>
@@ -460,7 +461,7 @@ const EnhancedCalendar = ({ value, onChange, error, disabled = false }) => {
             <button
               type="button"
               onClick={() => handleDateSelect(today)}
-              className="text-xs text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 px-2 py-1 rounded border border-amber-500/30 transition-colors duration-200"
+              className="text-xs text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 px-2 py-1 rounded border border-amber-500/30"
             >
               Today
             </button>
@@ -471,7 +472,7 @@ const EnhancedCalendar = ({ value, onChange, error, disabled = false }) => {
                 tomorrow.setDate(tomorrow.getDate() + 1);
                 handleDateSelect(tomorrow);
               }}
-              className="text-xs text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 px-2 py-1 rounded border border-amber-500/30 transition-colors duration-200"
+              className="text-xs text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 px-2 py-1 rounded border border-amber-500/30"
             >
               Tomorrow
             </button>
@@ -652,7 +653,7 @@ const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, confirm
             >
               {loading ? (
                 <div className="flex items-center">
-                  <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin mr-1"></div>
+                  <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full mr-1"></div>
                   Processing...
                 </div>
               ) : (
@@ -963,8 +964,19 @@ const Dashboard = () => {
 
   // Load data on component mount and tab change
   useEffect(() => {
+    if (!user?.id) return; // Wait for user to load
     loadInitialData();
-  }, [activeTab]);
+  }, [activeTab, user?.id]);
+
+  // Debug: Log when dailyLimitInfo changes
+  useEffect(() => {
+    console.log('[Dashboard] dailyLimitInfo updated:', {
+      hasReachedLimit: dailyLimitInfo.hasReachedLimit,
+      limit: dailyLimitInfo.limit,
+      used: dailyLimitInfo.used,
+      message: dailyLimitInfo.message
+    });
+  }, [dailyLimitInfo]);
 
   // Initialize profile data when user changes
   useEffect(() => {
@@ -1036,21 +1048,29 @@ const Dashboard = () => {
   // Define checkDailyLimit FIRST before useEffect hooks that use it
   const checkDailyLimit = useCallback(async (dateToCheck = null) => {
     try {
+      // Guard: user must be loaded
+      if (!user?.id) {
+        console.log('User not loaded yet, skipping daily limit check');
+        return;
+      }
+      
       // Use the selected date or today's date
       const checkDate = dateToCheck || new Date().toISOString().split('T')[0];
       
       const result = await callApi((signal) =>
-        axios.get(`/api/appointment-settings/user-limit/${user?.id}/${checkDate}`, { signal })
+        axios.get(`/api/appointment-settings/user-limit/${user.id}/${checkDate}`, { signal })
       );
 
-      if (result.success && result.data) {
+      if (result.success && result.data && result.data.data) {
+        const data = result.data.data;
+        console.log('Daily limit info loaded:', data);
         setDailyLimitInfo({
-          limit: result.data.limit,
-          used: result.data.used || 0,
-          remaining: result.data.remaining,
-          hasReachedLimit: result.data.has_reached_limit || false,
-          message: result.data.message,
-          bookingsToday: result.data.bookings_today || [],
+          limit: data.limit,
+          used: data.used || 0,
+          remaining: data.remaining,
+          hasReachedLimit: data.has_reached_limit || false,
+          message: data.message,
+          bookingsToday: data.bookings_today || [],
           date: checkDate
         });
       }
@@ -1078,7 +1098,9 @@ const Dashboard = () => {
   useEffect(() => {
     const handleAppointmentSettingsChanged = () => {
       console.log('Appointment settings changed, checking daily limit...');
-      checkDailyLimit(appointmentData?.appointment_date);
+      // Check today's limit or the selected appointment date
+      const dateToCheck = appointmentData?.appointment_date || new Date().toISOString().split('T')[0];
+      checkDailyLimit(dateToCheck);
     };
 
     window.addEventListener('appointmentSettingsChanged', handleAppointmentSettingsChanged);
@@ -1662,20 +1684,20 @@ const Dashboard = () => {
         }`}>
           {dailyLimitInfo.hasReachedLimit ? (
             <>
-              <ExclamationTriangleIcon className="h-5 w-5 flex-shrink-0 text-red-400 mt-0.5" />
+              <InformationCircleIcon className="h-5 w-5 flex-shrink-0 text-blue-400 mt-0.5" />
               <div>
-                <h3 className="font-semibold text-red-400">Daily Booking Limit Reached</h3>
-                <p className="text-sm text-red-300/80 mt-1">
+                <h3 className="font-semibold text-blue-400">📅 Daily Booking Limit Reached</h3>
+                <p className="text-sm text-blue-300/80 mt-1">
                   {dailyLimitInfo.message || `You have reached your daily booking limit of ${dailyLimitInfo.limit} appointments. You can book again tomorrow.`}
                 </p>
                 {dailyLimitInfo.bookingsToday?.length > 0 && (
-                  <div className="mt-3 text-xs text-red-300/70">
+                  <div className="mt-3 text-xs text-blue-300/70">
                     <p className="font-medium mb-2">Your appointments today:</p>
                     <ul className="space-y-1 ml-2">
                       {dailyLimitInfo.bookingsToday.map((booking, idx) => (
                         <li key={idx} className="flex items-center gap-2">
                           <span>•</span>
-                          <span>{booking.time} - {booking.service}</span>
+                          <span>{formatTime12Hour(booking.time)} - {booking.service}</span>
                         </li>
                       ))}
                     </ul>
@@ -1798,7 +1820,7 @@ const Dashboard = () => {
             >
               {loading ? (
                 <>
-                  <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                  <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full mr-2"></div>
                   Scheduling...
                 </>
               ) : dailyLimitInfo.hasReachedLimit ? (
@@ -2110,7 +2132,7 @@ const Dashboard = () => {
                 >
                   {loading ? (
                     <div className="flex items-center">
-                      <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                      <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full mr-2"></div>
                       Saving...
                     </div>
                   ) : (
@@ -2200,7 +2222,7 @@ const Dashboard = () => {
               >
                 {loading ? (
                   <div className="flex items-center">
-                    <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                    <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full mr-2"></div>
                     Updating...
                   </div>
                 ) : (
@@ -2231,7 +2253,7 @@ const Dashboard = () => {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-900 to-black flex items-center justify-center">
         <div className="text-center">
-          <div className="w-12 h-12 border-4 border-amber-500 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
+          <div className="w-12 h-12 border-4 border-amber-500 border-t-transparent rounded-full mx-auto mb-3"></div>
           <p className="text-amber-100 text-sm">Redirecting to your dashboard...</p>
         </div>
       </div>

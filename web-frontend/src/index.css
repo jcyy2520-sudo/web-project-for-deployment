@@ -114,3 +114,33 @@
     transform: translateY(calc(-100% - var(--gap)));
   }
 }
+
+/*
+  PERFORMANCE MODE: disable animations/transitions/effects site-wide.
+  This is intentionally non-destructive and reversible: it does NOT remove
+  animation classes or JS logic — it only overrides presentation so nothing
+  animates. To revert, remove this block.
+*/
+
+/* Apply globally to all elements and pseudo-elements */
+*,
+*::before,
+*::after {
+  animation: none !important;
+  animation-duration: 0s !important;
+  animation-delay: 0s !important;
+  transition: none !important;
+  transition-duration: 0s !important;
+  scroll-behavior: auto !important;
+}
+
+/* Also ensure reduced-motion preference is respected (double-safety) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+

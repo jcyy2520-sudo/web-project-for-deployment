@@ -117,15 +117,15 @@ const LandingPageEnhanced = () => {
         <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
           <div className="text-2xl font-bold text-amber-400">Legal Ease</div>
           <div className="flex gap-4">
-            <button
-              onClick={() => navigate('/dashboard')}
-              className="px-4 py-2 text-amber-50 hover:text-amber-400 transition-colors"
-            >
+              <button
+                onClick={() => navigate('/dashboard')}
+                className="px-4 py-2 text-amber-50 hover:text-amber-400"
+              >
               Dashboard
             </button>
             <button
               onClick={() => navigate('/?tab=signup')}
-              className="px-6 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-medium transition-colors"
+                className="px-6 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-medium"
             >
               Get Started
             </button>
@@ -155,12 +155,12 @@ const LandingPageEnhanced = () => {
           <div className="flex flex-col sm:flex-row gap-4 justify-center pt-4">
             <button
               onClick={() => navigate('/dashboard')}
-              className="px-8 py-3 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white rounded-lg font-bold flex items-center justify-center gap-2 transition-all transform hover:scale-105"
+              className="px-8 py-3 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white rounded-lg font-bold flex items-center justify-center gap-2"
             >
               Book Appointment <ArrowRightIcon className="h-5 w-5" />
             </button>
             <button
-              className="px-8 py-3 border border-amber-500/30 text-amber-50 hover:bg-amber-500/10 rounded-lg font-bold transition-colors"
+              className="px-8 py-3 border border-amber-500/30 text-amber-50 hover:bg-amber-500/10 rounded-lg font-bold"
             >
               Learn More
             </button>
@@ -193,7 +193,7 @@ const LandingPageEnhanced = () => {
           {features.map((feature, idx) => (
             <div
               key={idx}
-              className="bg-gray-900 border border-amber-500/20 rounded-lg p-6 hover:border-amber-500/40 transition-all hover:shadow-lg hover:shadow-amber-500/10"
+              className="bg-gray-900 border border-amber-500/20 rounded-lg p-6 hover:border-amber-500/40"
             >
               <feature.icon className="h-12 w-12 text-amber-400 mb-4" />
               <h3 className="text-lg font-semibold text-amber-50 mb-2">{feature.title}</h3>
@@ -214,9 +214,9 @@ const LandingPageEnhanced = () => {
           {pricingTiers.map((tier, idx) => (
             <div
               key={idx}
-              className={`rounded-lg p-8 transition-all ${
+              className={`rounded-lg p-8 ${
                 tier.highlighted
-                  ? 'bg-gradient-to-br from-amber-900/30 to-amber-950/20 border-2 border-amber-500 shadow-xl shadow-amber-500/20 transform scale-105'
+                  ? 'bg-gradient-to-br from-amber-900/30 to-amber-950/20 border-2 border-amber-500 shadow-xl shadow-amber-500/20'
                   : 'bg-gray-900 border border-amber-500/20'
               }`}
             >
@@ -235,7 +235,7 @@ const LandingPageEnhanced = () => {
                   </li>
                 ))}
               </ul>
-              <button className={`w-full py-3 rounded-lg font-bold transition-all ${
+              <button className={`w-full py-3 rounded-lg font-bold ${
                 tier.highlighted
                   ? 'bg-amber-600 hover:bg-amber-700 text-white'
                   : 'border border-amber-500/30 text-amber-50 hover:bg-amber-500/10'
@@ -288,10 +288,10 @@ const LandingPageEnhanced = () => {
             >
               <button
                 onClick={() => setExpandedFaq(expandedFaq === idx ? null : idx)}
-                className="w-full p-6 text-left hover:bg-gray-800/50 transition-colors flex items-center justify-between"
+                className="w-full p-6 text-left hover:bg-gray-800/50 flex items-center justify-between"
               >
                 <span className="font-semibold text-amber-50">{faq.question}</span>
-                <span className={`transition-transform ${expandedFaq === idx ? 'rotate-180' : ''}`}>
+                <span className={`${expandedFaq === idx ? 'rotate-180' : ''}`}>
                   ▼
                 </span>
               </button>
@@ -314,7 +314,7 @@ const LandingPageEnhanced = () => {
           </p>
           <button
             onClick={() => navigate('/dashboard')}
-            className="px-8 py-4 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white rounded-lg font-bold text-lg transition-all transform hover:scale-105"
+            className="px-8 py-4 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white rounded-lg font-bold text-lg"
           >
             Book Your First Appointment
           </button>
@@ -327,8 +327,8 @@ const LandingPageEnhanced = () => {
           <div className="grid md:grid-cols-4 gap-8 mb-8">
             <div>
               <h3 className="font-bold text-amber-50 mb-4">Legal Ease</h3>
-              <p className="text-xs text-gray-500">Professional notary services online</p>
-            </div>
+                  key={idx}
+                  className="bg-gray-900 border border-amber-500/20 rounded-lg p-6 hover:border-amber-500/40"
             <div>
               <h4 className="font-semibold text-amber-50 text-sm mb-4">Services</h4>
               <ul className="space-y-2 text-xs text-gray-400">
@@ -343,12 +343,12 @@ const LandingPageEnhanced = () => {
                 <li>About Us</li>
                 <li>Contact</li>
                 <li>Privacy Policy</li>
-              </ul>
-            </div>
-            <div>
-              <h4 className="font-semibold text-amber-50 text-sm mb-4">Support</h4>
-              <ul className="space-y-2 text-xs text-gray-400">
-                <li>Help Center</li>
+                  key={idx}
+                  className={`rounded-lg p-8 ${
+                    tier.highlighted
+                      ? 'bg-gradient-to-br from-amber-900/30 to-amber-950/20 border-2 border-amber-500 shadow-xl shadow-amber-500/20'
+                      : 'bg-gray-900 border border-amber-500/20'
+                  }`}
                 <li>FAQ</li>
                 <li>Contact Support</li>
               </ul>

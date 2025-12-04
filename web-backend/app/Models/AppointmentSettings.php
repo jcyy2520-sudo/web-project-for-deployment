@@ -52,7 +52,7 @@ class AppointmentSettings extends Model
 
         $todayBookings = Appointment::where('user_id', $userId)
             ->where('appointment_date', $date)
-            ->where('status', '!=', 'cancelled')
+            ->whereIn('status', ['pending', 'approved'])
             ->count();
 
         return $todayBookings >= $settings->daily_booking_limit_per_user;
@@ -72,7 +72,7 @@ class AppointmentSettings extends Model
 
         $todayBookings = Appointment::where('user_id', $userId)
             ->where('appointment_date', $date)
-            ->where('status', '!=', 'cancelled')
+            ->whereIn('status', ['pending', 'approved'])
             ->count();
 
         $remaining = $settings->daily_booking_limit_per_user - $todayBookings;
@@ -89,7 +89,7 @@ class AppointmentSettings extends Model
 
         return Appointment::where('user_id', $userId)
             ->where('appointment_date', $date)
-            ->where('status', '!=', 'cancelled')
+            ->whereIn('status', ['pending', 'approved'])
             ->select('id', 'appointment_date', 'appointment_time', 'status', 'service_id')
             ->with('service')
             ->get();

@@ -1,0 +1,402 @@
+CHATBOT QUESTIONS GUIDE - SUMMARY
+
+Created: December 4, 2025
+File: CHATBOT_SUGGESTED_QUESTIONS.txt
+
+================================================================================
+OVERVIEW
+================================================================================
+
+A comprehensive guide of suggested questions for training and testing your 
+chatbot AI system, organized by user role and functionality.
+
+Total Questions Included: 250+
+
+Organized by:
+- Client Users (Appointment Booking, Management, Account, Support)
+- Staff Members (Appointment Management, Analytics, Optimization)
+- Administrators (Full System Management, Configuration, Reporting)
+
+
+================================================================================
+CONTENT BREAKDOWN
+================================================================================
+
+FOR CLIENT USERS (70+ questions)
+--------------------------------
+Appointment Booking & Scheduling
+- General booking questions
+- Service-related inquiries
+- Booking issues and solutions
+- Status and confirmation
+
+Appointment Management
+- Viewing appointments
+- Cancellations and changes
+
+Profile & Account
+- Account information updates
+- Account settings
+- Privacy and security
+
+Communications & Messages
+- Messaging capabilities
+- Contact and support
+- General support questions
+
+Account Issues & Help
+- Login troubleshooting
+- Technical support
+- General navigation
+
+
+FOR STAFF & ADMIN (120+ questions)
+----------------------------------
+Appointment Management
+- Viewing and managing appointments
+- Appointment details
+- Status updates
+- Workload management
+
+Decision Support & Optimization
+- Scheduling recommendations
+- Performance insights
+- Analytics and insights
+
+Calendar & Availability
+- Calendar management
+- Time slot configuration
+- Scheduling conflicts
+
+Analytics & Reporting
+- Dashboard metrics
+- Advanced analytics
+- Report generation
+- Quality metrics
+
+User Management (Admin Only)
+- Client management
+- Staff management
+- Admin accounts
+- User activity
+
+Service Management (Admin)
+- Service configuration
+- Service analytics
+
+System Settings & Configuration
+- Appointment settings
+- Calendar settings
+- Business rules
+
+Alerts & Notifications
+- Alert management
+- Auto-alerts
+
+Action Logs & Audit Trail
+- Activity tracking
+- System monitoring
+
+Archive & Historical Data
+- Archive management
+- Historical analysis
+
+Troubleshooting & Support
+- System issues
+- Data issues
+- Performance
+- Help and support
+
+
+================================================================================
+KEY FEATURES OF THIS GUIDE
+================================================================================
+
+1. ROLE-BASED ORGANIZATION
+   Questions sorted by user type (Client, Staff, Admin)
+   Each role has relevant questions for their workflows
+
+2. CATEGORY ORGANIZATION
+   Questions grouped by feature/function
+   Logical flow from basic to advanced
+
+3. VARIETY OF PHRASING
+   Multiple ways to ask the same question
+   Helps train chatbot on natural language variations
+
+4. CONVERSATION EXAMPLES
+   Shows how to structure multi-turn conversations
+   Examples for each user role
+
+5. COMPLEXITY LEVELS
+   Easy - Simple factual questions
+   Moderate - Requires some logic/analysis
+   Complex - May need clarification
+   Reference - Information-only
+
+6. IMPLEMENTATION GUIDANCE
+   How to train the chatbot with questions
+   How to test and improve
+   How to monitor and iterate
+
+7. SYSTEM PROMPT
+   Suggested training prompt for Hugging Face model
+   Sets context and tone for responses
+
+8. BEST PRACTICES
+   Question phrasing that works well
+   Types of questions that may fail
+   How to train the bot to handle edge cases
+
+
+================================================================================
+HOW TO USE THESE QUESTIONS
+================================================================================
+
+OPTION 1: Training Data
+- Feed questions to the chatbot system
+- Use for fine-tuning the AI model
+- Create response pairs (question + expected answer)
+
+OPTION 2: Testing Checklist
+- Run through questions to test chatbot accuracy
+- Verify responses make sense
+- Identify gaps or weak points
+- Iterate on system prompt
+
+OPTION 3: User Documentation
+- Share with users as examples
+- Help users understand what to ask
+- Create FAQ from popular questions
+- Build help documentation
+
+OPTION 4: Team Training
+- Show team members what bot can do
+- Use as reference for support staff
+- Train on system capabilities
+- Identify common user needs
+
+OPTION 5: Iteration Guide
+- Track which questions fail
+- Improve responses for failures
+- Add new questions based on user feedback
+- Monitor most-asked questions
+
+
+================================================================================
+QUESTION DISTRIBUTION
+================================================================================
+
+CLIENT USERS
+- Appointment Management: 25%
+- Account/Profile: 20%
+- Support/Help: 20%
+- Communications: 15%
+- Booking: 20%
+
+STAFF/ADMIN
+- Appointment Management: 25%
+- Analytics/Reporting: 25%
+- Configuration/Settings: 20%
+- User Management: 15%
+- Troubleshooting: 15%
+
+
+================================================================================
+CUSTOMIZATION RECOMMENDATIONS
+================================================================================
+
+ADD TO YOUR GUIDE:
+
+1. Service-Specific Questions
+   - Add questions specific to YOUR services
+   - Include pricing and special offerings
+   - Add geographic/location specific info
+
+2. Business Policies
+   - Your specific cancellation policy
+   - Your booking limits and rules
+   - Your business hours and holidays
+
+3. Contact Information
+   - Your phone numbers
+   - Your email addresses
+   - Your support hours
+
+4. Workflow-Specific
+   - Questions about YOUR process
+   - Terminology used in YOUR system
+   - YOUR company culture/values
+
+5. Integration Questions
+   - Questions about connected systems
+   - File formats you support
+   - Data export options
+
+6. Compliance & Legal
+   - Questions about GDPR/privacy
+   - Your data handling policies
+   - Your terms of service
+
+
+================================================================================
+INTEGRATION WITH CHATBOT
+================================================================================
+
+The questions are designed to work with:
+- Your Google Flan-T5-Small model
+- Your Laravel backend API
+- Your appointment system
+- Your user roles (client, staff, admin)
+
+To integrate:
+
+1. Use as conversation examples
+   - Show the chatbot example Q&A pairs
+   - Train on variations of questions
+   - Test responses against your API
+
+2. Enhance system prompt
+   - Include the suggested system prompt
+   - Customize with your business details
+   - Adjust tone and personality
+
+3. Connect to API responses
+   - Map questions to API endpoints
+   - Create response templates
+   - Test end-to-end workflows
+
+4. Monitor and improve
+   - Track which questions get asked
+   - Measure response accuracy
+   - Iterate on prompts and responses
+
+
+================================================================================
+MEASURING SUCCESS
+================================================================================
+
+Good chatbot questions should:
+✓ Match your system capabilities
+✓ Cover all major features
+✓ Include common user tasks
+✓ Have clear, expected answers
+✓ Be answerable by the AI
+✓ Reflect real user needs
+✓ Help with troubleshooting
+✓ Improve user onboarding
+
+Track these metrics:
+- Question answer rate (% correctly answered)
+- User satisfaction with responses
+- Most frequently asked questions
+- Unanswered or unclear questions
+- Time to answer
+- Follow-up questions needed
+
+
+================================================================================
+NEXT STEPS
+================================================================================
+
+1. REVIEW
+   - Read through all suggested questions
+   - Customize for your specific system
+   - Add your business-specific questions
+
+2. TRAIN
+   - Feed questions to chatbot
+   - Create Q&A training pairs
+   - Test responses
+
+3. TEST
+   - Try asking each question
+   - Verify accuracy and relevance
+   - Note failures or unclear answers
+
+4. REFINE
+   - Improve weak response areas
+   - Add clarity to ambiguous responses
+   - Optimize system prompt
+
+5. LAUNCH
+   - Deploy chatbot to users
+   - Provide question examples
+   - Monitor and collect feedback
+
+6. ITERATE
+   - Track actual questions users ask
+   - Improve responses based on feedback
+   - Add new questions and capabilities
+   - Monthly or quarterly reviews
+
+
+================================================================================
+SUPPORT & CUSTOMIZATION
+================================================================================
+
+These questions are a starting point. You should:
+
+1. Add your specific business details
+2. Include your actual policies and procedures
+3. Customize language for your brand
+4. Test with real users
+5. Iterate based on feedback
+
+The questions cover:
+✓ All major system features
+✓ Common user workflows
+✓ Admin/staff operations
+✓ Troubleshooting and support
+✓ System configuration
+✓ Reporting and analytics
+
+But may need adjustment for:
+- Your specific service types
+- Your business policies
+- Your company terminology
+- Your market and language
+- Your support procedures
+- Your compliance requirements
+
+
+================================================================================
+FILE INFORMATION
+================================================================================
+
+File Name: CHATBOT_SUGGESTED_QUESTIONS.txt
+Location: c:\laragon\www\web\
+Size: ~18,650 bytes
+Format: Plain text
+Created: December 4, 2025
+
+Content:
+- 250+ suggested questions
+- Organized by user role
+- Grouped by category
+- Conversation examples
+- Implementation guide
+- Training suggestions
+
+
+================================================================================
+REFERENCE TO OTHER GUIDES
+================================================================================
+
+For Complete Implementation, see:
+- CHATBOT_QUICK_REFERENCE.md - Quick start guide
+- CHATBOT_IMPLEMENTATION_GUIDE.md - Full feature documentation
+- CHATBOT_CONFIG_GUIDE.md - Configuration and deployment
+- CHATBOT_SETUP_COMPLETE.md - Complete setup overview
+- CHATBOT_CHECKLIST.md - Implementation checklist
+
+For API Reference:
+- web-backend/FEATURE_STATUS.md - API features and routes
+- web-backend/routes/api.php - API route definitions
+
+
+================================================================================
+
+Status: ✅ READY TO USE
+Last Updated: December 4, 2025
+Version: 1.0

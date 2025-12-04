@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useApi } from '../hooks/useApi';
 import Modal from '../components/Modal';
@@ -42,6 +42,16 @@ const ClientAppointments = () => {
   const appointmentsPerPage = 8;
   const [slotUnavailabilityReason, setSlotUnavailabilityReason] = useState(null);
   const [slotAlternatives, setSlotAlternatives] = useState([]);
+  const [dailyLimitInfo, setDailyLimitInfo] = useState({
+    limit: null,
+    used: 0,
+    remaining: null,
+    hasReachedLimit: false,
+    message: null,
+    bookingsToday: [],
+    date: null,
+    next_available_time: null
+  });
   const [formData, setFormData] = useState({
     appointment_date: '',
     appointment_time: '',
@@ -51,9 +61,25 @@ const ClientAppointments = () => {
   const [calendarMonth, setCalendarMonth] = useState(new Date());
 
   useEffect(() => {
+    if (!user?.id) {
+      console.log('[ClientAppointments] User not loaded yet, waiting...');
+      return;
+    }
+    console.log('[ClientAppointments] Loading initial data for user', user.id);
     loadAppointments();
     loadUnavailableDates();
-  }, []);
+    checkDailyLimit();
+  }, [user?.id, loadAppointments, loadUnavailableDates, checkDailyLimit]);
+
+  // Debug: Log when dailyLimitInfo changes
+  useEffect(() => {
+    console.log('[ClientAppointments] dailyLimitInfo updated:', {
+      hasReachedLimit: dailyLimitInfo.hasReachedLimit,
+      limit: dailyLimitInfo.limit,
+      used: dailyLimitInfo.used,
+      message: dailyLimitInfo.message
+    });
+  }, [dailyLimitInfo]);
 
   useEffect(() => {
     const handler = () => loadUnavailableDates();
@@ -74,28 +100,43 @@ const ClientAppointments = () => {
     return () => window.removeEventListener('slotCapacitiesChanged', onSlotCapacitiesChanged);
   }, [selectedDate]);
 
-  const loadAppointments = async () => {
+  // Listen for appointment settings changes and refresh daily limit
+  useEffect(() => {
+    const handler = (e) => {
+      console.log('Appointment settings changed, refreshing daily limit...');
+      const dateToCheck = selectedDate || new Date().toISOString().split('T')[0];
+      checkDailyLimit(dateToCheck);
+    };
+
+    window.addEventListener('appointmentSettingsChanged', handler);
+    return () => window.removeEventListener('appointmentSettingsChanged', handler);
+  }, [selectedDate]);
+
+  const loadAppointments = useCallback(async () => {
+    console.log('[loadAppointments] Starting...');
     const result = await callApi((signal) =>
       axios.get('/api/appointments', { signal })
     );
     if (result.success) {
       setAppointments(result.data.data || result.data);
       setCurrentPage(1);
+      console.log('[loadAppointments] Done');
     }
-  };
+  }, [callApi]);
 
-  const loadUnavailableDates = async () => {
+  const loadUnavailableDates = useCallback(async () => {
+    console.log('[loadUnavailableDates] Starting...');
     const result = await callApi((signal) =>
       axios.get('/api/unavailable-dates', { signal })
     , { skipCache: true, cache: false });
     if (result.success) {
       const dates = result.data.data || result.data;
-      console.log('Loaded unavailable dates:', dates);
+      console.log('[loadUnavailableDates] Loaded dates:', dates);
       setUnavailableDates(dates);
     } else {
-      console.error('Failed to load unavailable dates:', result);
+      console.error('[loadUnavailableDates] Failed:', result);
     }
-  };
+  }, [callApi]);
 
   const isDateUnavailable = (date) => {
     const year = date.getFullYear();
@@ -165,6 +206,19 @@ const ClientAppointments = () => {
     return null;
   };
 
+  const formatTime12Hour = (timeStr) => {
+    if (!timeStr) return '';
+    try {
+      // Expecting 'HH:mm' or similar
+      const [hh, mm] = timeStr.split(':').map(Number);
+      const date = new Date();
+      date.setHours(hh, mm, 0, 0);
+      return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    } catch (e) {
+      return timeStr;
+    }
+  };
+
   // Filter appointments
   const filteredAppointments = useMemo(() => {
     let filtered = appointments;
@@ -208,22 +262,77 @@ const ClientAppointments = () => {
     }
   };
 
+  const checkDailyLimit = useCallback(async (dateToCheck = null) => {
+    try {
+      // Guard: user must be loaded
+      if (!user?.id) {
+        console.log('[checkDailyLimit] User not loaded yet, skipping');
+        return;
+      }
+      
+      const checkDate = dateToCheck || selectedDate || new Date().toISOString().split('T')[0];
+      console.log('[checkDailyLimit] Fetching limit for user', user.id, 'date', checkDate);
+      
+      const res = await callApi((signal) =>
+        axios.get(`/api/appointment-settings/user-limit/${user.id}/${checkDate}`, { signal })
+      );
+
+      console.log('[checkDailyLimit] API Response:', res);
+
+      if (res.success && res.data && res.data.data) {
+        const data = res.data.data;
+        console.log('[checkDailyLimit] Setting daily limit info:', {
+          limit: data.limit,
+          used: data.used,
+          remaining: data.remaining,
+          hasReachedLimit: data.has_reached_limit
+        });
+        setDailyLimitInfo({
+          limit: data.limit,
+          used: data.used || 0,
+          remaining: data.remaining,
+          hasReachedLimit: data.has_reached_limit || false,
+          message: data.message || null,
+          bookingsToday: data.bookings_today || [],
+          date: data.date || checkDate,
+          next_available_time: data.next_available_time || null
+        });
+      } else {
+        console.error('[checkDailyLimit] API failed or no data:', res);
+      }
+    } catch (err) {
+      console.error('[checkDailyLimit] Error:', err);
+    }
+  }, [user?.id, selectedDate, callApi]);
+
   const handleDateChange = (date) => {
+    console.log('[handleDateChange] Date selected:', date);
     setSelectedDate(date);
     setFormData(prev => ({ ...prev, appointment_date: date }));
     loadAvailableSlots(date);
     // Clear any prior alternatives when changing date
     setSlotAlternatives([]);
+    console.log('[handleDateChange] Calling checkDailyLimit for date:', date);
+    checkDailyLimit(date);
   };
 
   const handleBookAppointment = async (e) => {
     e.preventDefault();
+    console.log('[handleBookAppointment] Submit clicked. Current limit info:', dailyLimitInfo);
+    // Prevent booking if user has reached their daily limit
+    if (dailyLimitInfo.hasReachedLimit) {
+      console.log('[handleBookAppointment] User has reached limit, preventing booking');
+      alert(dailyLimitInfo.message || `You have reached your daily booking limit of ${dailyLimitInfo.limit}.`);
+      return;
+    }
+    console.log('[handleBookAppointment] Limit check passed, submitting booking for date:', formData.appointment_date);
     const result = await callApi((signal) =>
       axios.post('/api/appointments', formData, { signal })
     );
 
     if (result.success) {
       setIsBookModalOpen(false);
+      const bookedDate = formData.appointment_date || new Date().toISOString().split('T')[0];
       setFormData({
         appointment_date: '',
         appointment_time: '',
@@ -232,6 +341,28 @@ const ClientAppointments = () => {
       });
       loadAppointments();
       alert('Appointment booked successfully!');
+      // Refresh daily limit after booking
+      checkDailyLimit(bookedDate);
+    } else {
+      // Handle booking failure (e.g., limit reached)
+      const errMsg = result.error || (result.data && result.data.message) || 'Failed to book appointment';
+
+      // If backend indicates limit reached, update dailyLimitInfo to reflect this immediately
+      if (result.status === 422 && result.data) {
+        const payload = result.data;
+        if (payload.has_reached_limit || (payload.next_available_time && payload.limit)) {
+          setDailyLimitInfo(prev => ({
+            ...prev,
+            limit: payload.limit || prev.limit,
+            hasReachedLimit: true,
+            message: payload.message || prev.message || `You have reached your daily booking limit of ${payload.limit || prev.limit}.`,
+            next_available_time: payload.next_available_time || prev.next_available_time
+          }));
+        }
+      }
+
+      // Show inline message in modal rather than popup if possible
+      alert(errMsg);
     }
   };
 
@@ -285,14 +416,16 @@ const ClientAppointments = () => {
         <div className="container mx-auto px-4 py-4">
           <div className="flex justify-between items-center">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">My Appointments</h1>
+            <h1 className="text-2xl font-bold text-gray-900">My Appointments</h1>
               <p className="text-gray-600">Manage your notarization appointments</p>
             </div>
             <button
               onClick={() => setIsBookModalOpen(true)}
               className="btn-primary"
+              disabled={dailyLimitInfo.hasReachedLimit}
+              title={dailyLimitInfo.hasReachedLimit ? (dailyLimitInfo.message || 'Daily booking limit reached') : 'Book New Appointment'}
             >
-              Book New Appointment
+              {dailyLimitInfo.hasReachedLimit ? '✓ Limit Reached' : 'Book New Appointment'}
             </button>
           </div>
         </div>
@@ -300,6 +433,23 @@ const ClientAppointments = () => {
 
       {/* Main Content */}
       <main className="container mx-auto px-4 py-8">
+        {/* Daily limit banner (non-popup) */}
+        {dailyLimitInfo.hasReachedLimit && (
+          <div className="mb-6 rounded-lg border p-4 bg-blue-50 border-blue-200">
+            <h3 className="font-semibold text-blue-700">📅 Daily Booking Limit Reached</h3>
+            <p className="text-sm text-blue-600 mt-1">{dailyLimitInfo.message || `You have reached your daily booking limit of ${dailyLimitInfo.limit}.`}</p>
+            {dailyLimitInfo.bookingsToday?.length > 0 && (
+              <div className="mt-3 text-sm text-blue-600">
+                <p className="font-medium">Your appointments today:</p>
+                <ul className="ml-4 mt-1">
+                  {dailyLimitInfo.bookingsToday.map((b, i) => (
+                    <li key={i}>• {formatTime12Hour(b.time)} — {b.service}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
         {/* Unavailable Dates Viewer */}
         <div className="mb-8">
           <UnavailableDatesViewer isDarkMode={false} />
@@ -535,10 +685,17 @@ const ClientAppointments = () => {
           setFormData({ appointment_date: '', appointment_time: '', type: 'consultation', notes: '' });
           setCalendarMonth(new Date());
         }}
-        title="Book New Appointment"
+        title={dailyLimitInfo.hasReachedLimit ? '📅 Booking Limit Reached' : 'Book New Appointment'}
         size="xl"
       >
         <form onSubmit={handleBookAppointment} className="space-y-4">
+          {dailyLimitInfo.hasReachedLimit && (
+            <div className="p-4 rounded-lg bg-blue-50 border border-blue-200">
+              <p className="text-blue-700 font-medium">You've reached your daily booking limit</p>
+              <p className="text-sm text-blue-600 mt-2">{dailyLimitInfo.message}</p>
+            </div>
+          )}
+          
           {/* Calendar Picker */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
@@ -548,6 +705,7 @@ const ClientAppointments = () => {
                   type="button"
                   onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1))}
                   className="p-1 border border-gray-300 rounded hover:bg-gray-100"
+                  disabled={dailyLimitInfo.hasReachedLimit}
                 >
                   <ChevronLeftIcon className="h-4 w-4" />
                 </button>
@@ -558,6 +716,7 @@ const ClientAppointments = () => {
                   type="button"
                   onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1))}
                   className="p-1 border border-gray-300 rounded hover:bg-gray-100"
+                  disabled={dailyLimitInfo.hasReachedLimit}
                 >
                   <ChevronRightIcon className="h-4 w-4" />
                 </button>
@@ -605,8 +764,8 @@ const ClientAppointments = () => {
                       <button
                         key={day}
                         type="button"
-                        onClick={() => !isPast && !isUnavail && handleDateChange(dateStr)}
-                        disabled={isPast || isUnavail}
+                        onClick={() => !isPast && !isUnavail && !dailyLimitInfo.hasReachedLimit && handleDateChange(dateStr)}
+                        disabled={isPast || isUnavail || dailyLimitInfo.hasReachedLimit}
                         className={`p-2 text-sm font-medium rounded transition-all ${
                           isSelected
                             ? 'bg-black text-white'
@@ -731,6 +890,7 @@ const ClientAppointments = () => {
                         key={time}
                         type="button"
                         onClick={() => {
+                          if (dailyLimitInfo.hasReachedLimit) return;
                           if (isAvailable) {
                             setSelectedTime(time);
                             setFormData(prev => ({ ...prev, appointment_time: time }));
@@ -765,8 +925,9 @@ const ClientAppointments = () => {
                             })();
                           }
                         }}
+                        disabled={!isAvailable || dailyLimitInfo.hasReachedLimit}
                         className={`p-2 text-xs font-medium rounded transition-all ${
-                          !isAvailable
+                          !isAvailable || dailyLimitInfo.hasReachedLimit
                             ? 'bg-red-100 text-red-600 cursor-not-allowed'
                             : isSelected
                             ? 'bg-black text-white border border-black'
@@ -812,6 +973,7 @@ const ClientAppointments = () => {
               value={formData.type}
               onChange={(e) => setFormData(prev => ({ ...prev, type: e.target.value }))}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black"
+              disabled={dailyLimitInfo.hasReachedLimit}
             >
               <option value="consultation">Legal Consultation</option>
               <option value="document_review">Document Review</option>
@@ -841,6 +1003,7 @@ const ClientAppointments = () => {
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black"
               rows="2"
               placeholder="Any additional information..."
+              disabled={dailyLimitInfo.hasReachedLimit}
             />
           </div>
 
@@ -861,7 +1024,7 @@ const ClientAppointments = () => {
             </button>
             <button
               type="submit"
-              disabled={loading || !formData.appointment_time}
+              disabled={loading || !formData.appointment_time || dailyLimitInfo.hasReachedLimit}
               className="px-4 py-2 text-sm font-medium text-white bg-black rounded hover:bg-gray-900 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
               {loading ? (

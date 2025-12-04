@@ -235,21 +235,21 @@ const UserManagement = () => {
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => openViewModal(user)}
-                            className="text-blue-600 hover:text-blue-900 hover:bg-blue-50 p-1.5 rounded transition-colors duration-200"
+                            className="text-blue-600 hover:text-blue-900 hover:bg-blue-50 p-1.5 rounded"
                             title="View"
                           >
                             <EyeIcon className="h-4 w-4" />
                           </button>
                           <button
                             onClick={() => openEditModal(user)}
-                            className="text-green-600 hover:text-green-900 hover:bg-green-50 p-1.5 rounded transition-colors duration-200"
+                            className="text-green-600 hover:text-green-900 hover:bg-green-50 p-1.5 rounded"
                             title="Edit"
                           >
                             <PencilIcon className="h-4 w-4" />
                           </button>
                           <button
                             onClick={() => handleDeleteUser(user.id)}
-                            className="text-red-600 hover:text-red-900 hover:bg-red-50 p-1.5 rounded transition-colors duration-200"
+                            className="text-red-600 hover:text-red-900 hover:bg-red-50 p-1.5 rounded"
                             title="Delete"
                           >
                             <TrashIcon className="h-4 w-4" />

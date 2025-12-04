@@ -92,9 +92,25 @@ class UserController extends Controller
             });
         }
 
-        $users = $query->where('id', '!=', $request->user()->id)
-                      ->orderBy('created_at', 'desc')
-                      ->paginate($request->get('per_page', 10));
+        $query = $query->where('id', '!=', $request->user()->id)
+                      ->orderBy('created_at', 'desc');
+
+        // Support both limit and pagination
+        $limit = $request->get('limit', null);
+        $perPage = $request->get('per_page', 10);
+
+        if ($limit) {
+            // Return all results up to limit (no pagination)
+            $users = $query->limit($limit)->get();
+
+            return response()->json([
+                'data' => $users,
+                'success' => true
+            ]);
+        }
+
+        // Standard pagination
+        $users = $query->paginate($perPage);
 
         return response()->json([
             'data' => $users->items(),
