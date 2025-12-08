@@ -1,7 +1,7 @@
 {
-  "installCommand": "npm --prefix ./web-frontend install",
-  "buildCommand": "npm --prefix ./web-frontend run build",
-  "outputDirectory": "web-frontend/dist",
+  "installCommand": "npm install",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
   "build": {
     "env": {
       "VITE_API_URL": "https://web-project-backend-drii.onrender.com"
