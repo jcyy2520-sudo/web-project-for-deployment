@@ -43,7 +43,31 @@ use Illuminate\Http\Request;
 | be assigned to the "api" middleware group. Make something great!
 |
 */
-
+// DEBUG: Diagnostic endpoint - ADD THIS
+Route::get('/debug', function () {
+    try {
+        $db = DB::connection()->getPdo();
+        return response()->json([
+            'status' => 'ok',
+            'database' => 'connected',
+            'db_host' => config('database.connections.mysql.host'),
+            'db_database' => config('database.connections.mysql.database'),
+            'laravel_version' => app()->version(),
+            'env' => app()->environment(),
+            'time' => now()->toDateTimeString(),
+            'routes_loaded' => true
+        ]);
+    } catch (\Exception $e) {
+        return response()->json([
+            'status' => 'error',
+            'database' => 'not connected',
+            'error' => $e->getMessage(),
+            'db_config' => config('database.connections.mysql'),
+            'env' => app()->environment(),
+            'time' => now()->toDateTimeString()
+        ], 500);
+    }
+});
 // Public routes
 Route::post('/register-step1', [AuthController::class, 'registerStep1']);
 Route::post('/verify-code', [AuthController::class, 'verifyCode']);
