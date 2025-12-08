@@ -152,7 +152,7 @@ class RefundController extends Controller
         try {
             DB::beginTransaction();
 
-            $refund = Refund::with('appointment')->findOrFail($refundId);
+            $refund = Refund::with('appointment', 'appointment.user')->findOrFail($refundId);
 
             // Verify status is pending
             if ($refund->status !== 'pending') {
@@ -162,11 +162,12 @@ class RefundController extends Controller
                 ], 422);
             }
 
-            // Update refund
+            // Update refund to approved AND completed
             $refund->update([
-                'status' => 'approved',
+                'status' => 'completed',
                 'approved_by' => $request->user()->id,
                 'approved_at' => now(),
+                'completed_at' => now(),
                 'approval_notes' => $request->approval_notes,
                 'refund_method' => $request->refund_method
             ]);
@@ -185,24 +186,24 @@ class RefundController extends Controller
             // Log the action
             ActionLog::log(
                 'approve_refund',
-                "Approved refund for appointment #{$refund->appointment_id} - Amount: ₱{$refund->refund_amount}",
+                "Approved and completed refund for appointment #{$refund->appointment_id} - Amount: ₱{$refund->refund_amount}",
                 'Refund',
                 $refund->id
             );
 
-            // Notify user
-            $this->sendRefundNotification($refund, 'approved');
+            // Notify user with email and system message
+            $this->sendRefundNotification($refund, 'completed');
 
             DB::commit();
 
             return response()->json([
                 'success' => true,
-                'message' => 'Refund approved successfully',
+                'message' => 'Refund approved and completed successfully',
                 'refund' => $refund
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
-            \Log::error('Refund approval error: ' . $e->getMessage());
+            \Log::error('Refund approval error: ' . $e->getMessage() . ' - ' . $e->getTraceAsString());
             return response()->json([
                 'success' => false,
                 'message' => 'Error approving refund'
@@ -222,7 +223,7 @@ class RefundController extends Controller
         try {
             DB::beginTransaction();
 
-            $refund = Refund::findOrFail($refundId);
+            $refund = Refund::with('appointment', 'appointment.user')->findOrFail($refundId);
 
             if ($refund->status !== 'pending') {
                 return response()->json([
@@ -405,26 +406,43 @@ class RefundController extends Controller
             $appointment = $refund->appointment;
             $user = $appointment->user;
 
-            // Send email based on status
-            if ($status === 'approved') {
-                \Mail::to($user->email)->send(new \App\Mail\RefundApprovedMail($refund));
-            } elseif ($status === 'rejected') {
-                \Mail::to($user->email)->send(new \App\Mail\RefundRejectedMail($refund));
-            } elseif ($status === 'completed') {
-                \Mail::to($user->email)->send(new \App\Mail\RefundCompletedMail($refund));
+            // Prepare refund details for email
+            $refundDetails = [
+                'refund_id' => $refund->id,
+                'amount' => $refund->refund_amount,
+                'method' => $refund->refund_method,
+                'appointment_date' => $appointment->appointment_date,
+                'appointment_time' => $appointment->appointment_time,
+                'service' => $appointment->service?->name ?? 'N/A',
+                'approval_notes' => $refund->approval_notes,
+                'rejection_reason' => $refund->rejection_reason
+            ];
+
+            // Send email based on status - with error handling
+            try {
+                if ($status === 'completed') {
+                    \Log::info('Attempting to send refund completed email to: ' . $user->email);
+                    \Mail::to($user->email)->send(new \App\Mail\RefundCompletedMail($refund));
+                    \Log::info('Successfully sent refund completed email');
+                } elseif ($status === 'rejected') {
+                    \Log::info('Attempting to send refund rejected email to: ' . $user->email);
+                    \Mail::to($user->email)->send(new \App\Mail\RefundRejectedMail($refund));
+                    \Log::info('Successfully sent refund rejected email');
+                }
+            } catch (\Exception $mailException) {
+                \Log::error('Mail sending error: ' . $mailException->getMessage());
+                // Don't fail the entire operation if email fails
             }
 
             $subject = match($status) {
-                'approved' => 'Your Refund Request Has Been Approved',
+                'completed' => 'Your Refund Has Been Processed Successfully',
                 'rejected' => 'Your Refund Request Has Been Reviewed',
-                'completed' => 'Your Refund Has Been Processed',
                 default => 'Refund Status Update'
             };
 
             $body = match($status) {
-                'approved' => "Your refund of ₱{$refund->refund_amount} has been approved and will be processed soon.",
-                'rejected' => "Your refund request has been reviewed and cannot be approved at this time. Reason: {$refund->rejection_reason}",
-                'completed' => "Your refund of ₱{$refund->refund_amount} has been successfully processed.",
+                'completed' => "Your refund of ₱" . number_format($refund->refund_amount, 2) . " has been successfully processed. Refund Method: {$refund->refund_method}. Approval Notes: {$refund->approval_notes}",
+                'rejected' => "Your refund request for ₱" . number_format($refund->refund_amount, 2) . " has been reviewed and cannot be approved at this time. Reason: {$refund->rejection_reason}",
                 default => "Your refund status has been updated."
             };
 
@@ -438,8 +456,10 @@ class RefundController extends Controller
                 'is_read' => false
             ]);
 
+            \Log::info('Refund notification processed for refund ' . $refund->id . ' with status ' . $status);
+
         } catch (\Exception $e) {
-            \Log::error('Failed to send refund notification: ' . $e->getMessage());
+            \Log::error('Failed to send refund notification: ' . $e->getMessage() . ' - ' . $e->getTraceAsString());
         }
     }
 

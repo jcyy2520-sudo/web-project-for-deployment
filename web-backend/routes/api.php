@@ -258,6 +258,11 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/types/all', [AppointmentController::class, 'getTypes']);
     });
 
+    // USER REFUND ROUTES - For users to request refunds
+    Route::post('/refunds/request', [RefundController::class, 'requestRefund']);
+    Route::get('/refunds/my', [RefundController::class, 'getUserRefunds']);
+    Route::get('/refunds/{refund}', [RefundController::class, 'getRefund']);
+
     // Calendar
     Route::prefix('calendar')->group(function () {
         Route::get('/', [CalendarController::class, 'index']);
@@ -275,12 +280,12 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/all/messages', [MessageController::class, 'getAllMessages']);
         Route::get('/users', [MessageController::class, 'getUsers']);
         Route::get('/conversation/{otherUser}', [MessageController::class, 'show']);
+        Route::get('/conversation/user/{userId}', [MessageController::class, 'conversation']);
         Route::post('/', [MessageController::class, 'store']);
         Route::delete('/conversation/{userId}', [MessageController::class, 'deleteConversation']);
         
         // NEW MESSAGE ROUTES FOR USER DASHBOARD
         Route::get('/staff/list', [MessageController::class, 'getStaff']);
-        Route::get('/conversation/user/{userId}', [MessageController::class, 'conversation']);
         Route::get('/can-message/{userId}', [MessageController::class, 'canMessage']);
     });
 

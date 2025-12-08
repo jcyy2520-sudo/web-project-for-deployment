@@ -341,14 +341,16 @@ const MessageModal = ({ isOpen, onClose, user, onSend, loading }) => {
             />
           </div>
 
-          <div className="bg-amber-500/10 border border-amber-500/30 rounded p-2 flex-shrink-0">
-            <div className="flex items-center gap-1">
-              <ExclamationTriangleIcon className="h-3.5 w-3.5 text-amber-400 flex-shrink-0" />
-              <span className="text-amber-200 text-xs">
-                Message will be sent to email
-              </span>
+          {messageData.type === 'appointment' && (
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded p-2 flex-shrink-0">
+              <div className="flex items-center gap-1">
+                <ExclamationTriangleIcon className="h-3.5 w-3.5 text-amber-400 flex-shrink-0" />
+                <span className="text-amber-200 text-xs">
+                  Email notification will be sent for appointment-related messages
+                </span>
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="flex justify-end space-x-2 pt-3 border-t border-gray-700 flex-shrink-0">
             <button
@@ -4172,7 +4174,7 @@ const AdminDashboard = () => {
       <div className="bg-gray-900 border border-amber-500/20 rounded-lg shadow overflow-x-auto">
         <div className="flex space-x-0">
           {[
-            { key: 'all', label: 'All', count: appointments.length },
+            { key: 'all', label: 'All', count: stats.totalAppointments || appointments.length },
             { key: 'pending', label: 'New', count: pendingCount, color: 'amber' },
             { key: 'approved', label: 'Approved', count: approvedCount, color: 'green' },
             { key: 'declined', label: 'Declined', count: declinedCount, color: 'red' }
@@ -4942,7 +4944,7 @@ const AdminDashboard = () => {
               </div>
             </div>
 
-            <nav className={`flex-1 py-3 lg:py-4 space-y-3 lg:space-y-4 overflow-y-auto transition-all duration-300 min-h-0 scrollbar-hide ${isCollapsedDesktop ? 'lg:px-2' : 'px-2 lg:px-3'}`}>
+            <nav className={`flex-1 py-2 lg:py-2.5 space-y-2 lg:space-y-2.5 overflow-y-auto transition-all duration-300 min-h-0 scrollbar-hide ${isCollapsedDesktop ? 'lg:px-2' : 'px-2 lg:px-2.5'}`}>
               {navigation.map((item, index) => {
                 if (item.section) {
                   const isDropdownOpen = openDropdowns[item.section];
@@ -4980,7 +4982,7 @@ const AdminDashboard = () => {
                                 setActiveTab(subItem.key);
                                 setShowMobileSidebar(false);
                               }}
-                              className={`w-full flex items-center justify-center lg:justify-start px-2 lg:px-3 py-2 text-xs font-medium rounded-lg transition-all duration-200 border group ${
+                              className={`w-full flex items-center justify-center lg:justify-start px-2 lg:px-2.5 py-1.5 text-xs font-medium rounded-lg transition-all duration-200 border group ${
                                 activeTab === subItem.key
                                   ? 'bg-amber-500/10 text-amber-400 border-amber-500/40 shadow shadow-amber-500/10'
                                   : 'text-gray-400 border-transparent hover:bg-amber-500/5 hover:text-amber-300 hover:border-amber-500/20'
@@ -5008,7 +5010,7 @@ const AdminDashboard = () => {
                       setActiveTab(item.key);
                       setShowMobileSidebar(false);
                     }}
-                    className={`w-full flex items-center justify-center lg:justify-start px-2 lg:px-3 py-2 text-xs font-medium rounded-lg transition-all duration-200 border group ${
+                    className={`w-full flex items-center justify-center lg:justify-start px-2 lg:px-2.5 py-1.5 text-xs font-medium rounded-lg transition-all duration-200 border group ${
                       activeTab === item.key
                         ? 'bg-amber-500/10 text-amber-400 border-amber-500/40 shadow shadow-amber-500/10'
                         : 'text-gray-400 border-transparent hover:bg-amber-500/5 hover:text-amber-300 hover:border-amber-500/20'
@@ -5119,14 +5121,6 @@ const AdminDashboard = () => {
                   </select>
 
                   {/* Admin Login removed per request (no credential prompt in header) */}
-                  <button
-                    type="button"
-                    onClick={() => window.location.href = '/cashier'}
-                    className="ml-2 px-2 py-1 text-xs rounded border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 transition-colors"
-                    title="Switch to Cashier View"
-                  >
-                    Cashier
-                  </button>
                   <button
                     type="button"
                     onClick={() => setShowLogoutModal(true)}

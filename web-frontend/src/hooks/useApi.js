@@ -49,6 +49,7 @@ const isCacheValid = (timestamp, ttlSeconds) => {
 
 // Get cache duration based on endpoint
 const getCacheTTL = (endpoint) => {
+  if (endpoint.includes('/action-logs')) return 0; // No cache for action logs - always fresh
   if (endpoint.includes('/stats')) return 180; // 3 minutes for stats (was 2 minutes)
   if (endpoint.includes('/appointments')) return 60; // 60 seconds for appointments (was 30s)
   if (endpoint.includes('/users')) return 120; // 2 minutes for users (was 1 minute)

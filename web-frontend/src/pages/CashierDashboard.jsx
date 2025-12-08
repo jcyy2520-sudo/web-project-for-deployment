@@ -26,13 +26,15 @@ import {
   ReceiptPercentIcon,
   AcademicCapIcon,
   UserIcon,
-  InformationCircleIcon
+  InformationCircleIcon,
+  ShieldCheckIcon,
+  LockClosedIcon
 } from '@heroicons/react/24/outline';
 import LoadingSpinner from '../components/LoadingSpinner';
 import LineChart from '../components/charts/LineChart';
 import InteractiveCalendar from '../components/calendar/InteractiveCalendar';
 import CalendarDetailPanel from '../components/calendar/CalendarDetailPanel';
-import RefundModal from '../components/RefundModal';
+import AdminMessages from '../components/admin/AdminMessages';
 import { formatServiceName, formatPrice } from '../utils/format';
 
 // Chart Components (copied from admin)
@@ -864,7 +866,7 @@ const ConfirmModal = ({ isOpen, title = 'Confirm', message = '', onCancel, onCon
 
 // Main Cashier Dashboard Component
 const CashierDashboard = () => {
-  const { user, logout } = useAuth();
+  const { user, logout, setUser } = useAuth();
   const { callApi, loading: apiLoading } = useApi();
   
   const [activeSection, setActiveSection] = useState('dashboard');
@@ -889,6 +891,7 @@ const CashierDashboard = () => {
   // Appointments Data
   const [appointmentsTab, setAppointmentsTab] = useState('approved');
   const [appointments, setAppointments] = useState([]);
+  const [appointmentsLoading, setAppointmentsLoading] = useState(false);
   const [expandedAppointment, setExpandedAppointment] = useState(null);
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentType, setPaymentType] = useState('cash');
@@ -915,7 +918,7 @@ const CashierDashboard = () => {
   const [monthSummary, setMonthSummary] = useState(null);
   
   // Action Logs Data
-  const [logsTab, setLogsTab] = useState('admin');
+  const [logsTab, setLogsTab] = useState('cashier');
   const [actionLogs, setActionLogs] = useState([]);
   const [selectedActionLog, setSelectedActionLog] = useState(null);
   const [showActionLogModal, setShowActionLogModal] = useState(false);
@@ -934,16 +937,23 @@ const CashierDashboard = () => {
   const [selectedTransaction, setSelectedTransaction] = useState(null);
   const [txActionLoading, setTxActionLoading] = useState({});
 
+  // Profile Editing State
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [profileFormData, setProfileFormData] = useState({
+    first_name: '',
+    last_name: '',
+    email: '',
+    phone: ''
+  });
+  const [profileSaving, setProfileSaving] = useState(false);
+
   // Shift reports / accounting export
   const [shiftReportSummary, setShiftReportSummary] = useState(null);
   const [shiftLoading, setShiftLoading] = useState(false);
   const [shiftRange, setShiftRange] = useState({ from: '', to: '' });
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [confirmModalProps, setConfirmModalProps] = useState({ title: '', message: '', onConfirm: null, loading: false });
-
-  // Refund Management State
-  const [showRefundModal, setShowRefundModal] = useState(false);
-  const [selectedTransactionForRefund, setSelectedTransactionForRefund] = useState(null);
+  const [isDarkMode, setIsDarkMode] = useState(true);
 
   // Safe toggle for expanding appointment entries (prevents unexpected crashes)
   const toggleExpanded = useCallback((id) => {
@@ -951,7 +961,7 @@ const CashierDashboard = () => {
       setExpandedAppointment(prev => (prev === id ? null : id));
     } catch (err) {
       console.error('Error toggling expanded appointment:', err);
-      if (window?.showToast) window.showToast('Error', 'An unexpected error occurred while opening the appointment. Check console for details.', 'error');
+      if (window?.sowTohast) window.showToast('Error', 'An unexpected error occurred while opening the appointment. Check console for details.', 'error');
     }
   }, []);
 
@@ -1428,6 +1438,55 @@ const CashierDashboard = () => {
     setCurrentReceipt(receiptData);
     setShowReceiptModal(true);
   }, []);
+
+  // Profile Management
+  const handleEditProfile = useCallback(() => {
+    if (user) {
+      setProfileFormData({
+        first_name: user.first_name || '',
+        last_name: user.last_name || '',
+        email: user.email || '',
+        phone: user.phone || ''
+      });
+      setIsEditingProfile(true);
+    }
+  }, [user]);
+
+  const handleCancelEdit = useCallback(() => {
+    setIsEditingProfile(false);
+    setProfileFormData({
+      first_name: '',
+      last_name: '',
+      email: '',
+      phone: ''
+    });
+  }, []);
+
+  const handleSaveProfile = useCallback(async () => {
+    setProfileSaving(true);
+    try {
+      const response = await callApi((signal) =>
+        axios.put('/api/cashier/profile', profileFormData, { signal })
+      );
+
+      if (response && response.success) {
+        // Update user data
+        setUser(prev => ({
+          ...prev,
+          ...profileFormData
+        }));
+        setIsEditingProfile(false);
+        if (window?.showToast) window.showToast('Profile', 'Profile updated successfully', 'success');
+      } else {
+        if (window?.showToast) window.showToast('Profile', response?.message || 'Failed to update profile', 'error');
+      }
+    } catch (error) {
+      console.error('Error updating profile:', error);
+      if (window?.showToast) window.showToast('Profile', 'Failed to update profile', 'error');
+    } finally {
+      setProfileSaving(false);
+    }
+  }, [profileFormData, callApi]);
 
   // Shift reports / accounting exports
   const loadShiftReport = useCallback(async (from, to) => {
@@ -1986,29 +2045,175 @@ const CashierDashboard = () => {
     </div>
   );
 
-  // Render Profile Section
+  // Render Profile Section (Editable)
   const renderProfile = () => (
-    <div className="max-w-2xl">
+    <div className="max-w-3xl space-y-4">
+      {/* Profile Header */}
       <div className="bg-gray-900 border border-amber-500/20 rounded-lg p-6">
-        <h3 className="text-lg font-semibold text-amber-400 mb-4">Profile Information</h3>
-        <div className="space-y-4">
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Name</label>
-            <p className="text-sm text-amber-50">{user?.first_name} {user?.last_name}</p>
+        <div className="flex items-start justify-between mb-4">
+          <div className="flex items-center gap-4">
+            <div className="w-16 h-16 bg-gradient-to-br from-amber-500 to-amber-600 rounded-full flex items-center justify-center shadow-lg">
+              <UserIcon className="h-8 w-8 text-white" />
+            </div>
+            <div>
+              <h2 className="text-2xl font-bold text-amber-50">{user?.first_name} {user?.last_name}</h2>
+              <p className="text-gray-400 text-sm capitalize">{user?.role} • Active</p>
+            </div>
           </div>
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Email</label>
-            <p className="text-sm text-amber-50">{user?.email}</p>
+          <button
+            onClick={isEditingProfile ? handleCancelEdit : handleEditProfile}
+            className={`px-4 py-2 rounded text-sm font-medium transition-all ${
+              isEditingProfile
+                ? 'bg-gray-700 text-gray-200 hover:bg-gray-600'
+                : 'bg-amber-600 text-white hover:bg-amber-700'
+            }`}
+          >
+            {isEditingProfile ? 'Cancel' : 'Edit Profile'}
+          </button>
+        </div>
+      </div>
+
+      {/* Profile Form/Display */}
+      <div className="bg-gray-900 border border-amber-500/20 rounded-lg p-6">
+        <h3 className="text-lg font-semibold text-amber-50 mb-6 flex items-center">
+          <UserCircleIcon className="h-5 w-5 mr-2" />
+          Personal Information
+        </h3>
+
+        {isEditingProfile ? (
+          // Edit Mode
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs text-gray-400 mb-2 font-semibold">First Name</label>
+                <input
+                  type="text"
+                  value={profileFormData.first_name}
+                  onChange={(e) => setProfileFormData(prev => ({ ...prev, first_name: e.target.value }))}
+                  className="w-full bg-gray-800 border border-gray-700 px-3 py-2 rounded text-sm text-gray-200 focus:border-amber-500 focus:outline-none"
+                  placeholder="Enter first name"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-2 font-semibold">Last Name</label>
+                <input
+                  type="text"
+                  value={profileFormData.last_name}
+                  onChange={(e) => setProfileFormData(prev => ({ ...prev, last_name: e.target.value }))}
+                  className="w-full bg-gray-800 border border-gray-700 px-3 py-2 rounded text-sm text-gray-200 focus:border-amber-500 focus:outline-none"
+                  placeholder="Enter last name"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs text-gray-400 mb-2 font-semibold">Email</label>
+              <input
+                type="email"
+                value={profileFormData.email}
+                onChange={(e) => setProfileFormData(prev => ({ ...prev, email: e.target.value }))}
+                className="w-full bg-gray-800 border border-gray-700 px-3 py-2 rounded text-sm text-gray-200 focus:border-amber-500 focus:outline-none"
+                placeholder="Enter email address"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs text-gray-400 mb-2 font-semibold">Phone</label>
+              <input
+                type="tel"
+                value={profileFormData.phone}
+                onChange={(e) => setProfileFormData(prev => ({ ...prev, phone: e.target.value }))}
+                className="w-full bg-gray-800 border border-gray-700 px-3 py-2 rounded text-sm text-gray-200 focus:border-amber-500 focus:outline-none"
+                placeholder="Enter phone number"
+              />
+            </div>
+
+            <div className="pt-4 flex gap-3 justify-end">
+              <button
+                onClick={handleCancelEdit}
+                className="px-4 py-2 bg-gray-700 text-gray-200 rounded text-sm font-medium hover:bg-gray-600 transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveProfile}
+                disabled={profileSaving}
+                className="px-4 py-2 bg-gradient-to-r from-amber-600 to-amber-700 text-white rounded text-sm font-medium hover:from-amber-700 hover:to-amber-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {profileSaving ? (
+                  <>
+                    <div className="animate-spin">⟳</div>
+                    Saving...
+                  </>
+                ) : (
+                  'Save Changes'
+                )}
+              </button>
+            </div>
           </div>
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Role</label>
-            <p className="text-sm text-amber-50 capitalize">{user?.role}</p>
+        ) : (
+          // Display Mode
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-4">
+              <div className="bg-gray-800/50 rounded p-4 border border-gray-700/50">
+                <p className="text-xs text-gray-400 mb-1">First Name</p>
+                <p className="text-sm text-amber-50 font-medium">{user?.first_name || 'Not set'}</p>
+              </div>
+              <div className="bg-gray-800/50 rounded p-4 border border-gray-700/50">
+                <p className="text-xs text-gray-400 mb-1">Last Name</p>
+                <p className="text-sm text-amber-50 font-medium">{user?.last_name || 'Not set'}</p>
+              </div>
+            </div>
+            <div className="space-y-4">
+              <div className="bg-gray-800/50 rounded p-4 border border-gray-700/50">
+                <p className="text-xs text-gray-400 mb-1">Email Address</p>
+                <p className="text-sm text-amber-50 font-medium break-all">{user?.email || 'Not set'}</p>
+              </div>
+              <div className="bg-gray-800/50 rounded p-4 border border-gray-700/50">
+                <p className="text-xs text-gray-400 mb-1">Phone Number</p>
+                <p className="text-sm text-amber-50 font-medium">{user?.phone || 'Not set'}</p>
+              </div>
+            </div>
           </div>
-          <div>
-            <label className="block text-xs text-gray-400 mb-1">Phone</label>
-            <p className="text-sm text-amber-50">{user?.phone || 'Not provided'}</p>
+        )}
+      </div>
+
+      {/* Account Information */}
+      <div className="bg-gray-900 border border-amber-500/20 rounded-lg p-6">
+        <h3 className="text-lg font-semibold text-amber-50 mb-4 flex items-center">
+          <ShieldCheckIcon className="h-5 w-5 mr-2" />
+          Account Information
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="bg-gray-800/50 rounded p-4 border border-gray-700/50">
+            <p className="text-xs text-gray-400 mb-1">User ID</p>
+            <p className="text-sm font-mono text-amber-50">#{user?.id || 'N/A'}</p>
+          </div>
+          <div className="bg-gray-800/50 rounded p-4 border border-gray-700/50">
+            <p className="text-xs text-gray-400 mb-1">Role</p>
+            <p className="text-sm text-amber-50 capitalize font-medium">{user?.role || 'N/A'}</p>
+          </div>
+          <div className="bg-gray-800/50 rounded p-4 border border-gray-700/50">
+            <p className="text-xs text-gray-400 mb-1">Account Status</p>
+            <p className="text-sm text-green-400 font-medium">✓ Active</p>
+          </div>
+          <div className="bg-gray-800/50 rounded p-4 border border-gray-700/50">
+            <p className="text-xs text-gray-400 mb-1">Member Since</p>
+            <p className="text-sm text-amber-50">{user?.created_at ? new Date(user.created_at).toLocaleDateString() : 'N/A'}</p>
           </div>
         </div>
+      </div>
+
+      {/* Security Section */}
+      <div className="bg-gray-900 border border-amber-500/20 rounded-lg p-6">
+        <h3 className="text-lg font-semibold text-amber-50 mb-4 flex items-center">
+          <LockClosedIcon className="h-5 w-5 mr-2" />
+          Security
+        </h3>
+        <p className="text-gray-400 text-sm mb-4">Manage your account security settings</p>
+        <button className="px-4 py-2 bg-gray-700 text-gray-200 rounded text-sm font-medium hover:bg-gray-600 transition-all">
+          Change Password
+        </button>
       </div>
     </div>
   );
@@ -2076,17 +2281,6 @@ const CashierDashboard = () => {
                           ) : (
                             'Reprint'
                           )}
-                        </button>
-                        <button
-                          onClick={() => {
-                            setSelectedTransactionForRefund(tx);
-                            setShowRefundModal(true);
-                          }}
-                          disabled={!!txActionLoading[tx.id]}
-                          className={`px-2 py-1 rounded text-xs transition-colors ${txActionLoading[tx.id] ? 'bg-gray-700 text-gray-300 cursor-not-allowed' : 'bg-red-600 text-white hover:bg-red-700'}`}
-                          title="Request refund for this transaction"
-                        >
-                          Refund
                         </button>
                       </div>
                     </td>
@@ -2334,30 +2528,30 @@ const CashierDashboard = () => {
       )}
 
       {/* Sidebar */}
-      <div className={`fixed inset-y-0 right-0 lg:right-auto lg:left-0 z-40 h-screen bg-gradient-to-b from-gray-900 to-black border-amber-500/20 border-l lg:border-l-0 lg:border-r shadow-xl flex-shrink-0 transition-all duration-300 lg:translate-x-0 ${
+      <div className={`fixed inset-y-0 right-0 lg:right-auto lg:left-0 z-40 h-screen ${isDarkMode ? 'bg-gradient-to-b from-gray-900 to-black border-amber-500/20' : 'bg-gradient-to-b from-gray-50 to-gray-100 border-amber-300/40'} border-l lg:border-l-0 lg:border-r shadow-xl flex-shrink-0 transition-all duration-300 lg:translate-x-0 ${
         showMobileSidebar ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'
       } ${isCollapsedDesktop ? 'lg:w-20' : 'w-64'}`}>
         <div className="flex flex-col h-full overflow-hidden">
           {/* Sidebar Header */}
-          <div className="flex items-center justify-between h-16 shadow-md bg-gray-900 border-amber-500/20 px-3 border-b">
+          <div className={`flex items-center justify-between h-16 shadow-md ${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-gray-50 border-amber-300/40'} px-3 border-b transition-colors duration-300 flex-shrink-0`}>
             <div className="flex items-center space-x-2">
               <div className="w-8 h-8 bg-gradient-to-r from-amber-500 to-amber-600 rounded-lg flex items-center justify-center shadow">
                 <BuildingLibraryIcon className="h-4 w-4 text-white" />
               </div>
-              <span className={`text-sm lg:text-base font-bold text-amber-50 truncate ${isCollapsedDesktop ? 'lg:hidden' : ''}`}>
+              <span className={`text-sm lg:text-base font-bold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} transition-colors duration-300 truncate hidden lg:inline ${isCollapsedDesktop ? 'lg:hidden' : ''}`}>
                 CASHIER
               </span>
             </div>
             <div className="flex items-center space-x-1">
               <button
                 onClick={() => setIsCollapsedDesktop(!isCollapsedDesktop)}
-                className="hidden lg:flex text-gray-400 hover:text-amber-400 transition-colors p-1 rounded-lg hover:bg-amber-500/10"
+                className="hidden lg:flex text-gray-400 hover:text-amber-400 transition-colors p-1 rounded-lg hover:bg-amber-500/10 flex-shrink-0 items-center justify-center"
               >
                 {isCollapsedDesktop ? <ChevronRightIcon className="h-5 w-5" /> : <ChevronLeftIcon className="h-5 w-5" />}
               </button>
               <button
                 onClick={() => setShowMobileSidebar(false)}
-                className="lg:hidden text-gray-400 hover:text-amber-400 transition-colors p-1 rounded-lg hover:bg-amber-500/10"
+                className="lg:hidden text-gray-400 hover:text-amber-400 transition-colors p-1 rounded-lg hover:bg-amber-500/10 flex-shrink-0"
               >
                 <XMarkIcon className="h-5 w-5" />
               </button>
@@ -2365,77 +2559,130 @@ const CashierDashboard = () => {
           </div>
 
           {/* Navigation */}
-          <nav className={`flex-1 py-4 space-y-2 overflow-y-auto scrollbar-hide ${isCollapsedDesktop ? 'lg:px-2' : 'px-3'}`}>
-            {navigation.map((item) => (
-              <button
-                key={item.key}
-                onClick={() => {
-                  setActiveSection(item.key);
-                  setShowMobileSidebar(false);
-                }}
-                className={`w-full flex items-center ${isCollapsedDesktop ? 'lg:justify-center' : 'justify-start'} px-3 py-2 text-xs font-medium rounded-lg transition-all border ${
-                  activeSection === item.key
-                    ? 'bg-amber-500/10 text-amber-400 border-amber-500/40'
-                    : 'text-gray-400 border-transparent hover:bg-amber-500/5 hover:text-amber-300'
-                }`}
-              >
-                <item.icon className={`h-4 w-4 ${!isCollapsedDesktop ? 'mr-2' : ''}`} />
-                {!isCollapsedDesktop && <span>{item.name}</span>}
-              </button>
-            ))}
+          <nav className={`flex-1 py-2 lg:py-2.5 space-y-2 lg:space-y-2.5 overflow-y-auto transition-all duration-300 min-h-0 scrollbar-hide ${isCollapsedDesktop ? 'lg:px-2' : 'px-2 lg:px-2.5'}`}>
+            {navigation.map((item, idx) => {
+              // Handle items with sections
+              if (item.section) {
+                return (
+                  <div key={`section-${idx}`}>
+                    {/* Section header */}
+                    {!isCollapsedDesktop && (
+                      <p className={`text-xs font-semibold uppercase tracking-wider px-3 mb-2 mt-3 transition-colors ${isDarkMode ? 'text-gray-500' : 'text-gray-600'}`}>
+                        {item.section}
+                      </p>
+                    )}
+                    {/* Section items */}
+                    {item.items.map((subItem) => (
+                      <button
+                        key={subItem.key}
+                        onClick={() => {
+                          setActiveSection(subItem.key);
+                          setShowMobileSidebar(false);
+                        }}
+                        className={`w-full flex items-center justify-center lg:justify-start px-2 lg:px-2.5 py-1.5 text-xs font-medium rounded-lg transition-all duration-200 border group ${
+                          activeSection === subItem.key
+                            ? 'bg-amber-500/10 text-amber-400 border-amber-500/40 shadow shadow-amber-500/10'
+                            : `${isDarkMode ? 'text-gray-400 border-transparent hover:bg-amber-500/5 hover:text-amber-300 hover:border-amber-500/20' : 'text-gray-600 border-transparent hover:bg-amber-500/10 hover:text-amber-700 hover:border-amber-500/30'}`
+                        } ${isCollapsedDesktop ? 'lg:justify-center lg:px-2' : ''}`}
+                        title={isCollapsedDesktop ? subItem.name : ''}
+                      >
+                        <div className="flex items-center min-w-0">
+                          <subItem.icon className={`h-4 w-4 flex-shrink-0 transition-colors ${
+                            activeSection === subItem.key ? 'text-amber-400' : `${isDarkMode ? 'text-gray-500 group-hover:text-amber-400' : 'text-gray-600 group-hover:text-amber-600'}`
+                          } ${!isCollapsedDesktop ? 'mr-2' : ''}`} />
+                          {!isCollapsedDesktop && (
+                            <span className="flex items-center justify-between flex-1 min-w-0">
+                              <span className="truncate">{subItem.name}</span>
+                              {subItem.badge && <span className="text-xs bg-amber-500/30 text-amber-300 px-1.5 rounded ml-2 flex-shrink-0">{subItem.badge}</span>}
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                );
+              }
+              
+              // Handle regular items (no section)
+              return (
+                <button
+                  key={item.key}
+                  onClick={() => {
+                    setActiveSection(item.key);
+                    setShowMobileSidebar(false);
+                  }}
+                  className={`w-full flex items-center justify-center lg:justify-start px-2 lg:px-2.5 py-1.5 text-xs font-medium rounded-lg transition-all duration-200 border group ${
+                    activeSection === item.key
+                      ? 'bg-amber-500/10 text-amber-400 border-amber-500/40 shadow shadow-amber-500/10'
+                      : `${isDarkMode ? 'text-gray-400 border-transparent hover:bg-amber-500/5 hover:text-amber-300 hover:border-amber-500/20' : 'text-gray-600 border-transparent hover:bg-amber-500/10 hover:text-amber-700 hover:border-amber-500/30'}`
+                  } ${isCollapsedDesktop ? 'lg:justify-center lg:px-2' : ''}`}
+                  title={isCollapsedDesktop ? item.name : ''}
+                >
+                  <div className="flex items-center min-w-0">
+                    <item.icon className={`h-4 w-4 flex-shrink-0 transition-colors ${
+                      activeSection === item.key ? 'text-amber-400' : `${isDarkMode ? 'text-gray-500 group-hover:text-amber-400' : 'text-gray-600 group-hover:text-amber-600'}`
+                    } ${!isCollapsedDesktop ? 'mr-2' : ''}`} />
+                    {!isCollapsedDesktop && <span className="truncate">{item.name}</span>}
+                  </div>
+                </button>
+              );
+            })}
             
             {/* Logout */}
             <button
               onClick={() => setShowLogoutModal(true)}
-              className="w-full flex items-center justify-start px-3 py-2 text-xs font-medium rounded-lg transition-all border border-transparent text-red-400 hover:bg-red-500/10 hover:border-red-500/30"
+              className={`w-full flex items-center justify-center lg:justify-start px-2 lg:px-2.5 py-1.5 text-xs font-medium rounded-lg transition-all duration-200 border group ${isDarkMode ? 'text-red-400 border-transparent hover:bg-red-500/10 hover:border-red-500/30' : 'text-red-600 border-transparent hover:bg-red-500/20 hover:border-red-500/40'}`}
+              title={isCollapsedDesktop ? 'Logout' : ''}
             >
-              <XCircleIcon className={`h-4 w-4 ${!isCollapsedDesktop ? 'mr-2' : ''}`} />
-              {!isCollapsedDesktop && <span>Logout</span>}
+              <div className="flex items-center min-w-0">
+                <XCircleIcon className={`h-4 w-4 flex-shrink-0 ${!isCollapsedDesktop ? 'mr-2' : ''}`} />
+                {!isCollapsedDesktop && <span className="truncate">Logout</span>}
+              </div>
             </button>
           </nav>
+
+          <div className={`p-2 lg:p-3 border-t ${isDarkMode ? 'border-amber-500/20' : 'border-amber-300/40'} flex-shrink-0 transition-all duration-300 ${isCollapsedDesktop ? 'lg:flex lg:items-center lg:justify-center' : ''}`}>
+            {/* sidebar footer content can be added here */}
+          </div>
         </div>
       </div>
 
       {/* Main Content */}
       <div className={`flex-1 flex flex-col min-w-0 mt-16 lg:mt-0 lg:h-screen lg:overflow-y-auto transition-all duration-300 ${isCollapsedDesktop ? 'lg:ml-20' : 'lg:ml-64'}`}>
         {/* Header */}
-        <header className="bg-gray-900 border-amber-500/20 border-b shadow-md flex-shrink-0 sticky top-0 z-30">
-          <div className="flex justify-between items-center px-4 lg:px-6 py-3">
-            <div>
-              <h1 className="text-base lg:text-lg font-bold text-amber-50 capitalize">
-                {activeSection.replace('-', ' ')}
-              </h1>
-              <p className="text-amber-400/70 text-xs mt-0.5">
-                Welcome back, {user?.first_name}
-              </p>
+        <header className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-gray-50 border-amber-300/40'} border-b shadow-md flex-shrink-0 sticky top-0 z-30 transition-colors duration-300`}>
+          <div className="flex justify-between items-center px-3 sm:px-4 lg:px-6 py-2 lg:py-3">
+            <div className="flex items-center space-x-2 lg:space-x-3 min-w-0">
+              <div>
+                <h1 className={`text-base lg:text-lg font-bold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} transition-colors duration-300 capitalize truncate`}>
+                  {activeSection.replace('-', ' ')}
+                </h1>
+                <p className={`${isDarkMode ? 'text-amber-400/70' : 'text-amber-700/70'} mt-0.5 text-xs lg:text-sm transition-colors duration-300 hidden sm:block`}>
+                  Welcome back, {user?.first_name}
+                </p>
+              </div>
             </div>
-            <div className="flex items-center gap-3">
-                <div className="text-xs text-gray-400 hidden sm:block">
-                  {new Date().toLocaleDateString('en-US', { 
-                    weekday: 'short', 
-                    year: 'numeric', 
-                    month: 'short', 
-                    day: 'numeric' 
-                  })}
-                </div>
-                <div className="flex items-center gap-2">
-                  <select
-                    value={timeframe}
-                    onChange={(e) => setTimeframe(e.target.value)}
-                    className="bg-gray-800 border border-gray-700 text-xs text-gray-200 px-2 py-1 rounded"
-                  >
-                    <option value="daily">Daily</option>
-                    <option value="weekly">Weekly</option>
-                    <option value="monthly">Monthly</option>
-                    <option value="yearly">Yearly</option>
-                  </select>
-                  <button
-                    onClick={() => window.location.href = '/admin'}
-                    className="px-2 py-1 text-xs rounded border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 transition-colors"
-                  >
-                    Admin
-                  </button>
-                </div>
+            <div className="flex-shrink-0 flex items-center space-x-3">
+              <div className={`text-xs lg:text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} transition-colors duration-300 hidden sm:block text-right`}>
+                {new Date().toLocaleDateString('en-US', { 
+                  weekday: 'short', 
+                  year: 'numeric', 
+                  month: 'short', 
+                  day: 'numeric' 
+                })}
+              </div>
+              <div className="flex items-center gap-2">
+                <select
+                  value={timeframe}
+                  onChange={(e) => setTimeframe(e.target.value)}
+                  className={`${isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-200' : 'bg-gray-100 border-gray-300 text-gray-800'} border text-xs px-2 py-1 rounded transition-colors duration-300`}
+                >
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="monthly">Monthly</option>
+                  <option value="yearly">Yearly</option>
+                </select>
+              </div>
             </div>
           </div>
         </header>
@@ -2520,19 +2767,6 @@ const CashierDashboard = () => {
         }}
       />
       
-      {/* Refund Modal */}
-      <RefundModal
-        isOpen={showRefundModal}
-        onClose={() => {
-          setShowRefundModal(false);
-          setSelectedTransactionForRefund(null);
-        }}
-        transaction={selectedTransactionForRefund}
-        onSuccess={() => {
-          loadTransactions(txPage);
-        }}
-      />
-          
           {/* Appointment View Modal */}
           {viewModalAppointment && (
             <AppointmentModal

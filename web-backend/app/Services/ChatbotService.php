@@ -17,19 +17,32 @@ use Illuminate\Support\Facades\Log;
 class ChatbotService
 {
     /**
-     * Get system context data for the current user
+     * Get system context data for the current user or guest
      * This data is used to build a more intelligent system prompt
      */
     public function getSystemContext($userId)
     {
+        // Handle guest users (no userId)
+        if (!$userId) {
+            return [
+                'user_id' => null,
+                'user_role' => 'guest',
+                'available_services' => $this->getAvailableServices(),
+                'business_info' => $this->getBusinessInfo(),
+                'availability' => $this->getAvailabilitySummary(),
+                'trends' => $this->getTrends(),
+                'security' => ['auth' => false],
+            ];
+        }
+
         $user = User::find($userId);
-        
+
         if (!$user) {
             return null;
         }
 
         $role = $user->getRoleNames()->first() ?? 'user';
-        
+
         $context = [
             'user_id' => $userId,
             'user_name' => $user->first_name . ' ' . $user->last_name,
@@ -741,7 +754,7 @@ class ChatbotService
             : 'client';
 
         // Deterministic intents: for factual queries we prefer server-side answers
-        $deterministicIntents = ['my_appointment','admin_counts','services','price','hours','address','availability','status'];
+        $deterministicIntents = ['my_appointment','admin_counts','services','price','hours','address','availability','status','contact'];
         if (in_array($intent, $deterministicIntents, true)) {
             try {
                 try {
@@ -781,7 +794,7 @@ class ChatbotService
         }
 
         // Re-check deterministic intents after refinement (cover cases where detection upgraded from 'general')
-        $deterministicIntents = ['my_appointment','admin_counts','services','price','hours','address','availability','status'];
+        $deterministicIntents = ['my_appointment','admin_counts','services','price','hours','address','availability','status','contact'];
         if (in_array($intent, $deterministicIntents, true)) {
             try {
                 try {
@@ -1380,6 +1393,13 @@ class ChatbotService
                 $rules = $availability['slot_capacity_rules'] ?? 0;
                 $resp['reply'] = "Tracking {$blackouts} blackout date(s) and {$rules} slot capacity rule(s). Open the calendar for exact times.";
                 $resp['suggestions'] = ['Any slot tomorrow?', 'What services are available?'];
+                return $resp;
+
+            case 'contact':
+                $biz = $context['business_info'] ?? $this->getBusinessInfo();
+                $resp['data'] = ['business_info' => $biz];
+                $resp['reply'] = 'You can contact us at: Phone: ' . ($biz['phone'] ?? 'Not available') . ', Email: ' . ($biz['email'] ?? 'Not available') . ', Address: ' . ($biz['address'] ?? 'Not available') . '.';
+                $resp['suggestions'] = ['What are your hours?', 'How do I book an appointment?'];
                 return $resp;
 
             default:

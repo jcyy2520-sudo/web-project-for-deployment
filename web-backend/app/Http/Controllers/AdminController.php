@@ -224,17 +224,19 @@ class AdminController extends Controller
                 'read' => false
             ]);
 
-            // Send email to user (fail silently if email fails)
-            try {
-                Mail::to($user->email)->send(new AdminMessageMail(
-                    $user,
-                    $request->subject,
-                    $request->message,
-                    $request->type
-                ));
-            } catch (\Exception $emailError) {
-                \Log::warning('Failed to send admin message email: ' . $emailError->getMessage());
-                // Don't fail the API request if email fails
+            // Send email ONLY for appointment-related messages
+            if ($request->type === 'appointment') {
+                try {
+                    Mail::to($user->email)->send(new AdminMessageMail(
+                        $user,
+                        $request->subject,
+                        $request->message,
+                        $request->type
+                    ));
+                } catch (\Exception $emailError) {
+                    \Log::warning('Failed to send admin message email: ' . $emailError->getMessage());
+                    // Don't fail the API request if email fails
+                }
             }
 
             // Log the message
@@ -917,54 +919,45 @@ class AdminController extends Controller
     public function getSalesData(Request $request)
     {
         try {
-            $period = $request->get('period', 'month');
-            $date = $request->get('date') ? Carbon::parse($request->get('date')) : now();
-
-            // Determine date range based on period
-            if ($period === 'month') {
-                $startDate = $date->copy()->startOfMonth();
-                $endDate = $date->copy()->endOfMonth();
-            } elseif ($period === 'quarter') {
-                $startDate = $date->copy()->startOfQuarter();
-                $endDate = $date->copy()->endOfQuarter();
-            } else {
-                $startDate = $date->copy()->startOfYear();
-                $endDate = $date->copy()->endOfYear();
-            }
-
-            // Get sales table data
-            $sales = DB::table('payments')
-                ->join('appointments', 'payments.appointment_id', '=', 'appointments.id')
-                ->join('services', 'appointments.service_id', '=', 'services.id')
+            $timeframe = $request->query('timeframe', 'monthly');
+            
+            // Build date range based on timeframe
+            $dateRange = $this->getDateRange($timeframe);
+            
+            // Get completed appointments with payment info
+            $sales = DB::table('appointments')
                 ->join('users as clients', 'appointments.user_id', '=', 'clients.id')
-                ->join('users as attorneys', 'payments.recorded_by', '=', 'attorneys.id')
-                ->whereBetween('payments.payment_date', [$startDate, $endDate])
+                ->leftJoin('users as staff', 'appointments.staff_id', '=', 'staff.id')
+                ->leftJoin('services', 'appointments.service_id', '=', 'services.id')
+                ->where('appointments.status', 'completed')
+                ->whereBetween('appointments.appointment_date', $dateRange)
                 ->select(
-                    'payments.id',
-                    'payments.payment_date',
+                    'appointments.id',
+                    'appointments.appointment_date',
+                    'appointments.payment_status',
+                    'appointments.payment_amount',
+                    'appointments.discount_amount',
+                    'appointments.discount_type',
                     'services.name as service_name',
+                    'services.price as service_price',
                     'clients.first_name as client_first_name',
                     'clients.last_name as client_last_name',
-                    'attorneys.first_name as attorney_first_name',
-                    'attorneys.last_name as attorney_last_name',
-                    'services.price as service_price',
-                    'payments.amount_paid',
-                    'payments.shortfall',
-                    'payments.payment_method',
-                    'payments.payment_status'
+                    'clients.email as client_email',
+                    DB::raw('COALESCE(staff.first_name, "Unassigned") as staff_first_name'),
+                    DB::raw('COALESCE(staff.last_name, "") as staff_last_name'),
+                    'appointments.created_at'
                 )
-                ->orderBy('payments.payment_date', 'desc')
-                ->paginate(20);
+                ->orderBy('appointments.appointment_date', 'desc')
+                ->get();
 
             // Get summary stats
-            $stats = DB::table('payments')
-                ->whereBetween('payment_date', [$startDate, $endDate])
+            $stats = DB::table('appointments')
+                ->where('appointments.status', 'completed')
+                ->whereBetween('appointments.appointment_date', $dateRange)
                 ->selectRaw('
                     COUNT(*) as total_transactions,
-                    SUM(service_price) as total_service_price,
-                    SUM(amount_paid) as total_received,
-                    SUM(shortfall) as total_shortfall,
-                    SUM(discount_amount) as total_discounts,
+                    SUM(COALESCE(payment_amount, 0)) as total_received,
+                    SUM(COALESCE(discount_amount, 0)) as total_discounts,
                     SUM(CASE WHEN payment_status = "paid" THEN 1 ELSE 0 END) as fully_paid,
                     SUM(CASE WHEN payment_status = "partial" THEN 1 ELSE 0 END) as partially_paid,
                     SUM(CASE WHEN payment_status = "unpaid" THEN 1 ELSE 0 END) as unpaid_count
@@ -972,57 +965,53 @@ class AdminController extends Controller
                 ->first();
 
             $collectionRate = 0;
-            if ($stats && $stats->total_service_price > 0) {
-                $collectionRate = round(($stats->total_received / $stats->total_service_price) * 100, 2);
+            if ($stats && $stats->total_transactions > 0) {
+                $collectionRate = round(($stats->total_received / ($stats->total_received + $stats->total_discounts)) * 100, 2);
             }
 
-            // Payment method breakdown
-            $paymentMethods = DB::table('payments')
-                ->whereBetween('payment_date', [$startDate, $endDate])
-                ->selectRaw('payment_method, COUNT(*) as count, SUM(amount_paid) as total')
-                ->groupBy('payment_method')
+            // Payment status breakdown
+            $paymentMethods = DB::table('appointments')
+                ->where('appointments.status', 'completed')
+                ->whereBetween('appointments.appointment_date', $dateRange)
+                ->selectRaw('payment_status as method, COUNT(*) as count, SUM(COALESCE(payment_amount, 0)) as total')
+                ->groupBy('payment_status')
                 ->get();
 
-            // Attorney performance breakdown
-            $attorneyPerformance = DB::table('payments')
-                ->join('users', 'payments.recorded_by', '=', 'users.id')
-                ->whereBetween('payments.payment_date', [$startDate, $endDate])
+            // Staff performance breakdown
+            $staffPerformance = DB::table('appointments')
+                ->leftJoin('users', 'appointments.staff_id', '=', 'users.id')
+                ->where('appointments.status', 'completed')
+                ->whereBetween('appointments.appointment_date', $dateRange)
                 ->selectRaw('
-                    users.id,
-                    CONCAT(users.first_name, " ", users.last_name) as attorney_name,
+                    COALESCE(users.id, 0) as user_id,
+                    CONCAT(COALESCE(users.first_name, "Unassigned"), " ", COALESCE(users.last_name, "")) as staff_name,
                     COUNT(*) as transaction_count,
-                    SUM(service_price) as total_service_price,
-                    SUM(amount_paid) as total_received,
-                    SUM(shortfall) as total_shortfall,
-                    ROUND(SUM(amount_paid) / SUM(service_price) * 100, 2) as collection_rate
+                    SUM(COALESCE(payment_amount, 0)) as total_received
                 ')
-                ->groupBy('users.id', 'attorney_name')
+                ->groupBy('users.id')
                 ->get();
 
             return response()->json([
                 'success' => true,
-                'data' => [
-                    'sales' => $sales,
-                    'stats' => [
-                        'totalTransactions' => $stats->total_transactions ?? 0,
-                        'totalServicePrice' => (float) ($stats->total_service_price ?? 0),
-                        'totalReceived' => (float) ($stats->total_received ?? 0),
-                        'totalShortfall' => (float) ($stats->total_shortfall ?? 0),
-                        'totalDiscounts' => (float) ($stats->total_discounts ?? 0),
-                        'fullyPaid' => $stats->fully_paid ?? 0,
-                        'partiallyPaid' => $stats->partially_paid ?? 0,
-                        'unpaidCount' => $stats->unpaid_count ?? 0,
-                        'collectionRate' => $collectionRate,
-                    ],
-                    'paymentMethods' => $paymentMethods,
-                    'attorneyPerformance' => $attorneyPerformance,
+                'data' => $sales,
+                'stats' => [
+                    'totalTransactions' => $stats->total_transactions ?? 0,
+                    'totalReceived' => (float) ($stats->total_received ?? 0),
+                    'totalDiscounts' => (float) ($stats->total_discounts ?? 0),
+                    'fullyPaid' => $stats->fully_paid ?? 0,
+                    'partiallyPaid' => $stats->partially_paid ?? 0,
+                    'unpaidCount' => $stats->unpaid_count ?? 0,
+                    'collectionRate' => $collectionRate,
                 ]
             ]);
+
         } catch (\Exception $e) {
+            \Log::error('Failed to fetch sales data: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to fetch sales data',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
+                'data' => []
             ], 500);
         }
     }

@@ -100,12 +100,20 @@ const AdminRefundManagement = () => {
 
       if (response.data?.success) {
         if (window?.showToast) {
-          window.showToast('Success', 'Refund approved successfully', 'success');
+          window.showToast('Success', 'Refund approved successfully. Processing...', 'success');
         }
+        
+        // Wait 5 seconds to ensure email is sent and data is updated
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        
         setSelectedRefund(null);
         setApprovalNotes('');
         setRefundMethod('original_method');
         loadRefunds(page);
+        
+        if (window?.showToast) {
+          window.showToast('Success', 'Refund completed. User has been notified.', 'success');
+        }
       }
     } catch (err) {
       console.error('Approval error:', err);
@@ -602,9 +610,16 @@ const AdminRefundManagement = () => {
                           <button
                             onClick={() => handleApprove(selectedRefund)}
                             disabled={actionInProgress === 'approve'}
-                            className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm font-medium transition-colors duration-200"
+                            className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm font-medium transition-colors duration-200 flex items-center justify-center gap-2"
                           >
-                            {actionInProgress === 'approve' ? 'Approving...' : '✅ Approve Refund'}
+                            {actionInProgress === 'approve' ? (
+                              <>
+                                <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></div>
+                                Processing (5 sec)...
+                              </>
+                            ) : (
+                              '✅ Approve Refund'
+                            )}
                           </button>
                         </div>
                       </div>
@@ -644,9 +659,16 @@ const AdminRefundManagement = () => {
                           <button
                             onClick={() => handleReject(selectedRefund)}
                             disabled={actionInProgress === 'reject' || !rejectionReason.trim()}
-                            className="w-full px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 text-sm font-medium transition-colors duration-200"
+                            className="w-full px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 text-sm font-medium transition-colors duration-200 flex items-center justify-center gap-2"
                           >
-                            {actionInProgress === 'reject' ? 'Declining...' : '❌ Decline Refund'}
+                            {actionInProgress === 'reject' ? (
+                              <>
+                                <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></div>
+                                Declining...
+                              </>
+                            ) : (
+                              '❌ Decline Refund'
+                            )}
                           </button>
                         </div>
                       </div>
@@ -656,30 +678,10 @@ const AdminRefundManagement = () => {
               )}
 
               {selectedRefund.status === 'approved' && (
-                <div className="bg-gray-800 p-4 rounded-lg border border-blue-500/30">
-                  <h4 className="font-semibold text-blue-400 mb-3">📤 Mark as Completed</h4>
-                  <div className="space-y-3">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-400 mb-1">
-                        Transaction ID (Optional)
-                      </label>
-                      <input
-                        type="text"
-                        value={transactionId}
-                        onChange={(e) => setTransactionId(e.target.value)}
-                        placeholder="E.g., ref#12345"
-                        className="w-full px-3 py-2 bg-gray-700 border border-gray-600 text-white rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all duration-200"
-                      />
-                    </div>
-
-                    <button
-                      onClick={() => handleComplete(selectedRefund)}
-                      disabled={actionInProgress === 'complete'}
-                      className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium transition-colors duration-200"
-                    >
-                      {actionInProgress === 'complete' ? 'Processing...' : '✅ Mark as Completed'}
-                    </button>
-                  </div>
+                <div className="bg-gray-800 p-4 rounded-lg border border-yellow-500/30">
+                  <p className="text-sm text-yellow-300">
+                    ℹ️ This refund was approved and will be automatically completed. The user will be notified via email.
+                  </p>
                 </div>
               )}
 

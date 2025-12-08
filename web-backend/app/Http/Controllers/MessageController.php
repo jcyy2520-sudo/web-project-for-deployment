@@ -172,14 +172,14 @@ class MessageController extends Controller
                 'reply_to_message_id' => $request->reply_to_message_id ?? null
             ]);
 
-            // Send email if sender is admin/staff and receiver is client
-            if ($request->user()->isAdmin() || $request->user()->isStaff()) {
+            // Send email ONLY for appointment-related messages
+            if (($request->user()->isAdmin() || $request->user()->isStaff()) && $request->type === 'appointment') {
                 try {
                     \Illuminate\Support\Facades\Mail::to($receiver->email)->send(new \App\Mail\AdminMessageMail(
                         $receiver,
-                        $request->subject ?? 'New Message',
+                        $request->subject ?? 'Appointment Message',
                         $request->message,
-                        $request->type ?? 'general'
+                        $request->type
                     ));
                 } catch (\Exception $e) {
                     \Log::error('Failed to send message email: ' . $e->getMessage());
@@ -280,8 +280,8 @@ class MessageController extends Controller
         // Mark messages as read
         Message::where('sender_id', $otherUser->id)
             ->where('receiver_id', $user->id)
-            ->where('is_read', false)
-            ->update(['is_read' => true]);
+            ->where('read', false)
+            ->update(['read' => true]);
 
         return response()->json([
             'data' => [

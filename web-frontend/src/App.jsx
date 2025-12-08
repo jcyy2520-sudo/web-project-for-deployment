@@ -149,7 +149,7 @@ const AppContent = () => {
       <Route
         path="/cashier"
         element={
-          <ProtectedRoute allowedRoles={['admin']}>
+          <ProtectedRoute allowedRoles={['staff', 'admin']}>
             <Suspense fallback={<PageLoading />}>
               <CashierDashboard />
             </Suspense>

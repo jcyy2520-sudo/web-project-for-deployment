@@ -36,7 +36,8 @@ import {
   MagnifyingGlassIcon,
   CalendarDaysIcon,
   KeyIcon,
-  Bars3Icon
+  Bars3Icon,
+  CurrencyDollarIcon
 } from '@heroicons/react/24/outline';
 
 // Enhanced Status Badge Component
@@ -820,6 +821,10 @@ const Dashboard = () => {
       navigate('/admin/dashboard', { replace: true });
       return;
     }
+    if (user?.role === 'staff') {
+      navigate('/cashier', { replace: true });
+      return;
+    }
   }, [user, navigate]);
 
   const [activeTab, setActiveTab] = useState('home');
@@ -837,12 +842,23 @@ const Dashboard = () => {
   const [availableSlots, setAvailableSlots] = useState([]);
   const [messages, setMessages] = useState([]);
   const [staff, setStaff] = useState([]);
+  const [refunds, setRefunds] = useState([]);
   
   // Pagination state for appointments
   const [appointmentsPagination, setAppointmentsPagination] = useState({
     currentPage: 1,
     itemsPerPage: 10
   });
+
+  // Filter state for appointments
+  const [appointmentsStatusFilter, setAppointmentsStatusFilter] = useState('all');
+  
+  // Refund form state
+  const [refundData, setRefundData] = useState({
+    reason: 'customer_request',
+    description: ''
+  });
+  const [refundLoading, setRefundLoading] = useState(false);
   
   // Daily appointment limit state
   const [dailyLimitInfo, setDailyLimitInfo] = useState({
@@ -857,6 +873,7 @@ const Dashboard = () => {
   // Modal states
   const [showAppointmentDetail, setShowAppointmentDetail] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
+  const [showRefundModal, setShowRefundModal] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState(null);
 
   // Settings state
@@ -944,6 +961,13 @@ const Dashboard = () => {
           icon: ChatBubbleLeftRightIcon, 
           current: activeTab === 'messages',
           badge: messages.filter(msg => !msg.read).length
+        },
+        { 
+          name: 'Refunds', 
+          href: '#', 
+          icon: CurrencyDollarIcon, 
+          current: activeTab === 'refunds',
+          badge: null
         }
       ]
     },
@@ -1125,6 +1149,9 @@ const Dashboard = () => {
         await loadAppointments();
         await checkDailyLimit();
         break;
+      case 'refunds':
+        await loadRefunds();
+        break;
       case 'messages':
         await loadMessages();
         break;
@@ -1150,6 +1177,20 @@ const Dashboard = () => {
         ...prev,
         currentPage: 1
       }));
+    }
+  };
+
+  const loadRefunds = async () => {
+    const result = await callApi((signal) => 
+      axios.get('/api/refunds/my', { signal })
+    );
+    
+    if (result.success) {
+      // Sort refunds by created_at in descending order (newest first)
+      const sortedRefunds = (result.data.data || result.data || []).sort((a, b) => 
+        new Date(b.created_at) - new Date(a.created_at)
+      );
+      setRefunds(sortedRefunds);
     }
   };
 
@@ -1491,6 +1532,39 @@ const Dashboard = () => {
   const handleRequestCancellation = (appointment) => {
     setSelectedAppointment(appointment);
     setShowCancelModal(true);
+  };
+
+  const handleRequestRefund = async (e) => {
+    e.preventDefault();
+    
+    if (!selectedAppointment || !refundData.reason) {
+      alert('Please select a reason for the refund');
+      return;
+    }
+
+    setRefundLoading(true);
+    try {
+      const response = await axios.post('/api/refunds/request', {
+        appointment_id: selectedAppointment.id,
+        refund_amount: selectedAppointment.payment_amount || 0,
+        reason: refundData.reason,
+        description: refundData.description
+      });
+
+      if (response.data?.success) {
+        alert('Refund request submitted successfully. You will receive a notification once it is reviewed.');
+        setShowRefundModal(false);
+        setSelectedAppointment(null);
+        setRefundData({ reason: 'customer_request', description: '' });
+        // Refresh appointments
+        loadAppointments();
+      }
+    } catch (error) {
+      console.error('Refund request failed:', error);
+      alert(error.response?.data?.message || 'Failed to submit refund request');
+    } finally {
+      setRefundLoading(false);
+    }
   };
 
   const handleSettingsChange = (key, value) => {
@@ -1853,12 +1927,18 @@ const Dashboard = () => {
   );
 
   const renderAppointments = () => {
+    // Filter appointments by status
+    let filteredAppointments = appointments;
+    if (appointmentsStatusFilter !== 'all') {
+      filteredAppointments = appointments.filter(apt => apt.status === appointmentsStatusFilter);
+    }
+
     // Calculate pagination
-    const totalAppointments = appointments.length;
+    const totalAppointments = filteredAppointments.length;
     const totalPages = Math.ceil(totalAppointments / appointmentsPagination.itemsPerPage);
     const startIndex = (appointmentsPagination.currentPage - 1) * appointmentsPagination.itemsPerPage;
     const endIndex = startIndex + appointmentsPagination.itemsPerPage;
-    const paginatedAppointments = appointments.slice(startIndex, endIndex);
+    const paginatedAppointments = filteredAppointments.slice(startIndex, endIndex);
 
     const handlePreviousPage = () => {
       if (appointmentsPagination.currentPage > 1) {
@@ -1913,6 +1993,26 @@ const Dashboard = () => {
           </div>
         </div>
 
+        {/* Status Filter Dropdown */}
+        <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
+          <label className="text-sm font-medium text-amber-400">Filter by status:</label>
+          <select
+            value={appointmentsStatusFilter}
+            onChange={(e) => {
+              setAppointmentsStatusFilter(e.target.value);
+              setAppointmentsPagination(prev => ({ ...prev, currentPage: 1 }));
+            }}
+            className="px-3 py-1.5 bg-gray-800 border border-amber-500/30 rounded text-amber-50 text-sm hover:border-amber-500/50 focus:outline-none focus:ring-1 focus:ring-amber-500 transition-all duration-200"
+          >
+            <option value="all">All Appointments</option>
+            <option value="pending">Pending</option>
+            <option value="approved">Approved</option>
+            <option value="completed">Completed</option>
+            <option value="cancelled">Cancelled</option>
+            <option value="declined">Declined</option>
+          </select>
+        </div>
+
         <div className="bg-gray-900 border border-amber-500/20 rounded-lg shadow overflow-hidden hover:border-amber-500/40 transition-all duration-300">
           {appointments.length === 0 ? (
             <div className="text-center py-8">
@@ -1925,6 +2025,12 @@ const Dashboard = () => {
               >
                 Book Appointment
               </button>
+            </div>
+          ) : paginatedAppointments.length === 0 ? (
+            <div className="text-center py-8">
+              <CalendarIcon className="mx-auto h-12 w-12 text-gray-600" />
+              <h3 className="mt-4 text-sm font-medium text-amber-50">No {appointmentsStatusFilter === 'all' ? '' : appointmentsStatusFilter} appointments</h3>
+              <p className="mt-2 text-amber-400/70 text-xs">Try selecting a different status filter</p>
             </div>
           ) : (
             <>
@@ -1973,6 +2079,18 @@ const Dashboard = () => {
                             title="Cancel appointment"
                           >
                             <TrashIcon className="h-3 w-3" />
+                          </button>
+                        )}
+                        {appointment.status === 'completed' && (
+                          <button
+                            onClick={() => {
+                              setSelectedAppointment(appointment);
+                              setShowRefundModal(true);
+                            }}
+                            className="text-green-400 hover:text-green-300 transition-colors duration-200 p-1 rounded hover:bg-green-500/10 border border-green-500/30"
+                            title="Request refund"
+                          >
+                            <CurrencyDollarIcon className="h-3 w-3" />
                           </button>
                         )}
                       </div>
@@ -2038,6 +2156,142 @@ const Dashboard = () => {
 
   const renderMessages = () => {
     return <MessageCenter isDarkMode={isDarkMode} />;
+  };
+
+  const renderRefunds = () => {
+    const getStatusColor = (status) => {
+      switch (status) {
+        case 'pending':
+          return 'bg-amber-500/20 text-amber-300 border border-amber-500/30';
+        case 'approved':
+          return 'bg-green-500/20 text-green-300 border border-green-500/30';
+        case 'completed':
+          return 'bg-blue-500/20 text-blue-300 border border-blue-500/30';
+        case 'rejected':
+          return 'bg-red-500/20 text-red-300 border border-red-500/30';
+        default:
+          return 'bg-gray-500/20 text-gray-300 border border-gray-500/30';
+      }
+    };
+
+    const getStatusLabel = (status) => {
+      return status.charAt(0).toUpperCase() + status.slice(1);
+    };
+
+    const getRejectionReason = (refund) => {
+      if (refund.status === 'rejected' && refund.rejection_reason) {
+        return refund.rejection_reason.replace(/_/g, ' ');
+      }
+      return null;
+    };
+
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
+          <div>
+            <h2 className="text-lg font-bold text-amber-50">My Refunds</h2>
+            <p className="text-amber-400/70 mt-1 text-sm">View and manage your refund requests</p>
+          </div>
+          <button
+            onClick={loadRefunds}
+            className="px-3 py-1.5 border border-amber-500/30 text-amber-50 rounded hover:bg-amber-500/10 transition-all duration-200 font-medium text-xs sm:text-sm flex items-center justify-center flex-1 sm:flex-none"
+            title="Refresh refunds"
+          >
+            <ArrowPathIcon className="h-3 w-3 mr-1" />
+            <span className="hidden sm:inline">Refresh</span>
+            <span className="sm:hidden">Refresh</span>
+          </button>
+        </div>
+
+        {/* Refunds List */}
+        <div className={`${isDarkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'} border rounded-lg shadow overflow-hidden`}>
+          {refunds.length === 0 ? (
+            <div className="p-6 text-center">
+              <div className={`${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                <CurrencyDollarIcon className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                <p className="text-sm">No refund requests yet</p>
+                <p className={`text-xs mt-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>You can request refunds for completed appointments directly from the appointments list</p>
+              </div>
+            </div>
+          ) : (
+            <div className="divide-y divide-gray-700">
+              {refunds.map((refund) => (
+                <div key={refund.id} className="p-4 hover:bg-gray-800/50 transition-all duration-200">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        <h3 className="text-sm font-semibold text-amber-50">
+                          Appointment #{refund.appointment_id}
+                        </h3>
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(refund.status)}`}>
+                          {getStatusLabel(refund.status)}
+                        </span>
+                      </div>
+                      
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3 text-xs">
+                        <div>
+                          <p className="text-gray-400">Service</p>
+                          <p className="text-amber-50 font-medium">{refund.appointment?.service?.name || formatServiceName(refund.appointment) || 'N/A'}</p>
+                        </div>
+                        <div>
+                          <p className="text-gray-400">Amount</p>
+                          <p className="text-green-400 font-medium">₱{parseFloat(refund.refund_amount).toFixed(2)}</p>
+                        </div>
+                        <div>
+                          <p className="text-gray-400">Reason</p>
+                          <p className="text-amber-50 font-medium">{refund.reason?.replace(/_/g, ' ') || 'N/A'}</p>
+                        </div>
+                        <div>
+                          <p className="text-gray-400">Requested</p>
+                          <p className="text-amber-50 font-medium">{new Date(refund.created_at).toLocaleDateString()}</p>
+                        </div>
+                      </div>
+
+                      {getRejectionReason(refund) && (
+                        <div className="mt-3 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+                          <p className="text-xs text-red-300">
+                            <strong>Rejection Reason:</strong> {getRejectionReason(refund)}
+                          </p>
+                          {refund.rejection_notes && (
+                            <p className="text-xs text-red-200 mt-1">
+                              <strong>Notes:</strong> {refund.rejection_notes}
+                            </p>
+                          )}
+                        </div>
+                      )}
+
+                      {refund.status === 'completed' && refund.transaction_id && (
+                        <div className="mt-3 p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
+                          <p className="text-xs text-green-300">
+                            <strong>Transaction ID:</strong> {refund.transaction_id}
+                          </p>
+                          <p className="text-xs text-green-200 mt-1">
+                            <strong>Completed:</strong> {new Date(refund.completed_at).toLocaleString()}
+                          </p>
+                        </div>
+                      )}
+
+                      {refund.status === 'approved' && (
+                        <div className="mt-3 p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
+                          <p className="text-xs text-green-300">
+                            <strong>Approved:</strong> {new Date(refund.updated_at).toLocaleString()}
+                          </p>
+                          {refund.approval_notes && (
+                            <p className="text-xs text-green-200 mt-1">
+                              <strong>Notes:</strong> {refund.approval_notes}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
   };
 
   const renderProfile = () => (
@@ -2338,6 +2592,7 @@ const Dashboard = () => {
       case 'book': return renderBookAppointment();
       case 'appointments': return renderAppointments();
       case 'messages': return renderMessages();
+      case 'refunds': return renderRefunds();
       case 'action-logs': return <ActionLogViewer isDarkMode={isDarkMode} />;
       case 'profile': return renderProfile();
       default: return renderHome();
@@ -2449,15 +2704,15 @@ const Dashboard = () => {
           </div>
 
           {/* Navigation */}
-          <nav className="flex-1 px-3 py-4 space-y-4 overflow-y-auto">
+          <nav className="flex-1 px-2.5 py-2.5 space-y-2.5 overflow-y-auto">
             {navigation.map((section) => (
               <div key={section.section} className="space-y-2">
-                <div className="px-3 py-1">
+                <div className="px-2.5 py-0.5">
                   <span className={`text-xs font-semibold ${isDarkMode ? 'text-amber-400/70' : 'text-amber-700/70'} uppercase tracking-wider`}>
                     {section.section}
                   </span>
                 </div>
-                <div className="space-y-1">
+                <div className="space-y-0.5">
                   {section.items.map((item) => (
                     <button
                       key={item.name}
@@ -2470,7 +2725,7 @@ const Dashboard = () => {
                         handleNavClick(tabName);
                         setShowMobileSidebar(false);
                       }}
-                      className={`w-full flex items-center justify-between px-3 py-2.5 text-xs lg:text-xs font-medium rounded-lg transition-all duration-200 border group relative overflow-hidden ${
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 text-xs lg:text-xs font-medium rounded-lg transition-all duration-200 border group relative overflow-hidden ${
                         item.current
                           ? `${isDarkMode ? 'bg-gradient-to-r from-amber-500/15 to-amber-600/10' : 'bg-gradient-to-r from-amber-200/30 to-amber-100/20'} text-amber-400 border-amber-500/50 shadow-lg shadow-amber-500/10`
                           : `text-gray-400 border-transparent hover:${isDarkMode ? 'bg-amber-500/8' : 'bg-amber-300/10'} hover:text-amber-300 hover:border-amber-500/20`
@@ -2665,6 +2920,168 @@ const Dashboard = () => {
         onClose={() => setShowThankYouModal(false)}
         appointment={latestAppointment}
       />
+
+      {/* Refund Request Modal */}
+      {showRefundModal && selectedAppointment && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-gray-900 rounded-lg shadow-2xl max-w-2xl w-full my-8 border border-amber-500/20">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-amber-900 to-gray-900 border-b border-amber-500/20 p-6 flex items-center justify-between sticky top-0">
+              <div>
+                <h2 className="text-2xl font-bold text-amber-50">Request Refund</h2>
+                <p className="text-amber-400/70 text-sm mt-1">Appointment #{selectedAppointment.id}</p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowRefundModal(false);
+                  setSelectedAppointment(null);
+                  setRefundData({ reason: 'customer_request', description: '' });
+                }}
+                className="text-amber-400 hover:text-amber-300 p-2 rounded hover:bg-amber-500/10 transition-colors"
+              >
+                <XMarkIcon className="h-6 w-6" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-6 space-y-6 max-h-[calc(100vh-200px)] overflow-y-auto">
+              {/* Appointment Details */}
+              <div className="bg-gray-800/50 p-4 rounded-lg border border-gray-700">
+                <h3 className="font-semibold text-amber-50 mb-3">📅 Appointment Details</h3>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <p className="text-gray-400">Service Type</p>
+                    <p className="text-amber-50 font-medium">{formatServiceName(selectedAppointment)}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-400">Status</p>
+                    <p className="text-green-400 font-medium">{selectedAppointment.status?.charAt(0).toUpperCase() + selectedAppointment.status?.slice(1)}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-400">Date</p>
+                    <p className="text-amber-50 font-medium">{new Date(selectedAppointment.appointment_date).toLocaleDateString()}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-400">Time</p>
+                    <p className="text-amber-50 font-medium">{selectedAppointment.appointment_time}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* User Information */}
+              <div className="bg-gray-800/50 p-4 rounded-lg border border-gray-700">
+                <h3 className="font-semibold text-amber-50 mb-3">👤 User Information</h3>
+                <div className="space-y-2 text-sm">
+                  <p className="text-gray-400">
+                    <span className="text-amber-300 font-medium">Name:</span> {selectedAppointment.user?.first_name} {selectedAppointment.user?.last_name}
+                  </p>
+                  <p className="text-gray-400">
+                    <span className="text-amber-300 font-medium">Email:</span> {selectedAppointment.user?.email}
+                  </p>
+                  {selectedAppointment.user?.phone && (
+                    <p className="text-gray-400">
+                      <span className="text-amber-300 font-medium">Phone:</span> {selectedAppointment.user?.phone}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Payment Breakdown */}
+              <div className="bg-gray-800/50 p-4 rounded-lg border border-gray-700">
+                <h3 className="font-semibold text-amber-50 mb-3">💰 Payment Breakdown</h3>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Original Price:</span>
+                    <span className="text-amber-50 font-medium">₱{parseFloat(selectedAppointment.original_price || selectedAppointment.payment_amount || 0).toFixed(2)}</span>
+                  </div>
+                  {selectedAppointment.discount_amount > 0 && (
+                    <>
+                      <div className="flex justify-between">
+                        <span className="text-gray-400">Discount:</span>
+                        <span className="text-red-400 font-medium">-₱{parseFloat(selectedAppointment.discount_amount).toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-400">Discount Type:</span>
+                        <span className="text-amber-50 font-medium">{selectedAppointment.discount_type || 'N/A'}</span>
+                      </div>
+                    </>
+                  )}
+                  <div className="border-t border-gray-700 pt-2 flex justify-between">
+                    <span className="text-gray-400">Price Entered:</span>
+                    <span className="text-green-400 font-bold">₱{parseFloat(selectedAppointment.payment_amount || 0).toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Payment Type:</span>
+                    <span className="text-amber-50 font-medium capitalize">{selectedAppointment.payment_type || 'N/A'}</span>
+                  </div>
+                  <div className="border-t border-gray-700 pt-2 flex justify-between bg-green-500/10 p-2 rounded">
+                    <span className="text-green-300 font-semibold">Total Refundable Amount:</span>
+                    <span className="text-green-300 font-bold">₱{parseFloat(selectedAppointment.payment_amount || 0).toFixed(2)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Refund Form */}
+              <form onSubmit={handleRequestRefund} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-amber-400 mb-2">Refund Reason *</label>
+                  <select
+                    value={refundData.reason}
+                    onChange={(e) => setRefundData({ ...refundData, reason: e.target.value })}
+                    className="w-full px-4 py-2 bg-gray-800 border border-gray-600 rounded-lg text-amber-50 focus:outline-none focus:ring-2 focus:ring-amber-500 transition-all"
+                    required
+                  >
+                    <option value="customer_request">Customer Request</option>
+                    <option value="service_not_provided">Service Not Provided</option>
+                    <option value="duplicate_payment">Duplicate Payment</option>
+                    <option value="service_cancellation">Service Cancellation</option>
+                    <option value="poor_service">Poor Service</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-amber-400 mb-2">Description (Optional)</label>
+                  <textarea
+                    value={refundData.description}
+                    onChange={(e) => setRefundData({ ...refundData, description: e.target.value })}
+                    placeholder="Please provide additional details about your refund request..."
+                    className="w-full px-4 py-2 bg-gray-800 border border-gray-600 rounded-lg text-amber-50 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-amber-500 transition-all"
+                    rows="4"
+                  />
+                </div>
+
+                <div className="bg-blue-500/10 border border-blue-500/30 p-3 rounded-lg">
+                  <p className="text-sm text-blue-300">
+                    <strong>Note:</strong> Your refund request will be reviewed by our admin team. You will receive a notification once your request is approved or declined.
+                  </p>
+                </div>
+
+                <div className="flex gap-3">
+                  <button
+                    type="submit"
+                    disabled={refundLoading}
+                    className="flex-1 px-4 py-2 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-lg hover:from-green-700 hover:to-green-800 disabled:from-gray-600 disabled:to-gray-700 transition-all font-medium border border-green-500/30"
+                  >
+                    {refundLoading ? 'Submitting...' : 'Submit Refund Request'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowRefundModal(false);
+                      setSelectedAppointment(null);
+                      setRefundData({ reason: 'customer_request', description: '' });
+                    }}
+                    className="flex-1 px-4 py-2 bg-gray-700 text-gray-50 rounded-lg hover:bg-gray-600 transition-all font-medium border border-gray-600"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

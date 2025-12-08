@@ -76,15 +76,29 @@ class ChatbotController extends Controller
             $userMessage = $request->input('message');
             $conversationId = $request->input('conversation_id') ?? uniqid('chat_');
 
-            // For guest users, provide simple responses without database access
+            // For guest users, use the service with null userId for dynamic responses
             if ($isGuest) {
-                $aiResponse = $this->getGuestResponse($userMessage);
+                try {
+                    $interpreted = $this->chatbotService->interpretAndRespond(null, $userMessage);
+                    $aiResponse = $interpreted['reply'] ?? null;
+                    $meta = $interpreted;
+                    unset($meta['reply']);
+
+                    if (!$aiResponse) {
+                        $aiResponse = $this->getGuestResponse($userMessage);
+                        $meta = ['source' => 'guest_fallback'];
+                    }
+                } catch (\Exception $e) {
+                    $aiResponse = $this->getGuestResponse($userMessage);
+                    $meta = ['source' => 'guest_fallback', 'error' => $e->getMessage()];
+                }
+
                 return response()->json([
                     'success' => true,
                     'conversation_id' => $conversationId,
                     'user_message' => $userMessage,
                     'ai_response' => $aiResponse,
-                    'meta' => ['source' => 'guest', 'requires_auth' => true],
+                    'meta' => $meta,
                     'timestamp' => now()->toIso8601String()
                 ]);
             }
@@ -304,9 +318,22 @@ class ChatbotController extends Controller
     {
         try {
             $userId = auth()->id();
-            
-            // Return generic questions for guests
+
+            // For guests, try service first, fallback to hardcoded
             if (!$userId) {
+                try {
+                    $questions = $this->chatbotService->getSuggestedQuestions(null);
+                    if (!empty($questions)) {
+                        return response()->json([
+                            'success' => true,
+                            'data' => $questions
+                        ]);
+                    }
+                } catch (\Exception $e) {
+                    Log::warning('Service failed for guest suggested questions: ' . $e->getMessage());
+                }
+
+                // Fallback to hardcoded questions
                 return response()->json([
                     'success' => true,
                     'data' => [
@@ -317,7 +344,7 @@ class ChatbotController extends Controller
                     ]
                 ]);
             }
-            
+
             $questions = $this->chatbotService->getSuggestedQuestions($userId);
 
             return response()->json([
