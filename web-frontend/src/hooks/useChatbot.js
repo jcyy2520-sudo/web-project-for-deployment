@@ -5,6 +5,7 @@ export const useChatbot = () => {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [conversationId, setConversationId] = useState(null);
+  const [lastSuggestions, setLastSuggestions] = useState([]);
   const [error, setError] = useState(null);
   const messagesEndRef = useRef(null);
 
@@ -58,16 +59,44 @@ export const useChatbot = () => {
       });
 
       if (response.data.success) {
+        const meta = response.data.meta || {};
         const aiMessage = {
           id: Date.now() + 1,
           message: response.data.ai_response,
           role: 'assistant',
           created_at: response.data.timestamp,
-          source: 'huggingface'
+          source: meta.source || meta.meta_source || 'huggingface',
+          suggestions: meta.suggestions || [],
+          meta: meta
         };
+
+        // Persist suggestions from the assistant so the UI can show them
+        setLastSuggestions(aiMessage.suggestions || []);
 
         setMessages((prev) => [...prev, aiMessage]);
         setConversationId(response.data.conversation_id);
+
+        // Save user message to Message Center
+        try {
+          await axios.post('/api/chatbot/save-to-messages', {
+            message: userMessage,
+            role: 'user',
+            conversation_id: response.data.conversation_id
+          });
+        } catch (saveErr) {
+          console.warn('Failed to save user message to Message Center:', saveErr);
+        }
+
+        // Save AI response to Message Center
+        try {
+          await axios.post('/api/chatbot/save-to-messages', {
+            message: response.data.ai_response,
+            role: 'assistant',
+            conversation_id: response.data.conversation_id
+          });
+        } catch (saveErr) {
+          console.warn('Failed to save AI response to Message Center:', saveErr);
+        }
       }
     } catch (err) {
       console.error('Failed to send message:', err);
@@ -90,6 +119,7 @@ export const useChatbot = () => {
       setMessages([]);
       setConversationId(null);
       setError(null);
+      setLastSuggestions([]);
     } catch (err) {
       console.error('Failed to clear history:', err);
       setError('Failed to clear chat history');
@@ -102,6 +132,7 @@ export const useChatbot = () => {
       setMessages([]);
       setConversationId(null);
       setError(null);
+      setLastSuggestions([]);
     } catch (err) {
       console.error('Failed to clear all history:', err);
       setError('Failed to clear chat history');
@@ -112,6 +143,7 @@ export const useChatbot = () => {
     messages,
     loading,
     conversationId,
+    lastSuggestions,
     error,
     sendMessage,
     clearHistory,

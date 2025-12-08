@@ -1,3 +1,5 @@
+Feed these to my chatbot that i implemented. If possible i dont want hard coded code, i want real time, and really basing in the system updates, results and datas.
+
 CHATBOT CONVERSATION STARTERS & SUGGESTED QUESTIONS
 
 Based on your system's features for Users (Clients), Staff, and Admins
@@ -553,12 +555,13 @@ COMPLEX (May need clarification):
 - Bulk operations
 - Data export/analysis
 
-REFERENCE (Just information):
-- Policies
-- Guidelines
-- Features
-- System capabilities
-- Available reports
+
+Information: inquiries you may reach us here on our official FB page
+eMail: peejaydeguzmanlegal@gmail.com
+📱09765075274
+8:25 PM
+You sent
+233 Aljenjay Building, Vicente Ylagan Street, Bagong Bayan 2, Bongabong, Oriental Mindoro.
 
 
 ================================================================================
@@ -590,27 +593,4 @@ User: "Appointments for December"
 Bot: "I'll generate that for you. What date range exactly? And any filters?"
 
 
-================================================================================
-NOTE ON QUESTION PHRASING
-================================================================================
 
-The chatbot works best with:
-✓ Natural language questions
-✓ Variations of the same question
-✓ Specific details (dates, names, numbers)
-✓ Follow-up questions
-✓ Clarifications
-
-The chatbot may struggle with:
-✗ Extremely technical jargon
-✗ Questions about features not in the system
-✗ Hypothetical scenarios
-✗ Complex calculations (better for reports)
-✗ Very long, complex sentences
-
-Train the chatbot to:
-1. Ask clarifying questions when needed
-2. Break complex queries into steps
-3. Offer alternatives when exact match isn't found
-4. Suggest related features or reports
-5. Know when to escalate to human support

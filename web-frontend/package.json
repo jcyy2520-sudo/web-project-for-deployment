@@ -10,9 +10,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@headlessui/react": "^2.2.9",  
+    "@headlessui/react": "^2.2.9",
     "@heroicons/react": "^2.2.0",
     "axios": "^1.13.2",
+    "laravel-echo": "^2.2.6",
+    "pusher-js": "^7.0.3",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-router-dom": "^7.9.5"
@@ -34,5 +36,3 @@
     "vite-plugin-pwa": "^1.1.0"
   }
 }
-
-

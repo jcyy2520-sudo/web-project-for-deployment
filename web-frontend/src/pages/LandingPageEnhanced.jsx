@@ -85,13 +85,13 @@ const LandingPageEnhanced = () => {
   const pricingTiers = [
     {
       name: 'Single Document',
-      price: 'Starting at $50',
+      price: 'Starting at ₱50',
       features: ['One document', 'Same-day service', 'Digital signature', 'Email delivery'],
       highlighted: false
     },
     {
       name: 'Professional',
-      price: 'Starting at $200',
+      price: 'Starting at ₱200',
       features: ['Up to 5 documents', 'Express service', 'Priority support', 'Bulk discount'],
       highlighted: true
     },

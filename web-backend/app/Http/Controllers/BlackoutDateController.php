@@ -4,67 +4,63 @@ namespace App\Http\Controllers;
 
 use App\Models\BlackoutDate;
 use App\Models\UnavailableDate;
-use App\Traits\SafeExperimentalFeature;
 use Illuminate\Http\Request;
 use Carbon\Carbon;
 
 class BlackoutDateController extends Controller
 {
-    use SafeExperimentalFeature;
     /**
      * Get all blackout dates (including legacy UnavailableDate entries)
      */
     public function index(Request $request)
     {
-        return $this->wrapExperimental(function () use ($request) {
-            // Get BlackoutDate entries
-            $query = BlackoutDate::query();
+        // Get BlackoutDate entries
+        $query = BlackoutDate::query();
 
-            if ($request->has('start_date') && $request->has('end_date')) {
-                $query->whereBetween('date', [
-                    $request->start_date,
-                    $request->end_date
-                ])->orWhere('is_recurring', true);
-            }
+        if ($request->has('start_date') && $request->has('end_date')) {
+            $query->whereBetween('date', [
+                $request->start_date,
+                $request->end_date
+            ])->orWhere('is_recurring', true);
+        }
 
-            if ($request->has('reason')) {
-                $query->where('reason', 'like', "%{$request->reason}%");
-            }
+        if ($request->has('reason')) {
+            $query->where('reason', 'like', "%{$request->reason}%");
+        }
 
-            $blackoutDates = $query->orderBy('date')->get();
+        $blackoutDates = $query->orderBy('date')->get();
 
-            // Also get legacy UnavailableDate entries and convert to BlackoutDate format
-            $unavailableDates = UnavailableDate::query();
-            
-            if ($request->has('reason')) {
-                $unavailableDates->where('reason', 'like', "%{$request->reason}%");
-            }
+        // Also get legacy UnavailableDate entries and convert to BlackoutDate format
+        $unavailableDates = UnavailableDate::query();
+        
+        if ($request->has('reason')) {
+            $unavailableDates->where('reason', 'like', "%{$request->reason}%");
+        }
 
-            $unavailableDates = $unavailableDates->orderBy('date')->get()->map(function ($unavailable) {
-                return [
-                    'id' => $unavailable->id,
-                    'date' => $unavailable->date,
-                    'reason' => $unavailable->reason,
-                    'start_time' => $unavailable->start_time,
-                    'end_time' => $unavailable->end_time,
-                    'is_recurring' => false,
-                    'recurring_days' => null,
-                    'is_legacy' => true,
-                    'created_at' => $unavailable->created_at,
-                    'updated_at' => $unavailable->updated_at,
-                ];
-            });
+        $unavailableDates = $unavailableDates->orderBy('date')->get()->map(function ($unavailable) {
+            return [
+                'id' => $unavailable->id,
+                'date' => $unavailable->date,
+                'reason' => $unavailable->reason,
+                'start_time' => $unavailable->start_time,
+                'end_time' => $unavailable->end_time,
+                'is_recurring' => false,
+                'recurring_days' => null,
+                'is_legacy' => true,
+                'created_at' => $unavailable->created_at,
+                'updated_at' => $unavailable->updated_at,
+            ];
+        });
 
-            // Merge both collections
-            $allDates = $blackoutDates->concat($unavailableDates)->sortBy('date')->values();
+        // Merge both collections
+        $allDates = $blackoutDates->concat($unavailableDates)->sortBy('date')->values();
 
-            return response()->json([
-                'success' => true,
-                'data' => $allDates,
-                'total' => count($allDates),
-                'info' => 'Includes both new blackout dates and legacy unavailable dates'
-            ]);
-        }, 'blackout_date.index');
+        return response()->json([
+            'success' => true,
+            'data' => $allDates,
+            'total' => count($allDates),
+            'info' => 'Includes both new blackout dates and legacy unavailable dates'
+        ]);
     }
 
     /**

@@ -26,8 +26,9 @@ export const formatServiceName = (appointment) => {
  * Format price to currency format
  */
 export const formatPrice = (price) => {
-  if (!price) return '$0.00';
-  return `$${parseFloat(price).toFixed(2)}`;
+  if (price === null || price === undefined || price === '') return '₱0.00';
+  const num = Number(price) || 0;
+  return `₱${num.toFixed(2)}`;
 };
 
 /**

@@ -6,6 +6,41 @@
   .all-\[unset\] {
     all: unset;
   }
+
+  /* Hide scrollbar while keeping scroll functionality */
+  .scrollbar-hide {
+    -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;      /* Firefox */
+  }
+  
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;              /* Chrome, Safari and Opera */
+  }
+}
+
+/* Custom scrollbar styling for the entire page and elements */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(31, 41, 55, 0.5);  /* gray-800 with transparency */
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(217, 119, 6, 0.6);  /* amber-600 with transparency */
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(217, 119, 6, 0.8);  /* amber-600 darker on hover */
+}
+
+/* Firefox scrollbar styling */
+* {
+  scrollbar-color: rgba(217, 119, 6, 0.6) rgba(31, 41, 55, 0.5);
+  scrollbar-width: thin;
 }
 
 :root {

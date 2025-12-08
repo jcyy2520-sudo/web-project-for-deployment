@@ -27,6 +27,7 @@ import {
   ExclamationTriangleIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  ChevronDownIcon,
   FunnelIcon,
   ArrowPathIcon,
   ChartPieIcon,
@@ -56,6 +57,7 @@ import AppointmentSettingsManagement from '../components/admin/AppointmentSettin
 import AdminDecisionSupport from '../components/admin/AdminDecisionSupport';
 import AffectedAppointmentsModal from '../components/admin/AffectedAppointmentsModal';
 import CancelBulkAppointmentsModal from '../components/admin/CancelBulkAppointmentsModal';
+import AdminRefundManagement from '../components/admin/AdminRefundManagement';
 
 // Chart Components
 const BarChart = ({ data, title, color = 'amber', height = 160 }) => {
@@ -85,7 +87,7 @@ const BarChart = ({ data, title, color = 'amber', height = 160 }) => {
                   maxWidth: '100%'
                 }}
               >
-                <div className="absolute inset-0 bg-white/10 animate-pulse"></div>
+                <div className="absolute inset-0 bg-white/10"></div>
               </div>
             </div>
             <span className="text-xs font-medium text-amber-50 w-6 text-right group-hover:scale-110 transition-transform">
@@ -1515,10 +1517,12 @@ const AdminDashboard = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
   const [isCollapsedDesktop, setIsCollapsedDesktop] = useState(false);
+  const [openDropdowns, setOpenDropdowns] = useState({});
   const [stats, setStats] = useState({});
   const [timeframe, setTimeframe] = useState('monthly');
   const [users, setUsers] = useState([]);
   const [appointments, setAppointments] = useState([]);
+  const [sales, setSales] = useState([]);
   const [unavailableDates, setUnavailableDates] = useState([]);
   const [admins, setAdmins] = useState([]);
   const [services, setServices] = useState([]);
@@ -1559,8 +1563,10 @@ const AdminDashboard = () => {
   const [appointmentPage, setAppointmentPage] = useState(1);
   const [messagePage, setMessagePage] = useState(1);
   const [archivedPage, setArchivedPage] = useState(1);
+  const [salesPage, setSalesPage] = useState(1);
   const [itemsPerPage] = useState(8);
   const [appointmentsPerPage, setAppointmentsPerPage] = useState(10);
+  const [salesPerPage] = useState(5);
   const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
   const [appointmentSort, setAppointmentSort] = useState({ key: 'created_at', direction: 'desc' });
   const [statusFilter, setStatusFilter] = useState('all');
@@ -1638,6 +1644,11 @@ const AdminDashboard = () => {
           name: `Services (${services.length || 0})`, 
           icon: DocumentTextIcon, 
           key: 'services'
+        },
+        { 
+          name: 'Refund Management', 
+          icon: DocumentArrowDownIcon, 
+          key: 'refunds'
         }
       ]
     },
@@ -1907,7 +1918,8 @@ const AdminDashboard = () => {
     try {
       const result = await callApi(async () => {
         const response = await axios.get('/api/admin/appointments?limit=1000', { 
-          timeout: 10000
+          timeout: 10000,
+          params: { timeframe: timeframe }
         });
         
         let appointmentsData = [];
@@ -1938,7 +1950,45 @@ const AdminDashboard = () => {
       setAppointments([]);
       setDataLoaded(prev => ({ ...prev, appointments: true }));
     }
-  }, [callApi]);
+  }, [callApi, timeframe]);
+
+  const loadSales = useCallback(async (tf) => {
+    try {
+      const result = await callApi(async () => {
+        const response = await axios.get('/api/admin/sales', { 
+          timeout: 10000,
+          params: { timeframe: tf || timeframe }
+        });
+        
+        let salesData = [];
+        
+        // Backend always returns { data: [...], success: true } format
+        if (response.data?.data && Array.isArray(response.data.data)) {
+          salesData = response.data.data;
+        } else if (Array.isArray(response.data)) {
+          salesData = response.data;
+        }
+        
+        // Sort by created_at in descending order (newest first)
+        salesData.sort((a, b) => {
+          const dateA = new Date(a.created_at || 0);
+          const dateB = new Date(b.created_at || 0);
+          return dateB - dateA;
+        });
+        
+        return { data: salesData };
+      });
+
+      if (result.success) {
+        setSales(result.data || []);
+      }
+      setDataLoaded(prev => ({ ...prev, sales: true }));
+    } catch (error) {
+      console.error('Sales data load failed:', error);
+      setSales([]);
+      setDataLoaded(prev => ({ ...prev, sales: true }));
+    }
+  }, [callApi, timeframe]);
 
   const loadUnavailableDates = useCallback(async () => {
     try {
@@ -2926,8 +2976,9 @@ const AdminDashboard = () => {
   useEffect(() => {
     if (activeTab === 'dashboard') {
       loadDashboardData(timeframeRef.current);
+      loadSales(timeframeRef.current);
     }
-  }, [activeTab, loadDashboardData]);
+  }, [activeTab, loadDashboardData, loadSales]);
 
   // When timeframe changes, reload dashboard stats with new timeframe
   // This ensures charts and data reflect the selected period
@@ -2935,11 +2986,12 @@ const AdminDashboard = () => {
     if (activeTab === 'dashboard') {
       // Immediately reload stats when timeframe changes
       loadDashboardData(timeframe);
+      loadSales(timeframe);
       // Reset pagination for new data
       setCurrentPage(1);
       setAppointmentPage(1);
     }
-  }, [timeframe, activeTab, loadDashboardData]);
+  }, [timeframe, activeTab, loadDashboardData, loadSales]);
 
   // Chart data
   const appointmentStatusData = useMemo(() => [
@@ -3597,6 +3649,182 @@ const AdminDashboard = () => {
           color="green"
           height={160}
         />
+      </div>
+
+      {/* Sales Report Section */}
+      <div className="space-y-4">
+        <div className="flex justify-between items-center">
+          <div>
+            <h2 className="text-lg font-bold text-amber-50">Sales Report</h2>
+            <p className="text-gray-400 text-sm">Real-time sales data from completed appointments</p>
+          </div>
+          <div className="flex space-x-2">
+            <button
+              onClick={() => {
+                setDataLoaded(prev => ({ ...prev, dashboard: false }));
+                loadDashboardData();
+              }}
+              className="px-3 py-1.5 border border-amber-500/30 text-amber-50 rounded hover:bg-amber-500/10 transition-all duration-200 font-medium text-sm flex items-center"
+              title="Refresh sales data"
+            >
+              <ArrowPathIcon className="h-3 w-3 mr-1" />
+              Refresh
+            </button>
+          </div>
+        </div>
+
+        {/* Sales Summary Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4 hover:border-amber-500/40 transition-all duration-300`}>
+            <p className="text-xs text-gray-400 mb-1">Total Revenue</p>
+            <p className="text-2xl font-bold text-amber-50">
+              ${sales.filter(s => s.status === 'completed').reduce((sum, s) => sum + (parseFloat(s.service?.price) || 0), 0).toFixed(2)}
+            </p>
+            <p className="text-xs text-green-400 mt-1">+{sales.filter(s => s.status === 'completed').length} completed sales</p>
+          </div>
+
+          <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4 hover:border-amber-500/40 transition-all duration-300`}>
+            <p className="text-xs text-gray-400 mb-1">Avg Transaction</p>
+            <p className="text-2xl font-bold text-amber-50">
+              ${sales.filter(s => s.status === 'completed').length > 0 
+                ? (sales.filter(s => s.status === 'completed').reduce((sum, s) => sum + (parseFloat(s.service?.price) || 0), 0) / sales.filter(s => s.status === 'completed').length).toFixed(2)
+                : '0.00'}
+            </p>
+            <p className="text-xs text-gray-500 mt-1">per appointment</p>
+          </div>
+
+          <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4 hover:border-amber-500/40 transition-all duration-300`}>
+            <p className="text-xs text-gray-400 mb-1">Completed Sales</p>
+            <p className="text-2xl font-bold text-green-400">{sales.filter(s => s.status === 'completed').length}</p>
+            <p className="text-xs text-gray-500 mt-1">in {timeframe} period</p>
+          </div>
+
+          <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4 hover:border-amber-500/40 transition-all duration-300`}>
+            <p className="text-xs text-gray-400 mb-1">Most Popular Service</p>
+            <p className="text-lg font-bold text-amber-50 truncate">
+              {sales.filter(s => s.status === 'completed').length > 0 
+                ? sales.filter(s => s.status === 'completed')[0].service?.name || sales.filter(s => s.status === 'completed')[0].service_type || 'N/A'
+                : 'N/A'}
+            </p>
+            <p className="text-xs text-gray-500 mt-1">top service</p>
+          </div>
+        </div>
+
+        {/* Sales Table */}
+        <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow overflow-hidden hover:border-amber-500/40 transition-all duration-300`}>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className={`${isDarkMode ? 'bg-gray-800' : 'bg-gray-50'} transition-colors duration-300`}>
+                <tr>
+                  <th className={`px-4 py-3 text-left text-xs font-medium ${isDarkMode ? 'text-amber-400' : 'text-amber-600'} uppercase tracking-wider transition-colors duration-300`}>
+                    Client
+                  </th>
+                  <th className={`px-4 py-3 text-left text-xs font-medium ${isDarkMode ? 'text-amber-400' : 'text-amber-600'} uppercase tracking-wider transition-colors duration-300`}>
+                    Service
+                  </th>
+                  <th className={`px-4 py-3 text-left text-xs font-medium ${isDarkMode ? 'text-amber-400' : 'text-amber-600'} uppercase tracking-wider transition-colors duration-300`}>
+                    Amount
+                  </th>
+                  <th className={`px-4 py-3 text-left text-xs font-medium ${isDarkMode ? 'text-amber-400' : 'text-amber-600'} uppercase tracking-wider transition-colors duration-300`}>
+                    Date
+                  </th>
+                  <th className={`px-4 py-3 text-left text-xs font-medium ${isDarkMode ? 'text-amber-400' : 'text-amber-600'} uppercase tracking-wider transition-colors duration-300`}>
+                    Status
+                  </th>
+                </tr>
+              </thead>
+              <tbody className={`divide-y ${isDarkMode ? 'divide-gray-700' : 'divide-gray-200'} transition-colors duration-300`}>
+                {sales.filter(s => s.status === 'completed').length === 0 ? (
+                  <tr>
+                    <td colSpan="5" className="px-4 py-8 text-center">
+                      <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>No completed sales in this period</p>
+                    </td>
+                  </tr>
+                ) : (
+                  (() => {
+                    const completedSales = sales.filter(s => s.status === 'completed');
+                    const startIndex = (salesPage - 1) * salesPerPage;
+                    const endIndex = startIndex + salesPerPage;
+                    const paginatedSales = completedSales.slice(startIndex, endIndex);
+                    return paginatedSales.map((sale) => (
+                      <tr key={sale.id} className={`${isDarkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-50'} transition-colors duration-200 group`}>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center space-x-2">
+                            <div className="w-8 h-8 bg-gradient-to-br from-amber-400 to-amber-600 rounded-full flex items-center justify-center text-gray-900 text-xs font-bold shadow">
+                              {sale.user?.first_name?.charAt(0)}{sale.user?.last_name?.charAt(0)}
+                            </div>
+                            <div>
+                              <div className="text-sm font-medium text-amber-50">
+                                {sale.user?.first_name} {sale.user?.last_name}
+                              </div>
+                              <div className="text-xs text-gray-500">{sale.user?.email}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="text-sm text-amber-50">{sale.service?.name || sale.service_type || 'N/A'}</div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="text-sm font-semibold text-green-400">
+                            ${parseFloat(sale.service?.price || 0).toFixed(2)}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="text-sm text-gray-300">
+                            {new Date(sale.appointment_date).toLocaleDateString()} at {sale.appointment_time}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-500/20 text-green-300 border border-green-500/30">
+                            Completed
+                          </span>
+                        </td>
+                      </tr>
+                    ));
+                  })()
+                )}
+              </tbody>
+            </table>
+          </div>
+          
+          {/* Pagination Controls */}
+          {sales.filter(s => s.status === 'completed').length > 0 && (
+            <div className={`px-4 py-3 border-t ${isDarkMode ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-gray-50'} flex items-center justify-between`}>
+              <div className="text-xs text-gray-400">
+                Showing {((salesPage - 1) * salesPerPage) + 1} to {Math.min(salesPage * salesPerPage, sales.filter(s => s.status === 'completed').length)} of {sales.filter(s => s.status === 'completed').length} completed sales
+              </div>
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => setSalesPage(Math.max(1, salesPage - 1))}
+                  disabled={salesPage === 1}
+                  className={`p-1 rounded transition-all duration-200 ${
+                    salesPage === 1
+                      ? 'text-gray-500 cursor-not-allowed'
+                      : 'text-gray-300 hover:bg-gray-700 hover:text-amber-400'
+                  }`}
+                  title="Previous page"
+                >
+                  <ChevronLeftIcon className="h-4 w-4" />
+                </button>
+                <span className="text-xs text-gray-400">
+                  Page {salesPage} of {Math.ceil(sales.filter(s => s.status === 'completed').length / salesPerPage)}
+                </span>
+                <button
+                  onClick={() => setSalesPage(Math.min(Math.ceil(sales.filter(s => s.status === 'completed').length / salesPerPage), salesPage + 1))}
+                  disabled={salesPage >= Math.ceil(sales.filter(s => s.status === 'completed').length / salesPerPage)}
+                  className={`p-1 rounded transition-all duration-200 ${
+                    salesPage >= Math.ceil(sales.filter(s => s.status === 'completed').length / salesPerPage)
+                      ? 'text-gray-500 cursor-not-allowed'
+                      : 'text-gray-300 hover:bg-gray-700 hover:text-amber-400'
+                  }`}
+                  title="Next page"
+                >
+                  <ChevronRightIcon className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* REMOVED: Recent Appointments and Quick Actions sections as requested */}
@@ -4656,24 +4884,14 @@ const AdminDashboard = () => {
       case 'deactivated': return renderDeactivatedAccounts();
       case 'messages': return renderMessages();
       case 'action-logs': return <AdminActionLogs isDarkMode={isDarkMode} />;
+      case 'refunds': return <AdminRefundManagement />;
       case 'settings': return renderSettings();
       default: return renderDashboard();
     }
   };
 
-  if (dashboardLoading && activeTab === 'dashboard') {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 to-black flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-12 h-12 border-4 border-amber-500 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
-          <p className="text-amber-100 text-sm">Loading admin dashboard...</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
-      <div className={`min-h-screen ${isDarkMode ? 'bg-gradient-to-br from-gray-900 to-black' : 'bg-gradient-to-br from-gray-100 to-gray-200'} flex flex-col lg:flex-row transition-colors duration-300`}>
+      <div className={`min-h-screen ${isDarkMode ? 'bg-gradient-to-br from-gray-900 to-black' : 'bg-gradient-to-br from-gray-100 to-gray-200'} flex flex-col transition-colors duration-300 lg:h-screen`}>
         {/* Mobile Header with Hamburger */}
         <div className="lg:hidden fixed top-0 left-0 right-0 z-40 flex items-center justify-between px-3 sm:px-4 py-3 bg-gray-900 border-b border-amber-500/20 shadow">
           <div className="w-10"></div>
@@ -4696,10 +4914,10 @@ const AdminDashboard = () => {
         )}
 
         {/* Sidebar - Hidden on mobile by default, shown on desktop and when toggled on mobile */}
-        <div className={`fixed lg:static inset-y-0 right-0 lg:right-auto lg:left-0 z-40 h-full overflow-y-auto lg:h-auto lg:overflow-y-visible ${isDarkMode ? 'bg-gradient-to-b from-gray-900 to-black border-amber-500/20' : 'bg-gradient-to-b from-gray-50 to-gray-100 border-amber-300/40'} border-l lg:border-l-0 lg:border-r shadow-xl flex-shrink-0 transition-all duration-300 lg:translate-x-0 ${
+        <div className={`fixed lg:fixed inset-y-0 right-0 lg:right-auto lg:left-0 z-40 h-screen lg:h-screen ${isDarkMode ? 'bg-gradient-to-b from-gray-900 to-black border-amber-500/20' : 'bg-gradient-to-b from-gray-50 to-gray-100 border-amber-300/40'} border-l lg:border-l-0 lg:border-r shadow-xl flex-shrink-0 transition-all duration-300 lg:translate-x-0 ${
           showMobileSidebar ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'
         } ${isCollapsedDesktop ? 'lg:w-20' : 'w-64'}`}>
-          <div className="flex flex-col h-full">
+          <div className="flex flex-col h-full overflow-hidden">
             <div className={`flex items-center justify-between h-16 shadow-md ${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-gray-50 border-amber-300/40'} px-3 border-b transition-colors duration-300 flex-shrink-0`}>
               <div className="flex items-center space-x-2">
                 <div className="w-8 h-8 bg-gradient-to-r from-amber-500 to-amber-600 rounded-lg flex items-center justify-center shadow">
@@ -4724,41 +4942,60 @@ const AdminDashboard = () => {
               </div>
             </div>
 
-            <nav className={`flex-1 py-3 lg:py-4 space-y-3 lg:space-y-4 overflow-y-auto transition-all duration-300 min-h-0 ${isCollapsedDesktop ? 'lg:px-2' : 'px-2 lg:px-3'}`}>
+            <nav className={`flex-1 py-3 lg:py-4 space-y-3 lg:space-y-4 overflow-y-auto transition-all duration-300 min-h-0 scrollbar-hide ${isCollapsedDesktop ? 'lg:px-2' : 'px-2 lg:px-3'}`}>
               {navigation.map((item, index) => {
                 if (item.section) {
+                  const isDropdownOpen = openDropdowns[item.section];
+                  
                   return (
                     <div key={item.section} className="space-y-1">
-                      {!isCollapsedDesktop && (
-                        <div className="px-3 py-1">
+                      <div className="flex items-center justify-between px-3 py-1">
+                        {!isCollapsedDesktop && (
                           <span className="text-xs font-semibold text-amber-400/70 uppercase tracking-wider">
                             {item.section}
                           </span>
-                        </div>
-                      )}
+                        )}
+                        <button
+                          onClick={() => setOpenDropdowns(prev => ({
+                            ...prev,
+                            [item.section]: !prev[item.section]
+                          }))}
+                          className={`flex items-center justify-center p-1 rounded transition-all duration-200 ${
+                            isDropdownOpen 
+                              ? 'text-amber-400' 
+                              : 'text-gray-400 hover:text-amber-300'
+                          } ${isCollapsedDesktop ? 'w-full' : ''}`}
+                          title={`${isDropdownOpen ? 'Collapse' : 'Expand'} ${item.section}`}
+                        >
+                          <ChevronDownIcon className={`h-4 w-4 transition-transform duration-200 ${isDropdownOpen ? 'rotate-180' : ''}`} />
+                        </button>
+                      </div>
                       <div className="space-y-1">
-                        {item.items.map((subItem) => (
-                          <button
-                            key={subItem.key}
-                            onClick={() => {
-                              setActiveTab(subItem.key);
-                              setShowMobileSidebar(false);
-                            }}
-                            className={`w-full flex items-center justify-center lg:justify-start px-2 lg:px-3 py-2 text-xs font-medium rounded-lg transition-all duration-200 border group ${
-                              activeTab === subItem.key
-                                ? 'bg-amber-500/10 text-amber-400 border-amber-500/40 shadow shadow-amber-500/10'
-                                : 'text-gray-400 border-transparent hover:bg-amber-500/5 hover:text-amber-300 hover:border-amber-500/20'
-                            } ${isCollapsedDesktop ? 'lg:justify-center lg:px-2' : ''}`}
-                            title={isCollapsedDesktop ? subItem.name : ''}
-                          >
-                            <div className="flex items-center min-w-0">
-                              <subItem.icon className={`h-4 w-4 flex-shrink-0 transition-colors ${
-                                activeTab === subItem.key ? 'text-amber-400' : 'text-gray-500 group-hover:text-amber-400'
-                              } ${!isCollapsedDesktop ? 'mr-2' : ''}`} />
-                              {!isCollapsedDesktop && <span className="truncate">{subItem.name}</span>}
-                            </div>
-                          </button>
-                        ))}
+                        {/* Dropdown items */}
+                        {isDropdownOpen && (
+                          item.items.map((subItem) => (
+                            <button
+                              key={subItem.key}
+                              onClick={() => {
+                                setActiveTab(subItem.key);
+                                setShowMobileSidebar(false);
+                              }}
+                              className={`w-full flex items-center justify-center lg:justify-start px-2 lg:px-3 py-2 text-xs font-medium rounded-lg transition-all duration-200 border group ${
+                                activeTab === subItem.key
+                                  ? 'bg-amber-500/10 text-amber-400 border-amber-500/40 shadow shadow-amber-500/10'
+                                  : 'text-gray-400 border-transparent hover:bg-amber-500/5 hover:text-amber-300 hover:border-amber-500/20'
+                              } ${isCollapsedDesktop ? 'lg:justify-center lg:px-2' : ''}`}
+                              title={isCollapsedDesktop ? subItem.name : ''}
+                            >
+                              <div className="flex items-center min-w-0">
+                                <subItem.icon className={`h-4 w-4 flex-shrink-0 transition-colors ${
+                                  activeTab === subItem.key ? 'text-amber-400' : 'text-gray-500 group-hover:text-amber-400'
+                                } ${!isCollapsedDesktop ? 'mr-2' : ''}`} />
+                                {!isCollapsedDesktop && <span className="truncate">{subItem.name}</span>}
+                              </div>
+                            </button>
+                          ))
+                        )}
                       </div>
                     </div>
                   );
@@ -4798,8 +5035,8 @@ const AdminDashboard = () => {
         </div>
 
         {/* Main content */}
-        <div className="flex-1 flex flex-col min-w-0 w-full lg:w-auto mt-16 lg:mt-0">
-          <header className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-gray-50 border-amber-300/40'} border-b shadow-md flex-shrink-0 transition-colors duration-300`}>
+        <div className={`flex-1 flex flex-col min-w-0 mt-16 lg:mt-0 lg:h-screen lg:overflow-y-auto transition-all duration-300 ${isCollapsedDesktop ? 'lg:ml-20' : 'lg:ml-64'}`}>
+          <header className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-gray-50 border-amber-300/40'} border-b shadow-md flex-shrink-0 sticky top-0 z-30 transition-colors duration-300`}>
             <div className="flex justify-between items-center px-3 sm:px-4 lg:px-6 py-2 lg:py-3">
               <div className="flex items-center space-x-2 lg:space-x-3 min-w-0">
                 <div>
@@ -4884,6 +5121,14 @@ const AdminDashboard = () => {
                   {/* Admin Login removed per request (no credential prompt in header) */}
                   <button
                     type="button"
+                    onClick={() => window.location.href = '/cashier'}
+                    className="ml-2 px-2 py-1 text-xs rounded border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 transition-colors"
+                    title="Switch to Cashier View"
+                  >
+                    Cashier
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setShowLogoutModal(true)}
                     className="ml-2 px-2 py-1 text-xs rounded border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors"
                   >
@@ -4911,7 +5156,7 @@ const AdminDashboard = () => {
             </div>
           )}
 
-        <main className={`flex-1 p-2 sm:p-3 lg:p-6 overflow-auto ${isDarkMode ? '' : 'bg-gray-100'} transition-colors duration-300`}>
+        <main className={`flex-1 p-2 sm:p-3 lg:p-6 scrollbar-hide ${isDarkMode ? '' : 'bg-gray-100'} transition-colors duration-300`}>
           {renderContent()}
         </main>
       </div>

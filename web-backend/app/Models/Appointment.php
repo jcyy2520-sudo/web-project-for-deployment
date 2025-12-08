@@ -18,20 +18,36 @@ class Appointment extends Model
         'service_type',
         'appointment_date',
         'appointment_time',
+        'start_time',
+        'end_time',
         'status',
+        'payment_status',
+        'payment_amount',
+        'discount_amount',
+        'discount_type',
+        'payment_type',
+        'processed_by',
+        'payment_date',
+        'payment_notes',
         'purpose',
         'documents',
+        'identification_type',
         'notes',
         'staff_notes',
         'completed_at',
         'completion_notes',
-        'completed_by'
+        'completed_by',
+        'outcome_status',
+        'original_price'
     ];
 
     protected $casts = [
         'appointment_date' => 'date',
         'documents' => 'array',
         'completed_at' => 'datetime',
+        'payment_date' => 'datetime',
+        'payment_amount' => 'decimal:2',
+        'discount_amount' => 'decimal:2',
     ];
 
     public function user()
@@ -52,6 +68,36 @@ class Appointment extends Model
     public function completedBy()
     {
         return $this->belongsTo(User::class, 'completed_by');
+    }
+
+    public function processedBy()
+    {
+        return $this->belongsTo(User::class, 'processed_by');
+    }
+
+    public function cashier()
+    {
+        return $this->belongsTo(User::class, 'processed_by');
+    }
+
+    public function payment()
+    {
+        return $this->hasOne(Payment::class);
+    }
+
+    public function completionRecord()
+    {
+        return $this->hasOne(CompletionRecord::class);
+    }
+
+    public function refunds()
+    {
+        return $this->hasMany(Refund::class);
+    }
+
+    public function activeRefund()
+    {
+        return $this->hasOne(Refund::class)->where('status', '!=', 'rejected')->latest();
     }
 
     // Add this method for appointment types

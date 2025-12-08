@@ -79,6 +79,16 @@ class User extends Authenticatable
         return $this->hasMany(AuditLog::class);
     }
 
+    public function recordedPayments()
+    {
+        return $this->hasMany(Payment::class, 'recorded_by');
+    }
+
+    public function completedAppointments()
+    {
+        return $this->hasMany(CompletionRecord::class, 'completed_by');
+    }
+
     public function isAdmin()
     {
         return $this->role === 'admin';

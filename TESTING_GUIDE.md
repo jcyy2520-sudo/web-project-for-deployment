@@ -1,33 +1,71 @@
-For Regular Users (Clients)
-General Help Topics
-Appointment Booking: "How do I book an appointment?", "What are the available time slots?", "Can I reschedule my appointment?"
-Cancellation/Rescheduling: "How do I cancel?", "Can I move my appointment to a different date?", "What's the cancellation policy?"
-Account Management: "How do I update my profile?", "How do I reset my password?", "Can I change my email?"
-Payments/Billing: "What's the cost?", "What payment methods do you accept?", "Is there a refund policy?" Payment is personal and happens in the office. Address is 233 Aljenjay Building, Vicente Ylagan Street. Bagong Bayan 2, Bongabong, Oriental Mindoro. 
-General FAQ: "What services do you offer?", "What are your hours?", "Where are you located?", "Do you offer remote appointments?"
-Context-Specific
-Current appointment status: "When is my next appointment?", "What do I need to bring?"
-Availability: "What dates are available next month?", "Do you have same-day appointments?"
-Services: "What's included in [service name]?", "How long does [service] take?" Include what should they bring if they choose this [service]
+Core Features to Add:
+1. Refund Management ✅ (High Priority)
+Currently you can process payments, but no way to handle refunds
+Add: Refund button on completed transactions → modal to process refund with reason
+Backend already has fields: discount_amount, discount_type, payment_notes
+This would help with disputes and customer returns
 
+2. Payment Methods Tracking (Medium Priority)
+Dashboard shows cash/card collected but can't see breakdown of individual transactions
+Add: Filter/breakdown by payment method in transactions view
+Add: Payment reconciliation section (cash counted vs system total)
+Helps with daily cash audits
 
-For Admin
-Appointment Management
-"How many appointments do I have tomorrow?"
-"Who hasn't confirmed their appointment yet?"
-"Show me cancellation patterns"
-"What's my workload optimization recommendation?"
-Analytics & Reports
-"How many new clients this month?"
-"What's our no-show rate?"
-"Which services are most popular?"
-"Show me demand forecasts"
-"What are the quality metrics?"
-"Are there any high-risk appointments today?"
+3. Quick Search/Filter for Appointments (Medium Priority)
+Currently just tabs and pagination
+Add: Search by customer name, phone, service name
+Add: Date range filter in appointments
+Makes finding specific appointments faster
 
-"What appointments need attention?"
-Decision Support
-"Should I add more slots on Friday?"
-"Which appointments are at risk of cancellation?"
-"Who are my best-performing staff?"
-"What time slots are underutilized?"
+4. Daily Cash Register Reconciliation (High Priority)
+Shift reports exist but no reconciliation workflow
+Add: Cash drawer opening/closing workflow
+Add: Counter discrepancies alert (cash counted vs system)
+Add: Print daily settlement report
+
+5. Appointment Notes/Internal Comments (Low Priority)
+Fields exist (notes, staff_notes, completion_notes) but UI doesn't show them
+Add: Modal to view/edit internal notes for appointments
+Helps with service quality tracking
+
+6. Quick Receipt Reprint (Already exists but could improve)
+Current: Click reprint button
+Improve: Add print preview before printing
+Add: Email receipt directly from table (button)
+
+7. Pending/Overdue Appointments Alert (Medium Priority)
+Add: Sticky alert banner if upcoming appointments or no-shows
+Add: "At-risk" appointments that are late in the day
+
+8. Performance Metrics (Low Priority)
+Add: Average transaction time
+Add: Most/least popular services today
+Add: Repeat customer rate
+Dashboard shows totals but no performance insights
+
+9. Multi-User Collaboration (High Priority)
+Add: Live notification if payment processed by another cashier (real-time sync)
+Add: Announcement/message board for cashiers
+Add: Shift handover notes (log what happened during shift)
+
+10. Discounts & Promotions Management (Medium Priority)
+Add: Apply coupon/discount code during payment
+Add: Track discount usage (showing which discounts were used today)
+Fields exist but no UI to manage them
+
+11. Error Recovery/Reversal (High Priority)
+Add: "Undo" button for recent transactions (within 5 mins)
+Add: Cancelled appointment tracking
+Add: Payment reversal with audit trail
+
+12. Export Enhancements (Low Priority)
+Add: PDF report generation instead of just CSV
+Add: Email shift report directly
+Add: Email reconciliation to accounting
+
+Quick Wins (Easy to implement):
+✨ Add search/filter to appointments table
+🔔 Add alert banner for overdue appointments
+📧 Add email receipt button in transactions table
+🔄 Add refund button to completed transactions
+💰 Add cash reconciliation section in shift reports

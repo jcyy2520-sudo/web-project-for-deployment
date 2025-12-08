@@ -29,6 +29,61 @@ const StaffAppointments = () => {
     loadAppointments();
   }, [statusFilter]);
 
+  // Poll for appointment changes as a fallback when real-time is not configured
+  useEffect(() => {
+    const POLL_INTERVAL_MS = 15000; // 15s
+    const id = setInterval(() => {
+      loadAppointments();
+    }, POLL_INTERVAL_MS);
+
+    // initial fetch (already done by other effect, but safe to ensure)
+    // loadAppointments();
+
+    return () => clearInterval(id);
+  }, [statusFilter]);
+
+  // Real-time subscription via Laravel Echo (if configured)
+  useEffect(() => {
+    if (!window?.Echo || typeof window.Echo.channel !== 'function') {
+      return;
+    }
+
+    const channel = window.Echo.channel('appointments');
+
+    const handler = (payload) => {
+      // payload may contain `appointment` or `data` depending on broadcast structure
+      try {
+        // If appointment in payload, reload appointments to ensure consistent state
+        if (payload && (payload.appointment || payload.data || payload)) {
+          loadAppointments();
+        }
+      } catch (e) {
+        console.debug('Realtime appointment handler error', e);
+      }
+    };
+
+    try {
+      channel.listen('AppointmentUpdated', handler);
+      channel.listen('AppointmentCreated', handler);
+    } catch (e) {
+      // Some Echo wrappers expose .listen differently; attempt to bind via _pusher
+      try {
+        if (channel._pusher) {
+          channel._pusher.bind('AppointmentUpdated', handler);
+          channel._pusher.bind('AppointmentCreated', handler);
+        }
+      } catch (err) {
+        console.debug('Failed to attach realtime appointment listeners', err);
+      }
+    }
+
+    return () => {
+      try { channel.stopListening('AppointmentUpdated'); } catch (e) {}
+      try { channel.stopListening('AppointmentCreated'); } catch (e) {}
+      try { if (channel._pusher) { channel._pusher.unbind('AppointmentUpdated'); channel._pusher.unbind('AppointmentCreated'); } } catch (e) {}
+    };
+  }, [statusFilter]);
+
   const loadAppointments = async () => {
     const url = statusFilter === 'all' 
       ? '/api/appointments'
@@ -159,11 +214,7 @@ const StaffAppointments = () => {
       {/* Main Content */}
       <main className="container mx-auto px-4 py-8">
         <div className="bg-white rounded-lg shadow-sm border">
-          {loading ? (
-            <div className="flex justify-center p-8">
-              <LoadingSpinner size="lg" />
-            </div>
-          ) : appointments.length === 0 ? (
+          {appointments.length === 0 ? (
             <div className="text-center py-12">
               <ClockIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
               <h3 className="text-lg font-semibold text-gray-900">No appointments found</h3>

@@ -55,7 +55,9 @@ class TestAppointmentsSeeder extends Seeder
         }
 
         $statuses = ['completed', 'approved', 'pending', 'declined'];
+        $paymentStatuses = ['paid', 'unpaid', 'partial'];
         $times = ['09:00', '10:00', '11:00', '13:00', '14:00', '15:00', '16:00'];
+        $identificationTypes = ['Passport', 'Driver License', 'National ID', 'TIN', 'SSN'];
         $appointmentCreated = 0;
 
         foreach ($users as $user) {
@@ -63,21 +65,42 @@ class TestAppointmentsSeeder extends Seeder
             for ($i = 0; $i < 2; $i++) {
                 // Spread appointments across different dates
                 $randomDays = rand(-45, 45);
-                $date = Carbon::now()->addDays($randomDays)->format('Y-m-d');
+                $appointmentDate = Carbon::now()->addDays($randomDays);
+                $date = $appointmentDate->format('Y-m-d');
                 
                 $service = $services->random();
-                $time = $times[array_rand($times)];
+                $timeStr = $times[array_rand($times)];
                 $status = $statuses[array_rand($statuses)];
+                $paymentStatus = $paymentStatuses[array_rand($paymentStatuses)];
+                $idType = $identificationTypes[array_rand($identificationTypes)];
+                
+                // Calculate end time based on service duration
+                $startTime = Carbon::createFromFormat('H:i', $timeStr);
+                $endTime = $startTime->copy()->addMinutes($service->duration ?? 30);
+
+                // Set payment amount based on status
+                $paymentAmount = 0;
+                if ($status === 'approved' || $status === 'completed') {
+                    $paymentAmount = $service->price;
+                }
 
                 Appointment::create([
                     'user_id' => $user->id,
                     'service_id' => $service->id,
                     'appointment_date' => $date,
-                    'appointment_time' => $time,
+                    'appointment_time' => $timeStr,
+                    'start_time' => $startTime->format('H:i:s'),
+                    'end_time' => $endTime->format('H:i:s'),
                     'status' => $status,
+                    'payment_status' => $paymentStatus,
+                    'payment_amount' => $paymentStatus === 'paid' ? $paymentAmount : ($paymentStatus === 'partial' ? $paymentAmount * 0.5 : 0),
+                    'discount_amount' => 0,
+                    'discount_type' => null,
                     'type' => 'in-person',
+                    'identification_type' => $idType,
                     'purpose' => 'Regular appointment',
                     'notes' => 'Appointment for ' . $user->first_name . ' ' . $user->last_name,
+                    'payment_date' => ($paymentStatus === 'paid' || $paymentStatus === 'partial') ? now() : null,
                 ]);
                 
                 $appointmentCreated++;
@@ -87,5 +110,9 @@ class TestAppointmentsSeeder extends Seeder
         $this->command->info("✓ Appointments created successfully!");
         $this->command->info("Total: $appointmentCreated appointments for " . count($users) . " users");
         $this->command->info("Average: 2 appointments per user");
+        $this->command->info("All appointments now have:");
+        $this->command->info("  - Payment status and amount");
+        $this->command->info("  - Start/end times");
+        $this->command->info("  - Identification types");
     }
 }

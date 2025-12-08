@@ -8,21 +8,21 @@ const ChatbotInput = ({
   isLoading
 }) => {
   return (
-    <div className="border-t border-gray-200 p-4 bg-white rounded-b-lg">
+    <div className="border-t border-amber-500/20 p-4 bg-gray-900 flex-shrink-0">
       <div className="flex gap-2">
         <textarea
           value={inputValue}
           onChange={(e) => setInputValue(e.target.value)}
           onKeyPress={onKeyPress}
-          placeholder="Type your message... (Shift+Enter for new line)"
+          placeholder="Type your message..."
           disabled={isLoading}
-          className="flex-1 resize-none px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all disabled:bg-gray-100 disabled:cursor-not-allowed"
+          className="flex-1 resize-none px-4 py-3 bg-gray-800 border border-amber-500/20 rounded-lg text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed text-sm"
           rows={2}
         />
         <button
           onClick={onSend}
           disabled={isLoading || !inputValue.trim()}
-          className="px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center"
+          className="px-4 py-3 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center shadow-lg shadow-amber-500/20 hover:shadow-amber-500/30"
           title="Send message"
           aria-label="Send message"
         >
@@ -41,7 +41,7 @@ const ChatbotInput = ({
           </svg>
         </button>
       </div>
-      <p className="text-xs text-gray-500 mt-2">Press Enter to send, Shift+Enter for new line</p>
+      <p className="text-xs text-gray-500 mt-2">Press Enter to send • Shift+Enter for new line</p>
     </div>
   );
 };

@@ -28,7 +28,7 @@ const BarChart = ({ data, title, color = 'amber', height = 160 }) => {
                   maxWidth: '100%'
                 }}
               >
-                <div className="absolute inset-0 bg-white/10 animate-pulse"></div>
+                <div className="absolute inset-0 bg-white/10"></div>
               </div>
             </div>
             <span className="text-xs font-medium text-amber-50 w-6 text-right group-hover:scale-110 transition-transform">

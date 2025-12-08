@@ -92,12 +92,24 @@ class StatsController extends Controller
             ->pluck('count', 'status')
             ->toArray();
 
-        // Revenue: join appointments -> services.price (only count completed appointments within timeframe)
+        // Revenue: Use payment_amount from cashier-processed payments OR fallback to service price
+        // Only count paid appointments or completed appointments with service price
         $revenue = DB::table('appointments')
             ->leftJoin('services', 'appointments.service_id', '=', 'services.id')
-            ->where('appointments.status', 'completed')
+            ->where(function($query) {
+                $query->where('appointments.payment_status', 'paid')
+                      ->orWhere(function($q) {
+                          $q->where('appointments.status', 'completed')
+                            ->whereNull('appointments.payment_status');
+                      });
+            })
             ->whereBetween('appointments.appointment_date', $dateRange)
-            ->select(DB::raw('COALESCE(SUM(services.price),0) as total'))
+            ->select(DB::raw('
+                COALESCE(
+                    SUM(COALESCE(appointments.payment_amount, services.price)), 
+                    0
+                ) as total
+            '))
             ->value('total');
 
         return [
@@ -219,14 +231,23 @@ class StatsController extends Controller
 
     private function getRevenueByPeriod($period = 'monthly')
     {
-        // Assuming appointments may have a `price` column. If not, returns zeros.
+        // Use payment_amount from cashier OR service price as fallback
         switch ($period) {
             case 'daily':
                 $rows = DB::table('appointments')
                     ->leftJoin('services', 'appointments.service_id', '=', 'services.id')
-                    ->select(DB::raw('DATE(appointment_date) as period'), DB::raw('COALESCE(SUM(services.price),0) as total'))
+                    ->select(
+                        DB::raw('DATE(appointment_date) as period'), 
+                        DB::raw('COALESCE(SUM(COALESCE(appointments.payment_amount, services.price)),0) as total')
+                    )
                     ->where('appointment_date', '>=', now()->subDays(6)->startOfDay())
-                    ->where('appointments.status', 'completed')
+                    ->where(function($query) {
+                        $query->where('appointments.payment_status', 'paid')
+                              ->orWhere(function($q) {
+                                  $q->where('appointments.status', 'completed')
+                                    ->whereNull('appointments.payment_status');
+                              });
+                    })
                     ->groupBy('period')
                     ->orderBy('period', 'asc')
                     ->get();
@@ -235,9 +256,18 @@ class StatsController extends Controller
             case 'weekly':
                 $rows = DB::table('appointments')
                     ->leftJoin('services', 'appointments.service_id', '=', 'services.id')
-                    ->select(DB::raw('YEARWEEK(appointment_date, 3) as period'), DB::raw('COALESCE(SUM(services.price),0) as total'))
+                    ->select(
+                        DB::raw('YEARWEEK(appointment_date, 3) as period'), 
+                        DB::raw('COALESCE(SUM(COALESCE(appointments.payment_amount, services.price)),0) as total')
+                    )
                     ->where('appointment_date', '>=', now()->subWeeks(11)->startOfWeek())
-                    ->where('appointments.status', 'completed')
+                    ->where(function($query) {
+                        $query->where('appointments.payment_status', 'paid')
+                              ->orWhere(function($q) {
+                                  $q->where('appointments.status', 'completed')
+                                    ->whereNull('appointments.payment_status');
+                              });
+                    })
                     ->groupBy('period')
                     ->orderBy('period', 'asc')
                     ->get();
@@ -246,9 +276,18 @@ class StatsController extends Controller
             case 'yearly':
                 $rows = DB::table('appointments')
                     ->leftJoin('services', 'appointments.service_id', '=', 'services.id')
-                    ->select(DB::raw('YEAR(appointment_date) as period'), DB::raw('COALESCE(SUM(services.price),0) as total'))
+                    ->select(
+                        DB::raw('YEAR(appointment_date) as period'), 
+                        DB::raw('COALESCE(SUM(COALESCE(appointments.payment_amount, services.price)),0) as total')
+                    )
                     ->where('appointment_date', '>=', now()->subYears(4)->startOfYear())
-                    ->where('appointments.status', 'completed')
+                    ->where(function($query) {
+                        $query->where('appointments.payment_status', 'paid')
+                              ->orWhere(function($q) {
+                                  $q->where('appointments.status', 'completed')
+                                    ->whereNull('appointments.payment_status');
+                              });
+                    })
                     ->groupBy('period')
                     ->orderBy('period', 'asc')
                     ->get();
@@ -258,9 +297,18 @@ class StatsController extends Controller
             default:
                 $rows = DB::table('appointments')
                     ->leftJoin('services', 'appointments.service_id', '=', 'services.id')
-                    ->select(DB::raw('DATE_FORMAT(appointment_date, "%Y-%m") as period'), DB::raw('COALESCE(SUM(services.price),0) as total'))
+                    ->select(
+                        DB::raw('DATE_FORMAT(appointment_date, "%Y-%m") as period'), 
+                        DB::raw('COALESCE(SUM(COALESCE(appointments.payment_amount, services.price)),0) as total')
+                    )
                     ->where('appointment_date', '>=', now()->subMonths(11)->startOfMonth())
-                    ->where('appointments.status', 'completed')
+                    ->where(function($query) {
+                        $query->where('appointments.payment_status', 'paid')
+                              ->orWhere(function($q) {
+                                  $q->where('appointments.status', 'completed')
+                                    ->whereNull('appointments.payment_status');
+                              });
+                    })
                     ->groupBy('period')
                     ->orderBy('period', 'asc')
                     ->get();

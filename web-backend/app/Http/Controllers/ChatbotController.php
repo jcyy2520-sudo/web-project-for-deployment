@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\ChatMessage;
+use App\Services\ChatbotService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -12,7 +13,13 @@ class ChatbotController extends Controller
     private const HF_API_URL = 'https://api-inference.huggingface.co/models/google/flan-t5-small';
     // Token is loaded from environment variable in sendMessage method
     private const MAX_HISTORY = 10; // Keep last 10 messages for context
-    private const SYSTEM_PROMPT = "You are a helpful customer support assistant for our appointment booking system. You help users with questions about scheduling appointments, managing their bookings, and general inquiries. Keep responses concise and professional.";
+    
+    private $chatbotService;
+
+    public function __construct(ChatbotService $chatbotService)
+    {
+        $this->chatbotService = $chatbotService;
+    }
 
     /**
      * Get chat history for the current user
@@ -21,6 +28,15 @@ class ChatbotController extends Controller
     {
         try {
             $userId = auth()->id();
+            
+            // Return empty history for guests
+            if (!$userId) {
+                return response()->json([
+                    'success' => true,
+                    'data' => []
+                ]);
+            }
+            
             $limit = $request->query('limit', 20);
 
             $messages = ChatMessage::where('user_id', $userId)
@@ -56,8 +72,22 @@ class ChatbotController extends Controller
             ]);
 
             $userId = auth()->id();
+            $isGuest = !$userId;
             $userMessage = $request->input('message');
             $conversationId = $request->input('conversation_id') ?? uniqid('chat_');
+
+            // For guest users, provide simple responses without database access
+            if ($isGuest) {
+                $aiResponse = $this->getGuestResponse($userMessage);
+                return response()->json([
+                    'success' => true,
+                    'conversation_id' => $conversationId,
+                    'user_message' => $userMessage,
+                    'ai_response' => $aiResponse,
+                    'meta' => ['source' => 'guest', 'requires_auth' => true],
+                    'timestamp' => now()->toIso8601String()
+                ]);
+            }
 
             // Save user message
             ChatMessage::create([
@@ -77,14 +107,34 @@ class ChatbotController extends Controller
                 ->reverse()
                 ->values();
 
-            // Build context from recent messages
-            $context = $this->buildContext($recentMessages);
+            // Use real-time interpreter for fuzzy understanding and role-based response
+            try {
+                $interpreted = $this->chatbotService->interpretAndRespond($userId, $userMessage);
+                $aiResponse = $interpreted['reply'] ?? null;
+                $meta = $interpreted;
+                unset($meta['reply']);
+                
+                if (!$aiResponse) {
+                    // Fallback to previous AI pipeline only if interpreter returned nothing
+                    $context = $this->buildContext($userId, $recentMessages);
+                    $aiResponse = $this->getAIResponse($userMessage, $context);
+                    $meta = ['source' => 'huggingface'];
+                }
+            } catch (\Exception $interpreterError) {
+                Log::error('Interpreter error: ' . $interpreterError->getMessage(), [
+                    'user_id' => $userId,
+                    'message' => $userMessage,
+                    'trace' => $interpreterError->getTraceAsString()
+                ]);
+                
+                // Fallback to simple response
+                $aiResponse = "I'm here to help! You can ask me about booking appointments, available services, or checking your appointment status.";
+                $meta = ['source' => 'fallback', 'error' => 'Interpreter unavailable'];
+            }
 
-            // Get AI response from Hugging Face
-            $aiResponse = $this->getAIResponse($userMessage, $context);
-
-            if (!$aiResponse) {
-                throw new \Exception('Failed to get response from AI service');
+            // Ensure response is not too long for database
+            if (strlen($aiResponse) > 5000) {
+                $aiResponse = substr($aiResponse, 0, 4997) . '...';
             }
 
             // Save AI message
@@ -93,7 +143,7 @@ class ChatbotController extends Controller
                 'conversation_id' => $conversationId,
                 'message' => $aiResponse,
                 'role' => 'assistant',
-                'source' => 'huggingface'
+                'source' => 'interpreter'
             ]);
 
             return response()->json([
@@ -101,6 +151,7 @@ class ChatbotController extends Controller
                 'conversation_id' => $conversationId,
                 'user_message' => $userMessage,
                 'ai_response' => $aiResponse,
+                'meta' => $meta,
                 'timestamp' => now()->toIso8601String()
             ]);
         } catch (\Illuminate\Validation\ValidationException $e) {
@@ -110,11 +161,18 @@ class ChatbotController extends Controller
                 'errors' => $e->errors()
             ], 422);
         } catch (\Exception $e) {
-            Log::error('ChatBot sendMessage error: ' . $e->getMessage());
+            Log::error('ChatBot sendMessage error: ' . $e->getMessage(), [
+                'user_id' => $userId ?? null,
+                'message' => $userMessage ?? null,
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to process message',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'An error occurred while processing your message.'
             ], 500);
         }
     }
@@ -122,9 +180,12 @@ class ChatbotController extends Controller
     /**
      * Build context string from previous messages
      */
-    private function buildContext($messages)
+    private function buildContext($userId, $messages)
     {
-        $context = self::SYSTEM_PROMPT . "\n\nPrevious conversation:\n";
+        // Get enhanced system prompt with real-time system data
+        $systemPrompt = $this->chatbotService->buildEnhancedSystemPrompt($userId);
+        
+        $context = $systemPrompt . "\n\nPrevious conversation:\n";
 
         foreach ($messages as $msg) {
             $role = $msg->role === 'user' ? 'Customer' : 'Assistant';
@@ -196,25 +257,81 @@ class ChatbotController extends Controller
      */
     private function getFallbackResponse($userMessage)
     {
-        $keywordResponses = [
-            'appointment' => 'I can help you with appointment scheduling. Please provide more details about what you need.',
-            'book' => 'To book an appointment, please use the appointment booking system in your dashboard.',
-            'cancel' => 'To cancel an appointment, please visit the appointments section in your account.',
-            'reschedule' => 'You can reschedule your appointment from the appointments page in your dashboard.',
-            'help' => 'I\'m here to help! What would you like to know about our services or appointments?',
-            'hello' => 'Hello! How can I assist you today?',
-            'hi' => 'Hi there! What can I help you with?'
-        ];
+        // No hardcoded responses: rely on interpreter, else minimal generic notice
+        return "I can provide a real-time answer once I am connected to the system's database and context.";
+    }
 
-        $lowerMessage = strtolower($userMessage);
+    /**
+     * Get response for guest users (not authenticated)
+     */
+    private function getGuestResponse($userMessage)
+    {
+        $lowerMessage = strtolower(trim($userMessage));
         
-        foreach ($keywordResponses as $keyword => $response) {
-            if (strpos($lowerMessage, $keyword) !== false) {
-                return $response;
-            }
+        // Simple pattern matching for common questions
+        if (preg_match('/(book|appointment|schedule|reserve)/i', $lowerMessage)) {
+            return "To book an appointment, please register or log in to your account. You'll be able to view available time slots and choose a convenient appointment time.";
         }
+        
+        if (preg_match('/(service|offer|what do you)/i', $lowerMessage)) {
+            return "We offer various professional services. Please register or log in to view our complete service catalog with detailed descriptions and pricing.";
+        }
+        
+        if (preg_match('/(hour|time|when|open)/i', $lowerMessage)) {
+            return "Our business hours and availability can be viewed after you register or log in. This ensures you get the most up-to-date information.";
+        }
+        
+        if (preg_match('/(price|cost|fee|how much)/i', $lowerMessage)) {
+            return "For pricing information, please register or log in to access our full service catalog with current rates.";
+        }
+        
+        if (preg_match('/(register|sign up|create account)/i', $lowerMessage)) {
+            return "You can register by clicking the 'Register' button. Registration is quick and easy - just provide your email and create a password to get started!";
+        }
+        
+        if (preg_match('/(login|log in|sign in)/i', $lowerMessage)) {
+            return "Please click the 'Login' button at the top right to access your account. If you don't have an account yet, you can register for free!";
+        }
+        
+        // Default guest response
+        return "Thanks for your question! To get personalized assistance and access all features, please register or log in. Our full chatbot capabilities are available to registered users.";
+    }
 
-        return "Thank you for your message. I\'m working to provide you with the best response. For immediate assistance, please contact our support team.";
+    /**
+     * Get suggested questions based on user role and system state
+     */
+    public function getSuggestedQuestions(Request $request)
+    {
+        try {
+            $userId = auth()->id();
+            
+            // Return generic questions for guests
+            if (!$userId) {
+                return response()->json([
+                    'success' => true,
+                    'data' => [
+                        "How do I book an appointment?",
+                        "What services do you offer?",
+                        "How do I register?",
+                        "What are your business hours?"
+                    ]
+                ]);
+            }
+            
+            $questions = $this->chatbotService->getSuggestedQuestions($userId);
+
+            return response()->json([
+                'success' => true,
+                'data' => $questions
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Get suggested questions error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to fetch suggested questions',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
     /**
@@ -249,7 +366,109 @@ class ChatbotController extends Controller
     }
 
     /**
-     * Get conversation summary (for testing/analytics)
+     * Save chatbot message to Messages section for both user and admin visibility
+     */
+    public function saveMessageToMessageCenter(Request $request)
+    {
+        try {
+            $request->validate([
+                'message' => 'required|string',
+                'role' => 'required|in:user,assistant',
+                'conversation_id' => 'nullable|string'
+            ]);
+
+            $userId = auth()->id();
+            $message = $request->input('message');
+            $role = $request->input('role');
+            $conversationId = $request->input('conversation_id');
+
+            // Determine sender and receiver based on role
+            // For user messages: sender is the current user, receiver is the admin
+            // For assistant messages: sender is the admin, receiver is the current user
+            if ($role === 'user') {
+                $senderId = $userId;
+                // Get the first admin user (or create one if needed)
+                $receiverId = $this->getAdminUserId();
+            } else {
+                // Assistant response - save as from admin to user
+                $senderId = $this->getAdminUserId();
+                $receiverId = $userId;
+            }
+
+            // If we couldn't determine a sender or receiver (eg. no admin user),
+            // skip persisting to the Message center to avoid DB constraint errors.
+            if (empty($senderId) || empty($receiverId)) {
+                Log::warning('Skipping saveMessageToMessageCenter: missing sender or receiver', [
+                    'sender_id' => $senderId,
+                    'receiver_id' => $receiverId,
+                    'user_id' => $userId
+                ]);
+
+                return response()->json([
+                    'success' => true,
+                    'data' => null,
+                    'message' => 'No admin found; message not persisted.'
+                ]);
+            }
+
+            // Create message in Message model
+            $messageModel = \App\Models\Message::create([
+                'sender_id' => $senderId,
+                'receiver_id' => $receiverId,
+                'message' => $message,
+                'conversation_id' => $conversationId,
+                'read' => false
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'data' => $messageModel
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation error',
+                'errors' => $e->errors()
+            ], 422);
+        } catch (\Exception $e) {
+            Log::error('Save message to Message Center error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to save message',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get the admin user ID (first user with admin role)
+     */
+    private function getAdminUserId()
+    {
+        try {
+            // Try to find a user with admin role
+            $adminUser = \App\Models\User::role('admin')->first();
+            
+            if ($adminUser) {
+                return $adminUser->id;
+            }
+
+            // Fallback: get user with ID 1 (usually the first/admin user)
+            $user = \App\Models\User::find(1);
+            if ($user) {
+                return $user->id;
+            }
+
+            // If no admin found, return null (will be handled by client)
+            return null;
+        } catch (\Exception $e) {
+            Log::warning('Could not determine admin user: ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Get chat history (conversation summary)
      */
     public function getConversationSummary(Request $request)
     {
@@ -287,3 +506,4 @@ class ChatbotController extends Controller
         }
     }
 }
+

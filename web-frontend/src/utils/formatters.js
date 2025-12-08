@@ -10,7 +10,8 @@ export const formatDate = (date) => {
  * Format currency
  */
 export const formatCurrency = (amount) => {
-  return `$${(amount || 0).toLocaleString()}`;
+  const num = amount === null || amount === undefined ? 0 : Number(amount) || 0;
+  return `₱${num.toLocaleString()}`;
 };
 
 /**

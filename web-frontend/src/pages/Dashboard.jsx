@@ -838,6 +838,12 @@ const Dashboard = () => {
   const [messages, setMessages] = useState([]);
   const [staff, setStaff] = useState([]);
   
+  // Pagination state for appointments
+  const [appointmentsPagination, setAppointmentsPagination] = useState({
+    currentPage: 1,
+    itemsPerPage: 10
+  });
+  
   // Daily appointment limit state
   const [dailyLimitInfo, setDailyLimitInfo] = useState({
     limit: null,
@@ -1139,6 +1145,11 @@ const Dashboard = () => {
         new Date(b.created_at) - new Date(a.created_at)
       );
       setAppointments(sortedAppointments);
+      // Reset pagination to first page
+      setAppointmentsPagination(prev => ({
+        ...prev,
+        currentPage: 1
+      }));
     }
   };
 
@@ -1841,104 +1852,189 @@ const Dashboard = () => {
     </div>
   );
 
-  const renderAppointments = () => (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h2 className="text-lg font-bold text-amber-50">My Appointments</h2>
-          <p className="text-amber-400/70 mt-1 text-sm">View and manage your notarization appointments</p>
-        </div>
-        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-          <button
-            onClick={loadAppointments}
-            className="px-2 sm:px-3 py-1.5 border border-amber-500/30 text-amber-50 rounded hover:bg-amber-500/10 transition-all duration-200 font-medium text-xs sm:text-sm flex items-center justify-center flex-1 sm:flex-none"
-            title="Refresh appointments"
-          >
-            <ArrowPathIcon className="h-3 w-3 mr-1" />
-            <span className="hidden sm:inline">Refresh</span>
-            <span className="sm:hidden">Refresh</span>
-          </button>
-          <button
-            onClick={() => setActiveTab('book')}
-            className="px-2 sm:px-3 py-1.5 bg-gradient-to-r from-amber-600 to-amber-700 text-white rounded hover:from-amber-700 hover:to-amber-800 transition-all duration-200 font-medium text-xs sm:text-sm flex items-center justify-center flex-1 sm:flex-none shadow transform hover:-translate-y-0.5 border border-amber-500/30"
-          >
-            <PlusIcon className="h-3 w-3 mr-1" />
-            <span className="hidden sm:inline">New Appointment</span>
-            <span className="sm:hidden">New</span>
-          </button>
-        </div>
-      </div>
+  const renderAppointments = () => {
+    // Calculate pagination
+    const totalAppointments = appointments.length;
+    const totalPages = Math.ceil(totalAppointments / appointmentsPagination.itemsPerPage);
+    const startIndex = (appointmentsPagination.currentPage - 1) * appointmentsPagination.itemsPerPage;
+    const endIndex = startIndex + appointmentsPagination.itemsPerPage;
+    const paginatedAppointments = appointments.slice(startIndex, endIndex);
 
-      <div className="bg-gray-900 border border-amber-500/20 rounded-lg shadow overflow-hidden hover:border-amber-500/40 transition-all duration-300">
-        {appointments.length === 0 ? (
-          <div className="text-center py-8">
-            <CalendarIcon className="mx-auto h-12 w-12 text-gray-600" />
-            <h3 className="mt-4 text-sm font-medium text-amber-50">No appointments yet</h3>
-            <p className="mt-2 text-amber-400/70 text-xs">Schedule your first notarization appointment to get started</p>
+    const handlePreviousPage = () => {
+      if (appointmentsPagination.currentPage > 1) {
+        setAppointmentsPagination(prev => ({
+          ...prev,
+          currentPage: prev.currentPage - 1
+        }));
+      }
+    };
+
+    const handleNextPage = () => {
+      if (appointmentsPagination.currentPage < totalPages) {
+        setAppointmentsPagination(prev => ({
+          ...prev,
+          currentPage: prev.currentPage + 1
+        }));
+      }
+    };
+
+    const handlePageChange = (page) => {
+      setAppointmentsPagination(prev => ({
+        ...prev,
+        currentPage: page
+      }));
+    };
+
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div>
+            <h2 className="text-lg font-bold text-amber-50">My Appointments</h2>
+            <p className="text-amber-400/70 mt-1 text-sm">View and manage your notarization appointments</p>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+            <button
+              onClick={loadAppointments}
+              className="px-2 sm:px-3 py-1.5 border border-amber-500/30 text-amber-50 rounded hover:bg-amber-500/10 transition-all duration-200 font-medium text-xs sm:text-sm flex items-center justify-center flex-1 sm:flex-none"
+              title="Refresh appointments"
+            >
+              <ArrowPathIcon className="h-3 w-3 mr-1" />
+              <span className="hidden sm:inline">Refresh</span>
+              <span className="sm:hidden">Refresh</span>
+            </button>
             <button
               onClick={() => setActiveTab('book')}
-              className="mt-4 px-4 py-2 bg-gradient-to-r from-amber-600 to-amber-700 text-white rounded-lg hover:from-amber-700 hover:to-amber-800 transition-all duration-200 font-medium text-sm shadow border border-amber-500/30"
+              className="px-2 sm:px-3 py-1.5 bg-gradient-to-r from-amber-600 to-amber-700 text-white rounded hover:from-amber-700 hover:to-amber-800 transition-all duration-200 font-medium text-xs sm:text-sm flex items-center justify-center flex-1 sm:flex-none shadow transform hover:-translate-y-0.5 border border-amber-500/30"
             >
-              Book Appointment
+              <PlusIcon className="h-3 w-3 mr-1" />
+              <span className="hidden sm:inline">New Appointment</span>
+              <span className="sm:hidden">New</span>
             </button>
           </div>
-        ) : (
-          <div className="divide-y divide-gray-700">
-            {appointments.map((appointment) => (
-              <div key={appointment.id} className="p-4 hover:bg-gray-800 transition-all duration-200 group">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    <div className="flex-shrink-0">
-                      <div className="w-10 h-10 bg-amber-500/20 rounded-full flex items-center justify-center border border-amber-500/30">
-                        <DocumentTextIcon className="h-5 w-5 text-amber-400" />
-                      </div>
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center space-x-2">
-                        <h3 className="text-sm font-semibold text-amber-50 group-hover:text-amber-300">
-                          {formatServiceName(appointment)}
-                        </h3>
-                        <StatusBadge status={appointment.status} />
-                      </div>
-                      <p className="text-xs text-amber-400/70 mt-1">
-                        {new Date(appointment.appointment_date).toLocaleDateString()} at {appointment.appointment_time}
-                      </p>
-                      {appointment.staff && (
-                        <div className="flex items-center space-x-1 mt-1 text-xs text-amber-400/70">
-                          <span>Assigned to:</span>
-                          <span className="text-amber-300">
-                            {appointment.staff.first_name} {appointment.staff.last_name}
-                          </span>
+        </div>
+
+        <div className="bg-gray-900 border border-amber-500/20 rounded-lg shadow overflow-hidden hover:border-amber-500/40 transition-all duration-300">
+          {appointments.length === 0 ? (
+            <div className="text-center py-8">
+              <CalendarIcon className="mx-auto h-12 w-12 text-gray-600" />
+              <h3 className="mt-4 text-sm font-medium text-amber-50">No appointments yet</h3>
+              <p className="mt-2 text-amber-400/70 text-xs">Schedule your first notarization appointment to get started</p>
+              <button
+                onClick={() => setActiveTab('book')}
+                className="mt-4 px-4 py-2 bg-gradient-to-r from-amber-600 to-amber-700 text-white rounded-lg hover:from-amber-700 hover:to-amber-800 transition-all duration-200 font-medium text-sm shadow border border-amber-500/30"
+              >
+                Book Appointment
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="divide-y divide-gray-700">
+                {paginatedAppointments.map((appointment) => (
+                  <div key={appointment.id} className="p-4 hover:bg-gray-800 transition-all duration-200 group">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-3">
+                        <div className="flex-shrink-0">
+                          <div className="w-10 h-10 bg-amber-500/20 rounded-full flex items-center justify-center border border-amber-500/30">
+                            <DocumentTextIcon className="h-5 w-5 text-amber-400" />
+                          </div>
                         </div>
-                      )}
+                        <div className="flex-1">
+                          <div className="flex items-center space-x-2">
+                            <h3 className="text-sm font-semibold text-amber-50 group-hover:text-amber-300">
+                              {formatServiceName(appointment)}
+                            </h3>
+                            <StatusBadge status={appointment.status} />
+                          </div>
+                          <p className="text-xs text-amber-400/70 mt-1">
+                            {new Date(appointment.appointment_date).toLocaleDateString()} at {appointment.appointment_time}
+                          </p>
+                          {appointment.staff && (
+                            <div className="flex items-center space-x-1 mt-1 text-xs text-amber-400/70">
+                              <span>Assigned to:</span>
+                              <span className="text-amber-300">
+                                {appointment.staff.first_name} {appointment.staff.last_name}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-1">
+                        <button
+                          onClick={() => handleViewAppointmentDetails(appointment)}
+                          className="text-amber-400 hover:text-amber-300 transition-colors duration-200 p-1 rounded hover:bg-amber-500/10 border border-amber-500/30"
+                          title="View details"
+                        >
+                          <EyeIcon className="h-3 w-3" />
+                        </button>
+                        {appointment.status === 'pending' && (
+                          <button
+                            onClick={() => handleRequestCancellation(appointment)}
+                            className="text-red-400 hover:text-red-300 transition-colors duration-200 p-1 rounded hover:bg-red-500/10 border border-red-500/30"
+                            title="Cancel appointment"
+                          >
+                            <TrashIcon className="h-3 w-3" />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
-                  <div className="flex items-center space-x-1">
-                    <button
-                      onClick={() => handleViewAppointmentDetails(appointment)}
-                      className="text-amber-400 hover:text-amber-300 transition-colors duration-200 p-1 rounded hover:bg-amber-500/10 border border-amber-500/30"
-                      title="View details"
-                    >
-                      <EyeIcon className="h-3 w-3" />
-                    </button>
-                    {appointment.status === 'pending' && (
+                ))}
+              </div>
+
+              {/* Pagination Controls */}
+              <div className={`p-4 border-t border-gray-700 flex items-center justify-between flex-wrap gap-4 ${isDarkMode ? 'bg-gray-800/50' : 'bg-gray-50'}`}>
+                <div className="text-xs text-amber-400/70">
+                  Showing {startIndex + 1} to {Math.min(endIndex, totalAppointments)} of {totalAppointments} appointments
+                </div>
+                
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={handlePreviousPage}
+                    disabled={appointmentsPagination.currentPage === 1}
+                    className={`px-2 py-1 rounded border transition-all duration-200 text-xs font-medium ${
+                      appointmentsPagination.currentPage === 1
+                        ? 'border-gray-600 text-gray-500 cursor-not-allowed'
+                        : 'border-amber-500/30 text-amber-50 hover:bg-amber-500/10 hover:border-amber-500/50'
+                    }`}
+                  >
+                    ← Previous
+                  </button>
+
+                  <div className="flex gap-1 mx-2">
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
                       <button
-                        onClick={() => handleRequestCancellation(appointment)}
-                        className="text-red-400 hover:text-red-300 transition-colors duration-200 p-1 rounded hover:bg-red-500/10 border border-red-500/30"
-                        title="Cancel appointment"
+                        key={page}
+                        onClick={() => handlePageChange(page)}
+                        className={`w-7 h-7 rounded border text-xs font-medium transition-all duration-200 ${
+                          appointmentsPagination.currentPage === page
+                            ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
+                            : 'border-gray-600 text-gray-400 hover:border-amber-500/30 hover:text-amber-300'
+                        }`}
                       >
-                        <TrashIcon className="h-3 w-3" />
+                        {page}
                       </button>
-                    )}
+                    ))}
                   </div>
+
+                  <button
+                    onClick={handleNextPage}
+                    disabled={appointmentsPagination.currentPage === totalPages}
+                    className={`px-2 py-1 rounded border transition-all duration-200 text-xs font-medium ${
+                      appointmentsPagination.currentPage === totalPages
+                        ? 'border-gray-600 text-gray-500 cursor-not-allowed'
+                        : 'border-amber-500/30 text-amber-50 hover:bg-amber-500/10 hover:border-amber-500/50'
+                    }`}
+                  >
+                    Next →
+                  </button>
                 </div>
               </div>
-            ))}
-          </div>
-        )}
+            </>
+          )}
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const renderMessages = () => {
     return <MessageCenter isDarkMode={isDarkMode} />;
@@ -2316,10 +2412,10 @@ const Dashboard = () => {
       )}
 
       {/* Sidebar - Hidden on mobile by default, shown on desktop and when toggled on mobile */}
-      <div className={`fixed lg:static inset-y-0 right-0 lg:right-auto lg:left-0 z-40 w-64 ${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border-l lg:border-l-0 lg:border-r shadow-xl transition-all duration-300 lg:translate-x-0 lg:w-64 ${
+      <div className={`fixed lg:static inset-y-0 right-0 lg:right-auto lg:left-0 z-40 w-64 h-screen lg:h-auto ${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border-l lg:border-l-0 lg:border-r shadow-xl transition-all duration-300 lg:translate-x-0 lg:w-64 ${
         showMobileSidebar ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'
       }`}>
-        <div className="flex flex-col h-full overflow-y-auto">
+        <div className="flex flex-col h-full overflow-y-auto lg:overflow-y-visible">
           {/* Logo Section */}
           <div className={`p-4 shadow-md ${isDarkMode ? 'bg-gray-800 border-amber-500/30' : 'bg-gray-50 border-amber-300/50'} px-3 border-b transition-colors duration-300`}>
             <div className="flex items-center justify-center space-x-3">

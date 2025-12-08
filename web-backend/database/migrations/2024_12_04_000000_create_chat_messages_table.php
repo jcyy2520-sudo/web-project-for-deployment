@@ -17,7 +17,7 @@ return new class extends Migration
             $table->string('conversation_id')->index();
             $table->longText('message');
             $table->enum('role', ['user', 'assistant']);
-            $table->enum('source', ['user', 'huggingface'])->default('user');
+            $table->enum('source', ['user', 'huggingface', 'interpreter', 'guest'])->default('user');
             $table->timestamps();
             
             // Index for efficient querying

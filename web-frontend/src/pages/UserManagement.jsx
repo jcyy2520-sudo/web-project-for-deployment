@@ -179,11 +179,7 @@ const UserManagement = () => {
       {/* Main Content */}
       <main className="container mx-auto px-4 pb-8">
         <div className="bg-white rounded-lg shadow-sm border">
-          {loading ? (
-            <div className="flex justify-center p-8">
-              <LoadingSpinner size="lg" />
-            </div>
-          ) : users.length === 0 ? (
+          {users.length === 0 ? (
             <div className="text-center py-12">
               <h3 className="text-lg font-semibold text-gray-900">No users found</h3>
               <p className="text-gray-600 mt-2">No users match your current filters.</p>

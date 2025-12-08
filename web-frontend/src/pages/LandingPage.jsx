@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import logger from '../utils/logger';
 import LoginModal from '../components/auth/LoginModal';
 import RegisterModal from '../components/auth/RegisterModal';
+import LandingPageChatbot from '../components/chatbot/LandingPageChatbot';
 import axios from 'axios';
 
 const LandingPage = () => {
@@ -20,13 +21,11 @@ const LandingPage = () => {
     pendingAppointments: 0
   });
   const [testimonials, setTestimonials] = useState([]);
-  const [loading, setLoading] = useState(true);
 
   // Fetch real data on component mount
   useEffect(() => {
     const fetchLandingPageData = async () => {
       try {
-        setLoading(true);
         
         // Fetch stats - with fallback to defaults
         try {
@@ -86,8 +85,6 @@ const LandingPage = () => {
       } catch (error) {
         logger.error('Error in landing page data fetch:', error.message);
         // All errors are already handled in individual try-catch blocks
-      } finally {
-        setLoading(false);
       }
     };
     
@@ -351,30 +348,16 @@ const LandingPage = () => {
           </div>
 
           <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
-            {loading ? (
-              // Loading skeleton
-              [1, 2, 3, 4].map((_, index) => (
-                <div key={index} className="bg-gray-800 border border-gray-700 rounded-2xl p-8 shadow-sm animate-pulse">
-                  <div className="w-16 h-16 bg-gray-700 rounded-xl mb-6"></div>
-                  <div className="h-6 bg-gray-700 rounded w-3/4 mb-4"></div>
-                  <div className="space-y-3">
-                    <div className="h-4 bg-gray-700 rounded"></div>
-                    <div className="h-4 bg-gray-700 rounded w-5/6"></div>
-                  </div>
+            {features.map((feature, index) => (
+              <div key={index} className="group relative bg-gradient-to-br from-gray-800/50 to-gray-900/50 border border-gray-700 rounded-2xl p-8 hover:border-amber-500/30 transition-all duration-300 hover:shadow-xl hover:shadow-amber-500/10 transform hover:-translate-y-2">
+                <div className="absolute inset-0 bg-gradient-to-r from-amber-500/0 to-amber-500/0 group-hover:from-amber-500/5 group-hover:to-amber-500/10 rounded-2xl transition-all duration-300"></div>
+                <div className="relative z-10">
+                  <div className="text-5xl mb-6">{feature.icon}</div>
+                  <h3 className="text-xl font-bold text-white mb-3">{feature.title}</h3>
+                  <p className="text-gray-400 leading-relaxed">{feature.description}</p>
                 </div>
-              ))
-            ) : (
-              features.map((feature, index) => (
-                <div key={index} className="group relative bg-gradient-to-br from-gray-800/50 to-gray-900/50 border border-gray-700 rounded-2xl p-8 hover:border-amber-500/30 transition-all duration-300 hover:shadow-xl hover:shadow-amber-500/10 transform hover:-translate-y-2">
-                  <div className="absolute inset-0 bg-gradient-to-r from-amber-500/0 to-amber-500/0 group-hover:from-amber-500/5 group-hover:to-amber-500/10 rounded-2xl transition-all duration-300"></div>
-                  <div className="relative z-10">
-                    <div className="text-5xl mb-6">{feature.icon}</div>
-                    <h3 className="text-xl font-bold text-white mb-3">{feature.title}</h3>
-                    <p className="text-gray-400 leading-relaxed">{feature.description}</p>
-                  </div>
-                </div>
-              ))
-            )}
+              </div>
+            ))}
           </div>
         </div>
       </section>
@@ -446,24 +429,7 @@ const LandingPage = () => {
           </div>
 
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {loading ? (
-              // Loading skeleton
-              [1, 2, 3].map((item) => (
-                <div key={item} className="bg-gray-800 border border-gray-700 rounded-2xl p-8 shadow-sm animate-pulse">
-                  <div className="flex items-center mb-6">
-                    <div className="w-14 h-14 bg-gray-700 rounded-full mr-4"></div>
-                    <div className="flex-1">
-                      <div className="h-4 bg-gray-700 rounded w-24 mb-2"></div>
-                      <div className="h-3 bg-gray-700 rounded w-16"></div>
-                    </div>
-                  </div>
-                  <div className="space-y-3">
-                    <div className="h-4 bg-gray-700 rounded"></div>
-                    <div className="h-4 bg-gray-700 rounded w-5/6"></div>
-                  </div>
-                </div>
-              ))
-            ) : testimonials.length > 0 ? (
+            {testimonials.length > 0 ? (
               // Real testimonials
               testimonials.map((item) => (
                 <div key={item.id} className="group relative bg-gradient-to-br from-gray-800/50 to-gray-900/50 border border-gray-700 rounded-2xl p-8 hover:border-amber-500/30 transition-all duration-300 hover:shadow-xl hover:shadow-amber-500/10">
@@ -627,6 +593,7 @@ const LandingPage = () => {
           setIsLoginModalOpen(true);
         }}
       />
+      <LandingPageChatbot />
     </div>
   );
 };

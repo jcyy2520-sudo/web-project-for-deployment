@@ -206,11 +206,7 @@ const CalendarManagement = () => {
       {/* Main Content */}
       <main className="container mx-auto px-4 pb-8">
         <div className="bg-white rounded-lg shadow-sm border">
-          {loading ? (
-            <div className="flex justify-center p-8">
-              <LoadingSpinner size="lg" />
-            </div>
-          ) : events.length === 0 ? (
+          {events.length === 0 ? (
             <div className="text-center py-12">
               <CalendarIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
               <h3 className="text-lg font-semibold text-gray-900">No calendar events</h3>

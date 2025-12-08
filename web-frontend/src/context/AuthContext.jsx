@@ -69,12 +69,13 @@ export const AuthProvider = ({ children }) => {
             const parsedUser = JSON.parse(storedUser);
             setUser(parsedUser);
             
-            // Verify token is still valid by trying to fetch user
+            // Verify token is still valid by trying to fetch user (with timeout)
             try {
               const response = await axios.get('/api/user', {
                 headers: {
                   'Authorization': `Bearer ${storedToken}`
-                }
+                },
+                timeout: 3000
               });
               const freshUserData = response.data.data || response.data;
               
@@ -103,7 +104,16 @@ export const AuthProvider = ({ children }) => {
       }
     };
 
-    initializeAuth();
+    // Set a maximum timeout for auth initialization (5 seconds)
+    const timeoutId = setTimeout(() => {
+      setLoading(false);
+    }, 5000);
+
+    initializeAuth().finally(() => {
+      clearTimeout(timeoutId);
+    });
+
+    return () => clearTimeout(timeoutId);
   }, []);
 
   const login = async (email, password) => {

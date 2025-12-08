@@ -280,8 +280,8 @@ class MessageController extends Controller
         // Mark messages as read
         Message::where('sender_id', $otherUser->id)
             ->where('receiver_id', $user->id)
-            ->where('read', false)
-            ->update(['read' => true]);
+            ->where('is_read', false)
+            ->update(['is_read' => true]);
 
         return response()->json([
             'data' => [

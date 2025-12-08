@@ -3,39 +3,35 @@
 namespace App\Http\Controllers;
 
 use App\Models\TimeSlotCapacity;
-use App\Traits\SafeExperimentalFeature;
 use Illuminate\Http\Request;
 
 class TimeSlotCapacityController extends Controller
 {
-    use SafeExperimentalFeature;
     /**
      * Get all slot capacity configurations
      */
     public function index(Request $request)
     {
-        return $this->wrapExperimental(function () use ($request) {
-            $query = TimeSlotCapacity::query();
+        $query = TimeSlotCapacity::query();
 
-            if ($request->has('is_active')) {
-                $query->where('is_active', $request->boolean('is_active'));
-            }
+        if ($request->has('is_active')) {
+            $query->where('is_active', $request->boolean('is_active'));
+        }
 
-            if ($request->has('day_of_week')) {
-                $query->where(function ($q) use ($request) {
-                    $q->whereNull('day_of_week')
-                      ->orWhere('day_of_week', $request->day_of_week);
-                });
-            }
+        if ($request->has('day_of_week')) {
+            $query->where(function ($q) use ($request) {
+                $q->whereNull('day_of_week')
+                  ->orWhere('day_of_week', $request->day_of_week);
+            });
+        }
 
-            $capacities = $query->orderBy('start_time')->get();
+        $capacities = $query->orderBy('start_time')->get();
 
-            return response()->json([
-                'success' => true,
-                'data' => $capacities,
-                'total' => count($capacities)
-            ]);
-        }, 'slot_capacity.index');
+        return response()->json([
+            'success' => true,
+            'data' => $capacities,
+            'total' => count($capacities)
+        ]);
     }
 
     /**

@@ -709,7 +709,11 @@ class AdminController extends Controller
             }
 
             // Clear relevant caches
-            Cache::tags(['admin', 'appointments'])->flush();
+            try {
+                Cache::tags(['admin', 'appointments'])->flush();
+            } catch (\Exception $e) {
+                \Log::debug('Cache tagging not supported: ' . $e->getMessage());
+            }
             if (auth()->id()) {
                 Cache::forget('admin_stats_' . auth()->id());
             }
@@ -868,36 +872,195 @@ class AdminController extends Controller
     }
 
     /**
-     * Assign staff based on decision support recommendations
-     * POST /api/admin/assign-staff
-     * Called from AdminDecisionSupport component
+     * Get completed appointments (sales data) with timeframe filtering
+     * GET /api/admin/sales
      */
-    public function assignStaff(Request $request)
+    public function getSales(Request $request)
     {
-        $request->validate([
-            'recommendation' => 'required|array',
-        ]);
-
         try {
-            $recommendation = $request->input('recommendation');
+            $timeframe = $request->query('timeframe', 'monthly');
             
-            // This endpoint acknowledges the staff recommendation from decision support
-            // The actual appointment assignment happens through the regular appointment update flow
-            // This is informational for admins to understand which staff are recommended
+            // Build date range based on timeframe
+            $dateRange = $this->getDateRange($timeframe);
+            
+            // Fetch completed appointments with user and service data
+            $sales = Appointment::with(['user:id,email,first_name,last_name', 'service:id,name,price'])
+                ->select([
+                    'id', 'user_id', 'staff_id', 'type', 'service_id', 'service_type',
+                    'appointment_date', 'appointment_time', 'purpose', 'status',
+                    'notes', 'created_at', 'updated_at'
+                ])
+                ->where('status', 'completed')
+                ->whereBetween('appointment_date', $dateRange)
+                ->orderBy('appointment_date', 'desc')
+                ->orderBy('appointment_time', 'desc')
+                ->limit(1000)
+                ->get();
+
+            return response()->json([
+                'data' => $sales,
+                'success' => true
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to fetch sales data',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get sales/financial data across all attorneys
+     */
+    public function getSalesData(Request $request)
+    {
+        try {
+            $period = $request->get('period', 'month');
+            $date = $request->get('date') ? Carbon::parse($request->get('date')) : now();
+
+            // Determine date range based on period
+            if ($period === 'month') {
+                $startDate = $date->copy()->startOfMonth();
+                $endDate = $date->copy()->endOfMonth();
+            } elseif ($period === 'quarter') {
+                $startDate = $date->copy()->startOfQuarter();
+                $endDate = $date->copy()->endOfQuarter();
+            } else {
+                $startDate = $date->copy()->startOfYear();
+                $endDate = $date->copy()->endOfYear();
+            }
+
+            // Get sales table data
+            $sales = DB::table('payments')
+                ->join('appointments', 'payments.appointment_id', '=', 'appointments.id')
+                ->join('services', 'appointments.service_id', '=', 'services.id')
+                ->join('users as clients', 'appointments.user_id', '=', 'clients.id')
+                ->join('users as attorneys', 'payments.recorded_by', '=', 'attorneys.id')
+                ->whereBetween('payments.payment_date', [$startDate, $endDate])
+                ->select(
+                    'payments.id',
+                    'payments.payment_date',
+                    'services.name as service_name',
+                    'clients.first_name as client_first_name',
+                    'clients.last_name as client_last_name',
+                    'attorneys.first_name as attorney_first_name',
+                    'attorneys.last_name as attorney_last_name',
+                    'services.price as service_price',
+                    'payments.amount_paid',
+                    'payments.shortfall',
+                    'payments.payment_method',
+                    'payments.payment_status'
+                )
+                ->orderBy('payments.payment_date', 'desc')
+                ->paginate(20);
+
+            // Get summary stats
+            $stats = DB::table('payments')
+                ->whereBetween('payment_date', [$startDate, $endDate])
+                ->selectRaw('
+                    COUNT(*) as total_transactions,
+                    SUM(service_price) as total_service_price,
+                    SUM(amount_paid) as total_received,
+                    SUM(shortfall) as total_shortfall,
+                    SUM(discount_amount) as total_discounts,
+                    SUM(CASE WHEN payment_status = "paid" THEN 1 ELSE 0 END) as fully_paid,
+                    SUM(CASE WHEN payment_status = "partial" THEN 1 ELSE 0 END) as partially_paid,
+                    SUM(CASE WHEN payment_status = "unpaid" THEN 1 ELSE 0 END) as unpaid_count
+                ')
+                ->first();
+
+            $collectionRate = 0;
+            if ($stats && $stats->total_service_price > 0) {
+                $collectionRate = round(($stats->total_received / $stats->total_service_price) * 100, 2);
+            }
+
+            // Payment method breakdown
+            $paymentMethods = DB::table('payments')
+                ->whereBetween('payment_date', [$startDate, $endDate])
+                ->selectRaw('payment_method, COUNT(*) as count, SUM(amount_paid) as total')
+                ->groupBy('payment_method')
+                ->get();
+
+            // Attorney performance breakdown
+            $attorneyPerformance = DB::table('payments')
+                ->join('users', 'payments.recorded_by', '=', 'users.id')
+                ->whereBetween('payments.payment_date', [$startDate, $endDate])
+                ->selectRaw('
+                    users.id,
+                    CONCAT(users.first_name, " ", users.last_name) as attorney_name,
+                    COUNT(*) as transaction_count,
+                    SUM(service_price) as total_service_price,
+                    SUM(amount_paid) as total_received,
+                    SUM(shortfall) as total_shortfall,
+                    ROUND(SUM(amount_paid) / SUM(service_price) * 100, 2) as collection_rate
+                ')
+                ->groupBy('users.id', 'attorney_name')
+                ->get();
+
             return response()->json([
                 'success' => true,
-                'message' => 'Staff assignment recommendation acknowledged.',
                 'data' => [
-                    'recommended_staff_id' => $recommendation['staff_id'] ?? null,
-                    'reasoning' => $recommendation['reasoning'] ?? [],
-                    'action' => 'Consider assigning this staff member based on the recommendations',
+                    'sales' => $sales,
+                    'stats' => [
+                        'totalTransactions' => $stats->total_transactions ?? 0,
+                        'totalServicePrice' => (float) ($stats->total_service_price ?? 0),
+                        'totalReceived' => (float) ($stats->total_received ?? 0),
+                        'totalShortfall' => (float) ($stats->total_shortfall ?? 0),
+                        'totalDiscounts' => (float) ($stats->total_discounts ?? 0),
+                        'fullyPaid' => $stats->fully_paid ?? 0,
+                        'partiallyPaid' => $stats->partially_paid ?? 0,
+                        'unpaidCount' => $stats->unpaid_count ?? 0,
+                        'collectionRate' => $collectionRate,
+                    ],
+                    'paymentMethods' => $paymentMethods,
+                    'attorneyPerformance' => $attorneyPerformance,
                 ]
             ]);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Error processing staff assignment: ' . $e->getMessage(),
+                'message' => 'Failed to fetch sales data',
+                'error' => $e->getMessage()
             ], 500);
         }
     }
+
+    /**
+     * Get date range based on timeframe
+     */
+    private function getDateRange($timeframe = 'monthly')
+    {
+        $now = now();
+        
+        switch ($timeframe) {
+            case 'daily':
+                return [
+                    $now->copy()->subDays(6)->startOfDay(),
+                    $now->copy()->endOfDay()
+                ];
+            
+            case 'weekly':
+                return [
+                    $now->copy()->subWeeks(11)->startOfWeek(),
+                    $now->copy()->endOfDay()
+                ];
+            
+            case 'yearly':
+                return [
+                    $now->copy()->subYears(4)->startOfYear(),
+                    $now->copy()->endOfDay()
+                ];
+            
+            case 'monthly':
+            default:
+                return [
+                    $now->copy()->subMonths(11)->startOfMonth(),
+                    $now->copy()->endOfDay()
+                ];
+        }
+    }
+
+    // Attorney methods removed
 }

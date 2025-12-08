@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Appointment;
+use App\Events\AppointmentUpdated;
 use App\Models\CalendarEvent;
 use App\Models\UnavailableDate;
 use App\Models\TimeSlotCapacity;
@@ -54,6 +55,13 @@ class AppointmentController extends Controller
                   ->orWhereNull('staff_id');
         }
 
+        // Apply timeframe filter if provided
+        if ($request->has('timeframe')) {
+            $timeframe = $request->timeframe;
+            $dateRange = $this->getDateRange($timeframe);
+            $query->whereBetween('appointment_date', $dateRange);
+        }
+
         if ($request->has('status')) {
             $query->where('status', $request->status);
         }
@@ -85,6 +93,41 @@ class AppointmentController extends Controller
                              ->paginate($request->get('per_page', 10));
 
         return $appointments;
+    }
+
+    /**
+     * Get date range based on timeframe
+     */
+    private function getDateRange($timeframe = 'monthly')
+    {
+        $now = now();
+        
+        switch ($timeframe) {
+            case 'daily':
+                return [
+                    $now->copy()->subDays(6)->startOfDay(),
+                    $now->copy()->endOfDay()
+                ];
+            
+            case 'weekly':
+                return [
+                    $now->copy()->subWeeks(11)->startOfWeek(),
+                    $now->copy()->endOfDay()
+                ];
+            
+            case 'yearly':
+                return [
+                    $now->copy()->subYears(4)->startOfYear(),
+                    $now->copy()->endOfDay()
+                ];
+            
+            case 'monthly':
+            default:
+                return [
+                    $now->copy()->subMonths(11)->startOfMonth(),
+                    $now->copy()->endOfDay()
+                ];
+        }
     }
 
     public function store(Request $request)
@@ -255,6 +298,14 @@ class AppointmentController extends Controller
             'status' => 'pending',
         ]);
 
+        // Broadcast appointment created/updated for realtime UIs
+        try {
+            $appointment->load(['user', 'staff', 'service']);
+            event(new AppointmentUpdated($appointment));
+        } catch (\Exception $e) {
+            \Log::debug('Failed to broadcast appointment created event: ' . $e->getMessage());
+        }
+
         // Send confirmation email
         try {
             Mail::to($request->user()->email)->send(new AppointmentConfirmationMail($appointment));
@@ -342,6 +393,15 @@ class AppointmentController extends Controller
         // Invalidate stats cache when appointment status changes (especially important for completed status which affects revenue)
         $this->invalidateStatsCache();
 
+        // Broadcast appointment update for realtime clients
+        try {
+            $appointment->refresh();
+            $appointment->load(['user', 'staff', 'service']);
+            event(new AppointmentUpdated($appointment));
+        } catch (\Exception $e) {
+            \Log::debug('Failed to broadcast appointment update event: ' . $e->getMessage());
+        }
+
         return response()->json([
             'message' => 'Appointment status updated successfully',
             'data' => $appointment->load(['user', 'staff', 'service']),
@@ -422,6 +482,8 @@ class AppointmentController extends Controller
                 'data' => $appointment->load(['user', 'staff', 'service']),
                 'success' => true
             ]);
+            // Broadcast approval
+            $this->broadcastAppointmentUpdate($appointment);
         } catch (\Exception $e) {
             \Log::error('Approve method error: ' . $e->getMessage());
             \Log::error('Exception trace: ' . $e->getTraceAsString());
@@ -429,6 +491,17 @@ class AppointmentController extends Controller
                 'message' => 'Error approving appointment: ' . $e->getMessage(),
                 'success' => false
             ], 500);
+        }
+    }
+
+    private function broadcastAppointmentUpdate(Appointment $appointment)
+    {
+        try {
+            $appointment->refresh();
+            $appointment->load(['user', 'staff', 'service']);
+            event(new \App\Events\AppointmentUpdated($appointment));
+        } catch (\Exception $e) {
+            \Log::debug('Failed to broadcast appointment update: ' . $e->getMessage());
         }
     }
 
@@ -507,6 +580,8 @@ class AppointmentController extends Controller
                 'data' => $appointment->load(['user', 'staff', 'service']),
                 'success' => true
             ]);
+            // Broadcast decline
+            $this->broadcastAppointmentUpdate($appointment);
         } catch (\Exception $e) {
             \Log::error('Decline method error: ' . $e->getMessage());
             \Log::error('Exception trace: ' . $e->getTraceAsString());
@@ -610,6 +685,8 @@ class AppointmentController extends Controller
             'data' => $appointment->load(['user', 'staff', 'service', 'completedBy']),
             'success' => true
         ]);
+        // Broadcast completion
+        $this->broadcastAppointmentUpdate($appointment);
     }
 
     public function assignStaff(Request $request, Appointment $appointment)

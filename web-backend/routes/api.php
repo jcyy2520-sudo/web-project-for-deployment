@@ -22,6 +22,9 @@ use App\Http\Controllers\BlackoutDateController;
 use App\Http\Controllers\AnalyticsController;
 use App\Http\Controllers\AppointmentSettingsController;
 use App\Http\Controllers\ChatbotController;
+use App\Http\Controllers\PaymentController;
+use App\Http\Controllers\CashierController;
+use App\Http\Controllers\RefundController;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Mail;
 use App\Mail\VerificationCodeMail;
@@ -48,6 +51,11 @@ Route::post('/complete-registration', [AuthController::class, 'completeRegistrat
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/resend-verification', [AuthController::class, 'resendVerificationCode']);
 Route::get('/check-verification-status', [AuthController::class, 'checkVerificationStatus']);
+
+// Public chatbot endpoints for guest users (landing page)
+Route::post('/chatbot/send-message', [ChatbotController::class, 'sendMessage']);
+Route::get('/chatbot/history', [ChatbotController::class, 'getHistory']);
+Route::get('/chatbot/suggested-questions', [ChatbotController::class, 'getSuggestedQuestions']);
 
 // Health check route
 Route::get('/health', function () {
@@ -84,11 +92,40 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/user', [AuthController::class, 'user']);
 
+    // CASHIER ROUTES - For payment processing and cashier dashboard
+    Route::prefix('cashier')->middleware(['auth:sanctum'])->group(function () {
+        Route::get('/dashboard-stats', [CashierController::class, 'getDashboardStats']);
+        Route::get('/appointments/approved', [CashierController::class, 'getApprovedAppointments']);
+        Route::get('/appointments/completed', [CashierController::class, 'getCompletedAppointments']);
+        Route::post('/appointments/{appointment}/email-receipt', [CashierController::class, 'sendReceiptEmail']);
+        Route::post('/appointments/{appointment}/process-payment', [CashierController::class, 'processPayment']);
+        Route::get('/calendar/appointments', [CashierController::class, 'getCalendarAppointments']);
+        Route::get('/action-logs', [CashierController::class, 'getActionLogs']);
+        Route::get('/profile', [CashierController::class, 'getProfile']);
+        Route::put('/profile', [CashierController::class, 'updateProfile']);
+        Route::get('/shift-reports', [CashierController::class, 'getShiftReport']);
+        Route::post('/shift-reports/export', [CashierController::class, 'exportShiftReport']);
+        
+        // REFUND ROUTES - Request and view refunds
+        Route::post('/refunds/request', [RefundController::class, 'requestRefund']);
+        Route::get('/refunds/pending', [RefundController::class, 'getPendingRefunds']);
+        Route::get('/appointments/{appointment}/refunds', [RefundController::class, 'getAppointmentRefunds']);
+    });
+
     // ADMIN DASHBOARD ROUTES - UPDATED WITH ROLE FILTERING
     Route::prefix('admin')->middleware(['role:admin'])->group(function () {
         // Optimized admin stats
         Route::get('/stats/summary', [StatsController::class, 'summary']);
         Route::get('/stats', [StatsController::class, 'index']);
+        
+        // REFUND MANAGEMENT ROUTES - Admin approval and processing
+        Route::prefix('refunds')->group(function () {
+            Route::get('/stats', [RefundController::class, 'getRefundStats']);
+            Route::get('/all', [RefundController::class, 'getAllRefunds']);
+            Route::post('/{refund}/approve', [RefundController::class, 'approveRefund']);
+            Route::post('/{refund}/reject', [RefundController::class, 'rejectRefund']);
+            Route::post('/{refund}/complete', [RefundController::class, 'completeRefund']);
+        });
         
         // ANALYTICS ROUTES - Smart Insights Dashboard
         Route::prefix('analytics')->group(function () {
@@ -107,6 +144,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         
         // Admin appointments endpoint
         Route::get('/appointments', [AdminController::class, 'getAllAppointments']);
+        Route::get('/sales', [AdminController::class, 'getSalesData']);
         Route::post('/cancel-bulk-appointments', [AdminController::class, 'cancelBulkAppointments']);
         
         // Reports
@@ -167,6 +205,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
         
         // Admin message sending
         Route::post('/send-message', [AdminController::class, 'sendMessage']);
+
+        // Attorney management removed
     });
 
     // User management (Admin only) - Keep for backward compatibility
@@ -312,6 +352,11 @@ Route::middleware(['auth:sanctum'])->group(function () {
         });
     });
 
+    // USER REFUNDS ROUTES - Users can view their own refund history
+    Route::prefix('user')->group(function () {
+        Route::get('/refunds', [RefundController::class, 'getUserRefunds']);
+    });
+
     // SERVICES ROUTES (Public read, admin write)
     Route::prefix('services')->group(function () {
         Route::get('/', [ServiceController::class, 'index']);
@@ -328,6 +373,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
         });
     });
 
+    // Attorney endpoints removed
+
     // DECISION SUPPORT ROUTES (Staff and Admin)
     Route::prefix('decision-support')->middleware(['role:staff,admin'])->group(function () {
         Route::get('/staff-recommendations', [DecisionSupportController::class, 'getStaffRecommendations']);
@@ -343,6 +390,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/send-message', [ChatbotController::class, 'sendMessage']);
         Route::delete('/clear-history', [ChatbotController::class, 'clearHistory']);
         Route::get('/conversation-summary', [ChatbotController::class, 'getConversationSummary']);
+        Route::get('/suggested-questions', [ChatbotController::class, 'getSuggestedQuestions']);
+        Route::post('/save-to-messages', [ChatbotController::class, 'saveMessageToMessageCenter']);
     });
 });
 

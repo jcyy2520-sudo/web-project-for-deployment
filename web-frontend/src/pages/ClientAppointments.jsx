@@ -9,6 +9,10 @@ import UnavailableDatesViewer from '../components/UnavailableDatesViewer';
 import BookingDecisionSupport from '../components/BookingDecisionSupport';
 import CancellationRiskNotice from '../components/CancellationRiskNotice';
 import UnavailabilityMessage from '../components/UnavailabilityMessage';
+import AppointmentRefundStatus from '../components/AppointmentRefundStatus';
+import UserRefundRequest from '../components/UserRefundRequest';
+import UserRefundHistory from '../components/UserRefundHistory';
+import RefundDetailsModal from '../components/modals/RefundDetailsModal';
 import { 
   CalendarIcon, 
   ClockIcon, 
@@ -59,6 +63,22 @@ const ClientAppointments = () => {
     notes: ''
   });
   const [calendarMonth, setCalendarMonth] = useState(new Date());
+  const [activeTab, setActiveTab] = useState('appointments');
+  
+  // Refund Management State
+  const [showRefundRequestModal, setShowRefundRequestModal] = useState(false);
+  const [selectedAppointmentForRefund, setSelectedAppointmentForRefund] = useState(null);
+  const [refundFormData, setRefundFormData] = useState({
+    refund_amount: '',
+    reason: 'customer_request',
+    description: ''
+  });
+  const [refundLoading, setRefundLoading] = useState(false);
+  const [refundError, setRefundError] = useState('');
+  
+  // Refund Details Modal State
+  const [showRefundDetailsModal, setShowRefundDetailsModal] = useState(false);
+  const [selectedAppointmentForDetails, setSelectedAppointmentForDetails] = useState(null);
 
   useEffect(() => {
     if (!user?.id) {
@@ -381,6 +401,67 @@ const ClientAppointments = () => {
     }
   };
 
+  const handleRequestRefund = async (e) => {
+    e.preventDefault();
+    setRefundError('');
+
+    if (!selectedAppointmentForRefund) return;
+
+    if (!refundFormData.refund_amount || parseFloat(refundFormData.refund_amount) <= 0) {
+      setRefundError('Please enter a valid refund amount');
+      return;
+    }
+
+    if (parseFloat(refundFormData.refund_amount) > (selectedAppointmentForRefund.payment_amount || 0)) {
+      setRefundError('Refund amount cannot exceed the original payment');
+      return;
+    }
+
+    setRefundLoading(true);
+    try {
+      const response = await axios.post('/api/cashier/refunds/request', {
+        appointment_id: selectedAppointmentForRefund.id,
+        refund_amount: parseFloat(refundFormData.refund_amount),
+        reason: refundFormData.reason,
+        description: refundFormData.description
+      });
+
+      if (response.data?.success) {
+        setShowRefundRequestModal(false);
+        setSelectedAppointmentForRefund(null);
+        setRefundFormData({ refund_amount: '', reason: 'customer_request', description: '' });
+        await loadAppointments();
+        if (window?.showToast) {
+          window.showToast('Refund Request', 'Your refund request has been submitted successfully', 'success');
+        } else {
+          alert('Refund request submitted successfully!');
+        }
+      } else {
+        setRefundError(response.data?.message || 'Failed to submit refund request');
+      }
+    } catch (err) {
+      console.error('Refund request error:', err);
+      setRefundError(err.response?.data?.message || 'Failed to submit refund request. Please try again.');
+    } finally {
+      setRefundLoading(false);
+    }
+  };
+
+  const openRefundModal = (appointment) => {
+    setSelectedAppointmentForRefund(appointment);
+    setRefundFormData({
+      refund_amount: appointment.payment_amount || '',
+      reason: 'customer_request',
+      description: ''
+    });
+    setRefundError('');
+    setShowRefundRequestModal(true);
+  };
+
+  const openRefundDetailsModal = (appointment) => {
+    setSelectedAppointmentForDetails(appointment);
+    setShowRefundDetailsModal(true);
+  };
   const openCancelModal = (appointment) => {
     setSelectedAppointmentToCancel(appointment);
     setIsCancelModalOpen(true);
@@ -455,12 +536,36 @@ const ClientAppointments = () => {
           <UnavailableDatesViewer isDarkMode={false} />
         </div>
 
+        {/* Tabs */}
+        <div className="mb-6 border-b bg-white rounded-t-lg">
+          <div className="flex gap-1 p-4">
+            <button
+              onClick={() => setActiveTab('appointments')}
+              className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+                activeTab === 'appointments'
+                  ? 'bg-black text-white'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              My Appointments ({appointments.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('refunds')}
+              className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+                activeTab === 'refunds'
+                  ? 'bg-black text-white'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              Refund History
+            </button>
+          </div>
+        </div>
+
+        {/* Appointments Tab */}
+        {activeTab === 'appointments' && (
         <div className="bg-white rounded-lg shadow-sm border">
-          {loading ? (
-            <div className="flex justify-center p-8">
-              <LoadingSpinner size="lg" />
-            </div>
-          ) : appointments.length === 0 ? (
+          {appointments.length === 0 ? (
             <div className="text-center py-12">
               <CalendarIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
               <h3 className="text-lg font-semibold text-gray-900">No appointments yet</h3>
@@ -491,6 +596,7 @@ const ClientAppointments = () => {
                       <option value="completed">Completed</option>
                       <option value="declined">Declined</option>
                       <option value="cancelled">Cancelled</option>
+                      <option value="refunded">Refunded</option>
                     </select>
                   </div>
                   <div>
@@ -572,6 +678,49 @@ const ClientAppointments = () => {
                           <p className="text-sm text-green-700">{appointment.completion_notes}</p>
                         </div>
                       )}
+
+                      {/* Payment Information & Refund Status */}
+                      {appointment.payment_status === 'paid' && (
+                        <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                          <div className="flex justify-between items-start">
+                            <div>
+                              <p className="text-xs font-semibold text-blue-800 mb-1">Payment Status:</p>
+                              <p className="text-sm text-blue-700">
+                                ✓ Paid - ₱{parseFloat(appointment.payment_amount || 0).toFixed(2)}
+                                {appointment.discount_amount > 0 && (
+                                  <span> (Discount: ₱{parseFloat(appointment.discount_amount).toFixed(2)})</span>
+                                )}
+                              </p>
+                            </div>
+                            <div className="flex gap-2">
+                              {appointment.status === 'completed' && (
+                                <button
+                                  onClick={() => openRefundDetailsModal(appointment)}
+                                  className="text-green-600 hover:text-green-700 transition-colors duration-200 px-2 py-1 rounded hover:bg-green-100 text-xs font-medium"
+                                  title="Submit refund request for this appointment"
+                                >
+                                  💰 Refund
+                                </button>
+                              )}
+                              {appointment.payment_status === 'paid' && appointment.status !== 'completed' && (
+                                <button
+                                  onClick={() => openRefundModal(appointment)}
+                                  className="text-amber-600 hover:text-amber-700 transition-colors duration-200 px-2 py-1 rounded hover:bg-amber-100 text-xs font-medium"
+                                  title="Request refund for this appointment"
+                                >
+                                  Request Refund
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Refund Status Display */}
+                      <AppointmentRefundStatus 
+                        appointment={appointment}
+                        onRefundRequested={() => loadAppointments()}
+                      />
                       
                       {/* Risk Assessment for pending/approved appointments */}
                       {(appointment.status === 'pending' || appointment.status === 'approved') && (
@@ -617,6 +766,14 @@ const ClientAppointments = () => {
             </>
           )}
         </div>
+        )}
+
+        {/* Refunds Tab */}
+        {activeTab === 'refunds' && (
+        <div className="bg-white rounded-lg shadow-sm border p-6">
+          <UserRefundHistory />
+        </div>
+        )}
       </main>
 
       {/* Cancel Appointment Modal */}
@@ -675,6 +832,19 @@ const ClientAppointments = () => {
           </div>
         )}
       </Modal>
+
+      {/* Request Refund Modal - New Component */}
+      <UserRefundRequest
+        isOpen={showRefundRequestModal}
+        onClose={() => {
+          setShowRefundRequestModal(false);
+          setSelectedAppointmentForRefund(null);
+          setRefundFormData({ refund_amount: '', reason: 'customer_request', description: '' });
+          setRefundError('');
+        }}
+        appointment={selectedAppointmentForRefund}
+        onSuccess={() => loadAppointments()}
+      />
 
       {/* Book Appointment Modal */}
       <Modal
@@ -1042,6 +1212,17 @@ const ClientAppointments = () => {
           </div>
         </form>
       </Modal>
+
+      {/* Refund Details Modal */}
+      <RefundDetailsModal
+        isOpen={showRefundDetailsModal}
+        onClose={() => {
+          setShowRefundDetailsModal(false);
+          setSelectedAppointmentForDetails(null);
+        }}
+        appointment={selectedAppointmentForDetails}
+        onConfirm={() => loadAppointments()}
+      />
     </div>
   );
 };

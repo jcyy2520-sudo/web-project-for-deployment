@@ -64,46 +64,69 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   }
 
   try {
-    // Try to load Pusher + Echo via CDN at runtime to avoid bundling requirements
-    const loadScript = (src) => new Promise((resolve, reject) => {
-      const s = document.createElement('script');
-      s.src = src;
-      s.async = true;
-      s.onload = () => resolve();
-      s.onerror = (e) => reject(e);
-      document.head.appendChild(s);
-    });
-
-    // CDN fallbacks (use UMD builds)
-    const pusherCdn = 'https://js.pusher.com/7.2/pusher.min.js';
-    const echoCdn = 'https://cdn.jsdelivr.net/npm/laravel-echo/dist/echo.iife.js';
-
+    // Prefer local packages when available (installed via npm). Fall back to CDN otherwise.
+    let LocalPusher = null;
+    let LocalEcho = null;
     try {
-      await loadScript(pusherCdn);
-    } catch (e) {
-      console.warn('Failed to load Pusher from CDN', e);
-    }
+      // Dynamic import - will succeed if packages installed (e.g., npm install pusher-js laravel-echo)
+      LocalPusher = (await import('pusher-js')).default || (await import('pusher-js'));
+      LocalEcho = (await import('laravel-echo')).default || (await import('laravel-echo'));
+    } catch (localErr) {
+      // Not installed or import failed; fall back to CDN
+      const loadScript = (src) => new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = src;
+        s.async = true;
+        s.onload = () => resolve();
+        s.onerror = (e) => reject(e);
+        document.head.appendChild(s);
+      });
 
-    try {
-      await loadScript(echoCdn);
-    } catch (e) {
-      // Echo may not be present; we'll still continue using pusher directly as a fallback
-      console.debug('Laravel Echo script not loaded from CDN', e);
+      const pusherCdn = 'https://js.pusher.com/7.2/pusher.min.js';
+      const echoCdn = 'https://cdn.jsdelivr.net/npm/laravel-echo/dist/echo.iife.js';
+
+      try { await loadScript(pusherCdn); } catch (e) { console.warn('Failed to load Pusher from CDN', e); }
+      try { await loadScript(echoCdn); } catch (e) { console.debug('Laravel Echo script not loaded from CDN', e); }
+
+      LocalPusher = window.Pusher;
+      LocalEcho = window.Echo;
     }
 
     const cluster = import.meta.env.VITE_PUSHER_CLUSTER || window?.PUSHER_CLUSTER || undefined;
     const host = import.meta.env.VITE_PUSHER_HOST || window?.PUSHER_HOST || undefined;
 
-    if (window.Pusher && window.Echo && typeof window.Echo === 'function') {
-      // If Echo UMD is present as constructor on window.Echo, instantiate it
-      window.Echo = new window.Echo({
-        broadcaster: 'pusher',
-        key,
-        cluster,
-        wsHost: host || undefined,
-        wsPort: host ? 6001 : undefined,
-        forceTLS: !!(import.meta.env.PROD),
-      });
+    // If local imports are available, use them; else use UMD globals from CDN
+    if (LocalEcho && (typeof LocalEcho === 'function' || typeof LocalEcho === 'object')) {
+      // If LocalEcho is the module constructor
+      if (typeof LocalEcho === 'function') {
+        // If we imported the Pusher constructor, instantiate it so Echo receives a client instance
+        const pusherClient = LocalPusher ? new LocalPusher(key, {
+          cluster,
+          wsHost: host || undefined,
+          wsPort: host ? 6001 : undefined,
+          forceTLS: !!(import.meta.env.PROD),
+        }) : (window.Pusher || undefined);
+
+        window.Echo = new LocalEcho({
+          broadcaster: 'pusher',
+          key,
+          cluster,
+          wsHost: host || undefined,
+          wsPort: host ? 6001 : undefined,
+          forceTLS: !!(import.meta.env.PROD),
+          client: pusherClient,
+        });
+      } else {
+        // LocalEcho may be the UMD-like exposed object
+        window.Echo = new (LocalEcho || window.Echo)({
+          broadcaster: 'pusher',
+          key,
+          cluster,
+          wsHost: host || undefined,
+          wsPort: host ? 6001 : undefined,
+          forceTLS: !!(import.meta.env.PROD),
+        });
+      }
     } else if (window.Pusher) {
       // Build a minimal wrapper around Pusher to mimic the channel/listen API used in app
       const pusher = new window.Pusher(key, {

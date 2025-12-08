@@ -19,6 +19,7 @@ const Dashboard = lazy(() => import('./pages/Dashboard'));
 const ClientAppointments = lazy(() => import('./pages/ClientAppointments'));
 const StaffAppointments = lazy(() => import('./pages/StaffAppointments'));
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
+const CashierDashboard = lazy(() => import('./pages/CashierDashboard'));
 const UserManagement = lazy(() => import('./pages/UserManagement'));
 const CalendarManagement = lazy(() => import('./pages/CalendarManagement'));
 const MessageCenter = lazy(() => import('./pages/MessageCenter'));
@@ -36,11 +37,11 @@ const PageLoading = () => (
 // ProtectedRoute component
 const ProtectedRoute = ({ children, allowedRoles = [] }) => {
   const { isAuthenticated, user, loading } = useAuth();
-  
+
   if (loading) {
     return <PageLoading />;
   }
-  
+
   if (!isAuthenticated) {
     return <Navigate to="/" replace />;
   }
@@ -48,7 +49,7 @@ const ProtectedRoute = ({ children, allowedRoles = [] }) => {
   if (allowedRoles.length > 0 && !allowedRoles.includes(user?.role)) {
     return <Navigate to="/dashboard" replace />;
   }
-  
+
   return (
     <ErrorBoundary>
       {children}
@@ -59,11 +60,11 @@ const ProtectedRoute = ({ children, allowedRoles = [] }) => {
 // PublicRoute component
 const PublicRoute = ({ children }) => {
   const { isAuthenticated, loading } = useAuth();
-  
+
   if (loading) {
     return <PageLoading />;
   }
-  
+
   return !isAuthenticated ? (
     <ErrorBoundary>
       {children}
@@ -85,78 +86,98 @@ const AppContent = () => {
 
   return (
     <Routes>
-      <Route 
-        path="/" 
+      <Route
+        path="/"
         element={
           <PublicRoute>
             <Suspense fallback={<PageLoading />}>
               <LandingPage />
             </Suspense>
           </PublicRoute>
-        } 
+        }
       />
-      <Route 
-        path="/dashboard" 
+      <Route
+        path="/dashboard"
         element={
           <ProtectedRoute>
             <Suspense fallback={<PageLoading />}>
               <Dashboard />
             </Suspense>
           </ProtectedRoute>
-        } 
+        }
       />
-      <Route 
-        path="/appointments" 
+      <Route
+        path="/appointments"
         element={
           <ProtectedRoute allowedRoles={['client']}>
             <Suspense fallback={<PageLoading />}>
               <ClientAppointments />
             </Suspense>
           </ProtectedRoute>
-        } 
+        }
       />
-      <Route 
-        path="/staff/appointments" 
+      <Route
+        path="/staff/appointments"
         element={
           <ProtectedRoute allowedRoles={['staff', 'admin']}>
             <Suspense fallback={<PageLoading />}>
               <StaffAppointments />
             </Suspense>
           </ProtectedRoute>
-        } 
+        }
       />
-      <Route 
-        path="/admin/dashboard" 
+      <Route
+        path="/admin/dashboard"
         element={
           <ProtectedRoute allowedRoles={['admin']}>
             <Suspense fallback={<PageLoading />}>
               <AdminDashboard />
             </Suspense>
           </ProtectedRoute>
-        } 
+        }
       />
-      <Route 
-        path="/admin/users" 
+      <Route
+        path="/admin"
+        element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <Suspense fallback={<PageLoading />}>
+              <AdminDashboard />
+            </Suspense>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/cashier"
+        element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <Suspense fallback={<PageLoading />}>
+              <CashierDashboard />
+            </Suspense>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/users"
         element={
           <ProtectedRoute allowedRoles={['admin']}>
             <Suspense fallback={<PageLoading />}>
               <UserManagement />
             </Suspense>
           </ProtectedRoute>
-        } 
+        }
       />
-      <Route 
-        path="/admin/calendar" 
+      <Route
+        path="/admin/calendar"
         element={
           <ProtectedRoute allowedRoles={['admin', 'staff']}>
             <Suspense fallback={<PageLoading />}>
               <CalendarManagement />
             </Suspense>
           </ProtectedRoute>
-        } 
+        }
       />
-      <Route 
-        path="/messages" 
+      <Route
+        path="/messages"
         element={
           <ProtectedRoute>
             <Suspense fallback={<PageLoading />}>

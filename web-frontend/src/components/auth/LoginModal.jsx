@@ -98,7 +98,7 @@ const LoginModal = ({ isOpen, onClose, onSwitchToRegister, onForgotPassword }) =
         {loginError && (
           <div className="bg-red-500/10 border border-red-500/30 text-red-300 px-3 py-2 rounded-lg text-sm flex items-center">
             <div className="w-4 h-4 mr-2 flex-shrink-0">
-              <div className="w-2 h-2 bg-red-400 rounded-full animate-pulse"></div>
+              <div className="w-2 h-2 bg-red-400 rounded-full"></div>
             </div>
             {loginError}
           </div>
