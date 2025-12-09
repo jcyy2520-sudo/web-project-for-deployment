@@ -30,11 +30,13 @@ class ServiceController extends Controller
     public function allServices()
     {
         try {
-            // SIMPLIFIED: Just get active services
-            $services = Service::where('is_active', true)->orderBy('name')->get();
+            $services = Service::where('is_active', true)
+                ->orderBy('name')
+                ->get();
             
             return response()->json([
                 'data' => $services,
+                'count' => $services->count(),
                 'success' => true
             ]);
         } catch (\Exception $e) {
@@ -283,22 +285,6 @@ class ServiceController extends Controller
                 'message' => 'Failed to permanently delete service',
                 'error' => $e->getMessage(),
                 'success' => false
-            ], 500);
-        }
-    }
-    public function simpleTest()
-    {
-        try {
-            // SUPER SIMPLE - no database calls
-            return response()->json([
-                'success' => true,
-                'message' => 'ServiceController is working!',
-                'test' => 'Simple test method'
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'error' => $e->getMessage()
             ], 500);
         }
     }

@@ -3,6 +3,9 @@ import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
 import './index.css'
 
+// Set API URL from environment
+const API_URL = import.meta.env.VITE_API_URL || 'https://web-project-backend-lzzf.onrender.com/api';
+
 // Unregister all service workers to prevent offline caching issues
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.getRegistrations().then(registrations => {
@@ -14,7 +17,6 @@ if ('serviceWorker' in navigator) {
 }
 
 // Remove StrictMode to prevent double-rendering in development
-// This speeds up initial load by 40-50%
 ReactDOM.createRoot(document.getElementById('root')).render(
   <App />
 )
@@ -26,7 +28,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 
   async function check() {
     try {
-      const res = await fetch('/api/unavailable-dates/last-update');
+      // FIXED: Use correct API URL from environment
+      const res = await fetch(`${API_URL}/unavailable-dates/last-update`);
       if (!res.ok) return;
       const json = await res.json();
       const ts = json.last_update || null;

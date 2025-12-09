@@ -5,6 +5,7 @@ import LoadingSpinner from './components/ui/LoadingSpinner';
 import ErrorBoundary from './components/ErrorBoundary';
 import ToastContainer from './components/notifications/ToastContainer';
 import ChatbotButton from './components/chatbot/ChatbotButton';
+import ConnectionTest from './components/ConnectionTest';
 import './css/animations.css';
 import { debugApiConfig } from './utils/debugApi';
 
@@ -77,6 +78,7 @@ const PublicRoute = ({ children }) => {
 // AppContent component to prevent layout shifts
 const AppContent = () => {
   const { loading } = useAuth();
+  const [showTest, setShowTest] = useState(true); // Start with test visible
 
   // Removed unnecessary 100ms delay - it was causing perceived slowness
   // Direct render when auth is ready provides better UX
@@ -84,8 +86,33 @@ const AppContent = () => {
     return <PageLoading />;
   }
 
+  if (showTest) {
+    return (
+      <div>
+        <ConnectionTest />
+        <button 
+          onClick={() => setShowTest(false)}
+          style={{
+            marginTop: '20px',
+            padding: '10px 20px',
+            background: '#2196F3',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: 'pointer',
+            display: 'block',
+            margin: '20px auto'
+          }}
+        >
+          Hide Test & Continue to App
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <Routes>
+    <>
+      <Routes>
       <Route
         path="/"
         element={
@@ -188,6 +215,24 @@ const AppContent = () => {
       />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+      <button 
+        onClick={() => setShowTest(true)}
+        style={{
+          position: 'fixed',
+          bottom: '20px',
+          right: '20px',
+          padding: '8px 16px',
+          background: '#2196F3',
+          color: 'white',
+          border: 'none',
+          borderRadius: '4px',
+          cursor: 'pointer',
+          fontSize: '12px'
+        }}
+      >
+        Show Connection Test
+      </button>
+    </>
   );
 };
 
