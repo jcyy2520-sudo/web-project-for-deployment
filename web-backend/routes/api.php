@@ -43,28 +43,23 @@ use Illuminate\Http\Request;
 | be assigned to the "api" middleware group. Make something great!
 |
 */
-// DEBUG: Diagnostic endpoint - ADD THIS
-Route::get('/debug', function () {
+Route::get('/health-check', function() {
     try {
-        $db = DB::connection()->getPdo();
+        \DB::connection()->getPdo();
         return response()->json([
-            'status' => 'ok',
-            'database' => 'connected',
-            'db_host' => config('database.connections.mysql.host'),
-            'db_database' => config('database.connections.mysql.database'),
-            'laravel_version' => app()->version(),
-            'env' => app()->environment(),
-            'time' => now()->toDateTimeString(),
-            'routes_loaded' => true
+            'status' => 'success',
+            'message' => '✅ Connected to Railway MySQL!',
+            'database' => \DB::connection()->getDatabaseName()
         ]);
     } catch (\Exception $e) {
         return response()->json([
             'status' => 'error',
-            'database' => 'not connected',
-            'error' => $e->getMessage(),
-            'db_config' => config('database.connections.mysql'),
-            'env' => app()->environment(),
-            'time' => now()->toDateTimeString()
+            'message' => '❌ Connection failed: ' . $e->getMessage(),
+            'details' => [
+                'host' => env('DB_HOST'),
+                'port' => env('DB_PORT'),
+                'database' => env('DB_DATABASE')
+            ]
         ], 500);
     }
 });
