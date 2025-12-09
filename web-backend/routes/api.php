@@ -43,7 +43,41 @@ use Illuminate\Http\Request;
 | be assigned to the "api" middleware group. Make something great!
 |
 */
-// Add this route to your routes/api.php (after the other test routes)
+
+// ==================== DEBUG ROUTES ====================
+
+// Add this route at the VERY TOP to debug route conflicts
+Route::get('/debug-route-conflict', function() {
+    $routes = [];
+    $routeCollection = \Route::getRoutes();
+    
+    foreach ($routeCollection as $route) {
+        if (strpos($route->uri(), 'services') !== false || 
+            in_array('services', explode('/', $route->uri()))) {
+            $routes[] = [
+                'uri' => $route->uri(),
+                'methods' => $route->methods(),
+                'action' => $route->getActionName(),
+                'middleware' => $route->middleware(),
+            ];
+        }
+    }
+    
+    // Also check for any middleware that might be intercepting
+    $allMiddleware = [];
+    foreach ($routes as $route) {
+        $allMiddleware = array_merge($allMiddleware, $route['middleware']);
+    }
+    
+    return response()->json([
+        'services_routes_found' => count($routes),
+        'routes' => $routes,
+        'unique_middleware' => array_unique($allMiddleware),
+        'current_url' => request()->url(),
+        'current_path' => request()->path(),
+    ]);
+});
+
 Route::get('/debug-service-controller', function() {
     try {
         // Check if ServiceController exists
@@ -70,6 +104,7 @@ Route::get('/debug-service-controller', function() {
         ], 500);
     }
 });
+
 // Debug and test routes
 Route::get('/test-service-basic', function() {
     try {
@@ -119,8 +154,6 @@ Route::get('/debug-services-table', function() {
         ]);
     }
 });
-
-// REMOVED THE DUPLICATE ROUTE HERE - Keep only the one at line 138
 
 // Also add a direct test
 Route::get('/services-direct', [ServiceController::class, 'allServices']);
@@ -185,6 +218,8 @@ Route::get('/health-check', function() {
     }
 });
 
+// ==================== PUBLIC ROUTES ====================
+
 // Public routes
 Route::post('/register-step1', [AuthController::class, 'registerStep1']);
 Route::post('/verify-code', [AuthController::class, 'verifyCode']);
@@ -211,69 +246,41 @@ Route::get('/health', function () {
     ]);
 });
 
-// Public routes for landing page
-// Public routes for landing page - ULTRA DEBUG VERSION
+// ==================== FIXED /services ROUTE ====================
+
+// Public routes for landing page - SIMPLE WORKING VERSION (SAME AS test-service-basic)
 Route::get('/services', function() {
     try {
-        \Log::info('=== DEBUG /api/services START ===');
+        // Test 1: Can we instantiate Service model?
+        $service = new \App\Models\Service();
         
-        // Test 1: Check if Service class exists
-        $serviceClassExists = class_exists(\App\Models\Service::class);
-        \Log::info('Service class exists: ' . ($serviceClassExists ? 'YES' : 'NO'));
+        // Test 2: Simple DB query
+        $count = \DB::table('services')->count();
         
-        // Test 2: Try to create an instance
-        try {
-            $serviceInstance = new \App\Models\Service();
-            \Log::info('Service instance created successfully');
-        } catch (\Exception $e) {
-            \Log::error('Failed to create Service instance: ' . $e->getMessage());
-        }
-        
-        // Test 3: Try simple DB query
-        try {
-            $count = \DB::table('services')->count();
-            \Log::info('Services table count: ' . $count);
-        } catch (\Exception $e) {
-            \Log::error('Failed to count services: ' . $e->getMessage());
-        }
-        
-        // Test 4: Try the actual query with error details
-        \Log::info('Attempting query: Service::where(\'is_active\', true)->orderBy(\'name\')->get()');
-        
+        // Test 3: Try the actual query
         $services = \App\Models\Service::where('is_active', true)->orderBy('name')->get();
-        \Log::info('Query successful, found: ' . count($services) . ' services');
-        
-        \Log::info('=== DEBUG /api/services END ===');
         
         return response()->json([
-            'data' => $services,
+            'data' => $services,  // Changed from 'services' to 'data' to match expected format
             'success' => true,
-            'debug' => [
-                'service_class_exists' => $serviceClassExists,
-                'count' => count($services),
-                'timestamp' => now()->toDateTimeString()
+            'debug_info' => [
+                'model_instantiated' => true,
+                'table_count' => $count,
+                'active_services_count' => count($services),
             ]
         ]);
-        
     } catch (\Exception $e) {
-        \Log::error('=== /api/services FATAL ERROR ===');
-        \Log::error('Error: ' . $e->getMessage());
-        \Log::error('File: ' . $e->getFile());
-        \Log::error('Line: ' . $e->getLine());
-        \Log::error('Trace: ' . $e->getTraceAsString());
-        \Log::error('=== END ERROR ===');
-        
-        // Return detailed error for debugging
         return response()->json([
+            'success' => false,
             'message' => 'Failed to fetch services',
             'error' => $e->getMessage(),
             'file' => $e->getFile(),
             'line' => $e->getLine(),
-            'trace' => $e->getTraceAsString(),
-            'success' => false
+            'trace' => $e->getTraceAsString()
         ], 500);
     }
 });
+
 Route::get('/stats/summary', [StatsController::class, 'summary']);
 
 // User-facing analytics (public for checking slot availability)
@@ -287,6 +294,8 @@ Route::get('/unavailable-dates/last-update', [UnavailableDateController::class, 
 // Public appointment settings (for user booking limit checks)
 Route::get('/appointment-settings/current', [AppointmentSettingsController::class, 'index']);
 Route::get('/appointment-settings/user-limit/{userId}/{date?}', [AppointmentSettingsController::class, 'getUserLimit']);
+
+// ==================== PROTECTED ROUTES ====================
 
 // Protected routes
 Route::middleware(['auth:sanctum'])->group(function () {
