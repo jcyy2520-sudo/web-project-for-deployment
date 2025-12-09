@@ -43,7 +43,33 @@ use Illuminate\Http\Request;
 | be assigned to the "api" middleware group. Make something great!
 |
 */
-
+// Add this route to your routes/api.php (after the other test routes)
+Route::get('/debug-service-controller', function() {
+    try {
+        // Check if ServiceController exists
+        $controllerExists = class_exists(\App\Http\Controllers\ServiceController::class);
+        
+        // Check if method exists
+        $controller = new \App\Http\Controllers\ServiceController();
+        $methodExists = method_exists($controller, 'allServices');
+        
+        // Try to call the method directly
+        $result = $controller->allServices();
+        
+        return response()->json([
+            'controller_exists' => $controllerExists,
+            'method_exists' => $methodExists,
+            'result' => $result
+        ]);
+    } catch (\Exception $e) {
+        return response()->json([
+            'error' => $e->getMessage(),
+            'file' => $e->getFile(),
+            'line' => $e->getLine(),
+            'trace' => $e->getTraceAsString()
+        ], 500);
+    }
+});
 // Debug and test routes
 Route::get('/test-service-basic', function() {
     try {
@@ -186,7 +212,22 @@ Route::get('/health', function () {
 });
 
 // Public routes for landing page
-Route::get('/services', [ServiceController::class, 'allServices']);
+Route::get('/services', function() {
+    try {
+        $services = \App\Models\Service::where('is_active', true)->orderBy('name')->get();
+        
+        return response()->json([
+            'data' => $services,
+            'success' => true
+        ]);
+    } catch (\Exception $e) {
+        return response()->json([
+            'message' => 'Failed to fetch services',
+            'error' => $e->getMessage(),
+            'success' => false
+        ], 500);
+    }
+});
 Route::get('/stats/summary', [StatsController::class, 'summary']);
 
 // User-facing analytics (public for checking slot availability)
