@@ -246,40 +246,20 @@ Route::get('/health', function () {
     ]);
 });
 
-// ==================== FIXED /services ROUTE ====================
+// ==================== CRITICAL FIX: /services ROUTE ====================
 
-// Public routes for landing page - SIMPLE WORKING VERSION (SAME AS test-service-basic)
+// ⚠️⚠️⚠️ THIS IS THE MOST IMPORTANT PART ⚠️⚠️⚠️
+// Public routes for landing page - ABSOLUTELY SIMPLE VERSION
 Route::get('/services', function() {
-    try {
-        // Test 1: Can we instantiate Service model?
-        $service = new \App\Models\Service();
-        
-        // Test 2: Simple DB query
-        $count = \DB::table('services')->count();
-        
-        // Test 3: Try the actual query
-        $services = \App\Models\Service::where('is_active', true)->orderBy('name')->get();
-        
-        return response()->json([
-            'data' => $services,  // Changed from 'services' to 'data' to match expected format
-            'success' => true,
-            'debug_info' => [
-                'model_instantiated' => true,
-                'table_count' => $count,
-                'active_services_count' => count($services),
-            ]
-        ]);
-    } catch (\Exception $e) {
-        return response()->json([
-            'success' => false,
-            'message' => 'Failed to fetch services',
-            'error' => $e->getMessage(),
-            'file' => $e->getFile(),
-            'line' => $e->getLine(),
-            'trace' => $e->getTraceAsString()
-        ], 500);
-    }
+    // SIMPLEST POSSIBLE VERSION - NO DATABASE
+    return response()->json([
+        'test' => 'This is a test response',
+        'success' => true,
+        'timestamp' => now()->toDateTimeString()
+    ]);
 });
+
+// ==================== OTHER PUBLIC ROUTES ====================
 
 Route::get('/stats/summary', [StatsController::class, 'summary']);
 
@@ -573,21 +553,21 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/refunds', [RefundController::class, 'getUserRefunds']);
     });
 
-    // SERVICES ROUTES (Public read, admin write)
-    Route::prefix('services')->group(function () {
-        Route::get('/', [ServiceController::class, 'index']);
-        Route::middleware(['role:admin'])->group(function () {
-            Route::post('/', [ServiceController::class, 'store']);
-            Route::put('/{service}', [ServiceController::class, 'update']);
-            Route::delete('/{service}', [ServiceController::class, 'destroy']);
-            Route::get('/archived/list', [ServiceController::class, 'getArchived']);
-            Route::put('/{id}/restore', [ServiceController::class, 'restore']);
-            Route::delete('/{id}/permanent', [ServiceController::class, 'permanentDelete']);
-            Route::get('/stats', [ServiceController::class, 'getStats']);
-            Route::post('/sync/appointments', [ServiceController::class, 'syncServicesFromAppointments']);
-            Route::post('/sync/defaults', [ServiceController::class, 'syncDefaultAppointmentTypes']);
-        });
-    });
+    // SERVICES ROUTES (Public read, admin write) - COMMENTED OUT TEMPORARILY
+    // Route::prefix('services')->group(function () {
+    //     Route::get('/', [ServiceController::class, 'index']);
+    //     Route::middleware(['role:admin'])->group(function () {
+    //         Route::post('/', [ServiceController::class, 'store']);
+    //         Route::put('/{service}', [ServiceController::class, 'update']);
+    //         Route::delete('/{service}', [ServiceController::class, 'destroy']);
+    //         Route::get('/archived/list', [ServiceController::class, 'getArchived']);
+    //         Route::put('/{id}/restore', [ServiceController::class, 'restore']);
+    //         Route::delete('/{id}/permanent', [ServiceController::class, 'permanentDelete']);
+    //         Route::get('/stats', [ServiceController::class, 'getStats']);
+    //         Route::post('/sync/appointments', [ServiceController::class, 'syncServicesFromAppointments']);
+    //         Route::post('/sync/defaults', [ServiceController::class, 'syncDefaultAppointmentTypes']);
+    //     });
+    // });
 
     // Attorney endpoints removed
 
