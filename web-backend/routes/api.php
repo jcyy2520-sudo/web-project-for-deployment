@@ -43,6 +43,8 @@ use Illuminate\Http\Request;
 | be assigned to the "api" middleware group. Make something great!
 |
 */
+
+// Debug and test routes
 Route::get('/test-service-basic', function() {
     try {
         // Test 1: Can we instantiate Service model?
@@ -71,9 +73,10 @@ Route::get('/test-service-basic', function() {
         ], 500);
     }
 });
-Route::get('/services-simple-test', [ServiceController::class, 'simpleTest']);
-// Add these debug routes to your existing routes/api.php
 
+Route::get('/services-simple-test', [ServiceController::class, 'simpleTest']);
+
+// Add these debug routes to your existing routes/api.php
 Route::get('/debug-services-table', function() {
     try {
         $count = DB::table('services')->count();
@@ -90,32 +93,12 @@ Route::get('/debug-services-table', function() {
         ]);
     }
 });
-Route::get('/debug-services-route', function() {
-    // Check what route is actually being matched
-    $currentRoute = \Route::current();
-    $allRoutes = [];
-    
-    foreach (\Route::getRoutes()->getRoutes() as $route) {
-        if (str_starts_with($route->uri(), 'api/')) {
-            $allRoutes[] = [
-                'uri' => $route->uri(),
-                'methods' => $route->methods(),
-                'action' => $route->getActionName(),
-            ];
-        }
-    }
-    
-    return response()->json([
-        'current_route_uri' => $currentRoute ? $currentRoute->uri() : 'none',
-        'services_route_exists' => false,
-        'services_route_action' => 'not found',
-        'all_api_routes_count' => count($allRoutes),
-        'sample_routes' => array_slice(array_column($allRoutes, 'uri'), 0, 10)
-    ]);
-});
+
+// REMOVED THE DUPLICATE ROUTE HERE - Keep only the one at line 138
 
 // Also add a direct test
 Route::get('/services-direct', [ServiceController::class, 'allServices']);
+
 // Debug routes for testing
 Route::get('/test', function () {
     return response()->json([
@@ -154,6 +137,7 @@ Route::get('/env-check', function () {
         'db_database' => env('DB_DATABASE')
     ]);
 });
+
 Route::get('/health-check', function() {
     try {
         \DB::connection()->getPdo();
@@ -174,6 +158,7 @@ Route::get('/health-check', function() {
         ], 500);
     }
 });
+
 // Public routes
 Route::post('/register-step1', [AuthController::class, 'registerStep1']);
 Route::post('/verify-code', [AuthController::class, 'verifyCode']);
