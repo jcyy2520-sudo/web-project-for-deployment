@@ -45,7 +45,32 @@ use Illuminate\Http\Request;
 */
 
 // Add these debug routes to your existing routes/api.php
+Route::get('/debug-services-route', function() {
+    // Check what route is actually being matched
+    $currentRoute = \Route::current();
+    $allRoutes = [];
+    
+    foreach (\Route::getRoutes()->getRoutes() as $route) {
+        if (str_starts_with($route->uri(), 'api/')) {
+            $allRoutes[] = [
+                'uri' => $route->uri(),
+                'methods' => $route->methods(),
+                'action' => $route->getActionName(),
+            ];
+        }
+    }
+    
+    return response()->json([
+        'current_route_uri' => $currentRoute ? $currentRoute->uri() : 'none',
+        'services_route_exists' => false,
+        'services_route_action' => 'not found',
+        'all_api_routes_count' => count($allRoutes),
+        'sample_routes' => array_slice(array_column($allRoutes, 'uri'), 0, 10)
+    ]);
+});
 
+// Also add a direct test
+Route::get('/services-direct', [ServiceController::class, 'allServices']);
 // Debug routes for testing
 Route::get('/test', function () {
     return response()->json([
