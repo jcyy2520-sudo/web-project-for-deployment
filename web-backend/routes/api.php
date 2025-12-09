@@ -43,6 +43,34 @@ use Illuminate\Http\Request;
 | be assigned to the "api" middleware group. Make something great!
 |
 */
+Route::get('/test-service-basic', function() {
+    try {
+        // Test 1: Can we instantiate Service model?
+        $service = new \App\Models\Service();
+        
+        // Test 2: Simple DB query
+        $count = \DB::table('services')->count();
+        
+        // Test 3: Try the actual query
+        $services = \App\Models\Service::where('is_active', true)->orderBy('name')->get();
+        
+        return response()->json([
+            'success' => true,
+            'model_instantiated' => true,
+            'table_count' => $count,
+            'active_services_count' => count($services),
+            'services' => $services
+        ]);
+    } catch (\Exception $e) {
+        return response()->json([
+            'success' => false,
+            'error' => $e->getMessage(),
+            'file' => $e->getFile(),
+            'line' => $e->getLine(),
+            'trace' => $e->getTraceAsString()
+        ], 500);
+    }
+});
 Route::get('/services-simple-test', [ServiceController::class, 'simpleTest']);
 // Add these debug routes to your existing routes/api.php
 
