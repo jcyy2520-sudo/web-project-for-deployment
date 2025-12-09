@@ -286,4 +286,20 @@ class ServiceController extends Controller
             ], 500);
         }
     }
+    public function simpleTest()
+    {
+        try {
+            // SUPER SIMPLE - no database calls
+            return response()->json([
+                'success' => true,
+                'message' => 'ServiceController is working!',
+                'test' => 'Simple test method'
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
 }

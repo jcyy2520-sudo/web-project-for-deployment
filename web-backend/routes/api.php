@@ -43,8 +43,25 @@ use Illuminate\Http\Request;
 | be assigned to the "api" middleware group. Make something great!
 |
 */
-
+Route::get('/services-simple-test', [ServiceController::class, 'simpleTest']);
 // Add these debug routes to your existing routes/api.php
+
+Route::get('/debug-services-table', function() {
+    try {
+        $count = DB::table('services')->count();
+        $columns = DB::select('DESCRIBE services');
+        return response()->json([
+            'table_exists' => true,
+            'row_count' => $count,
+            'columns' => array_column($columns, 'Field')
+        ]);
+    } catch (\Exception $e) {
+        return response()->json([
+            'table_exists' => false,
+            'error' => $e->getMessage()
+        ]);
+    }
+});
 Route::get('/debug-services-route', function() {
     // Check what route is actually being matched
     $currentRoute = \Route::current();
