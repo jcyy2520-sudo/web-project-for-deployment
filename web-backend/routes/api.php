@@ -43,6 +43,47 @@ use Illuminate\Http\Request;
 | be assigned to the "api" middleware group. Make something great!
 |
 */
+
+// Add these debug routes to your existing routes/api.php
+
+// Debug routes for testing
+Route::get('/test', function () {
+    return response()->json([
+        'status' => 'success',
+        'message' => 'API is working!',
+        'timestamp' => now()->toDateTimeString(),
+        'environment' => app()->environment()
+    ]);
+});
+
+Route::get('/test-db', function () {
+    try {
+        DB::connection()->getPdo();
+        return response()->json([
+            'status' => 'success',
+            'message' => '✅ Database connected successfully!',
+            'database' => DB::connection()->getDatabaseName()
+        ]);
+    } catch (\Exception $e) {
+        return response()->json([
+            'status' => 'error',
+            'message' => '❌ Database connection failed',
+            'error' => $e->getMessage()
+        ], 500);
+    }
+});
+
+Route::get('/env-check', function () {
+    return response()->json([
+        'app_env' => env('APP_ENV'),
+        'app_debug' => env('APP_DEBUG'),
+        'app_url' => env('APP_URL'),
+        'db_connection' => env('DB_CONNECTION'),
+        'db_host_set' => env('DB_HOST') ? 'Yes' : 'No',
+        'db_port' => env('DB_PORT'),
+        'db_database' => env('DB_DATABASE')
+    ]);
+});
 Route::get('/health-check', function() {
     try {
         \DB::connection()->getPdo();
