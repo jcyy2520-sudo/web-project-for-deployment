@@ -43,122 +43,22 @@ use Illuminate\Http\Request;
 | be assigned to the "api" middleware group. Make something great!
 |
 */
-
-// ==================== DEBUG ROUTES ====================
-
-// Add this route at the VERY TOP to debug route conflicts
-Route::get('/debug-route-conflict', function() {
-    $routes = [];
-    $routeCollection = \Route::getRoutes();
-    
-    foreach ($routeCollection as $route) {
-        if (strpos($route->uri(), 'services') !== false || 
-            in_array('services', explode('/', $route->uri()))) {
-            $routes[] = [
-                'uri' => $route->uri(),
-                'methods' => $route->methods(),
-                'action' => $route->getActionName(),
-                'middleware' => $route->middleware(),
-            ];
-        }
-    }
-    
-    // Also check for any middleware that might be intercepting
-    $allMiddleware = [];
-    foreach ($routes as $route) {
-        $allMiddleware = array_merge($allMiddleware, $route['middleware']);
-    }
-    
+Route::get('/', function () {
     return response()->json([
-        'services_routes_found' => count($routes),
-        'routes' => $routes,
-        'unique_middleware' => array_unique($allMiddleware),
-        'current_url' => request()->url(),
-        'current_path' => request()->path(),
+        'status' => 'success',
+        'message' => 'API is running!',
+        'endpoints' => [
+            'GET /api/test' => 'Basic API test',
+            'GET /api/test-db' => 'Database connection test',
+            'GET /api/services' => 'Get all active services',
+            'GET /api/health' => 'Health check'
+        ],
+        'timestamp' => now()->toDateTimeString(),
+        'version' => '1.0'
     ]);
 });
 
-Route::get('/debug-service-controller', function() {
-    try {
-        // Check if ServiceController exists
-        $controllerExists = class_exists(\App\Http\Controllers\ServiceController::class);
-        
-        // Check if method exists
-        $controller = new \App\Http\Controllers\ServiceController();
-        $methodExists = method_exists($controller, 'allServices');
-        
-        // Try to call the method directly
-        $result = $controller->allServices();
-        
-        return response()->json([
-            'controller_exists' => $controllerExists,
-            'method_exists' => $methodExists,
-            'result' => $result
-        ]);
-    } catch (\Exception $e) {
-        return response()->json([
-            'error' => $e->getMessage(),
-            'file' => $e->getFile(),
-            'line' => $e->getLine(),
-            'trace' => $e->getTraceAsString()
-        ], 500);
-    }
-});
-
-// Debug and test routes
-Route::get('/test-service-basic', function() {
-    try {
-        // Test 1: Can we instantiate Service model?
-        $service = new \App\Models\Service();
-        
-        // Test 2: Simple DB query
-        $count = \DB::table('services')->count();
-        
-        // Test 3: Try the actual query
-        $services = \App\Models\Service::where('is_active', true)->orderBy('name')->get();
-        
-        return response()->json([
-            'success' => true,
-            'model_instantiated' => true,
-            'table_count' => $count,
-            'active_services_count' => count($services),
-            'services' => $services
-        ]);
-    } catch (\Exception $e) {
-        return response()->json([
-            'success' => false,
-            'error' => $e->getMessage(),
-            'file' => $e->getFile(),
-            'line' => $e->getLine(),
-            'trace' => $e->getTraceAsString()
-        ], 500);
-    }
-});
-
-Route::get('/services-simple-test', [ServiceController::class, 'simpleTest']);
-
-// Add these debug routes to your existing routes/api.php
-Route::get('/debug-services-table', function() {
-    try {
-        $count = DB::table('services')->count();
-        $columns = DB::select('DESCRIBE services');
-        return response()->json([
-            'table_exists' => true,
-            'row_count' => $count,
-            'columns' => array_column($columns, 'Field')
-        ]);
-    } catch (\Exception $e) {
-        return response()->json([
-            'table_exists' => false,
-            'error' => $e->getMessage()
-        ]);
-    }
-});
-
-// Also add a direct test
-Route::get('/services-direct', [ServiceController::class, 'allServices']);
-
-// Debug routes for testing
+// ==================== TEST ROUTES ====================
 Route::get('/test', function () {
     return response()->json([
         'status' => 'success',
@@ -170,50 +70,17 @@ Route::get('/test', function () {
 
 Route::get('/test-db', function () {
     try {
-        DB::connection()->getPdo();
+        \DB::connection()->getPdo();
         return response()->json([
             'status' => 'success',
             'message' => '✅ Database connected successfully!',
-            'database' => DB::connection()->getDatabaseName()
+            'database' => \DB::connection()->getDatabaseName()
         ]);
     } catch (\Exception $e) {
         return response()->json([
             'status' => 'error',
             'message' => '❌ Database connection failed',
             'error' => $e->getMessage()
-        ], 500);
-    }
-});
-
-Route::get('/env-check', function () {
-    return response()->json([
-        'app_env' => env('APP_ENV'),
-        'app_debug' => env('APP_DEBUG'),
-        'app_url' => env('APP_URL'),
-        'db_connection' => env('DB_CONNECTION'),
-        'db_host_set' => env('DB_HOST') ? 'Yes' : 'No',
-        'db_port' => env('DB_PORT'),
-        'db_database' => env('DB_DATABASE')
-    ]);
-});
-
-Route::get('/health-check', function() {
-    try {
-        \DB::connection()->getPdo();
-        return response()->json([
-            'status' => 'success',
-            'message' => '✅ Connected to Railway MySQL!',
-            'database' => \DB::connection()->getDatabaseName()
-        ]);
-    } catch (\Exception $e) {
-        return response()->json([
-            'status' => 'error',
-            'message' => '❌ Connection failed: ' . $e->getMessage(),
-            'details' => [
-                'host' => env('DB_HOST'),
-                'port' => env('DB_PORT'),
-                'database' => env('DB_DATABASE')
-            ]
         ], 500);
     }
 });
@@ -248,15 +115,26 @@ Route::get('/health', function () {
 
 // ==================== CRITICAL FIX: /services ROUTE ====================
 
-// ⚠️⚠️⚠️ THIS IS THE MOST IMPORTANT PART ⚠️⚠️⚠️
-// Public routes for landing page - ABSOLUTELY SIMPLE VERSION
+// Public services endpoint - WORKING VERSION
 Route::get('/services', function() {
-    // SIMPLEST POSSIBLE VERSION - NO DATABASE
-    return response()->json([
-        'test' => 'This is a test response',
-        'success' => true,
-        'timestamp' => now()->toDateTimeString()
-    ]);
+    try {
+        // Get active services from database
+        $services = \App\Models\Service::where('is_active', true)->orderBy('name')->get();
+        
+        return response()->json([
+            'data' => $services,
+            'success' => true,
+            'count' => count($services),
+            'timestamp' => now()->toDateTimeString()
+        ]);
+    } catch (\Exception $e) {
+        \Log::error('Services API Error: ' . $e->getMessage());
+        
+        return response()->json([
+            'message' => 'Failed to fetch services',
+            'success' => false
+        ], 500);
+    }
 });
 
 // ==================== OTHER PUBLIC ROUTES ====================
