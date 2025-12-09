@@ -212,18 +212,64 @@ Route::get('/health', function () {
 });
 
 // Public routes for landing page
+// Public routes for landing page - ULTRA DEBUG VERSION
 Route::get('/services', function() {
     try {
+        \Log::info('=== DEBUG /api/services START ===');
+        
+        // Test 1: Check if Service class exists
+        $serviceClassExists = class_exists(\App\Models\Service::class);
+        \Log::info('Service class exists: ' . ($serviceClassExists ? 'YES' : 'NO'));
+        
+        // Test 2: Try to create an instance
+        try {
+            $serviceInstance = new \App\Models\Service();
+            \Log::info('Service instance created successfully');
+        } catch (\Exception $e) {
+            \Log::error('Failed to create Service instance: ' . $e->getMessage());
+        }
+        
+        // Test 3: Try simple DB query
+        try {
+            $count = \DB::table('services')->count();
+            \Log::info('Services table count: ' . $count);
+        } catch (\Exception $e) {
+            \Log::error('Failed to count services: ' . $e->getMessage());
+        }
+        
+        // Test 4: Try the actual query with error details
+        \Log::info('Attempting query: Service::where(\'is_active\', true)->orderBy(\'name\')->get()');
+        
         $services = \App\Models\Service::where('is_active', true)->orderBy('name')->get();
+        \Log::info('Query successful, found: ' . count($services) . ' services');
+        
+        \Log::info('=== DEBUG /api/services END ===');
         
         return response()->json([
             'data' => $services,
-            'success' => true
+            'success' => true,
+            'debug' => [
+                'service_class_exists' => $serviceClassExists,
+                'count' => count($services),
+                'timestamp' => now()->toDateTimeString()
+            ]
         ]);
+        
     } catch (\Exception $e) {
+        \Log::error('=== /api/services FATAL ERROR ===');
+        \Log::error('Error: ' . $e->getMessage());
+        \Log::error('File: ' . $e->getFile());
+        \Log::error('Line: ' . $e->getLine());
+        \Log::error('Trace: ' . $e->getTraceAsString());
+        \Log::error('=== END ERROR ===');
+        
+        // Return detailed error for debugging
         return response()->json([
             'message' => 'Failed to fetch services',
             'error' => $e->getMessage(),
+            'file' => $e->getFile(),
+            'line' => $e->getLine(),
+            'trace' => $e->getTraceAsString(),
             'success' => false
         ], 500);
     }
