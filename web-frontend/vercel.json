@@ -3,7 +3,7 @@
   "outputDirectory": "dist",
   "build": {
     "env": {
-      "VITE_API_URL": "https://web-project-backend-drii.onrender.com"
+      "VITE_API_URL": "https://web-project-backend-lzzf.onrender.com/api"
     }
   }
 }

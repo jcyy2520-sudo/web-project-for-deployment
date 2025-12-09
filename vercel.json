@@ -1,10 +1,10 @@
 {
-  "buildCommand": "npm run build",
-  "installCommand": "npm install",
-  "outputDirectory": "dist",
+  "buildCommand": "cd web-frontend && npm run build",
+  "installCommand": "cd web-frontend && npm install",
+  "outputDirectory": "web-frontend/dist",
   "build": {
     "env": {
-      "VITE_API_URL": "https://web-project-backend-drii.onrender.com"
+      "VITE_API_URL": "https://web-project-backend-lzzf.onrender.com/api"
     }
   }
 }
