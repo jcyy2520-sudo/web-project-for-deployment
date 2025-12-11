@@ -2556,15 +2556,52 @@ const AdminDashboard = () => {
   }, [callApi, loadUnavailableDates]);
 
   // Called when admin wants to cancel selected appointments from affected list
-  const handleCancelSelectedAppointments = useCallback(({ affected, selectedIds, dateData }) => {
+  const handleCancelSelectedAppointments = useCallback(({ affected, selectedIds, dateData, cancellationReason }) => {
     // Transition from affected modal to cancel bulk modal
     setShowAffectedModal(false);
     setBulkCancelData({
       affected: affected.filter(apt => selectedIds.includes(apt.id)),
-      dateData
+      dateData,
+      cancellationReason
     });
     setShowCancelBulkModal(true);
   }, []);
+
+  // Called when admin wants to send message to affected users (without cancelling)
+  const handleSendMessageToAffected = useCallback(async ({ appointments, message, sendOption, dateData }) => {
+    try {
+      const userIds = [...new Set(appointments.map(apt => apt.user_id || apt.user?.id))].filter(Boolean);
+      
+      if (userIds.length === 0) {
+        alert('No users to send message to');
+        return;
+      }
+
+      const payload = {
+        user_ids: userIds,
+        message: message,
+        subject: 'Important Notice About Your Appointment',
+        appointment_ids: appointments.map(apt => apt.id),
+        date: dateData?.date
+      };
+
+      const result = await callApi(() => axios({
+        method: 'POST',
+        url: '/api/admin/send-bulk-message',
+        data: payload,
+        timeout: 30000
+      }));
+
+      if (result.success) {
+        alert(`Message sent successfully to ${userIds.length} user${userIds.length !== 1 ? 's' : ''}!`);
+      } else {
+        alert('Failed to send message. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error sending message to affected users:', error);
+      alert('Failed to send message. Please try again.');
+    }
+  }, [callApi]);
 
   // Called from CancelBulkAppointmentsModal to execute bulk cancellation with messaging
   const handleConfirmBulkCancel = useCallback(async (cancelData) => {
@@ -2635,7 +2672,8 @@ const AdminDashboard = () => {
           ...prev, 
           users: false, 
           dashboard: false,
-          adminProfile: false 
+          adminProfile: false,
+          archive: false
         }));
         
         if (activeTab === 'users') {
@@ -2643,6 +2681,9 @@ const AdminDashboard = () => {
         } else if (activeTab === 'adminProfile') {
           await loadAdmins();
         }
+        
+        // Reload archived users so they appear in Archive tab
+        await loadArchivedUsers();
         await loadDashboardData();
       } else {
         if (activeTab === 'users') {
@@ -2659,7 +2700,7 @@ const AdminDashboard = () => {
         await loadAdmins();
       }
     }
-  }, [itemToDelete, callApi, activeTab, loadUsers, loadAdmins, loadDashboardData]);
+  }, [itemToDelete, callApi, activeTab, loadUsers, loadAdmins, loadDashboardData, loadArchivedUsers]);
 
   const handleDeleteAdmin = useCallback(async () => {
     if (!itemToDelete) return;
@@ -2677,8 +2718,10 @@ const AdminDashboard = () => {
         setShowDeleteModal(false);
         setItemToDelete(null);
         
-        setDataLoaded(prev => ({ ...prev, adminProfile: false }));
+        setDataLoaded(prev => ({ ...prev, adminProfile: false, archive: false }));
         await loadAdmins();
+        // Reload archived users so they appear in Archive tab
+        await loadArchivedUsers();
         await loadDashboardData();
       } else {
         await loadAdmins();
@@ -2687,7 +2730,7 @@ const AdminDashboard = () => {
       console.error('Error deleting admin:', error);
       await loadAdmins();
     }
-  }, [itemToDelete, callApi, loadAdmins, loadDashboardData]);
+  }, [itemToDelete, callApi, loadAdmins, loadDashboardData, loadArchivedUsers]);
 
   const handleToggleUserStatus = useCallback(async (userItem) => {
     try {
@@ -3653,183 +3696,7 @@ const AdminDashboard = () => {
         />
       </div>
 
-      {/* Sales Report Section */}
-      <div className="space-y-4">
-        <div className="flex justify-between items-center">
-          <div>
-            <h2 className="text-lg font-bold text-amber-50">Sales Report</h2>
-            <p className="text-gray-400 text-sm">Real-time sales data from completed appointments</p>
-          </div>
-          <div className="flex space-x-2">
-            <button
-              onClick={() => {
-                setDataLoaded(prev => ({ ...prev, dashboard: false }));
-                loadDashboardData();
-              }}
-              className="px-3 py-1.5 border border-amber-500/30 text-amber-50 rounded hover:bg-amber-500/10 transition-all duration-200 font-medium text-sm flex items-center"
-              title="Refresh sales data"
-            >
-              <ArrowPathIcon className="h-3 w-3 mr-1" />
-              Refresh
-            </button>
-          </div>
-        </div>
-
-        {/* Sales Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4 hover:border-amber-500/40 transition-all duration-300`}>
-            <p className="text-xs text-gray-400 mb-1">Total Revenue</p>
-            <p className="text-2xl font-bold text-amber-50">
-              ${sales.filter(s => s.status === 'completed').reduce((sum, s) => sum + (parseFloat(s.service?.price) || 0), 0).toFixed(2)}
-            </p>
-            <p className="text-xs text-green-400 mt-1">+{sales.filter(s => s.status === 'completed').length} completed sales</p>
-          </div>
-
-          <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4 hover:border-amber-500/40 transition-all duration-300`}>
-            <p className="text-xs text-gray-400 mb-1">Avg Transaction</p>
-            <p className="text-2xl font-bold text-amber-50">
-              ${sales.filter(s => s.status === 'completed').length > 0 
-                ? (sales.filter(s => s.status === 'completed').reduce((sum, s) => sum + (parseFloat(s.service?.price) || 0), 0) / sales.filter(s => s.status === 'completed').length).toFixed(2)
-                : '0.00'}
-            </p>
-            <p className="text-xs text-gray-500 mt-1">per appointment</p>
-          </div>
-
-          <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4 hover:border-amber-500/40 transition-all duration-300`}>
-            <p className="text-xs text-gray-400 mb-1">Completed Sales</p>
-            <p className="text-2xl font-bold text-green-400">{sales.filter(s => s.status === 'completed').length}</p>
-            <p className="text-xs text-gray-500 mt-1">in {timeframe} period</p>
-          </div>
-
-          <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4 hover:border-amber-500/40 transition-all duration-300`}>
-            <p className="text-xs text-gray-400 mb-1">Most Popular Service</p>
-            <p className="text-lg font-bold text-amber-50 truncate">
-              {sales.filter(s => s.status === 'completed').length > 0 
-                ? sales.filter(s => s.status === 'completed')[0].service?.name || sales.filter(s => s.status === 'completed')[0].service_type || 'N/A'
-                : 'N/A'}
-            </p>
-            <p className="text-xs text-gray-500 mt-1">top service</p>
-          </div>
-        </div>
-
-        {/* Sales Table */}
-        <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow overflow-hidden hover:border-amber-500/40 transition-all duration-300`}>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className={`${isDarkMode ? 'bg-gray-800' : 'bg-gray-50'} transition-colors duration-300`}>
-                <tr>
-                  <th className={`px-4 py-3 text-left text-xs font-medium ${isDarkMode ? 'text-amber-400' : 'text-amber-600'} uppercase tracking-wider transition-colors duration-300`}>
-                    Client
-                  </th>
-                  <th className={`px-4 py-3 text-left text-xs font-medium ${isDarkMode ? 'text-amber-400' : 'text-amber-600'} uppercase tracking-wider transition-colors duration-300`}>
-                    Service
-                  </th>
-                  <th className={`px-4 py-3 text-left text-xs font-medium ${isDarkMode ? 'text-amber-400' : 'text-amber-600'} uppercase tracking-wider transition-colors duration-300`}>
-                    Amount
-                  </th>
-                  <th className={`px-4 py-3 text-left text-xs font-medium ${isDarkMode ? 'text-amber-400' : 'text-amber-600'} uppercase tracking-wider transition-colors duration-300`}>
-                    Date
-                  </th>
-                  <th className={`px-4 py-3 text-left text-xs font-medium ${isDarkMode ? 'text-amber-400' : 'text-amber-600'} uppercase tracking-wider transition-colors duration-300`}>
-                    Status
-                  </th>
-                </tr>
-              </thead>
-              <tbody className={`divide-y ${isDarkMode ? 'divide-gray-700' : 'divide-gray-200'} transition-colors duration-300`}>
-                {sales.filter(s => s.status === 'completed').length === 0 ? (
-                  <tr>
-                    <td colSpan="5" className="px-4 py-8 text-center">
-                      <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>No completed sales in this period</p>
-                    </td>
-                  </tr>
-                ) : (
-                  (() => {
-                    const completedSales = sales.filter(s => s.status === 'completed');
-                    const startIndex = (salesPage - 1) * salesPerPage;
-                    const endIndex = startIndex + salesPerPage;
-                    const paginatedSales = completedSales.slice(startIndex, endIndex);
-                    return paginatedSales.map((sale) => (
-                      <tr key={sale.id} className={`${isDarkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-50'} transition-colors duration-200 group`}>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center space-x-2">
-                            <div className="w-8 h-8 bg-gradient-to-br from-amber-400 to-amber-600 rounded-full flex items-center justify-center text-gray-900 text-xs font-bold shadow">
-                              {sale.user?.first_name?.charAt(0)}{sale.user?.last_name?.charAt(0)}
-                            </div>
-                            <div>
-                              <div className="text-sm font-medium text-amber-50">
-                                {sale.user?.first_name} {sale.user?.last_name}
-                              </div>
-                              <div className="text-xs text-gray-500">{sale.user?.email}</div>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="text-sm text-amber-50">{sale.service?.name || sale.service_type || 'N/A'}</div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="text-sm font-semibold text-green-400">
-                            ${parseFloat(sale.service?.price || 0).toFixed(2)}
-                          </div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="text-sm text-gray-300">
-                            {new Date(sale.appointment_date).toLocaleDateString()} at {sale.appointment_time}
-                          </div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-500/20 text-green-300 border border-green-500/30">
-                            Completed
-                          </span>
-                        </td>
-                      </tr>
-                    ));
-                  })()
-                )}
-              </tbody>
-            </table>
-          </div>
-          
-          {/* Pagination Controls */}
-          {sales.filter(s => s.status === 'completed').length > 0 && (
-            <div className={`px-4 py-3 border-t ${isDarkMode ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-gray-50'} flex items-center justify-between`}>
-              <div className="text-xs text-gray-400">
-                Showing {((salesPage - 1) * salesPerPage) + 1} to {Math.min(salesPage * salesPerPage, sales.filter(s => s.status === 'completed').length)} of {sales.filter(s => s.status === 'completed').length} completed sales
-              </div>
-              <div className="flex items-center space-x-2">
-                <button
-                  onClick={() => setSalesPage(Math.max(1, salesPage - 1))}
-                  disabled={salesPage === 1}
-                  className={`p-1 rounded transition-all duration-200 ${
-                    salesPage === 1
-                      ? 'text-gray-500 cursor-not-allowed'
-                      : 'text-gray-300 hover:bg-gray-700 hover:text-amber-400'
-                  }`}
-                  title="Previous page"
-                >
-                  <ChevronLeftIcon className="h-4 w-4" />
-                </button>
-                <span className="text-xs text-gray-400">
-                  Page {salesPage} of {Math.ceil(sales.filter(s => s.status === 'completed').length / salesPerPage)}
-                </span>
-                <button
-                  onClick={() => setSalesPage(Math.min(Math.ceil(sales.filter(s => s.status === 'completed').length / salesPerPage), salesPage + 1))}
-                  disabled={salesPage >= Math.ceil(sales.filter(s => s.status === 'completed').length / salesPerPage)}
-                  className={`p-1 rounded transition-all duration-200 ${
-                    salesPage >= Math.ceil(sales.filter(s => s.status === 'completed').length / salesPerPage)
-                      ? 'text-gray-500 cursor-not-allowed'
-                      : 'text-gray-300 hover:bg-gray-700 hover:text-amber-400'
-                  }`}
-                  title="Next page"
-                >
-                  <ChevronRightIcon className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* REMOVED: Recent Appointments and Quick Actions sections as requested */}
+      {/* Sales Report Section Removed */}
     </div>
   );
 
@@ -5198,6 +5065,7 @@ const AdminDashboard = () => {
         dateData={pendingUnavailableDate}
         onConfirm={handleConfirmAddUnavailable}
         onCancelSelected={handleCancelSelectedAppointments}
+        onSendMessage={handleSendMessageToAffected}
         loading={apiLoading}
       />
 

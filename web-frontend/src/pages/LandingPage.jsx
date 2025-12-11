@@ -860,6 +860,8 @@ const LandingPage = () => {
           setIsLoginModalOpen(true);
         }}
       />
+      
+      {/* Guest Chatbot - Available to all visitors */}
       <LandingPageChatbot />
     </div>
   );

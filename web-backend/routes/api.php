@@ -95,11 +95,6 @@ Route::post('/login', [AuthController::class, 'login']);
 Route::post('/resend-verification', [AuthController::class, 'resendVerificationCode']);
 Route::get('/check-verification-status', [AuthController::class, 'checkVerificationStatus']);
 
-// Public chatbot endpoints for guest users (landing page)
-Route::post('/chatbot/send-message', [ChatbotController::class, 'sendMessage']);
-Route::get('/chatbot/history', [ChatbotController::class, 'getHistory']);
-Route::get('/chatbot/suggested-questions', [ChatbotController::class, 'getSuggestedQuestions']);
-
 // Health check route
 Route::get('/health', function () {
     return response()->json([
@@ -162,7 +157,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/user', [AuthController::class, 'user']);
 
     // CASHIER ROUTES - For payment processing and cashier dashboard
-    Route::prefix('cashier')->middleware(['auth:sanctum'])->group(function () {
+    // SECURITY: Restricted to cashier, staff and admin roles only
+    Route::prefix('cashier')->middleware(['role:cashier,staff,admin'])->group(function () {
         Route::get('/dashboard-stats', [CashierController::class, 'getDashboardStats']);
         Route::get('/appointments/approved', [CashierController::class, 'getApprovedAppointments']);
         Route::get('/appointments/completed', [CashierController::class, 'getCompletedAppointments']);
@@ -215,6 +211,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/appointments', [AdminController::class, 'getAllAppointments']);
         Route::get('/sales', [AdminController::class, 'getSalesData']);
         Route::post('/cancel-bulk-appointments', [AdminController::class, 'cancelBulkAppointments']);
+        Route::post('/send-bulk-message', [AdminController::class, 'sendBulkMessage']);
         
         // Reports
         Route::post('/reports/generate', [AdminController::class, 'generateReport']);
@@ -299,32 +296,30 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::put('/profile/update', [ProfileController::class, 'update']);
     Route::put('/profile/password', [ProfileController::class, 'updatePassword']);
 
-    // Appointments - FIXED ROUTES
+    // Appointments - FIXED ROUTES (Static routes MUST come before wildcard routes)
     Route::prefix('appointments')->group(function () {
+        // STATIC ROUTES FIRST - These must be defined before wildcard {appointment} routes
         Route::get('/', [AppointmentController::class, 'index']);
         Route::post('/', [AppointmentController::class, 'store']);
         Route::post('/suggest-alternative', [AppointmentController::class, 'suggestAlternative']);
         Route::get('/today', [AppointmentController::class, 'getTodayAppointments']);
         Route::get('/stats', [AppointmentController::class, 'getStats']);
         Route::get('/archived/list', [AppointmentController::class, 'getArchived']);
-        Route::get('/{appointment}', [AppointmentController::class, 'show']);
+        Route::get('/my/appointments', [AppointmentController::class, 'userAppointments']);
+        Route::get('/types/all', [AppointmentController::class, 'getTypes']);
+        Route::get('/available-slots/{date}', [AppointmentController::class, 'availableSlots']);
+        Route::delete('/permanent/{id}', [AppointmentController::class, 'permanentDelete']);
         
-        // FIXED: Use PUT for status updates and specific approval/decline routes
+        // WILDCARD ROUTES LAST - These catch {appointment} parameter
+        Route::get('/{appointment}', [AppointmentController::class, 'show']);
         Route::put('/{appointment}/status', [AppointmentController::class, 'updateStatus']);
         Route::put('/{appointment}/approve', [AppointmentController::class, 'approve']);
         Route::put('/{appointment}/decline', [AppointmentController::class, 'decline']);
         Route::put('/{appointment}/complete', [AppointmentController::class, 'complete']);
         Route::put('/{appointment}/restore', [AppointmentController::class, 'restore']);
-        
         Route::put('/{appointment}/assign-staff', [AppointmentController::class, 'assignStaff']);
-        Route::delete('/{appointment}', [AppointmentController::class, 'destroy']);
-        Route::delete('/permanent/{id}', [AppointmentController::class, 'permanentDelete']);
-        
-        // NEW USER APPOINTMENT ROUTES
-        Route::get('/my/appointments', [AppointmentController::class, 'userAppointments']);
         Route::put('/{id}/cancel', [AppointmentController::class, 'cancel']);
-        Route::get('/available-slots/{date}', [AppointmentController::class, 'availableSlots']);
-        Route::get('/types/all', [AppointmentController::class, 'getTypes']);
+        Route::delete('/{appointment}', [AppointmentController::class, 'destroy']);
     });
 
     // USER REFUND ROUTES - For users to request refunds
@@ -362,6 +357,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::prefix('admin/unavailable-dates')->middleware(['role:admin'])->group(function () {
         Route::get('/', [UnavailableDateController::class, 'index']);
         Route::post('/', [UnavailableDateController::class, 'store']);
+        Route::post('/affected', [UnavailableDateController::class, 'getAffectedAppointments']);
         Route::delete('/{id}', [UnavailableDateController::class, 'destroy']);
     });
 
@@ -457,15 +453,20 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/workload-optimization', [DecisionSupportController::class, 'getWorkloadOptimization']);
         Route::get('/dashboard', [DecisionSupportController::class, 'getDashboard']);
     });
+});
 
-    // CHATBOT ROUTES (All authenticated users)
-    Route::prefix('chatbot')->group(function () {
+// CHATBOT ROUTES (PUBLIC - Allow guests and authenticated users)
+Route::prefix('chatbot')->group(function () {
+    // Public routes (guests can ask questions)
+    Route::post('/send-message', [ChatbotController::class, 'sendMessage']);
+    Route::get('/suggested-questions', [ChatbotController::class, 'getSuggestedQuestions']);
+    Route::post('/save-to-messages', [ChatbotController::class, 'saveMessageToMessageCenter']);
+    
+    // Protected routes (authenticated users only)
+    Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/history', [ChatbotController::class, 'getHistory']);
-        Route::post('/send-message', [ChatbotController::class, 'sendMessage']);
         Route::delete('/clear-history', [ChatbotController::class, 'clearHistory']);
         Route::get('/conversation-summary', [ChatbotController::class, 'getConversationSummary']);
-        Route::get('/suggested-questions', [ChatbotController::class, 'getSuggestedQuestions']);
-        Route::post('/save-to-messages', [ChatbotController::class, 'saveMessageToMessageCenter']);
     });
 });
 

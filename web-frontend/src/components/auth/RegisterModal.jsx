@@ -89,6 +89,11 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin }) => {
       return false;
     }
 
+    if (formData.username.length < 3) {
+      showNotification('Username must be at least 3 characters', 'error');
+      return false;
+    }
+
     if (!formData.username.match(/^[a-zA-Z0-9_]+$/)) {
       showNotification('Username can only contain letters, numbers, and underscores', 'error');
       return false;

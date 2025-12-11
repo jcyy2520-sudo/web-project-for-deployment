@@ -7,6 +7,7 @@ use App\Models\Refund;
 use App\Models\ActionLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
 use Carbon\Carbon;
 
 class RefundController extends Controller
@@ -36,11 +37,27 @@ class RefundController extends Controller
                 ], 422);
             }
 
+            // Validate payment amount exists
+            if (!$appointment->payment_amount || $appointment->payment_amount <= 0) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Cannot process refund: No payment amount found for this appointment. Please contact support.'
+                ], 422);
+            }
+
             // Validate refund amount doesn't exceed payment
             if ($request->refund_amount > $appointment->payment_amount) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Refund amount cannot exceed payment amount'
+                ], 422);
+            }
+
+            // Validate refund amount is valid
+            if ($request->refund_amount <= 0) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Refund amount must be greater than zero'
                 ], 422);
             }
 
@@ -78,6 +95,25 @@ class RefundController extends Controller
                 'Appointment',
                 $appointment->id
             );
+
+            // Send email notification to user that refund request is being processed
+            try {
+                // Ensure all relationships are loaded
+                $refund->load(['appointment.user', 'appointment.service', 'requestedBy']);
+                
+                $userEmail = $appointment->user->email;
+                if (!$userEmail) {
+                    \Log::warning('Cannot send refund request email: User email is missing for appointment #' . $appointment->id);
+                } else {
+                    \Log::info('Attempting to send refund request email to: ' . $userEmail);
+                    Mail::to($userEmail)->send(new \App\Mail\RefundRequestedMail($refund));
+                    \Log::info('✅ Refund request email sent successfully to: ' . $userEmail);
+                }
+            } catch (\Exception $e) {
+                \Log::error('❌ Failed to send refund request email: ' . $e->getMessage());
+                \Log::error('Stack trace: ' . $e->getTraceAsString());
+                // Don't fail the request if email fails
+            }
 
             DB::commit();
 
@@ -193,6 +229,9 @@ class RefundController extends Controller
 
             // Notify user with email and system message
             $this->sendRefundNotification($refund, 'completed');
+            
+            // Create in-app notification
+            \App\Services\NotificationService::refundApproved($refund);
 
             DB::commit();
 
@@ -249,6 +288,9 @@ class RefundController extends Controller
 
             // Notify user
             $this->sendRefundNotification($refund, 'rejected');
+            
+            // Create in-app notification
+            \App\Services\NotificationService::refundRejected($refund, $request->rejection_reason);
 
             DB::commit();
 
@@ -420,17 +462,23 @@ class RefundController extends Controller
 
             // Send email based on status - with error handling
             try {
+                if (!$user->email) {
+                    \Log::warning('Cannot send refund notification: User email is missing for refund #' . $refund->id);
+                    return;
+                }
+
                 if ($status === 'completed') {
-                    \Log::info('Attempting to send refund completed email to: ' . $user->email);
+                    \Log::info('Attempting to send refund completed email to: ' . $user->email . ' for refund #' . $refund->id);
                     \Mail::to($user->email)->send(new \App\Mail\RefundCompletedMail($refund));
-                    \Log::info('Successfully sent refund completed email');
+                    \Log::info('✅ Successfully sent refund completed email to: ' . $user->email);
                 } elseif ($status === 'rejected') {
-                    \Log::info('Attempting to send refund rejected email to: ' . $user->email);
+                    \Log::info('Attempting to send refund rejected email to: ' . $user->email . ' for refund #' . $refund->id);
                     \Mail::to($user->email)->send(new \App\Mail\RefundRejectedMail($refund));
-                    \Log::info('Successfully sent refund rejected email');
+                    \Log::info('✅ Successfully sent refund rejected email to: ' . $user->email);
                 }
             } catch (\Exception $mailException) {
-                \Log::error('Mail sending error: ' . $mailException->getMessage());
+                \Log::error('❌ Mail sending error for refund #' . $refund->id . ': ' . $mailException->getMessage());
+                \Log::error('Stack trace: ' . $mailException->getTraceAsString());
                 // Don't fail the entire operation if email fails
             }
 
@@ -449,11 +497,11 @@ class RefundController extends Controller
             // Create message notification in system
             \App\Models\Message::create([
                 'sender_id' => 1, // System message
-                'recipient_id' => $user->id,
+                'receiver_id' => $user->id,
                 'subject' => $subject,
-                'body' => $body,
+                'message' => $body,
                 'type' => 'refund_notification',
-                'is_read' => false
+                'read' => false
             ]);
 
             \Log::info('Refund notification processed for refund ' . $refund->id . ' with status ' . $status);

@@ -1542,11 +1542,23 @@ const Dashboard = () => {
       return;
     }
 
+    // Validate payment amount exists
+    if (!selectedAppointment.payment_amount || selectedAppointment.payment_amount <= 0) {
+      alert('Cannot process refund: This appointment has no payment amount recorded. Please contact support for assistance.');
+      return;
+    }
+
+    // Validate payment status
+    if (selectedAppointment.payment_status !== 'paid') {
+      alert('Cannot process refund: This appointment is not marked as paid. Only paid appointments can be refunded.');
+      return;
+    }
+
     setRefundLoading(true);
     try {
       const response = await axios.post('/api/refunds/request', {
         appointment_id: selectedAppointment.id,
-        refund_amount: selectedAppointment.payment_amount || 0,
+        refund_amount: selectedAppointment.payment_amount,
         reason: refundData.reason,
         description: refundData.description
       });
@@ -2081,7 +2093,7 @@ const Dashboard = () => {
                             <TrashIcon className="h-3 w-3" />
                           </button>
                         )}
-                        {appointment.status === 'completed' && (
+                        {appointment.status === 'completed' && appointment.payment_status === 'paid' && appointment.payment_amount > 0 && (
                           <button
                             onClick={() => {
                               setSelectedAppointment(appointment);

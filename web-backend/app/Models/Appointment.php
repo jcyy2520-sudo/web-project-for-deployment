@@ -38,7 +38,9 @@ class Appointment extends Model
         'completion_notes',
         'completed_by',
         'outcome_status',
-        'original_price'
+        'original_price',
+        'reminder_sent',
+        'reminder_sent_at'
     ];
 
     protected $casts = [
@@ -46,6 +48,8 @@ class Appointment extends Model
         'documents' => 'array',
         'completed_at' => 'datetime',
         'payment_date' => 'datetime',
+        'reminder_sent' => 'boolean',
+        'reminder_sent_at' => 'datetime',
         'payment_amount' => 'decimal:2',
         'discount_amount' => 'decimal:2',
     ];

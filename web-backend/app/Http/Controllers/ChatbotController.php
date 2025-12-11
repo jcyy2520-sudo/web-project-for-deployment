@@ -3,10 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Models\ChatMessage;
+use App\Models\User;
 use App\Services\ChatbotService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class ChatbotController extends Controller
 {
@@ -78,19 +81,26 @@ class ChatbotController extends Controller
 
             // For guest users, use the service with null userId for dynamic responses
             if ($isGuest) {
+                $aiResponse = null;
+                $meta = [];
+                
                 try {
                     $interpreted = $this->chatbotService->interpretAndRespond(null, $userMessage);
                     $aiResponse = $interpreted['reply'] ?? null;
-                    $meta = $interpreted;
-                    unset($meta['reply']);
-
-                    if (!$aiResponse) {
-                        $aiResponse = $this->getGuestResponse($userMessage);
-                        $meta = ['source' => 'guest_fallback'];
+                    $meta = is_array($interpreted) ? $interpreted : [];
+                    if (isset($meta['reply'])) {
+                        unset($meta['reply']);
                     }
+                    $meta['user_role'] = 'guest';
+                    $meta['context_refreshed_at'] = now()->toIso8601String();
                 } catch (\Exception $e) {
+                    Log::warning('Guest interpreter error: ' . $e->getMessage());
+                }
+
+                // Fallback if no response
+                if (!$aiResponse || !is_string($aiResponse)) {
                     $aiResponse = $this->getGuestResponse($userMessage);
-                    $meta = ['source' => 'guest_fallback', 'error' => $e->getMessage()];
+                    $meta = ['source' => 'guest_fallback'];
                 }
 
                 return response()->json([
@@ -125,31 +135,66 @@ class ChatbotController extends Controller
             try {
                 $interpreted = $this->chatbotService->interpretAndRespond($userId, $userMessage);
                 $aiResponse = $interpreted['reply'] ?? null;
-                $meta = $interpreted;
+                $meta = is_array($interpreted) ? $interpreted : [];
                 unset($meta['reply']);
                 
-                if (!$aiResponse) {
-                    // Fallback to previous AI pipeline only if interpreter returned nothing
+                // If interpreter provided a high-confidence response, use it
+                if ($aiResponse && (!isset($meta['confidence']) || $meta['confidence'] >= 0.7)) {
+                    $meta['source'] = 'pattern_match';
+                } else if ($aiResponse) {
+                    // Low confidence from interpreter - try AI API
                     $context = $this->buildContext($userId, $recentMessages);
-                    $aiResponse = $this->getAIResponse($userMessage, $context);
-                    $meta = ['source' => 'huggingface'];
+                    $aiResult = $this->getAIResponse($userMessage, $context);
+                    $aiResponse = $aiResult['response'];
+                    $meta = is_array($aiResult) ? $aiResult : [];
+                    $meta['fallback_reason'] = 'interpreter_low_confidence';
+                } else {
+                    // No response from interpreter - try AI API
+                    $context = $this->buildContext($userId, $recentMessages);
+                    $aiResult = $this->getAIResponse($userMessage, $context);
+                    $aiResponse = $aiResult['response'];
+                    $meta = is_array($aiResult) ? $aiResult : [];
                 }
             } catch (\Exception $interpreterError) {
                 Log::error('Interpreter error: ' . $interpreterError->getMessage(), [
                     'user_id' => $userId,
-                    'message' => $userMessage,
-                    'trace' => $interpreterError->getTraceAsString()
+                    'message' => $userMessage
                 ]);
                 
-                // Fallback to simple response
+                // Fallback to AI API
+                try {
+                    $context = $this->buildContext($userId, $recentMessages);
+                    $aiResult = $this->getAIResponse($userMessage, $context);
+                    $aiResponse = $aiResult['response'];
+                    $meta = is_array($aiResult) ? $aiResult : [];
+                    $meta['fallback_reason'] = 'interpreter_exception';
+                } catch (\Exception $e) {
+                    Log::error('Both interpreter and AI API failed', ['error' => $e->getMessage()]);
+                    $aiResponse = "I'm here to help! You can ask me about booking appointments, available services, or checking your appointment status.";
+                    $meta = ['source' => 'fallback', 'error' => 'All systems unavailable'];
+                }
+            }
+
+            // Ensure response is valid and not empty
+            if (!$aiResponse || !is_string($aiResponse)) {
+                Log::warning('Empty or invalid AI response, using fallback', [
+                    'user_id' => $userId,
+                    'message' => $userMessage,
+                    'response' => $aiResponse
+                ]);
                 $aiResponse = "I'm here to help! You can ask me about booking appointments, available services, or checking your appointment status.";
-                $meta = ['source' => 'fallback', 'error' => 'Interpreter unavailable'];
+                $meta = ['source' => 'fallback', 'reason' => 'empty_response'];
             }
 
             // Ensure response is not too long for database
             if (strlen($aiResponse) > 5000) {
                 $aiResponse = substr($aiResponse, 0, 4997) . '...';
             }
+
+            // Ensure role/context metadata is always present for the frontend
+            $meta = is_array($meta) ? $meta : [];
+            $meta['user_role'] = $meta['user_role'] ?? ($userId ? (auth()->user()?->getRoleNames()->first() ?? 'user') : 'guest');
+            $meta['context_refreshed_at'] = $meta['context_refreshed_at'] ?? now()->toIso8601String();
 
             // Save AI message
             ChatMessage::create([
@@ -210,101 +255,221 @@ class ChatbotController extends Controller
     }
 
     /**
-     * Get response from Hugging Face API
+     * Get response from Hugging Face API with improved error handling
      */
     private function getAIResponse($userMessage, $context)
     {
         try {
-            $prompt = $context . "\nCustomer: " . $userMessage . "\nAssistant:";
-
-            // Get token from environment variable
             $token = env('HUGGINGFACE_API_KEY');
             if (!$token) {
-                Log::warning('HUGGINGFACE_API_KEY not configured');
-                return $this->getFallbackResponse($userMessage);
+                Log::warning('HUGGINGFACE_API_KEY not configured - using fallback');
+                return [
+                    'response' => $this->getFallbackResponse($userMessage),
+                    'source' => 'pattern_match',
+                    'confidence' => 0.3,
+                    'api_key_configured' => false,
+                    'error' => 'API token not configured'
+                ];
             }
 
-            // Call Hugging Face API
-            $response = Http::withToken($token)
-                ->timeout(30)
-                ->post(self::HF_API_URL, [
-                    'inputs' => $prompt,
-                    'parameters' => [
-                        'max_length' => 200,
-                        'do_sample' => true,
-                        'temperature' => 0.7
-                    ]
-                ]);
+            // Build better prompt with system instructions
+            $systemInstructions = "You are a helpful assistant for a professional appointment booking system. ";
+            $systemInstructions .= "Be concise (2-3 sentences max), professional, and helpful. ";
+            $systemInstructions .= "If you don't know something, suggest contacting support.\n\n";
+            
+            $prompt = $systemInstructions . "Context:\n" . $context . "\n\nCustomer Question: " . $userMessage . "\n\nHelpful Response:";
 
-            if ($response->failed()) {
-                Log::warning('Hugging Face API error: ' . $response->body());
-                
-                // Return a fallback response
-                return $this->getFallbackResponse($userMessage);
+            Log::debug('HuggingFace API request', [
+                'message' => $userMessage,
+                'prompt_length' => strlen($prompt)
+            ]);
+
+            // Call Hugging Face API with retry logic
+            $maxRetries = 2;
+            $attempt = 0;
+            $lastError = null;
+
+            while ($attempt < $maxRetries) {
+                try {
+                    $response = Http::withToken($token)
+                        ->timeout(15)
+                        ->post(self::HF_API_URL, [
+                            'inputs' => $prompt,
+                            'parameters' => [
+                                'max_length' => 150,
+                                'min_length' => 20,
+                                'do_sample' => false,
+                                'early_stopping' => true
+                            ]
+                        ]);
+
+                    if ($response->successful()) {
+                        $data = $response->json();
+                        
+                        // Validate response structure
+                        if (is_array($data) && isset($data[0]['generated_text'])) {
+                            $generatedText = $data[0]['generated_text'];
+                            
+                            // Extract just the assistant's response
+                            $assistantResponse = str_replace($prompt, '', $generatedText);
+                            $assistantResponse = trim($assistantResponse);
+                            $assistantResponse = preg_replace('/^(Response|Assistant):\s*/i', '', $assistantResponse);
+                            
+                            if (!empty($assistantResponse) && strlen($assistantResponse) > 10) {
+                                Log::info('HuggingFace API success', [
+                                    'attempt' => $attempt + 1,
+                                    'response_length' => strlen($assistantResponse)
+                                ]);
+
+                                return [
+                                    'response' => $assistantResponse,
+                                    'source' => 'huggingface_ai',
+                                    'confidence' => 0.95,
+                                    'model' => 'flan-t5-small',
+                                    'api_key_configured' => true
+                                ];
+                            }
+                        }
+                    } else {
+                        $lastError = 'HTTP ' . $response->status() . ': ' . substr($response->body(), 0, 200);
+                        Log::warning('HuggingFace API error', [
+                            'attempt' => $attempt + 1,
+                            'status' => $response->status(),
+                            'error' => $lastError
+                        ]);
+                    }
+                } catch (\Exception $e) {
+                    $lastError = $e->getMessage();
+                    Log::warning('HuggingFace API exception on attempt ' . ($attempt + 1) . ': ' . $lastError);
+                }
+
+                $attempt++;
+                if ($attempt < $maxRetries) {
+                    sleep(1); // Brief delay before retry
+                }
             }
 
-            $data = $response->json();
+            // All retries failed - return fallback
+            Log::warning('HuggingFace API failed after ' . $maxRetries . ' attempts: ' . $lastError);
+            return [
+                'response' => $this->getFallbackResponse($userMessage),
+                'source' => 'pattern_match',
+                'confidence' => 0.4,
+                'api_key_configured' => true,
+                'error' => 'HuggingFace API unavailable'
+            ];
 
-            // Extract the generated text
-            if (isset($data[0]['generated_text'])) {
-                $generatedText = $data[0]['generated_text'];
-                
-                // Extract just the assistant's response (after the prompt)
-                $assistantResponse = str_replace($prompt, '', $generatedText);
-                $assistantResponse = trim($assistantResponse);
-                
-                // Clean up the response
-                $assistantResponse = preg_replace('/^Assistant:\s*/i', '', $assistantResponse);
-                
-                return $assistantResponse ?: $this->getFallbackResponse($userMessage);
-            }
-
-            return $this->getFallbackResponse($userMessage);
         } catch (\Exception $e) {
-            Log::error('Hugging Face API exception: ' . $e->getMessage());
-            return $this->getFallbackResponse($userMessage);
+            Log::error('HuggingFace API critical error: ' . $e->getMessage(), [
+                'trace' => $e->getTraceAsString()
+            ]);
+            return [
+                'response' => $this->getFallbackResponse($userMessage),
+                'source' => 'pattern_match',
+                'confidence' => 0.3,
+                'api_key_configured' => true,
+                'error' => $e->getMessage()
+            ];
         }
     }
 
     /**
      * Get a fallback response when API fails
+     * Uses dynamic data from database instead of hardcoded responses
      */
     private function getFallbackResponse($userMessage)
     {
-        // No hardcoded responses: rely on interpreter, else minimal generic notice
-        return "I can provide a real-time answer once I am connected to the system's database and context.";
+        $lower = mb_strtolower(trim($userMessage));
+        
+        try {
+            // Try to fetch real data for responses
+            if (preg_match('/(book|appointment|schedule|reserve)/i', $lower)) {
+                $appointmentCount = \App\Models\Appointment::count();
+                return "You can book an appointment through your dashboard. We have received $appointmentCount appointments so far. Select your preferred date, time, and service. Your appointment will be pending approval.";
+            }
+            
+            if (preg_match('/(service|what.*offer|available)/i', $lower)) {
+                $services = \App\Models\Service::where('is_active', true)->get();
+                if ($services->count() > 0) {
+                    $serviceList = $services->pluck('name')->implode(', ');
+                    return "We offer the following services: $serviceList. Log in to view detailed descriptions, pricing, and availability.";
+                }
+                return "We offer professional services. Log in to view our complete service catalog with detailed descriptions and pricing.";
+            }
+            
+            if (preg_match('/(hour|time|when|open|business)/i', $lower)) {
+                $settings = \App\Models\AppointmentSettings::first();
+                if ($settings && $settings->business_hours) {
+                    return "Our business hours are: " . $settings->business_hours . ". You can book appointments during these times.";
+                }
+                return "Our services are available during business hours. For specific hours, please log in to your account or contact us.";
+            }
+            
+            if (preg_match('/(price|cost|fee|how much|charge)/i', $lower)) {
+                $priceRange = \App\Models\Service::where('is_active', true)
+                    ->selectRaw('MIN(price) as min_price, MAX(price) as max_price')
+                    ->first();
+                if ($priceRange && $priceRange->min_price) {
+                    return "Service pricing ranges from \$" . number_format($priceRange->min_price, 2) . " to \$" . number_format($priceRange->max_price, 2) . ". Log in to view prices for specific services.";
+                }
+                return "Service pricing varies based on the type. Please log in to view current rates.";
+            }
+            
+            if (preg_match('/(cancel|reschedule|change|modify)/i', $lower)) {
+                return "You can manage your appointments from your dashboard. To cancel or reschedule, visit the Appointments section and select the appointment you want to modify.";
+            }
+            
+            if (preg_match('/(status|pending|approved|completed)/i', $lower)) {
+                return "Check your appointment status in your dashboard. Pending appointments are awaiting approval, approved ones are confirmed, and completed ones are in your history.";
+            }
+        } catch (\Exception $e) {
+            Log::debug('Error fetching real data for fallback response: ' . $e->getMessage());
+            // Continue to hardcoded fallback
+        }
+        
+        // Fallback for queries we couldn't match
+        return "I can help you with appointments, services, pricing, and more. Please feel free to ask specific questions, and I'll provide detailed assistance.";
     }
 
     /**
      * Get response for guest users (not authenticated)
+     * Uses dynamic data when available
      */
     private function getGuestResponse($userMessage)
     {
         $lowerMessage = strtolower(trim($userMessage));
         
-        // Simple pattern matching for common questions
-        if (preg_match('/(book|appointment|schedule|reserve)/i', $lowerMessage)) {
-            return "To book an appointment, please register or log in to your account. You'll be able to view available time slots and choose a convenient appointment time.";
-        }
-        
-        if (preg_match('/(service|offer|what do you)/i', $lowerMessage)) {
-            return "We offer various professional services. Please register or log in to view our complete service catalog with detailed descriptions and pricing.";
-        }
-        
-        if (preg_match('/(hour|time|when|open)/i', $lowerMessage)) {
-            return "Our business hours and availability can be viewed after you register or log in. This ensures you get the most up-to-date information.";
-        }
-        
-        if (preg_match('/(price|cost|fee|how much)/i', $lowerMessage)) {
-            return "For pricing information, please register or log in to access our full service catalog with current rates.";
-        }
-        
-        if (preg_match('/(register|sign up|create account)/i', $lowerMessage)) {
-            return "You can register by clicking the 'Register' button. Registration is quick and easy - just provide your email and create a password to get started!";
-        }
-        
-        if (preg_match('/(login|log in|sign in)/i', $lowerMessage)) {
-            return "Please click the 'Login' button at the top right to access your account. If you don't have an account yet, you can register for free!";
+        try {
+            // Pattern matching with dynamic data fallback
+            if (preg_match('/(book|appointment|schedule|reserve)/i', $lowerMessage)) {
+                return "To book an appointment, please register or log in to your account. You'll be able to view available time slots and choose a convenient appointment time.";
+            }
+            
+            if (preg_match('/(service|offer|what do you)/i', $lowerMessage)) {
+                $serviceCount = \App\Models\Service::where('is_active', true)->count();
+                if ($serviceCount > 0) {
+                    return "We offer $serviceCount professional services. Please register or log in to view our complete service catalog with detailed descriptions and pricing.";
+                }
+                return "We offer various professional services. Please register or log in to view our complete service catalog.";
+            }
+            
+            if (preg_match('/(hour|time|when|open)/i', $lowerMessage)) {
+                return "Our business hours and availability can be viewed after you register or log in. This ensures you get the most up-to-date information.";
+            }
+            
+            if (preg_match('/(price|cost|fee|how much)/i', $lowerMessage)) {
+                return "For pricing information, please register or log in to access our full service catalog with current rates.";
+            }
+            
+            if (preg_match('/(register|sign up|create account)/i', $lowerMessage)) {
+                return "You can register by clicking the 'Register' button. Registration is quick and easy - just provide your email and create a password to get started!";
+            }
+            
+            if (preg_match('/(login|log in|sign in)/i', $lowerMessage)) {
+                return "Please click the 'Login' button at the top right to access your account. If you don't have an account yet, you can register for free!";
+            }
+        } catch (\Exception $e) {
+            Log::debug('Error building guest response: ' . $e->getMessage());
         }
         
         // Default guest response
@@ -394,6 +559,7 @@ class ChatbotController extends Controller
 
     /**
      * Save chatbot message to Messages section for both user and admin visibility
+     * Supports both authenticated users and guests (silently skips for guests)
      */
     public function saveMessageToMessageCenter(Request $request)
     {
@@ -408,6 +574,22 @@ class ChatbotController extends Controller
             $message = $request->input('message');
             $role = $request->input('role');
             $conversationId = $request->input('conversation_id');
+
+            // For guests, silently skip persistence but return success
+            // This prevents 401 errors on frontend and allows graceful degradation
+            if (!$userId) {
+                Log::debug('Skipping message persistence for guest user', [
+                    'conversation_id' => $conversationId,
+                    'message_length' => strlen($message)
+                ]);
+                
+                return response()->json([
+                    'success' => true,
+                    'data' => null,
+                    'message' => 'Message not persisted (guest user)',
+                    'is_guest' => true
+                ]);
+            }
 
             // Determine sender and receiver based on role
             // For user messages: sender is the current user, receiver is the admin
@@ -458,36 +640,73 @@ class ChatbotController extends Controller
                 'errors' => $e->errors()
             ], 422);
         } catch (\Exception $e) {
-            Log::error('Save message to Message Center error: ' . $e->getMessage());
+            Log::error('Save message to Message Center error: ' . $e->getMessage(), [
+                'user_id' => auth()->id(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to save message',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'An error occurred while saving your message.'
             ], 500);
         }
     }
 
     /**
      * Get the admin user ID (first user with admin role)
+     * Falls back gracefully if no admin role is found
      */
     private function getAdminUserId()
     {
         try {
-            // Try to find a user with admin role
-            $adminUser = \App\Models\User::role('admin')->first();
-            
-            if ($adminUser) {
-                return $adminUser->id;
+            // Allow explicit override via env/config so deployments can pin an admin
+            $configuredId = (int) env('CHATBOT_ADMIN_USER_ID', 0);
+            if ($configuredId > 0) {
+                $configuredUser = User::find($configuredId);
+                if ($configuredUser) {
+                    return $configuredUser->id;
+                }
             }
 
-            // Fallback: get user with ID 1 (usually the first/admin user)
-            $user = \App\Models\User::find(1);
+            // Try to find a user with admin role
+            try {
+                $adminUser = User::role('admin')->first();
+                if ($adminUser) {
+                    return $adminUser->id;
+                }
+            } catch (\Exception $roleError) {
+                Log::debug('Admin role not found, trying alternative methods: ' . $roleError->getMessage());
+            }
+
+            // Fallback: Try to get the most privileged user (usually first user or creator)
+            // Look for users with is_active status (more likely to be admin)
+            $user = User::where('is_active', true)
+                ->orderBy('id', 'asc')
+                ->first();
+            
             if ($user) {
                 return $user->id;
             }
 
-            // If no admin found, return null (will be handled by client)
-            return null;
+            // Last resort: get any user
+            $user = User::first();
+            if ($user) {
+                return $user->id;
+            }
+
+            // If no user exists at all, create a lightweight system user to avoid NULL FK errors
+            $systemUser = User::create([
+                'username' => 'chatbot-admin',
+                'email' => 'chatbot-admin@system.local',
+                'password' => Hash::make(Str::random(32)),
+                'role' => 'admin',
+                'first_name' => 'Chatbot',
+                'last_name' => 'Admin',
+                'is_active' => true,
+            ]);
+
+            return $systemUser->id ?? null;
         } catch (\Exception $e) {
             Log::warning('Could not determine admin user: ' . $e->getMessage());
             return null;

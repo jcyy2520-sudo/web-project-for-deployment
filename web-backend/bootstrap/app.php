@@ -11,6 +11,17 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
     )
+    ->withSchedule(function ($schedule) {
+        // Send appointment reminders every minute
+        $schedule->command('appointments:send-reminders')
+            ->everyMinute()
+            ->withoutOverlapping()
+            ->runInBackground();
+        
+        // Clean up expired verification codes daily at 2 AM
+        $schedule->command('cleanup:verification-codes')
+            ->dailyAt('02:00');
+    })
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->alias([
             'role' => \App\Http\Middleware\RoleMiddleware::class,

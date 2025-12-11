@@ -41,12 +41,21 @@ class AppointmentController extends Controller
     // Helper method to fetch appointments
     private function fetchAppointments($request)
     {
-        $query = Appointment::with(['user:id,email,first_name,last_name', 'staff:id,email,first_name,last_name', 'service:id,name,price'])
+        $query = Appointment::with([
+            'user:id,email,first_name,last_name,phone', 
+            'staff:id,email,first_name,last_name', 
+            'service:id,name,price',
+            'cashier:id,first_name,last_name',
+            'refunds'
+        ])
             ->select([
                 'id', 'user_id', 'staff_id', 'type', 'service_id', 'service_type',
                 'appointment_date', 'appointment_time', 'purpose', 'status',
-                'notes', 'created_at', 'updated_at'
-            ]); // OPTIMIZATION: Only select needed columns
+                'notes', 'staff_notes', 'completion_notes', 'completed_at', 'completed_by',
+                'payment_status', 'payment_amount', 'discount_amount', 'original_price',
+                'payment_type', 'payment_date', 'processed_by', 'payment_notes',
+                'created_at', 'updated_at'
+            ]); // Include payment information for refunds
 
         if ($request->user()->isClient()) {
             $query->where('user_id', $request->user()->id);
@@ -388,6 +397,18 @@ class AppointmentController extends Controller
             } catch (\Exception $e) {
                 \Log::error('Failed to send status email: ' . $e->getMessage());
             }
+
+            // If status changed to approved, notify cashiers
+            if ($request->status === 'approved') {
+                try {
+                    $appointment->refresh();
+                    $appointment->load(['user', 'staff', 'service']);
+                    \App\Services\NotificationService::appointmentApproved($appointment);
+                    \App\Services\NotificationService::notifyCashiersAppointmentApproved($appointment);
+                } catch (\Exception $e) {
+                    \Log::error('Failed to notify cashiers: ' . $e->getMessage());
+                }
+            }
         }
 
         // Invalidate stats cache when appointment status changes (especially important for completed status which affects revenue)
@@ -470,6 +491,12 @@ class AppointmentController extends Controller
                         'read' => false
                     ]);
                     
+                    // Create in-app notification for the client
+                    \App\Services\NotificationService::appointmentApproved($appointment);
+                    
+                    // Notify all cashiers about the new approved appointment ready for payment
+                    \App\Services\NotificationService::notifyCashiersAppointmentApproved($appointment);
+                    
                 } catch (\Exception $e) {
                     \Log::error('Failed to send approval email or create message: ' . $e->getMessage());
                     \Log::error('Exception trace: ' . $e->getTraceAsString());
@@ -477,13 +504,14 @@ class AppointmentController extends Controller
                 }
             }
 
+            // Broadcast approval
+            $this->broadcastAppointmentUpdate($appointment);
+
             return response()->json([
                 'message' => 'Appointment approved successfully',
                 'data' => $appointment->load(['user', 'staff', 'service']),
                 'success' => true
             ]);
-            // Broadcast approval
-            $this->broadcastAppointmentUpdate($appointment);
         } catch (\Exception $e) {
             \Log::error('Approve method error: ' . $e->getMessage());
             \Log::error('Exception trace: ' . $e->getTraceAsString());
@@ -568,6 +596,9 @@ class AppointmentController extends Controller
                         'read' => false
                     ]);
                     
+                    // Create in-app notification
+                    \App\Services\NotificationService::appointmentDeclined($appointment, $declineReason);
+                    
                 } catch (\Exception $e) {
                     \Log::error('Failed to send decline email or create message: ' . $e->getMessage());
                     \Log::error('Exception trace: ' . $e->getTraceAsString());
@@ -575,13 +606,14 @@ class AppointmentController extends Controller
                 }
             }
 
+            // Broadcast decline
+            $this->broadcastAppointmentUpdate($appointment);
+
             return response()->json([
                 'message' => 'Appointment declined successfully',
                 'data' => $appointment->load(['user', 'staff', 'service']),
                 'success' => true
             ]);
-            // Broadcast decline
-            $this->broadcastAppointmentUpdate($appointment);
         } catch (\Exception $e) {
             \Log::error('Decline method error: ' . $e->getMessage());
             \Log::error('Exception trace: ' . $e->getTraceAsString());
@@ -673,6 +705,9 @@ class AppointmentController extends Controller
                     'type' => 'appointment_completion'
                 ]);
                 
+                // Create in-app notification
+                \App\Services\NotificationService::appointmentCompleted($appointment);
+                
             } catch (\Exception $e) {
                 \Log::error('Failed to send completion email or create message: ' . $e->getMessage());
                 \Log::error('Exception trace: ' . $e->getTraceAsString());
@@ -680,13 +715,14 @@ class AppointmentController extends Controller
             }
         }
 
+        // Broadcast completion
+        $this->broadcastAppointmentUpdate($appointment);
+
         return response()->json([
             'message' => 'Appointment marked as completed successfully',
             'data' => $appointment->load(['user', 'staff', 'service', 'completedBy']),
             'success' => true
         ]);
-        // Broadcast completion
-        $this->broadcastAppointmentUpdate($appointment);
     }
 
     public function assignStaff(Request $request, Appointment $appointment)

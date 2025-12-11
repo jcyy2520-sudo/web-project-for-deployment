@@ -5,6 +5,7 @@ import LoadingSpinner from './components/ui/LoadingSpinner';
 import ErrorBoundary from './components/ErrorBoundary';
 import ToastContainer from './components/notifications/ToastContainer';
 import ChatbotButton from './components/chatbot/ChatbotButton';
+import InstallPrompt from './components/InstallPrompt';
 import ConnectionTest from './components/ConnectionTest';
 import './css/animations.css';
 import { debugApiConfig } from './utils/debugApi';
@@ -78,7 +79,7 @@ const PublicRoute = ({ children }) => {
 // AppContent component to prevent layout shifts
 const AppContent = () => {
   const { loading } = useAuth();
-  const [showTest, setShowTest] = useState(true); // Start with test visible
+  const [showTest, setShowTest] = useState(false); // Hidden by default
 
   // Removed unnecessary 100ms delay - it was causing perceived slowness
   // Direct render when auth is ready provides better UX
@@ -243,7 +244,9 @@ function App() {
         <div className="min-h-screen bg-gray-900">
           <ToastContainer isDarkMode={true} />
           <AppContent />
+          {/* Chatbot enabled after fixes to nullable userId and endpoint routing */}
           <ChatbotButton />
+          <InstallPrompt />
         </div>
       </Router>
     </AuthProvider>

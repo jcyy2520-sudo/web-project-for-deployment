@@ -21,20 +21,65 @@ const ChatbotModal = ({ onClose }) => {
   const [suggestedQuestions, setSuggestedQuestions] = useState([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(true);
 
+  // Fallback questions for when API fails or returns empty
+  const FALLBACK_QUESTIONS = [
+    "How do I book an appointment?",
+    "What services do you offer?",
+    "How do I register?",
+    "What are your business hours?"
+  ];
+
   // Fetch suggested questions on mount
   useEffect(() => {
     fetchSuggestedQuestions();
   }, []);
 
+  // Listen for suggestion click events from ChatbotMessage
+  useEffect(() => {
+    const handleSuggestionClick = (event) => {
+      const suggestion = event.detail;
+      if (suggestion) {
+        sendMessage(suggestion);
+      }
+    };
+
+    window.addEventListener('chatbot-suggestion', handleSuggestionClick);
+    return () => window.removeEventListener('chatbot-suggestion', handleSuggestionClick);
+  }, [sendMessage]);
+
   const fetchSuggestedQuestions = async () => {
     try {
       setLoadingSuggestions(true);
       const response = await axios.get('/api/chatbot/suggested-questions');
-      if (response.data.success) {
-        setSuggestedQuestions(response.data.data || []);
+      
+      // Validate response structure
+      if (!response.data) {
+        setSuggestedQuestions(FALLBACK_QUESTIONS);
+        return;
+      }
+
+      // Check success flag and data array
+      if (response.data.success === false) {
+        setSuggestedQuestions(FALLBACK_QUESTIONS);
+        return;
+      }
+
+      // Validate data is an array
+      if (!Array.isArray(response.data.data)) {
+        setSuggestedQuestions(FALLBACK_QUESTIONS);
+        return;
+      }
+
+      // Use API data if available, otherwise fallback
+      if (response.data.data.length > 0) {
+        setSuggestedQuestions(response.data.data);
+      } else {
+        setSuggestedQuestions(FALLBACK_QUESTIONS);
       }
     } catch (err) {
       console.error('Failed to fetch suggested questions:', err);
+      // Use fallback questions on error
+      setSuggestedQuestions(FALLBACK_QUESTIONS);
     } finally {
       setLoadingSuggestions(false);
     }
@@ -123,7 +168,7 @@ const ChatbotModal = ({ onClose }) => {
               <p className="text-sm text-gray-400 mb-6">Ask me anything about your appointments</p>
 
               {/* Suggested Questions (dynamic from assistant or default suggestions) */}
-              {lastSuggestions && lastSuggestions.length > 0 ? (
+              {lastSuggestions && Array.isArray(lastSuggestions) && lastSuggestions.length > 0 ? (
                 <div className="w-full space-y-2 mb-4">
                   {lastSuggestions.map((question, idx) => (
                     <button
@@ -148,7 +193,7 @@ const ChatbotModal = ({ onClose }) => {
                     <div className="w-2 h-2 bg-amber-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
                   </div>
                 </div>
-              ) : suggestedQuestions.length > 0 ? (
+              ) : Array.isArray(suggestedQuestions) && suggestedQuestions.length > 0 ? (
                 <div className="w-full space-y-2">
                   {suggestedQuestions.map((question, index) => (
                     <button
@@ -165,7 +210,9 @@ const ChatbotModal = ({ onClose }) => {
                     </button>
                   ))}
                 </div>
-              ) : null}
+              ) : (
+                <p className="text-sm text-gray-500">Feel free to ask me anything!</p>
+              )}
             </div>
           ) : (
             <>

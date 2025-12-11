@@ -11,6 +11,10 @@ return new class extends Migration
      */
     public function up(): void
     {
+        if (!Schema::hasTable('payments')) {
+            return;
+        }
+
         Schema::table('payments', function (Blueprint $table) {
             // Discount fields for PWD, Senior Citizen, Student
             $table->boolean('is_pwd')->default(false)->after('notes');

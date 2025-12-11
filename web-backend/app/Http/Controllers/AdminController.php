@@ -1051,5 +1051,93 @@ class AdminController extends Controller
         }
     }
 
+    /**
+     * Send bulk message to multiple users
+     * POST /api/admin/send-bulk-message
+     * Used for notifying affected users without cancelling their appointments
+     */
+    public function sendBulkMessage(Request $request)
+    {
+        try {
+            $request->validate([
+                'user_ids' => 'required|array|min:1',
+                'user_ids.*' => 'integer|exists:users,id',
+                'message' => 'required|string|max:2000',
+                'subject' => 'required|string|max:255',
+                'appointment_ids' => 'nullable|array',
+                'date' => 'nullable|date'
+            ]);
+
+            $userIds = $request->input('user_ids');
+            $messageContent = $request->input('message');
+            $subject = $request->input('subject');
+            $appointmentIds = $request->input('appointment_ids', []);
+            $date = $request->input('date');
+
+            $successCount = 0;
+            $failedCount = 0;
+
+            foreach ($userIds as $userId) {
+                try {
+                    // Create in-app message
+                    \App\Models\Message::create([
+                        'sender_id' => auth()->id(),
+                        'receiver_id' => $userId,
+                        'subject' => $subject,
+                        'message' => $messageContent,
+                        'type' => 'notification',
+                        'read' => false
+                    ]);
+
+                    // Send email notification
+                    $user = User::find($userId);
+                    if ($user && $user->email) {
+                        try {
+                            Mail::to($user->email)->send(
+                                new AdminMessageMail($user, $subject, $messageContent, 'notification')
+                            );
+                        } catch (\Exception $e) {
+                            \Log::error('Failed to send email to user ' . $userId . ': ' . $e->getMessage());
+                        }
+                    }
+
+                    $successCount++;
+                } catch (\Exception $e) {
+                    \Log::error('Failed to send message to user ' . $userId . ': ' . $e->getMessage());
+                    $failedCount++;
+                }
+            }
+
+            // Log the action
+            \App\Models\ActionLog::log(
+                'send_bulk_message',
+                "Sent message to {$successCount} users" . ($date ? " regarding date {$date}" : ''),
+                'Message',
+                null
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => "Message sent to {$successCount} user" . ($successCount !== 1 ? 's' : ''),
+                'sent_count' => $successCount,
+                'failed_count' => $failedCount
+            ]);
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation error',
+                'errors' => $e->errors()
+            ], 422);
+        } catch (\Exception $e) {
+            \Log::error('Error sending bulk message: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to send message',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
     // Attorney methods removed
 }

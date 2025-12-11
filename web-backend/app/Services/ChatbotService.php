@@ -4,6 +4,8 @@ namespace App\Services;
 
 use App\Models\Appointment;
 use App\Models\AppointmentSettings;
+use App\Models\Payment;
+use App\Models\Refund;
 use App\Models\Service;
 use App\Models\User;
 use Carbon\Carbon;
@@ -13,9 +15,99 @@ use Illuminate\Support\Facades\Log;
  * ChatbotService - Advanced AI assistant with fuzzy understanding
  * Provides dynamic, real-time system data with intelligent message interpretation
  * Supports natural language understanding including misspellings, slang, Taglish, and broken grammar
+ * 
+ * ✅ Role-Aware Responses - Different handling for Client, Admin, Cashier
+ * ✅ Real-Time Data Integration - Always uses current database values
+ * ✅ Action-Based Capabilities - Execute system operations through chat
+ * ✅ NLU with Fuzzy Matching - Handles typos, slang, Taglish
+ * ✅ Security Enforcement - Role-based permission checks
  */
 class ChatbotService
 {
+    /**
+     * Action intent patterns for detecting action-based commands
+     */
+    private array $actionIntentPatterns = [
+        'approve_appointment' => [
+            'patterns' => ['approve appointment', 'approve booking', 'confirm appointment', 'accept appointment'],
+            'keywords' => ['approve', 'confirm', 'accept'],
+            'requires_id' => true,
+            'roles' => ['admin', 'staff'],
+        ],
+        'decline_appointment' => [
+            'patterns' => ['decline appointment', 'reject appointment', 'deny appointment'],
+            'keywords' => ['decline', 'reject', 'deny'],
+            'requires_id' => true,
+            'roles' => ['admin', 'staff'],
+        ],
+        'cancel_appointment' => [
+            'patterns' => ['cancel appointment', 'cancel booking', 'cancel my appointment'],
+            'keywords' => ['cancel'],
+            'requires_id' => true,
+            'roles' => ['client', 'admin', 'staff'],
+        ],
+        'complete_appointment' => [
+            'patterns' => ['complete appointment', 'mark complete', 'finish appointment', 'mark as done'],
+            'keywords' => ['complete', 'finish', 'done'],
+            'requires_id' => true,
+            'roles' => ['admin', 'staff'],
+        ],
+        'process_payment' => [
+            'patterns' => ['process payment', 'collect payment', 'mark as paid', 'payment received'],
+            'keywords' => ['process payment', 'collect', 'paid'],
+            'requires_id' => true,
+            'roles' => ['cashier', 'admin'],
+        ],
+        'approve_refund' => [
+            'patterns' => ['approve refund', 'accept refund', 'confirm refund'],
+            'keywords' => ['approve refund', 'accept refund'],
+            'requires_id' => true,
+            'roles' => ['cashier', 'admin'],
+        ],
+        'process_refund' => [
+            'patterns' => ['process refund', 'complete refund', 'issue refund'],
+            'keywords' => ['process refund', 'issue refund'],
+            'requires_id' => true,
+            'roles' => ['cashier', 'admin'],
+        ],
+        'request_refund' => [
+            'patterns' => ['request refund', 'want refund', 'get refund', 'ask for refund'],
+            'keywords' => ['request refund', 'want refund', 'my money back'],
+            'requires_id' => true,
+            'roles' => ['client'],
+        ],
+        'view_pending_appointments' => [
+            'patterns' => ['show pending', 'pending appointments', 'what needs approval', 'appointments to approve'],
+            'keywords' => ['pending', 'needs approval', 'waiting'],
+            'requires_id' => false,
+            'roles' => ['admin', 'staff', 'cashier'],
+        ],
+        'view_pending_payments' => [
+            'patterns' => ['pending payments', 'unpaid appointments', 'who needs to pay'],
+            'keywords' => ['pending payment', 'unpaid', 'collect payment'],
+            'requires_id' => false,
+            'roles' => ['cashier', 'admin'],
+        ],
+        'view_pending_refunds' => [
+            'patterns' => ['pending refunds', 'refund requests', 'refunds to process'],
+            'keywords' => ['pending refund', 'refund request'],
+            'requires_id' => false,
+            'roles' => ['cashier', 'admin'],
+        ],
+        'shift_report' => [
+            'patterns' => ['shift report', 'daily report', 'today report', 'my transactions'],
+            'keywords' => ['shift', 'daily report', 'cash summary'],
+            'requires_id' => false,
+            'roles' => ['cashier'],
+        ],
+        'system_health' => [
+            'patterns' => ['system status', 'system health', 'check system', 'any issues'],
+            'keywords' => ['system', 'health', 'status check'],
+            'requires_id' => false,
+            'roles' => ['admin'],
+        ],
+    ];
+
     /**
      * Get system context data for the current user or guest
      * This data is used to build a more intelligent system prompt
@@ -56,7 +148,7 @@ class ChatbotService
             'role_signals' => $this->getRoleSignals($userId),
             'appointments' => $this->getAppointmentsSummary($userId, $role),
             'availability' => $this->getAvailabilitySummary(),
-            'admin_metrics' => $role === 'admin' ? $this->getAdminMetrics() : null,
+            'admin_metrics' => in_array($role, ['admin', 'cashier']) ? $this->getAdminMetrics() : null,
             'trends' => $this->getTrends(),
             'limits' => $this->getUserLimits($userId),
             'messages' => $this->getMessagesSummary($userId),
@@ -71,9 +163,20 @@ class ChatbotService
             $context['staff_data'] = $this->getStaffData($userId);
         } elseif ($role === 'admin') {
             $context['admin_data'] = $this->getAdminData();
+        } elseif ($role === 'cashier') {
+            $context['cashier_data'] = $this->getCashierData($userId);
+            $context['admin_data'] = $this->getAdminData(); // Cashiers also need some admin metrics
         }
 
         return $context;
+    }
+
+    /**
+     * Get cashier-specific data
+     */
+    private function getCashierData($userId)
+    {
+        return ChatbotServiceEnhancements::getCashierData($userId);
     }
 
     /**
@@ -191,7 +294,17 @@ class ChatbotService
     /** Per-user booking limits and rules */
     private function getUserLimits(int $userId): array
     {
-        if (!class_exists(\App\Models\AppointmentSettings::class)) {
+        // Support either `AppointmentSettings` (preferred) or the legacy
+        // `AppointmentSetting` alias. This prevents fatal errors when one of
+        // the class names is missing due to legacy code or naming drift.
+        $settingsModel = null;
+        if (class_exists(\App\Models\AppointmentSettings::class)) {
+            $settingsModel = \App\Models\AppointmentSettings::class;
+        } elseif (class_exists(\App\Models\AppointmentSetting::class)) {
+            $settingsModel = \App\Models\AppointmentSetting::class;
+        }
+
+        if (!$settingsModel) {
             return [
                 'max_per_week' => null,
                 'same_day_allowed' => false,
@@ -200,7 +313,18 @@ class ChatbotService
             ];
         }
 
-        $settings = AppointmentSettings::query()->latest()->first();
+        try {
+            $settings = $settingsModel::query()->latest()->first();
+        } catch (\Throwable $e) {
+            Log::warning('Chatbot getUserLimits error: ' . $e->getMessage());
+            return [
+                'max_per_week' => null,
+                'same_day_allowed' => false,
+                'reschedule_window_days' => null,
+                'cancellation_window_days' => null,
+            ];
+        }
+
         return [
             'max_per_week' => $settings->max_per_week ?? null,
             'same_day_allowed' => (bool)($settings->allow_same_day ?? false),
@@ -356,7 +480,8 @@ class ChatbotService
             'total_clients' => $totalClients,
             'total_staff' => $totalStaff,
             'total_admins' => $totalAdmins,
-            'total_appointments' => Appointment::count(),
+            // Include soft-deleted appointments so totals reflect full system volume
+            'total_appointments' => Appointment::withTrashed()->count(),
             'today_appointments' => Appointment::whereDate('appointment_date', $today)->count(),
             'pending_appointments' => Appointment::where('status', 'pending')->count(),
             'approved_appointments' => Appointment::where('status', 'approved')->count(),
@@ -367,6 +492,7 @@ class ChatbotService
             'top_services' => $this->getTopServices(5),
             'appointment_completion_rate' => $this->getCompletionRate(),
             'cancellation_rate' => $this->getCancellationRate(),
+            'generated_at' => Carbon::now()->toIso8601String(),
         ];
     }
 
@@ -460,8 +586,13 @@ class ChatbotService
     /**
      * Get suggested questions based on user role and system state
      */
-    public function getSuggestedQuestions($userId)
+    public function getSuggestedQuestions(?int $userId)
     {
+        // For guests, return general questions
+        if (!$userId) {
+            return $this->getGeneralSuggestedQuestions();
+        }
+
         $user = User::find($userId);
         
         if (!$user) {
@@ -713,8 +844,12 @@ class ChatbotService
      * - Normalize misspellings/Taglish/slang
      * - Use DB-backed info where applicable
      * - Never invent data; if exact data requires deeper access, state limitation
+     *
+     * @param int|null $userId User ID (null for guests)
+     * @param string $message The user's message
+     * @return array Response with reply and metadata
      */
-    public function interpretAndRespond(int $userId, string $message): array
+    public function interpretAndRespond(?int $userId, string $message): array
     {
         $context = $this->getSystemContext($userId);
         $analysis = $this->analyzeMessage($message);
@@ -745,13 +880,56 @@ class ChatbotService
         }
         
         // Check actual user role first, then detect by intent
-        $actualRole = $context['user_role'] ?? 'client';
+        $actualRole = $context['user_role'] ?? 'guest';
+        
+        // ==================== ACTION-BASED COMMAND DETECTION ====================
+        // Check if this is an action command that should execute a system operation
+        $actionResult = $this->detectAndExecuteAction($normalized, $userId, $actualRole, $entities, $context);
+        if ($actionResult !== null) {
+            // Action was detected and processed
+            $actionResult['nlu'] = [
+                'normalized' => $analysis['normalized'],
+                'cleaned' => $analysis['cleaned'],
+                'intent' => $actionResult['action_intent'] ?? 'action',
+                'sentiment' => $analysis['sentiment']['label'] ?? null,
+                'sentiment_score' => $analysis['sentiment']['score'] ?? null,
+                'toxicity' => $analysis['sentiment']['toxicity'] ?? null,
+            ];
+            $actionResult['entities'] = $entities;
+            $actionResult['role_source'] = ['actual' => $actualRole, 'detected' => 'action'];
+            $actionResult['meta_source'] = 'action_handler';
+            $actionResult['reply'] = $this->applyToneToReply($actionResult['reply'], $analysis);
+            
+            // Add contextual suggestions based on the action result
+            if (empty($actionResult['suggestions'])) {
+                $actionResult['suggestions'] = $this->getActionFollowUpSuggestions($actionResult, $actualRole);
+            }
+            
+            return $actionResult;
+        }
+        // ==================== END ACTION DETECTION ====================
         $intentBasedRole = $this->detectRoleByIntent($normalized);
         
-        // Use actual role if user is admin/staff, otherwise use intent-based detection
-        $role = ($actualRole === 'admin' || $actualRole === 'staff' || $intentBasedRole === 'admin') 
-            ? 'admin' 
-            : 'client';
+        // Determine final role for handling based on actual authentication
+        if ($actualRole === 'admin') {
+            $role = 'admin';
+        } elseif ($actualRole === 'cashier') {
+            $role = 'cashier';
+        } elseif ($actualRole === 'staff') {
+            $role = 'admin'; // Staff uses admin-like responses
+        }
+        // If intent strongly suggests admin/cashier query but user is client, check permissions
+        elseif ($intentBasedRole === 'admin' && !empty($context['user_id'])) {
+            // Don't elevate client to admin based on intent alone - security measure
+            $role = 'client';
+        } elseif ($intentBasedRole === 'cashier' && !empty($context['user_id'])) {
+            // Don't elevate client to cashier based on intent alone - security measure
+            $role = 'client';
+        }
+        // Default to client
+        else {
+            $role = 'client';
+        }
 
         // Deterministic intents: for factual queries we prefer server-side answers
         $deterministicIntents = ['my_appointment','admin_counts','services','price','hours','address','availability','status','contact'];
@@ -824,6 +1002,8 @@ class ChatbotService
 
         if ($role === 'admin') {
             $resp = $this->handleAdminIntent($normalized, $context, $intent, $entities, $analysis);
+        } elseif ($role === 'cashier') {
+            $resp = $this->handleCashierIntent($normalized, $context, $intent, $entities, $analysis);
         } else {
             $resp = $this->handleClientIntent($normalized, $context, $intent, $entities, $analysis);
         }
@@ -860,6 +1040,327 @@ class ChatbotService
         $resp['reply'] = $this->applyToneToReply($resp['reply'], $analysis);
 
         return $resp;
+    }
+
+    /**
+     * Detect and execute action-based commands
+     * Returns null if no action detected, or the action result if executed
+     */
+    private function detectAndExecuteAction(string $normalized, ?int $userId, string $role, array $entities, ?array $context): ?array
+    {
+        // Check if ChatbotActionHandler exists
+        if (!class_exists(\App\Services\ChatbotActionHandler::class)) {
+            return null;
+        }
+
+        // Detect action intent
+        $actionIntent = $this->detectActionIntent($normalized, $role);
+        
+        if (!$actionIntent) {
+            return null;
+        }
+
+        Log::info('chatbot_action_detected', [
+            'user_id' => $userId,
+            'role' => $role,
+            'action_intent' => $actionIntent,
+            'normalized' => $normalized,
+        ]);
+
+        // Extract resource ID from message
+        $resourceId = $this->extractResourceId($normalized, $entities);
+
+        // Map action intent to action handler parameters
+        $actionParams = $this->mapActionIntentToParams($actionIntent, $resourceId, $userId, $role, $normalized, $entities);
+
+        if (!$actionParams) {
+            return null;
+        }
+
+        // Check if action requires ID but none provided
+        $intentConfig = $this->actionIntentPatterns[$actionIntent] ?? [];
+        if (($intentConfig['requires_id'] ?? false) && !$resourceId) {
+            return $this->buildMissingIdResponse($actionIntent, $role, $context);
+        }
+
+        // Execute the action
+        try {
+            $result = ChatbotActionHandler::executeAction($actionParams);
+            
+            // Build response
+            return [
+                'success' => $result['success'] ?? false,
+                'reply' => $result['message'] ?? 'Action processed.',
+                'action_intent' => $actionIntent,
+                'action_result' => $result,
+                'data' => $result['data'] ?? null,
+                'suggestions' => $this->getActionFollowUpSuggestions($result, $role),
+            ];
+        } catch (\Exception $e) {
+            Log::error('chatbot_action_error', [
+                'action_intent' => $actionIntent,
+                'error' => $e->getMessage(),
+            ]);
+            
+            return [
+                'success' => false,
+                'reply' => 'I encountered an error while processing that action. Please try again or contact support.',
+                'action_intent' => $actionIntent,
+                'error' => $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * Detect action intent from normalized text
+     */
+    private function detectActionIntent(string $normalized, string $role): ?string
+    {
+        $bestMatch = null;
+        $bestScore = 0.0;
+
+        foreach ($this->actionIntentPatterns as $intent => $config) {
+            // Check if user's role is allowed for this action
+            $allowedRoles = $config['roles'] ?? [];
+            if (!empty($allowedRoles) && !in_array($role, $allowedRoles) && !in_array('client', $allowedRoles)) {
+                continue;
+            }
+
+            $score = 0.0;
+
+            // Check exact patterns
+            foreach ($config['patterns'] ?? [] as $pattern) {
+                if (stripos($normalized, $pattern) !== false) {
+                    $score = max($score, 0.9);
+                }
+            }
+
+            // Check keywords
+            foreach ($config['keywords'] ?? [] as $keyword) {
+                if (stripos($normalized, $keyword) !== false) {
+                    $score = max($score, 0.7);
+                }
+            }
+
+            // Fuzzy matching if enhancements available
+            if (class_exists(\App\Services\ChatbotServiceEnhancements::class)) {
+                foreach ($config['patterns'] ?? [] as $pattern) {
+                    $fuzzyScore = ChatbotServiceEnhancements::fuzzySimilarity($normalized, $pattern);
+                    if ($fuzzyScore > 0.6) {
+                        $score = max($score, $fuzzyScore * 0.8);
+                    }
+                }
+            }
+
+            if ($score > $bestScore && $score >= 0.5) {
+                $bestScore = $score;
+                $bestMatch = $intent;
+            }
+        }
+
+        return $bestMatch;
+    }
+
+    /**
+     * Extract resource ID from the message
+     */
+    private function extractResourceId(string $normalized, array $entities): ?int
+    {
+        // Check entities for numbers/IDs
+        if (!empty($entities['appointment_ids'])) {
+            return $entities['appointment_ids'][0];
+        }
+
+        if (!empty($entities['numbers'])) {
+            return $entities['numbers'][0];
+        }
+
+        // Try to extract ID from patterns like "#123", "id 123", "appointment 123"
+        $patterns = [
+            '/(?:appointment|booking|payment|refund)\s*#?\s*(\d+)/i',
+            '/(?:id|number|#)\s*(\d+)/i',
+            '/(\d+)\s*(?:appointment|booking)/i',
+        ];
+
+        foreach ($patterns as $pattern) {
+            if (preg_match($pattern, $normalized, $matches)) {
+                return (int) $matches[1];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Map action intent to ChatbotActionHandler parameters
+     */
+    private function mapActionIntentToParams(string $actionIntent, ?int $resourceId, ?int $userId, string $role, string $normalized, array $entities): ?array
+    {
+        $baseParams = [
+            'user_id' => $userId,
+            'role' => $role,
+            'resource_id' => $resourceId,
+            'data' => [],
+        ];
+
+        // Extract reason if present
+        $reason = $this->extractReason($normalized);
+        if ($reason) {
+            $baseParams['data']['reason'] = $reason;
+        }
+
+        // Extract date/time for reschedule
+        if (!empty($entities['dates'])) {
+            $baseParams['data']['new_date'] = $entities['dates'][0]['date'];
+        }
+        if (!empty($entities['times'])) {
+            $baseParams['data']['new_time'] = $entities['times'][0];
+        }
+
+        return match($actionIntent) {
+            'approve_appointment' => array_merge($baseParams, ['action' => 'approve', 'resource' => 'appointment']),
+            'decline_appointment' => array_merge($baseParams, ['action' => 'decline', 'resource' => 'appointment']),
+            'cancel_appointment' => array_merge($baseParams, ['action' => 'cancel', 'resource' => 'appointment']),
+            'complete_appointment' => array_merge($baseParams, ['action' => 'complete', 'resource' => 'appointment']),
+            'reschedule_appointment' => array_merge($baseParams, ['action' => 'reschedule', 'resource' => 'appointment']),
+            'process_payment' => array_merge($baseParams, ['action' => 'process', 'resource' => 'payment', 'data' => array_merge($baseParams['data'], ['appointment_id' => $resourceId])]),
+            'approve_refund' => array_merge($baseParams, ['action' => 'approve', 'resource' => 'refund']),
+            'process_refund' => array_merge($baseParams, ['action' => 'process', 'resource' => 'refund']),
+            'request_refund' => array_merge($baseParams, ['action' => 'request', 'resource' => 'refund', 'data' => array_merge($baseParams['data'], ['appointment_id' => $resourceId])]),
+            'view_pending_appointments' => array_merge($baseParams, ['action' => 'view', 'resource' => 'appointment', 'resource_id' => null, 'data' => ['status' => 'pending']]),
+            'view_pending_payments' => array_merge($baseParams, ['action' => 'view', 'resource' => 'payment', 'resource_id' => null, 'data' => ['status' => 'pending']]),
+            'view_pending_refunds' => array_merge($baseParams, ['action' => 'view', 'resource' => 'refund', 'resource_id' => null, 'data' => ['status' => 'pending']]),
+            'shift_report' => array_merge($baseParams, ['action' => 'view', 'resource' => 'system', 'data' => ['report_type' => 'shift']]),
+            'system_health' => array_merge($baseParams, ['action' => 'view', 'resource' => 'system']),
+            default => null,
+        };
+    }
+
+    /**
+     * Extract reason from message for declines/cancellations
+     */
+    private function extractReason(string $normalized): ?string
+    {
+        $patterns = [
+            '/(?:because|reason|due to|kasi|dahil)\s*:?\s*(.+)/i',
+            '/(?:reason)\s*:?\s*(.+)/i',
+        ];
+
+        foreach ($patterns as $pattern) {
+            if (preg_match($pattern, $normalized, $matches)) {
+                return trim($matches[1]);
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Build response when action requires ID but none provided
+     */
+    private function buildMissingIdResponse(string $actionIntent, string $role, ?array $context): array
+    {
+        $actionNames = [
+            'approve_appointment' => 'approve an appointment',
+            'decline_appointment' => 'decline an appointment',
+            'cancel_appointment' => 'cancel an appointment',
+            'complete_appointment' => 'complete an appointment',
+            'process_payment' => 'process a payment',
+            'approve_refund' => 'approve a refund',
+            'process_refund' => 'process a refund',
+            'request_refund' => 'request a refund',
+        ];
+
+        $actionName = $actionNames[$actionIntent] ?? 'perform this action';
+
+        // Get relevant pending items to suggest
+        $suggestions = [];
+        $dataHints = [];
+
+        if (in_array($actionIntent, ['approve_appointment', 'decline_appointment']) && in_array($role, ['admin', 'staff'])) {
+            $pending = Appointment::where('status', 'pending')
+                ->with(['user:id,first_name,last_name', 'service:id,name'])
+                ->orderBy('created_at', 'desc')
+                ->limit(5)
+                ->get();
+
+            if ($pending->count() > 0) {
+                $dataHints = $pending->map(fn($a) => [
+                    'id' => $a->id,
+                    'client' => trim(($a->user->first_name ?? '') . ' ' . ($a->user->last_name ?? '')),
+                    'service' => $a->service->name ?? 'N/A',
+                    'date' => $a->appointment_date->format('M d'),
+                ])->toArray();
+                
+                $suggestions = array_map(fn($a) => "Approve appointment #{$a['id']}", array_slice($dataHints, 0, 3));
+            }
+        }
+
+        if ($actionIntent === 'cancel_appointment' && $role === 'client' && !empty($context['client_data']['upcoming_appointments'])) {
+            $upcoming = $context['client_data']['upcoming_appointments'];
+            $dataHints = array_slice($upcoming, 0, 3);
+            $suggestions = array_map(fn($a) => "Cancel appointment #{$a['id']}", $dataHints);
+        }
+
+        if (in_array($actionIntent, ['process_payment', 'approve_refund', 'process_refund']) && in_array($role, ['cashier', 'admin'])) {
+            if ($actionIntent === 'process_payment') {
+                $pending = Payment::where('payment_status', '!=', 'paid')
+                    ->with(['appointment.user:id,first_name,last_name'])
+                    ->limit(5)
+                    ->get();
+                $suggestions = $pending->map(fn($p) => "Process payment #{$p->id}")->toArray();
+            } else {
+                $pending = Refund::where('status', 'pending')
+                    ->limit(5)
+                    ->get();
+                $actionVerb = $actionIntent === 'approve_refund' ? 'Approve' : 'Process';
+                $suggestions = $pending->map(fn($r) => "{$actionVerb} refund #{$r->id}")->toArray();
+            }
+        }
+
+        return [
+            'success' => false,
+            'reply' => "To {$actionName}, please specify the ID. For example: '{$actionName} #123'" . 
+                       ($dataHints ? "\n\nHere are some items that need attention:" : ''),
+            'action_intent' => $actionIntent,
+            'action_required' => 'provide_id',
+            'data' => $dataHints ? ['pending_items' => $dataHints] : null,
+            'suggestions' => $suggestions ?: ["Show pending appointments", "Show my appointments"],
+        ];
+    }
+
+    /**
+     * Get follow-up suggestions after an action
+     */
+    private function getActionFollowUpSuggestions(array $result, string $role): array
+    {
+        $action = $result['action_intent'] ?? '';
+        $success = $result['success'] ?? false;
+
+        if (!$success) {
+            return match($role) {
+                'admin', 'staff' => ['Show pending appointments', 'Show system status'],
+                'cashier' => ['Show pending payments', 'Show pending refunds'],
+                default => ['Show my appointments', 'How do I book?'],
+            };
+        }
+
+        return match($action) {
+            'approve_appointment', 'decline_appointment' => ['Show more pending', 'How many appointments today?'],
+            'cancel_appointment' => ['Book a new appointment', 'Show my appointments'],
+            'complete_appointment' => ['Show next appointment', 'Today\'s summary'],
+            'process_payment' => ['Show pending payments', 'Shift report'],
+            'approve_refund', 'process_refund' => ['Show pending refunds', 'Today\'s transactions'],
+            'request_refund' => ['Check refund status', 'Contact support'],
+            'view_pending_appointments' => ['Approve all pending', 'Show details'],
+            'view_pending_payments' => ['Process next payment', 'Show shift report'],
+            'view_pending_refunds' => ['Approve first refund', 'Show refund policy'],
+            default => match($role) {
+                'admin', 'staff' => ['Show analytics', 'System health'],
+                'cashier' => ['Shift report', 'Pending tasks'],
+                default => ['My appointments', 'Available services'],
+            },
+        };
     }
 
     /**
@@ -1077,6 +1578,38 @@ class ChatbotService
                 'keywords' => ['pending', 'waiting', 'needs attention', 'unconfirmed', 'approval'],
                 'semantic' => ['what needs approval', 'appointments to confirm', 'needs my attention'],
             ],
+            // Cashier-specific intents
+            'cashier_payments' => [
+                'patterns' => ['process payment', 'pending payments', 'payments to process', 'approved for payment', 'ready for payment'],
+                'keywords' => ['payment', 'pay', 'collect', 'fee', 'charge', 'billing', 'invoice'],
+                'semantic' => ['who needs to pay', 'collect payment', 'payments today'],
+            ],
+            'cashier_refunds' => [
+                'patterns' => ['pending refunds', 'refund requests', 'process refund', 'refund queue', 'refunds to process'],
+                'keywords' => ['refund', 'reimbursement', 'money back', 'return money'],
+                'semantic' => ['refunds waiting', 'refund approval', 'issue refund'],
+            ],
+            'cashier_shift' => [
+                'patterns' => ['shift report', 'daily report', 'my transactions', 'today report', 'cash summary'],
+                'keywords' => ['shift', 'report', 'summary', 'transactions', 'daily'],
+                'semantic' => ['how much collected', 'end of day report', 'cash register'],
+            ],
+            'cashier_receipt' => [
+                'patterns' => ['send receipt', 'email receipt', 'print receipt', 'generate receipt'],
+                'keywords' => ['receipt', 'invoice', 'confirmation'],
+                'semantic' => ['give receipt', 'client receipt'],
+            ],
+            // User payment/refund intents
+            'user_payment_status' => [
+                'patterns' => ['my payment', 'payment status', 'have i paid', 'my payments', 'payment history'],
+                'keywords' => ['payment', 'paid', 'pay', 'balance', 'owe'],
+                'semantic' => ['did i pay', 'what do i owe', 'payment record'],
+            ],
+            'user_refund' => [
+                'patterns' => ['request refund', 'get refund', 'my refund', 'refund status', 'want refund'],
+                'keywords' => ['refund', 'money back', 'reimbursement'],
+                'semantic' => ['i want my money back', 'can i get refund'],
+            ],
         ];
 
         $scores = [];
@@ -1132,17 +1665,43 @@ class ChatbotService
     /** Role detection based on intent */
     private function detectRoleByIntent(string $t): string
     {
+        // Lowercase for case-insensitive matching
+        $lower = mb_strtolower($t);
+        
+        // Cashier signals - check first as they're more specific
+        $cashierSignals = [
+            'process payment', 'collect payment', 'pending payment', 'payment processing',
+            'shift report', 'daily report', 'cash summary', 'transactions today',
+            'send receipt', 'email receipt', 'print receipt',
+            'process refund', 'refund queue', 'pending refund', 'approved refund',
+            'cashier dashboard', 'my shift', 'today revenue', 'cash collected'
+        ];
+        
+        foreach ($cashierSignals as $signal) {
+            if (strpos($lower, $signal) !== false) {
+                return 'cashier';
+            }
+        }
+        
         $adminSignals = [
             'analytics', 'report', 'no show', 'popular', 'forecast', 'workload', 
             'cancellation', 'underutilized', 'high risk', 'pending confirmation', 
             'staff performance', 'appointments today', 'how many appointments', 
             'new clients', 'how many user', 'how many client', 'total user', 
             'total client', 'total appointment', 'user count', 'client count',
-            'system status', 'dashboard', 'overview'
+            'system status', 'dashboard', 'overview', 'staff', 'all appointments',
+            'pending appointments', 'completed appointments', 'cancelled appointments',
+            'show me', 'list all', 'generate', 'create report', 'export',
+            'system health', 'admin analytics', 'revenue report', 'user management'
         ];
-        foreach ($adminSignals as $s) {
-            if (strpos($t, $s) !== false) return 'admin';
+        
+        // Check for admin signals with fuzzy matching
+        foreach ($adminSignals as $signal) {
+            if (strpos($lower, $signal) !== false) {
+                return 'admin';
+            }
         }
+        
         return 'client';
     }
 
@@ -1155,10 +1714,17 @@ class ChatbotService
         // quick heuristics
         $lower = $t;
 
+        // Safe similarity helper to avoid fatal errors when enhancements class is absent
+        $fuzzy = function(string $haystack, string $needle): float {
+            return class_exists(\App\Services\ChatbotServiceEnhancements::class)
+                ? ChatbotServiceEnhancements::fuzzySimilarity($haystack, $needle)
+                : 0.0;
+        };
+
         // 1) explicit counting queries -> admin_counts or my_appointment
         if (strpos($lower, 'how many') !== false || strpos($lower, 'ilan') !== false || strpos($lower, 'how much') !== false) {
             // differentiate between price vs counts
-            if (ChatbotServiceEnhancements::fuzzySimilarity($lower, 'how much') >= 0.35 || strpos($lower, 'price') !== false || strpos($lower, 'magkano') !== false) {
+            if ($fuzzy($lower, 'how much') >= 0.35 || strpos($lower, 'price') !== false || strpos($lower, 'magkano') !== false) {
                 return 'price';
             }
 
@@ -1179,28 +1745,28 @@ class ChatbotService
         }
 
         // 2) price-like or service-like question even if noisy
-        if (ChatbotServiceEnhancements::fuzzySimilarity($lower, 'how much') >= 0.40
-            || ChatbotServiceEnhancements::fuzzySimilarity($lower, 'what price') >= 0.40
+        if ($fuzzy($lower, 'how much') >= 0.40
+            || $fuzzy($lower, 'what price') >= 0.40
             || strpos($lower, 'presyo') !== false || strpos($lower, 'magkano') !== false
         ) {
             return 'price';
         }
 
         // 3) time/location queries
-        if (ChatbotServiceEnhancements::fuzzySimilarity($lower, 'what time') >= 0.35
+        if ($fuzzy($lower, 'what time') >= 0.35
             || strpos($lower, 'oras') !== false || strpos($lower, 'anong oras') !== false
         ) {
             return 'hours';
         }
 
-        if (ChatbotServiceEnhancements::fuzzySimilarity($lower, 'where is office') >= 0.35
+        if ($fuzzy($lower, 'where is office') >= 0.35
             || strpos($lower, 'saan') !== false || strpos($lower, 'address') !== false
         ) {
             return 'address';
         }
 
         // 4) service enquiries
-        if (ChatbotServiceEnhancements::fuzzySimilarity($lower, 'what services') >= 0.4
+        if ($fuzzy($lower, 'what services') >= 0.4
             || strpos($lower, 'service') !== false || strpos($lower, 'serbisyo') !== false
         ) {
             return 'services';
@@ -1218,9 +1784,9 @@ class ChatbotService
         // 6) profanity with direct question -> treat as question, try fuzzy mapping
         if (!empty($analysis['sentiment']['profanity_terms'])) {
             // if includes question words, map to hours/address/price based on similarity
-            if (ChatbotServiceEnhancements::fuzzySimilarity($lower, 'what time') >= 0.25) return 'hours';
-            if (ChatbotServiceEnhancements::fuzzySimilarity($lower, 'where is office') >= 0.25) return 'address';
-            if (ChatbotServiceEnhancements::fuzzySimilarity($lower, 'how much') >= 0.25) return 'price';
+            if ($fuzzy($lower, 'what time') >= 0.25) return 'hours';
+            if ($fuzzy($lower, 'where is office') >= 0.25) return 'address';
+            if ($fuzzy($lower, 'how much') >= 0.25) return 'price';
         }
 
         return 'general';
@@ -1280,6 +1846,62 @@ class ChatbotService
                 }
                 $resp['suggestions'] = ['Where is your office?', 'Do you have same-day appointments?'];
                 break;
+            case 'payment':
+            case 'my_payment':
+            case 'payment_status':
+                // Get user's payment history
+                if ($context && isset($context['user_id'])) {
+                    $userId = $context['user_id'];
+                    $payments = Payment::whereHas('appointment', function ($q) use ($userId) {
+                        $q->where('user_id', $userId);
+                    })
+                    ->with(['appointment.service'])
+                    ->orderBy('created_at', 'desc')
+                    ->limit(5)
+                    ->get();
+
+                    if ($payments->count() > 0) {
+                        $latestPayment = $payments->first();
+                        $resp['reply'] = "You have {$payments->count()} recent payment(s). Your latest payment of PHP " . 
+                            number_format($latestPayment->amount, 2) . " for " . 
+                            ($latestPayment->appointment->service->name ?? 'service') . 
+                            " is " . ucfirst($latestPayment->status) . ".";
+                        $resp['data'] = ['payments' => $payments->toArray()];
+                    } else {
+                        $resp['reply'] = "You don't have any payment records yet. Payments are processed after your appointment is confirmed.";
+                    }
+                } else {
+                    $resp['reply'] = "Please log in to view your payment history and status.";
+                }
+                $resp['suggestions'] = ['Request a refund', 'View my appointments', 'How do payments work?'];
+                break;
+            case 'refund':
+            case 'request_refund':
+            case 'refund_status':
+                // Get user's refund requests
+                if ($context && isset($context['user_id'])) {
+                    $userId = $context['user_id'];
+                    $refunds = Refund::whereHas('appointment', function ($q) use ($userId) {
+                        $q->where('user_id', $userId);
+                    })
+                    ->with(['appointment.service'])
+                    ->orderBy('created_at', 'desc')
+                    ->limit(5)
+                    ->get();
+
+                    if ($refunds->count() > 0) {
+                        $latestRefund = $refunds->first();
+                        $resp['reply'] = "You have {$refunds->count()} refund request(s). Your latest request for PHP " . 
+                            number_format($latestRefund->amount, 2) . " is " . ucfirst($latestRefund->status) . ".";
+                        $resp['data'] = ['refunds' => $refunds->toArray()];
+                    } else {
+                        $resp['reply'] = "You don't have any refund requests. To request a refund, go to your appointment details and click 'Request Refund'.";
+                    }
+                } else {
+                    $resp['reply'] = "Please log in to view or request refunds.";
+                }
+                $resp['suggestions'] = ['How do I request a refund?', 'What is the refund policy?', 'Check payment status'];
+                break;
             case 'account':
                 $resp['reply'] = 'Use Account Settings to update profile details, change email, or reset your password.';
                 $resp['suggestions'] = ['How do I book an appointment?', 'What services do you offer?'];
@@ -1310,7 +1932,7 @@ class ChatbotService
     /**
      * Deterministic intent handler: returns structured, DB-backed answers for factual intents.
      */
-    private function handleDeterministicIntent(string $intent, int $userId, ?array $context, array $entities = [], array $analysis = []): ?array
+    private function handleDeterministicIntent(string $intent, ?int $userId, ?array $context, array $entities = [], array $analysis = []): ?array
     {
         // Base response shape
         $resp = [ 'role' => 'SYSTEM', 'reply' => '', 'suggestions' => [], 'data' => null ];
@@ -1423,7 +2045,8 @@ class ChatbotService
                 } catch (\Throwable $e) {
                     $totalClients = 0;
                 }
-                $totalAppointments = Appointment::count();
+                // Include soft-deleted appointments to mirror full system totals
+                $totalAppointments = Appointment::withTrashed()->count();
                 $todayAppointments = Appointment::whereDate('appointment_date', $today)->count();
                 $pendingAppointments = Appointment::where('status', 'pending')->count();
                 
@@ -1436,6 +2059,7 @@ class ChatbotService
                     'approved' => Appointment::where('status', 'approved')->count(),
                     'completed' => Appointment::where('status', 'completed')->count(),
                     'cancelled' => Appointment::where('status', 'cancelled')->count(),
+                    'generated_at' => Carbon::now()->toIso8601String(),
                 ];
                 
                 // Generate a more detailed response based on what was asked
@@ -1474,6 +2098,161 @@ class ChatbotService
                 }
                 $resp['reply'] = 'What admin data do you need: counts, trends, or forecasts?';
                 $resp['suggestions'] = ['Show pending confirmations.', 'Show demand forecast.'];
+                break;
+        }
+
+        return $resp;
+    }
+
+    /**
+     * Handle cashier-specific intents
+     */
+    private function handleCashierIntent(string $t, ?array $context, ?string $intent = null, array $entities = [], array $analysis = []): array
+    {
+        $resp = ['role' => 'CASHIER', 'reply' => '', 'metrics' => [], 'suggestions' => []];
+        $intent = $intent ?? $this->detectIntent($t);
+
+        switch ($intent) {
+            case 'payment':
+            case 'process_payment':
+                // Get today's pending payments
+                $today = Carbon::now()->startOfDay();
+                $pendingPayments = Payment::where('status', 'pending')
+                    ->whereDate('created_at', '>=', $today)
+                    ->with(['appointment.user', 'appointment.service'])
+                    ->orderBy('created_at', 'desc')
+                    ->limit(10)
+                    ->get();
+
+                $resp['metrics'] = [
+                    'pending_count' => $pendingPayments->count(),
+                    'pending_payments' => $pendingPayments->map(function ($p) {
+                        return [
+                            'id' => $p->id,
+                            'amount' => $p->amount,
+                            'client' => $p->appointment->user->name ?? 'Unknown',
+                            'service' => $p->appointment->service->name ?? 'Unknown',
+                            'created_at' => $p->created_at->format('M d, Y h:i A'),
+                        ];
+                    })->toArray(),
+                ];
+
+                if ($pendingPayments->count() > 0) {
+                    $resp['reply'] = "You have {$pendingPayments->count()} pending payment(s) to process today. The most recent is for " . 
+                        ($pendingPayments->first()->appointment->user->name ?? 'a client') . 
+                        " - PHP " . number_format($pendingPayments->first()->amount, 2) . ".";
+                } else {
+                    $resp['reply'] = "No pending payments to process at the moment. All payments are up to date.";
+                }
+                $resp['suggestions'] = ['Show all pending payments', 'Process a payment', 'View payment history'];
+                break;
+
+            case 'refund':
+            case 'process_refund':
+                // Get pending refund requests
+                $pendingRefunds = Refund::where('status', 'pending')
+                    ->with(['appointment.user', 'appointment.service'])
+                    ->orderBy('created_at', 'desc')
+                    ->limit(10)
+                    ->get();
+
+                $resp['metrics'] = [
+                    'pending_count' => $pendingRefunds->count(),
+                    'pending_refunds' => $pendingRefunds->map(function ($r) {
+                        return [
+                            'id' => $r->id,
+                            'amount' => $r->amount,
+                            'reason' => $r->reason,
+                            'client' => $r->appointment->user->name ?? 'Unknown',
+                            'service' => $r->appointment->service->name ?? 'Unknown',
+                            'requested_at' => $r->created_at->format('M d, Y h:i A'),
+                        ];
+                    })->toArray(),
+                ];
+
+                if ($pendingRefunds->count() > 0) {
+                    $resp['reply'] = "There are {$pendingRefunds->count()} pending refund request(s). " .
+                        "The latest is from " . ($pendingRefunds->first()->appointment->user->name ?? 'a client') .
+                        " for PHP " . number_format($pendingRefunds->first()->amount, 2) . ".";
+                } else {
+                    $resp['reply'] = "No pending refund requests at the moment.";
+                }
+                $resp['suggestions'] = ['Show refund details', 'Approve refund', 'View refund history'];
+                break;
+
+            case 'receipt':
+            case 'generate_receipt':
+                $resp['reply'] = "To generate a receipt, please provide the payment ID or appointment reference number. " .
+                    "You can also access receipts through the Payments section in your dashboard.";
+                $resp['suggestions'] = ['Show recent payments', 'Search payment by ID', 'View today\'s receipts'];
+                break;
+
+            case 'verify_payment':
+                $resp['reply'] = "To verify a payment, please provide the payment ID, reference number, or the client's name. " .
+                    "I can then check the payment status and details for you.";
+                $resp['suggestions'] = ['Search by payment ID', 'Search by client name', 'Show unverified payments'];
+                break;
+
+            case 'daily_sales':
+            case 'sales_report':
+                $today = Carbon::now()->startOfDay();
+                $todayPayments = Payment::whereDate('created_at', $today)
+                    ->where('status', 'completed')
+                    ->get();
+                
+                $totalSales = $todayPayments->sum('amount');
+                $transactionCount = $todayPayments->count();
+
+                $resp['metrics'] = [
+                    'total_sales' => $totalSales,
+                    'transaction_count' => $transactionCount,
+                    'date' => $today->format('M d, Y'),
+                ];
+
+                $resp['reply'] = "Today's sales report: PHP " . number_format($totalSales, 2) . 
+                    " from {$transactionCount} completed transaction(s).";
+                $resp['suggestions'] = ['Show breakdown by service', 'Compare with yesterday', 'View pending payments'];
+                break;
+
+            case 'shift_report':
+                $today = Carbon::now();
+                $shiftStart = $today->copy()->setTime(8, 0, 0); // Assuming 8 AM shift start
+                
+                $shiftPayments = Payment::where('created_at', '>=', $shiftStart)
+                    ->where('status', 'completed')
+                    ->get();
+                
+                $shiftRefunds = Refund::where('created_at', '>=', $shiftStart)
+                    ->where('status', 'approved')
+                    ->get();
+
+                $resp['metrics'] = [
+                    'shift_start' => $shiftStart->format('h:i A'),
+                    'payments_processed' => $shiftPayments->count(),
+                    'total_collected' => $shiftPayments->sum('amount'),
+                    'refunds_processed' => $shiftRefunds->count(),
+                    'total_refunded' => $shiftRefunds->sum('amount'),
+                    'net_amount' => $shiftPayments->sum('amount') - $shiftRefunds->sum('amount'),
+                ];
+
+                $resp['reply'] = "Shift report since " . $shiftStart->format('h:i A') . ": " .
+                    "Processed {$shiftPayments->count()} payment(s) totaling PHP " . number_format($shiftPayments->sum('amount'), 2) . ". " .
+                    "Refunds: {$shiftRefunds->count()} for PHP " . number_format($shiftRefunds->sum('amount'), 2) . ". " .
+                    "Net: PHP " . number_format($shiftPayments->sum('amount') - $shiftRefunds->sum('amount'), 2) . ".";
+                $resp['suggestions'] = ['End shift summary', 'Print shift report', 'View payment details'];
+                break;
+
+            default:
+                // General cashier assistance
+                if ($context && isset($context['cashier_data'])) {
+                    $data = $context['cashier_data'];
+                    $resp['metrics'] = $data;
+                    $resp['reply'] = "Welcome! You have {$data['pending_payments']} pending payment(s) and " .
+                        "{$data['pending_refunds']} pending refund request(s) to review.";
+                } else {
+                    $resp['reply'] = "How can I assist you today? I can help with payments, refunds, receipts, and sales reports.";
+                }
+                $resp['suggestions'] = ['Show pending payments', 'Check refund requests', 'Today\'s sales report', 'Generate receipt'];
                 break;
         }
 

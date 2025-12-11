@@ -152,4 +152,74 @@ class UnavailableDateController extends Controller
             ], 500);
         }
     }
+
+    /**
+     * Get appointments that would be affected by marking a date as unavailable
+     * POST /api/admin/unavailable-dates/affected
+     */
+    public function getAffectedAppointments(Request $request)
+    {
+        try {
+            $request->validate([
+                'date' => 'required|date',
+                'all_day' => 'boolean',
+                'start_time' => 'nullable|date_format:H:i',
+                'end_time' => 'nullable|date_format:H:i',
+            ]);
+
+            $date = $request->input('date');
+            $allDay = $request->boolean('all_day', true);
+            $startTime = $request->input('start_time');
+            $endTime = $request->input('end_time');
+
+            Log::info('Checking affected appointments for date: ' . $date, [
+                'all_day' => $allDay,
+                'start_time' => $startTime,
+                'end_time' => $endTime
+            ]);
+
+            // Build query to find appointments on this date
+            $query = \App\Models\Appointment::with(['user', 'staff', 'service'])
+                ->where('appointment_date', $date)
+                ->whereNotIn('status', ['cancelled', 'completed', 'archived']);
+
+            // If not all day, filter by time range
+            if (!$allDay && $startTime && $endTime) {
+                $query->where(function ($q) use ($startTime, $endTime) {
+                    // Check if appointment time falls within the unavailable range
+                    $q->whereBetween('appointment_time', [$startTime, $endTime])
+                      ->orWhere(function ($q2) use ($startTime, $endTime) {
+                          // Also check start_time field if it exists
+                          $q2->whereNotNull('start_time')
+                             ->whereBetween('start_time', [$startTime, $endTime]);
+                      });
+                });
+            }
+
+            $affectedAppointments = $query->orderBy('appointment_time', 'asc')->get();
+
+            Log::info('Found ' . $affectedAppointments->count() . ' affected appointments');
+
+            return response()->json([
+                'success' => true,
+                'data' => $affectedAppointments,
+                'count' => $affectedAppointments->count(),
+                'date' => $date
+            ]);
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation error',
+                'errors' => $e->errors()
+            ], 422);
+        } catch (\Exception $e) {
+            Log::error('Error fetching affected appointments: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to fetch affected appointments',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
 }

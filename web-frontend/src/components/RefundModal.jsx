@@ -25,6 +25,18 @@ const RefundModal = ({ isOpen, onClose, transaction, onSuccess }) => {
     e.preventDefault();
     setError('');
 
+    // Validate payment status
+    if (transaction?.payment_status !== 'paid') {
+      setError('Cannot process refund: This appointment is not marked as paid. Only paid appointments can be refunded.');
+      return;
+    }
+
+    // Validate payment amount exists
+    if (!transaction?.payment_amount || transaction.payment_amount <= 0) {
+      setError('Cannot process refund: This appointment has no payment amount recorded. Please contact support.');
+      return;
+    }
+
     // Validation
     if (!refundAmount || parseFloat(refundAmount) <= 0) {
       setError('Please enter a valid refund amount');

@@ -4,11 +4,11 @@ namespace App\Events;
 
 use Illuminate\Broadcasting\Channel;
 use Illuminate\Broadcasting\InteractsWithSockets;
-use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
+use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
-class AppointmentUpdated implements ShouldBroadcastNow
+class AppointmentUpdated implements ShouldBroadcast
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
@@ -24,16 +24,34 @@ class AppointmentUpdated implements ShouldBroadcastNow
 
     /**
      * Get the channels the event should broadcast on.
+     *
+     * @return array<int, \Illuminate\Broadcasting\Channel>|null
      */
-    public function broadcastOn()
+    public function broadcastOn(): array
     {
-        return new Channel('appointments');
+        // Only broadcast if a real broadcasting driver is configured (not 'log' or 'null')
+        $driver = config('broadcasting.default');
+        if (in_array($driver, ['log', 'null', ''])) {
+            return [];
+        }
+
+        return [new Channel('appointments')];
+    }
+
+    /**
+     * Determine if this event should broadcast.
+     */
+    public function broadcastWhen(): bool
+    {
+        // Only broadcast if pusher is properly configured
+        $driver = config('broadcasting.default');
+        return !in_array($driver, ['log', 'null', '']);
     }
 
     /**
      * Data to broadcast with the event.
      */
-    public function broadcastWith()
+    public function broadcastWith(): array
     {
         return [
             'appointment' => $this->appointment,
@@ -44,7 +62,7 @@ class AppointmentUpdated implements ShouldBroadcastNow
     /**
      * Broadcast event name used by clients
      */
-    public function broadcastAs()
+    public function broadcastAs(): string
     {
         return 'AppointmentUpdated';
     }

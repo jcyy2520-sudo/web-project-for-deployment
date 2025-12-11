@@ -5,91 +5,65 @@ import { VitePWA } from 'vite-plugin-pwa'
 export default defineConfig({
   plugins: [
     react(),
-    // PWA configuration with proper service worker cache strategy
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico', 'robots.txt'],
-      manifest: {
-        name: 'Law Notary System',
-        short_name: 'NotarySystem',
-        description: 'Law Notary Appointment System',
-        theme_color: '#000000',
-        background_color: '#ffffff',
-        display: 'standalone',
-        scope: '/',
-        start_url: '/',
-        icons: [
-          {
-            src: '/icon-192.png',
-            sizes: '192x192',
-            type: 'image/png',
-            purpose: 'any'
-          },
-          {
-            src: '/icon-512.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'any'
-          },
-          {
-            src: '/icon-maskable-192.png',
-            sizes: '192x192',
-            type: 'image/png',
-            purpose: 'maskable'
-          }
-        ],
-        categories: ['productivity', 'business'],
-        screenshots: []
-      },
       workbox: {
-        // Cache strategy: Network first for API calls, Cache first for static assets
+        // Precache critical assets plus icons used by the PWA install prompt
+        globPatterns: ['**/*.{js,css,html,ico,png,jpg,jpeg,webp,svg}'],
         runtimeCaching: [
           {
-            urlPattern: /^https:\/\/api\./i,
+            // API requests: Network first, with short timeout and conservative caching
+            urlPattern: /^https?:\/\/.*\/api\/.*/i,
             handler: 'NetworkFirst',
             options: {
               cacheName: 'api-cache',
+              networkTimeoutSeconds: 3,
               expiration: {
-                maxEntries: 200,
-                maxAgeSeconds: 300 // 5 minutes
+                maxEntries: 100, // Reduced from 200 to prevent memory issues
+                maxAgeSeconds: 300, // 5 minutes - keeps data fresh
+                purgeOnQuotaError: true // Auto-clear if quota exceeded
               }
             }
           },
           {
-            urlPattern: /^https:.*\.(?:png|jpg|jpeg|svg|gif|webp)$/i,
+            // Images: Cache first with size limits
+            urlPattern: /^https?:.*\.(?:png|jpg|jpeg|svg|gif|webp)$/i,
             handler: 'CacheFirst',
             options: {
               cacheName: 'image-cache',
               expiration: {
-                maxEntries: 500,
-                maxAgeSeconds: 86400 * 30 // 30 days
+                maxEntries: 200, // Reduced from 500 to prevent memory issues
+                maxAgeSeconds: 604800, // 7 days (reduced from 30)
+                purgeOnQuotaError: true
               }
             }
           },
           {
-            urlPattern: /^https:.*\.(?:js|css)$/i,
+            // CSS and JS: Cache first with network fallback
+            urlPattern: /^https?:.*\.(?:css|js)$/i,
             handler: 'CacheFirst',
             options: {
               cacheName: 'static-cache',
               expiration: {
-                maxEntries: 100,
-                maxAgeSeconds: 86400 * 30 // 30 days
+                maxEntries: 50,
+                maxAgeSeconds: 604800,
+                purgeOnQuotaError: true
               }
             }
           }
         ],
-        // Don't cache development/build endpoints
         navigateFallback: '/index.html',
-        navigateFallbackDenylist: [/^\/api\//, /^\/sanctum\//, /^\/__/],
+        navigateFallbackDenylist: [/^\/api\//, /^\/sanctum\//, /^\/\./, /^\/node_modules/],
         skipWaiting: true,
-        clientsClaim: true
+        clientsClaim: true,
+        // Clean up old caches on activation
+        cleanupOutdatedCaches: true
       },
-      // Disable PWA in development to prevent dev server proxy conflicts
+      manifest: false, // Use public/manifest.json
       devOptions: {
-        enabled: false, // Set to true to test PWA in dev mode (with caution)
+        enabled: false,
         suppressWarnings: true,
-        navigateFallbackToIndex: true,
-        type: 'module'
+        navigateFallbackToIndex: true
       }
     })
   ],

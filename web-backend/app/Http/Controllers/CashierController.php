@@ -293,14 +293,19 @@ class CashierController extends Controller
         ])
         ->whereBetween('appointment_date', [$startDate, $endDate]);
 
-        // If no status filter provided, show approved appointments by default
+        // If no status filter provided, show both approved and completed appointments
+        // This gives cashier full visibility of appointments they can process or have processed
         if ($status) {
             $query->where('status', $status);
         } else {
-            $query->where('status', 'approved');
+            // Include approved (ready for payment) and completed (paid) appointments
+            $query->whereIn('status', ['approved', 'completed']);
         }
 
-        $appointments = $query->get()->map(function ($apt) {
+        $appointments = $query->orderBy('appointment_date', 'asc')
+            ->orderBy('appointment_time', 'asc')
+            ->get()
+            ->map(function ($apt) {
             return [
                 'id' => $apt->id,
                 'user_id' => $apt->user_id,
@@ -356,19 +361,24 @@ class CashierController extends Controller
 
     /**
      * Get action logs (admin and cashier)
+     * type=admin: Show logs from users with admin role
+     * type=cashier: Show logs from the current logged-in user only (cashier's own actions)
      */
     public function getActionLogs(Request $request)
     {
-        $type = $request->get('type', 'admin'); // 'admin' or 'cashier'
+        $type = $request->get('type', 'cashier'); // default to 'cashier' for cashier's own logs
+        $currentUserId = $request->user()->id;
+        $currentUserRole = $request->user()->role;
         
         $query = ActionLog::with('user:id,first_name,last_name,role')
             ->orderBy('created_at', 'desc');
 
         if ($type === 'cashier') {
-            // Get logs for current cashier user
-            $query->where('user_id', $request->user()->id);
+            // Get only the current user's own logs (My Logs tab)
+            $query->where('user_id', $currentUserId);
         } else {
-            // Get all admin logs
+            // Get all logs from admin users only (Admin Logs tab)
+            // This shows what admins have done, regardless of who is viewing
             $query->whereHas('user', function($q) {
                 $q->where('role', 'admin');
             });
@@ -565,6 +575,9 @@ class CashierController extends Controller
                 'read' => false,
                 'type' => 'payment_processed'
             ]);
+            
+            // Create in-app notification
+            \App\Services\NotificationService::paymentProcessed($appointment, $appointment->payment_amount);
             
         } catch (\Exception $e) {
             \Log::error('Failed to send payment notification: ' . $e->getMessage());

@@ -4,17 +4,7 @@ import App from './App.jsx'
 import './index.css'
 
 // Set API URL from environment
-const API_URL = import.meta.env.VITE_API_URL || 'https://web-project-backend-lzzf.onrender.com/api';
-
-// Unregister all service workers to prevent offline caching issues
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.getRegistrations().then(registrations => {
-    registrations.forEach(registration => {
-      registration.unregister();
-      console.log('❌ Service Worker unregistered to prevent offline caching');
-    });
-  });
-}
+const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api';
 
 // Remove StrictMode to prevent double-rendering in development
 ReactDOM.createRoot(document.getElementById('root')).render(
@@ -55,6 +45,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 // - If not available, this gracefully falls back to a no-op stub.
 ;(async function setupEchoClient() {
   const key = import.meta.env.VITE_PUSHER_KEY || window?.PUSHER_KEY || null;
+  // Disable Echo entirely in dev when no key is provided to avoid noisy CORS/WS errors
   if (!key) {
     // No credentials provided — create a lightweight stub that exposes `window.Echo` to avoid breakage
     window.Echo = window.Echo || {

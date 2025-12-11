@@ -6,7 +6,11 @@ const LandingPageChatbot = () => {
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [conversationId, setConversationId] = useState(null);
   const messagesEndRef = useRef(null);
+  const STORAGE_KEY = 'chatbot_guest_messages';
+  const CONVERSATION_ID_KEY = 'chatbot_conversation_id';
 
   const quickQuestions = [
     "How do I book an appointment?",
@@ -14,6 +18,36 @@ const LandingPageChatbot = () => {
     "How do I register?",
     "What are your business hours?"
   ];
+
+  // Load guest messages from localStorage on mount
+  useEffect(() => {
+    const savedMessages = localStorage.getItem(STORAGE_KEY);
+    const savedConvId = localStorage.getItem(CONVERSATION_ID_KEY);
+    
+    if (savedMessages) {
+      try {
+        setMessages(JSON.parse(savedMessages));
+      } catch (e) {
+        console.warn('Failed to load saved messages:', e);
+        localStorage.removeItem(STORAGE_KEY);
+      }
+    }
+    
+    if (!savedConvId) {
+      const newConvId = `chat_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      localStorage.setItem(CONVERSATION_ID_KEY, newConvId);
+      setConversationId(newConvId);
+    } else {
+      setConversationId(savedConvId);
+    }
+  }, []);
+
+  // Persist messages to localStorage whenever they change
+  useEffect(() => {
+    if (messages.length > 0) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
+    }
+  }, [messages]);
 
   useEffect(() => {
     if (messagesEndRef.current) {
@@ -25,43 +59,106 @@ const LandingPageChatbot = () => {
     sendMessage(question);
   };
 
+  // Validate API response structure
+  const validateResponse = (response) => {
+    if (!response || typeof response !== 'object') {
+      throw new Error('Invalid response: Not an object');
+    }
+
+    if (response.success === false) {
+      throw new Error(response.message || 'API returned success: false');
+    }
+
+    const text = typeof response.ai_response === 'string' && response.ai_response.trim().length > 0
+      ? response.ai_response.trim()
+      : (typeof response.message === 'string' ? response.message.trim() : '');
+
+    if (!text) {
+      throw new Error('Invalid response: Missing ai_response/message');
+    }
+
+    if (!response.conversation_id || typeof response.conversation_id !== 'string') {
+      console.warn('Warning: Missing conversation_id in response');
+    }
+
+    return {
+      text,
+      conversationId: response.conversation_id || conversationId,
+      meta: (response.meta && typeof response.meta === 'object') ? response.meta : {}
+    };
+  };
+
   const sendMessage = async (messageText = inputValue) => {
     if (!messageText.trim()) return;
 
     const userMessage = {
       id: Date.now(),
-      text: messageText,
+      message: messageText,
       role: 'user',
-      timestamp: new Date()
+      created_at: new Date().toISOString()
     };
 
     setMessages(prev => [...prev, userMessage]);
     setInputValue('');
     setIsLoading(true);
+    setError(null);
 
     try {
-      const response = await axios.post('/api/chatbot/send-message', {
-        message: messageText
+      // Make API request with validation
+      const apiResponse = await axios.post('/api/chatbot/send-message', {
+        message: messageText,
+        conversation_id: conversationId
+      }, {
+        timeout: 30000,
+        validateStatus: () => true // Don't throw on any status
       });
 
-      if (response.data.success) {
-        const botMessage = {
-          id: Date.now() + 1,
-          text: response.data.ai_response,
-          role: 'assistant',
-          timestamp: new Date()
-        };
-        setMessages(prev => [...prev, botMessage]);
+      // Validate response structure
+      const validatedResponse = validateResponse(apiResponse.data);
+      
+      // Update conversation ID if it changed
+      if (validatedResponse.conversationId !== conversationId) {
+        setConversationId(validatedResponse.conversationId);
+        localStorage.setItem(CONVERSATION_ID_KEY, validatedResponse.conversationId);
       }
+
+      const botMessage = {
+        id: Date.now() + 1,
+        message: validatedResponse.text,
+        role: 'assistant',
+        created_at: new Date().toISOString(),
+        meta: validatedResponse.meta
+      };
+      
+      setMessages(prev => [...prev, botMessage]);
     } catch (error) {
       console.error('Chat error:', error);
-      const errorMessage = {
-        id: Date.now() + 1,
-        text: 'Sorry, I encountered an error. Please try again.',
-        role: 'assistant',
-        timestamp: new Date()
-      };
-      setMessages(prev => [...prev, errorMessage]);
+      
+      // Determine user-friendly error message
+      let errorMsg = 'Sorry, I encountered an error. Please try again.';
+      
+      if (error.response?.status === 401) {
+        errorMsg = 'Authentication error. Please refresh the page.';
+      } else if (error.response?.status === 422) {
+        errorMsg = 'Invalid message format. Please try again.';
+      } else if (error.response?.status === 500) {
+        errorMsg = 'Server error. Our team has been notified. Please try again later.';
+      } else if (error.response?.data?.message) {
+        errorMsg = error.response.data.message;
+      } else if (error.response?.data?.error) {
+        errorMsg = 'API Error: ' + error.response.data.error;
+      } else if (error.code === 'ECONNABORTED') {
+        errorMsg = 'Request timeout. Please check your connection and try again.';
+      } else if (error.message === 'Network Error') {
+        errorMsg = 'Network error. Please check your internet connection.';
+      } else if (error.message?.includes('Invalid response')) {
+        errorMsg = 'Server returned an invalid response. Please try again.';
+      }
+      
+      setError(errorMsg);
+      
+      // Remove user message on error so they can retry
+      setMessages(prev => prev.filter(msg => msg.id !== userMessage.id));
     } finally {
       setIsLoading(false);
     }
@@ -71,6 +168,16 @@ const LandingPageChatbot = () => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       sendMessage();
+    }
+  };
+
+  const clearChat = () => {
+    if (confirm('Clear chat history?')) {
+      setMessages([]);
+      localStorage.removeItem(STORAGE_KEY);
+      const newConvId = `chat_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      setConversationId(newConvId);
+      localStorage.setItem(CONVERSATION_ID_KEY, newConvId);
     }
   };
 
@@ -122,18 +229,49 @@ const LandingPageChatbot = () => {
               <p className="text-xs text-gray-400">We're here to help</p>
             </div>
           </div>
-          <button
-            onClick={() => setIsOpen(false)}
-            className="text-gray-400 hover:text-amber-500 hover:bg-amber-500/10 rounded-lg p-2 transition-all"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-2">
+            {messages.length > 0 && (
+              <button
+                onClick={clearChat}
+                className="text-gray-400 hover:text-amber-500 hover:bg-amber-500/10 rounded-lg p-2 transition-all"
+                title="Clear chat history"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </button>
+            )}
+            <button
+              onClick={() => setIsOpen(false)}
+              className="text-gray-400 hover:text-amber-500 hover:bg-amber-500/10 rounded-lg p-2 transition-all"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         {/* Messages Container */}
         <div className="flex-1 overflow-y-auto px-5 py-4 bg-gray-800/30 space-y-4">
+          {error && (
+            <div className="px-4 py-3 bg-red-500/10 border border-red-500/30 rounded-lg flex items-start gap-3">
+              <svg className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <div className="flex-1">
+                <p className="text-sm text-red-300">{error}</p>
+              </div>
+              <button
+                onClick={() => setError(null)}
+                className="text-red-400 hover:text-red-300 transition-colors flex-shrink-0"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          )}
           {messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-center">
               <div className="w-16 h-16 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center mb-4">
@@ -144,20 +282,24 @@ const LandingPageChatbot = () => {
               <h3 className="text-base font-medium text-gray-200 mb-2">Start a conversation</h3>
               <p className="text-sm text-gray-400 mb-6">Choose a question or type your own</p>
               <div className="w-full space-y-2">
-                {quickQuestions.map((question, index) => (
-                  <button
-                    key={index}
-                    onClick={() => handleQuickQuestion(question)}
-                    className="w-full text-left px-4 py-3 rounded-lg bg-gray-900/50 border border-amber-500/20 hover:bg-gray-900 hover:border-amber-500/40 transition-all text-sm text-gray-300 hover:text-amber-400 group"
-                  >
-                    <span className="flex items-center gap-2">
-                      <svg className="w-4 h-4 text-amber-500/50 group-hover:text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                      </svg>
-                      {question}
-                    </span>
-                  </button>
-                ))}
+                {Array.isArray(quickQuestions) && quickQuestions.length > 0 ? (
+                  quickQuestions.map((question, index) => (
+                    <button
+                      key={index}
+                      onClick={() => handleQuickQuestion(question)}
+                      className="w-full text-left px-4 py-3 rounded-lg bg-gray-900/50 border border-amber-500/20 hover:bg-gray-900 hover:border-amber-500/40 transition-all text-sm text-gray-300 hover:text-amber-400 group"
+                    >
+                      <span className="flex items-center gap-2">
+                        <svg className="w-4 h-4 text-amber-500/50 group-hover:text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                        {question}
+                      </span>
+                    </button>
+                  ))
+                ) : (
+                  <p className="text-sm text-gray-500 text-center py-4">No suggestions available. Feel free to type your question below.</p>
+                )}
               </div>
             </div>
           ) : (
@@ -175,7 +317,7 @@ const LandingPageChatbot = () => {
                         : 'bg-gray-900 text-gray-100 border border-amber-500/20'
                     }`}
                   >
-                    <p className="text-sm leading-relaxed break-words">{message.text}</p>
+                    <p className="text-sm leading-relaxed break-words">{message.message}</p>
                   </div>
                 </div>
               ))}

@@ -407,6 +407,18 @@ const ClientAppointments = () => {
 
     if (!selectedAppointmentForRefund) return;
 
+    // Validate payment status
+    if (selectedAppointmentForRefund.payment_status !== 'paid') {
+      setRefundError('Cannot process refund: This appointment is not marked as paid. Only paid appointments can be refunded.');
+      return;
+    }
+
+    // Validate payment amount exists
+    if (!selectedAppointmentForRefund.payment_amount || selectedAppointmentForRefund.payment_amount <= 0) {
+      setRefundError('Cannot process refund: This appointment has no payment amount recorded. Please contact support.');
+      return;
+    }
+
     if (!refundFormData.refund_amount || parseFloat(refundFormData.refund_amount) <= 0) {
       setRefundError('Please enter a valid refund amount');
       return;
@@ -448,6 +460,25 @@ const ClientAppointments = () => {
   };
 
   const openRefundModal = (appointment) => {
+    // Validate before opening modal
+    if (appointment.payment_status !== 'paid') {
+      if (window?.showToast) {
+        window.showToast('Cannot Request Refund', 'This appointment is not marked as paid. Only paid appointments can be refunded.', 'error');
+      } else {
+        alert('Cannot Request Refund: This appointment is not marked as paid.');
+      }
+      return;
+    }
+
+    if (!appointment.payment_amount || appointment.payment_amount <= 0) {
+      if (window?.showToast) {
+        window.showToast('Cannot Request Refund', 'This appointment has no payment amount recorded. Please contact support.', 'error');
+      } else {
+        alert('Cannot Request Refund: This appointment has no payment amount recorded. Please contact support.');
+      }
+      return;
+    }
+
     setSelectedAppointmentForRefund(appointment);
     setRefundFormData({
       refund_amount: appointment.payment_amount || '',
@@ -459,6 +490,25 @@ const ClientAppointments = () => {
   };
 
   const openRefundDetailsModal = (appointment) => {
+    // Validate before opening modal
+    if (appointment.payment_status !== 'paid') {
+      if (window?.showToast) {
+        window.showToast('Cannot Request Refund', 'This appointment is not marked as paid. Only paid appointments can be refunded.', 'error');
+      } else {
+        alert('Cannot Request Refund: This appointment is not marked as paid.');
+      }
+      return;
+    }
+
+    if (!appointment.payment_amount || appointment.payment_amount <= 0) {
+      if (window?.showToast) {
+        window.showToast('Cannot Request Refund', 'This appointment has no payment amount recorded. Please contact support.', 'error');
+      } else {
+        alert('Cannot Request Refund: This appointment has no payment amount recorded. Please contact support.');
+      }
+      return;
+    }
+
     setSelectedAppointmentForDetails(appointment);
     setShowRefundDetailsModal(true);
   };
@@ -693,22 +743,16 @@ const ClientAppointments = () => {
                               </p>
                             </div>
                             <div className="flex gap-2">
-                              {appointment.status === 'completed' && (
+                              {appointment.status === 'completed' && 
+                               appointment.payment_status === 'paid' && 
+                               appointment.payment_amount > 0 && 
+                               !appointment.refunds?.some(r => ['pending', 'approved'].includes(r.status)) && (
                                 <button
                                   onClick={() => openRefundDetailsModal(appointment)}
-                                  className="text-green-600 hover:text-green-700 transition-colors duration-200 px-2 py-1 rounded hover:bg-green-100 text-xs font-medium"
-                                  title="Submit refund request for this appointment"
+                                  className="flex items-center gap-1 bg-black text-white hover:bg-gray-800 transition-all duration-200 px-3 py-2 rounded-lg text-xs font-semibold shadow-sm hover:shadow-md"
+                                  title="Request refund for this completed appointment"
                                 >
-                                  💰 Refund
-                                </button>
-                              )}
-                              {appointment.payment_status === 'paid' && appointment.status !== 'completed' && (
-                                <button
-                                  onClick={() => openRefundModal(appointment)}
-                                  className="text-amber-600 hover:text-amber-700 transition-colors duration-200 px-2 py-1 rounded hover:bg-amber-100 text-xs font-medium"
-                                  title="Request refund for this appointment"
-                                >
-                                  Request Refund
+                                  💰 Request Refund
                                 </button>
                               )}
                             </div>

@@ -1221,8 +1221,12 @@ const CashierDashboard = () => {
   const loadActionLogs = useCallback(async () => {
     setLoading(true);
     try {
+      // Ensure we pass the correct type parameter
+      const url = `/api/cashier/action-logs?type=${logsTab}`;
+      
       const response = await callApi((signal) =>
-        axios.get(`/api/cashier/action-logs?type=${logsTab}`, { signal })
+        axios.get(url, { signal }),
+        { skipCache: true } // Skip cache to ensure fresh data for each tab
       );
       
       // Backend returns Laravel paginated response directly
@@ -1262,10 +1266,20 @@ const CashierDashboard = () => {
     }
   }, [activeSection, currentMonth, logsTab, loadActionLogs]); // Include logsTab and loadActionLogs for action logs changes
 
-  // Load calendar appointments when month changes
+  // Load calendar appointments when month changes - preload adjacent months for smooth navigation
   useEffect(() => {
     if (activeSection === 'calendar') {
-      loadCalendarAppointments(currentMonth.getMonth() + 1, currentMonth.getFullYear());
+      const year = currentMonth.getFullYear();
+      const month = currentMonth.getMonth();
+      
+      // Load current month
+      loadCalendarAppointments(month + 1, year);
+      
+      // Preload previous and next months for smooth navigation
+      const prevMonth = new Date(year, month - 1, 1);
+      const nextMonth = new Date(year, month + 1, 1);
+      loadCalendarAppointments(prevMonth.getMonth() + 1, prevMonth.getFullYear());
+      loadCalendarAppointments(nextMonth.getMonth() + 1, nextMonth.getFullYear());
     }
   }, [activeSection, currentMonth, loadCalendarAppointments]);
 
@@ -1290,13 +1304,17 @@ const CashierDashboard = () => {
       if (activeSection === 'dashboard') {
         loadDashboardData();
       }
-      if (activeSection === 'appointments' || activeSection === 'calendar') {
+      if (activeSection === 'appointments') {
         loadAppointments();
+      }
+      if (activeSection === 'calendar') {
+        // Refresh current month's calendar data
+        loadCalendarAppointments(currentMonth.getMonth() + 1, currentMonth.getFullYear());
       }
     }, POLL_INTERVAL_MS);
 
     return () => clearInterval(id);
-  }, [activeSection]); // Only depend on activeSection to avoid constant polling restart
+  }, [activeSection, currentMonth, loadCalendarAppointments]); // Include currentMonth for calendar polling
 
   // Real-time subscription via Laravel Echo for cashier dashboard
   useEffect(() => {
@@ -1314,7 +1332,9 @@ const CashierDashboard = () => {
           if (activeSection === 'appointments' || activeSection === 'calendar') {
             loadAppointments();
             // refresh calendar grouped data when calendar view is active
-            if (activeSection === 'calendar') loadCalendarAppointments();
+            if (activeSection === 'calendar') {
+              loadCalendarAppointments(currentMonth.getMonth() + 1, currentMonth.getFullYear());
+            }
           }
         }
       } catch (e) {
@@ -1325,11 +1345,13 @@ const CashierDashboard = () => {
     try {
       channel.listen('AppointmentUpdated', handler);
       channel.listen('AppointmentCreated', handler);
+      channel.listen('PaymentProcessed', handler);
     } catch (e) {
       try {
         if (channel._pusher) {
           channel._pusher.bind('AppointmentUpdated', handler);
           channel._pusher.bind('AppointmentCreated', handler);
+          channel._pusher.bind('PaymentProcessed', handler);
         }
       } catch (err) {
         console.debug('Failed to attach realtime cashier listeners', err);
@@ -1339,9 +1361,16 @@ const CashierDashboard = () => {
     return () => {
       try { channel.stopListening('AppointmentUpdated'); } catch (e) {}
       try { channel.stopListening('AppointmentCreated'); } catch (e) {}
-      try { if (channel._pusher) { channel._pusher.unbind('AppointmentUpdated'); channel._pusher.unbind('AppointmentCreated'); } } catch (e) {}
+      try { channel.stopListening('PaymentProcessed'); } catch (e) {}
+      try { 
+        if (channel._pusher) { 
+          channel._pusher.unbind('AppointmentUpdated'); 
+          channel._pusher.unbind('AppointmentCreated'); 
+          channel._pusher.unbind('PaymentProcessed'); 
+        } 
+      } catch (e) {}
     };
-  }, [activeSection, loadDashboardData, loadAppointments, loadCalendarAppointments]);
+  }, [activeSection, currentMonth, loadDashboardData, loadAppointments, loadCalendarAppointments]);
 
   // Reload action logs when tab changes
   useEffect(() => {

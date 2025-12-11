@@ -16,13 +16,13 @@ class CashierUserSeeder extends Seeder
     {
         // Cashier user for testing cashier dashboard
         User::firstOrCreate(
-            ['email' => 'christiannjc25@gmail.com'],
+            ['email' => 'jcfajutagana3@gmail.com'],
             [
-                'username' => 'christiannjc25',
+                'username' => 'jcfajutagana3',
                 'password' => Hash::make('admin123'),
                 'role' => 'staff', // Staff role for cashier access
-                'first_name' => 'Christian',
-                'last_name' => 'Admin',
+                'first_name' => 'Cashier',
+                'last_name' => 'User',
                 'phone' => '09123456789',
                 'address' => 'System Address',
                 'is_active' => true,
@@ -31,7 +31,7 @@ class CashierUserSeeder extends Seeder
         );
 
         $this->command->info('Cashier user created/verified successfully!');
-        $this->command->info('Email: christiannjc25@gmail.com');
+        $this->command->info('Email: jcfajutagana3@gmail.com');
         $this->command->info('Password: admin123');
         $this->command->info('Role: staff (can access cashier dashboard)');
     }

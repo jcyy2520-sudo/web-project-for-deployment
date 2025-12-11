@@ -2,23 +2,49 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/logo-192.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/logo-512.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>jezee-frontend</title>
-    <script>
-      // Unregister all service workers to prevent offline caching issues
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.getRegistrations().then(registrations => {
-          registrations.forEach(registration => {
-            registration.unregister();
-            console.log('Service Worker unregistered');
-          });
-        });
-      }
-    </script>
+    <meta name="description" content="Law Notary Appointment System" />
+    <meta name="theme-color" content="#000000" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Legal Ease" />
+    <link rel="apple-touch-icon" href="/logo-512.png" />
+    <link rel="manifest" href="/manifest.json" />
+    <title>Legal Ease - Law Notary Office</title>
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
+    <script>
+      // PWA Event Listeners - Safe error handling to prevent crashes
+      try {
+        // Detect when app is installed
+        if (typeof window !== 'undefined') {
+          window.addEventListener('beforeinstallprompt', (e) => {
+            try {
+              e.preventDefault();
+              window.deferredPrompt = e;
+              console.log('✅ Install prompt available');
+            } catch (err) {
+              console.error('Error in beforeinstallprompt handler:', err);
+            }
+          });
+
+          window.addEventListener('appinstalled', () => {
+            try {
+              console.log('✅ App installed successfully');
+              window.deferredPrompt = null;
+            } catch (err) {
+              console.error('Error in appinstalled handler:', err);
+            }
+          });
+        }
+      } catch (err) {
+        console.error('Error setting up PWA listeners:', err);
+      }
+    </script>
   </body>
 </html>
