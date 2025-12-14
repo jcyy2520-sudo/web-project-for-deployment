@@ -503,11 +503,16 @@ const ReceiptModal = ({ isOpen, onClose, receiptData }) => {
     if (!receiptData?.id) return;
     setEmailing(true);
     try {
-      await axios.post(`/api/cashier/appointments/${receiptData.id}/email-receipt`);
-      if (window?.showToast) window.showToast('Receipt', 'Receipt emailed to client', 'success');
+      const response = await axios.post(`/api/cashier/appointments/${receiptData.id}/email-receipt`);
+      if (response.data?.success) {
+        if (window?.showToast) window.showToast('Receipt', 'Receipt emailed to client', 'success');
+      } else {
+        throw new Error(response.data?.message || 'Unknown error');
+      }
     } catch (err) {
       console.error('Email receipt error', err);
-      if (window?.showToast) window.showToast('Receipt', 'Failed to email receipt', 'error');
+      const errorMsg = err.response?.data?.message || err.message || 'Failed to email receipt';
+      if (window?.showToast) window.showToast('Receipt', errorMsg, 'error');
     } finally {
       setEmailing(false);
     }
@@ -872,6 +877,7 @@ const CashierDashboard = () => {
   const [activeSection, setActiveSection] = useState('dashboard');
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
   const [isCollapsedDesktop, setIsCollapsedDesktop] = useState(false);
+  const [openDropdowns, setOpenDropdowns] = useState({});
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [currentReceipt, setCurrentReceipt] = useState(null);
@@ -922,6 +928,10 @@ const CashierDashboard = () => {
   const [actionLogs, setActionLogs] = useState([]);
   const [selectedActionLog, setSelectedActionLog] = useState(null);
   const [showActionLogModal, setShowActionLogModal] = useState(false);
+  const [logsPage, setLogsPage] = useState(1);
+  const [logsPerPage, setLogsPerPage] = useState(10);
+  const [totalLogs, setTotalLogs] = useState(0);
+  const [totalLogPages, setTotalLogPages] = useState(1);
   
   const [loading, setLoading] = useState(false);
 
@@ -1118,7 +1128,7 @@ const CashierDashboard = () => {
 
   // Load appointments
   const loadAppointments = useCallback(async () => {
-    setLoading(true);
+    setAppointmentsLoading(true);
     try {
       const url = appointmentsTab === 'completed' ? '/api/cashier/appointments/completed' : '/api/cashier/appointments/approved';
       const params = { page: currentPage, per_page: perPage };
@@ -1159,7 +1169,7 @@ const CashierDashboard = () => {
     } catch (error) {
       console.error('Error loading appointments:', error);
     } finally {
-      setLoading(false);
+      setAppointmentsLoading(false);
     }
   }, [callApi, appointmentsTab, currentPage, perPage]);
 
@@ -1221,8 +1231,8 @@ const CashierDashboard = () => {
   const loadActionLogs = useCallback(async () => {
     setLoading(true);
     try {
-      // Ensure we pass the correct type parameter
-      const url = `/api/cashier/action-logs?type=${logsTab}`;
+      // Ensure we pass the correct type parameter with pagination
+      const url = `/api/cashier/action-logs?type=${logsTab}&page=${logsPage}&per_page=${logsPerPage}`;
       
       const response = await callApi((signal) =>
         axios.get(url, { signal }),
@@ -1235,6 +1245,10 @@ const CashierDashboard = () => {
         // Extract data from paginated response
         const logs = Array.isArray(payload.data) ? payload.data : [];
         setActionLogs(logs);
+        
+        // Set pagination info
+        setTotalLogs(payload.total || 0);
+        setTotalLogPages(payload.last_page || 1);
       }
     } catch (error) {
       console.error('Error loading action logs:', error);
@@ -1242,7 +1256,7 @@ const CashierDashboard = () => {
     } finally {
       setLoading(false);
     }
-  }, [callApi, logsTab]);
+  }, [callApi, logsTab, logsPage, logsPerPage]);
 
   useEffect(() => {
     if (activeSection === 'dashboard') {
@@ -1250,21 +1264,24 @@ const CashierDashboard = () => {
     } else if (activeSection === 'appointments') {
       loadAppointments();
     } else if (activeSection === 'calendar') {
-      // load both list and calendar grouped data; preload previous and next months
-      loadAppointments();
-      const cur = new Date();
+      // Calendar data will be loaded by the separate calendar month change effect
       const year = currentMonth.getFullYear();
       const month = currentMonth.getMonth();
-      // previous month
-      const prev = new Date(year, month - 1, 1);
-      const next = new Date(year, month + 1, 1);
-      loadCalendarAppointments(prev.getMonth() + 1, prev.getFullYear());
-      loadCalendarAppointments(currentMonth.getMonth() + 1, currentMonth.getFullYear());
-      loadCalendarAppointments(next.getMonth() + 1, next.getFullYear());
+      
+      // Preload previous and next months for smooth navigation
+      const prevMonth = new Date(year, month - 1, 1);
+      const nextMonth = new Date(year, month + 1, 1);
+      loadCalendarAppointments(prevMonth.getMonth() + 1, prevMonth.getFullYear());
+      loadCalendarAppointments(nextMonth.getMonth() + 1, nextMonth.getFullYear());
     } else if (activeSection === 'action-logs') {
       loadActionLogs();
     }
-  }, [activeSection, currentMonth, logsTab, loadActionLogs]); // Include logsTab and loadActionLogs for action logs changes
+  }, [activeSection, currentMonth, logsTab, loadActionLogs, loadAppointments, loadCalendarAppointments, loadDashboardData]); // Include all data loading functions
+
+  // Reset pagination when logs tab changes
+  useEffect(() => {
+    setLogsPage(1);
+  }, [logsTab]);
 
   // Load calendar appointments when month changes - preload adjacent months for smooth navigation
   useEffect(() => {
@@ -1287,6 +1304,20 @@ const CashierDashboard = () => {
   useEffect(() => {
     setCurrentPage(1);
   }, [appointmentsTab]);
+
+  // Load appointments when page or perPage changes
+  useEffect(() => {
+    if (activeSection === 'appointments') {
+      loadAppointments();
+    }
+  }, [activeSection, currentPage, perPage, loadAppointments]);
+
+  // Load action logs when page or perPage changes
+  useEffect(() => {
+    if (activeSection === 'action-logs') {
+      loadActionLogs();
+    }
+  }, [activeSection, logsPage, logsPerPage, loadActionLogs]);
 
   // Completion confirmation countdown timer
   useEffect(() => {
@@ -1314,7 +1345,7 @@ const CashierDashboard = () => {
     }, POLL_INTERVAL_MS);
 
     return () => clearInterval(id);
-  }, [activeSection, currentMonth, loadCalendarAppointments]); // Include currentMonth for calendar polling
+  }, [activeSection, currentMonth, loadDashboardData, loadAppointments, loadCalendarAppointments]); // Include all data loading functions
 
   // Real-time subscription via Laravel Echo for cashier dashboard
   useEffect(() => {
@@ -1712,7 +1743,7 @@ const CashierDashboard = () => {
     } finally {
       setLoading(false);
     }
-  }, [paymentAmount, selectedDiscounts, calculateDiscount, callApi, paymentType, inKindDescription, activeSection]);
+  }, [paymentAmount, selectedDiscounts, calculateDiscount, callApi, paymentType, inKindDescription, activeSection, loadShiftReport, shiftRange]);
 
   // Render Dashboard Section
   const renderDashboard = () => (
@@ -1918,7 +1949,7 @@ const CashierDashboard = () => {
                 ))}
 
                 {/* Pagination Controls */}
-                <div className="flex items-center justify-between mt-3">
+                <div className="flex items-center gap-4 mt-3">
                   <div className="text-xs text-gray-400">Showing {start} - {end} of {totalAppointments || filteredAppointments.length}</div>
                   <div className="flex items-center gap-2">
                     <button
@@ -2006,6 +2037,77 @@ const CashierDashboard = () => {
         >
           My Logs
         </button>
+      </div>
+
+      {/* Pagination Controls on Left */}
+      <div className="flex items-center gap-4 mb-4">
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-gray-400 mr-1">Rows</label>
+          <select 
+            value={logsPerPage} 
+            onChange={(e) => { 
+              setLogsPerPage(Number(e.target.value)); 
+              setLogsPage(1); 
+            }} 
+            className="bg-gray-800 border border-gray-700 text-xs text-gray-200 px-2 py-1 rounded"
+          >
+            <option value={5}>5</option>
+            <option value={10}>10</option>
+            <option value={20}>20</option>
+            <option value={50}>50</option>
+          </select>
+        </div>
+
+        <div className="text-xs text-gray-400">
+          {actionLogs.length > 0 ? (
+            <>
+              Showing {((logsPage - 1) * logsPerPage) + 1} - {Math.min(logsPage * logsPerPage, totalLogs)} of {totalLogs}
+            </>
+          ) : (
+            'No logs'
+          )}
+        </div>
+
+        {/* Pagination Navigation */}
+        {totalLogPages > 1 && (
+          <div className="flex items-center gap-1 ml-auto lg:ml-0">
+            <button
+              onClick={() => setLogsPage(1)}
+              disabled={logsPage === 1}
+              className="px-2 py-1 text-xs bg-gray-800 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-gray-300 hover:text-white rounded transition-colors"
+              title="First page"
+            >
+              «
+            </button>
+            <button
+              onClick={() => setLogsPage(prev => Math.max(1, prev - 1))}
+              disabled={logsPage === 1}
+              className="px-2 py-1 text-xs bg-gray-800 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-gray-300 hover:text-white rounded transition-colors"
+              title="Previous page"
+            >
+              ‹
+            </button>
+            <span className="text-xs text-gray-400 px-2">
+              {logsPage} / {totalLogPages}
+            </span>
+            <button
+              onClick={() => setLogsPage(prev => Math.min(totalLogPages, prev + 1))}
+              disabled={logsPage === totalLogPages}
+              className="px-2 py-1 text-xs bg-gray-800 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-gray-300 hover:text-white rounded transition-colors"
+              title="Next page"
+            >
+              ›
+            </button>
+            <button
+              onClick={() => setLogsPage(totalLogPages)}
+              disabled={logsPage === totalLogPages}
+              className="px-2 py-1 text-xs bg-gray-800 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-gray-300 hover:text-white rounded transition-colors"
+              title="Last page"
+            >
+              »
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Logs Table */}
@@ -2321,7 +2423,7 @@ const CashierDashboard = () => {
         </div>
       </div>
 
-      <div className="flex items-center justify-between mt-3">
+      <div className="flex items-center gap-4 mt-3">
         <div className="text-xs text-gray-400">Showing page {txPage} of {txTotalPages} — {txTotal} transactions</div>
         <div className="flex items-center gap-2">
           <button onClick={() => loadTransactions(Math.max(1, txPage - 1))} disabled={txPage === 1} className="px-2 py-1 text-xs bg-gray-800 rounded disabled:opacity-50">Prev</button>
@@ -2557,19 +2659,16 @@ const CashierDashboard = () => {
       )}
 
       {/* Sidebar */}
-      <div className={`fixed inset-y-0 right-0 lg:right-auto lg:left-0 z-40 h-screen ${isDarkMode ? 'bg-gradient-to-b from-gray-900 to-black border-amber-500/20' : 'bg-gradient-to-b from-gray-50 to-gray-100 border-amber-300/40'} border-l lg:border-l-0 lg:border-r shadow-xl flex-shrink-0 transition-all duration-300 lg:translate-x-0 ${
+      <div className={`fixed inset-y-0 right-0 lg:right-auto lg:left-0 z-40 h-screen lg:h-screen ${isDarkMode ? 'bg-gradient-to-b from-gray-900 to-black border-amber-500/20' : 'bg-gradient-to-b from-gray-50 to-gray-100 border-amber-300/40'} border-l lg:border-l-0 lg:border-r shadow-xl flex-shrink-0 transition-all duration-300 lg:translate-x-0 ${
         showMobileSidebar ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'
       } ${isCollapsedDesktop ? 'lg:w-20' : 'w-64'}`}>
         <div className="flex flex-col h-full overflow-hidden">
-          {/* Sidebar Header */}
           <div className={`flex items-center justify-between h-16 shadow-md ${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-gray-50 border-amber-300/40'} px-3 border-b transition-colors duration-300 flex-shrink-0`}>
             <div className="flex items-center space-x-2">
               <div className="w-8 h-8 bg-gradient-to-r from-amber-500 to-amber-600 rounded-lg flex items-center justify-center shadow">
                 <BuildingLibraryIcon className="h-4 w-4 text-white" />
               </div>
-              <span className={`text-sm lg:text-base font-bold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} transition-colors duration-300 truncate hidden lg:inline ${isCollapsedDesktop ? 'lg:hidden' : ''}`}>
-                CASHIER
-              </span>
+              <span className={`text-sm lg:text-base font-bold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} transition-colors duration-300 truncate hidden lg:inline ${isCollapsedDesktop ? 'lg:hidden' : ''}`}>CASHIER</span>
             </div>
             <div className="flex items-center space-x-1">
               <button
@@ -2589,50 +2688,69 @@ const CashierDashboard = () => {
 
           {/* Navigation */}
           <nav className={`flex-1 py-2 lg:py-2.5 space-y-2 lg:space-y-2.5 overflow-y-auto transition-all duration-300 min-h-0 scrollbar-hide ${isCollapsedDesktop ? 'lg:px-2' : 'px-2 lg:px-2.5'}`}>
-            {navigation.map((item, idx) => {
-              // Handle items with sections
+            {navigation.map((item, index) => {
               if (item.section) {
+                const isDropdownOpen = openDropdowns[item.section];
+                
                 return (
-                  <div key={`section-${idx}`}>
-                    {/* Section header */}
-                    {!isCollapsedDesktop && (
-                      <p className={`text-xs font-semibold uppercase tracking-wider px-3 mb-2 mt-3 transition-colors ${isDarkMode ? 'text-gray-500' : 'text-gray-600'}`}>
-                        {item.section}
-                      </p>
-                    )}
-                    {/* Section items */}
-                    {item.items.map((subItem) => (
+                  <div key={item.section} className="space-y-1">
+                    <div className="flex items-center justify-between px-3 py-1">
+                      {!isCollapsedDesktop && (
+                        <span className="text-xs font-semibold text-amber-400/70 uppercase tracking-wider">
+                          {item.section}
+                        </span>
+                      )}
                       <button
-                        key={subItem.key}
-                        onClick={() => {
-                          setActiveSection(subItem.key);
-                          setShowMobileSidebar(false);
-                        }}
-                        className={`w-full flex items-center justify-center lg:justify-start px-2 lg:px-2.5 py-1.5 text-xs font-medium rounded-lg transition-all duration-200 border group ${
-                          activeSection === subItem.key
-                            ? 'bg-amber-500/10 text-amber-400 border-amber-500/40 shadow shadow-amber-500/10'
-                            : `${isDarkMode ? 'text-gray-400 border-transparent hover:bg-amber-500/5 hover:text-amber-300 hover:border-amber-500/20' : 'text-gray-600 border-transparent hover:bg-amber-500/10 hover:text-amber-700 hover:border-amber-500/30'}`
-                        } ${isCollapsedDesktop ? 'lg:justify-center lg:px-2' : ''}`}
-                        title={isCollapsedDesktop ? subItem.name : ''}
+                        onClick={() => setOpenDropdowns(prev => ({
+                          ...prev,
+                          [item.section]: !prev[item.section]
+                        }))}
+                        className={`flex items-center justify-center p-1 rounded transition-all duration-200 ${
+                          isDropdownOpen 
+                            ? 'text-amber-400' 
+                            : 'text-gray-400 hover:text-amber-300'
+                        } ${isCollapsedDesktop ? 'w-full' : ''}`}
+                        title={`${isDropdownOpen ? 'Collapse' : 'Expand'} ${item.section}`}
                       >
-                        <div className="flex items-center min-w-0">
-                          <subItem.icon className={`h-4 w-4 flex-shrink-0 transition-colors ${
-                            activeSection === subItem.key ? 'text-amber-400' : `${isDarkMode ? 'text-gray-500 group-hover:text-amber-400' : 'text-gray-600 group-hover:text-amber-600'}`
-                          } ${!isCollapsedDesktop ? 'mr-2' : ''}`} />
-                          {!isCollapsedDesktop && (
-                            <span className="flex items-center justify-between flex-1 min-w-0">
-                              <span className="truncate">{subItem.name}</span>
-                              {subItem.badge && <span className="text-xs bg-amber-500/30 text-amber-300 px-1.5 rounded ml-2 flex-shrink-0">{subItem.badge}</span>}
-                            </span>
-                          )}
-                        </div>
+                        <ChevronDownIcon className={`h-4 w-4 transition-transform duration-200 ${isDropdownOpen ? 'rotate-180' : ''}`} />
                       </button>
-                    ))}
+                    </div>
+                    <div className="space-y-1">
+                      {/* Dropdown items */}
+                      {isDropdownOpen && (
+                        item.items.map((subItem) => (
+                          <button
+                            key={subItem.key}
+                            onClick={() => {
+                              setActiveSection(subItem.key);
+                              setShowMobileSidebar(false);
+                            }}
+                            className={`w-full flex items-center justify-center lg:justify-start px-2 lg:px-2.5 py-1.5 text-xs font-medium rounded-lg transition-all duration-200 border group ${
+                              activeSection === subItem.key
+                                ? 'bg-amber-500/10 text-amber-400 border-amber-500/40 shadow shadow-amber-500/10'
+                                : 'text-gray-400 border-transparent hover:bg-amber-500/5 hover:text-amber-300 hover:border-amber-500/20'
+                            } ${isCollapsedDesktop ? 'lg:justify-center lg:px-2' : ''}`}
+                            title={isCollapsedDesktop ? subItem.name : ''}
+                          >
+                            <div className="flex items-center min-w-0">
+                              <subItem.icon className={`h-4 w-4 flex-shrink-0 transition-colors ${
+                                activeSection === subItem.key ? 'text-amber-400' : 'text-gray-500 group-hover:text-amber-400'
+                              } ${!isCollapsedDesktop ? 'mr-2' : ''}`} />
+                              {!isCollapsedDesktop && (
+                                <span className="flex items-center justify-between flex-1 min-w-0">
+                                  <span className="truncate">{subItem.name}</span>
+                                  {subItem.badge && <span className="text-xs bg-amber-500/30 text-amber-300 px-1.5 rounded ml-2 flex-shrink-0">{subItem.badge}</span>}
+                                </span>
+                              )}
+                            </div>
+                          </button>
+                        ))
+                      )}
+                    </div>
                   </div>
                 );
               }
               
-              // Handle regular items (no section)
               return (
                 <button
                   key={item.key}
@@ -2643,13 +2761,13 @@ const CashierDashboard = () => {
                   className={`w-full flex items-center justify-center lg:justify-start px-2 lg:px-2.5 py-1.5 text-xs font-medium rounded-lg transition-all duration-200 border group ${
                     activeSection === item.key
                       ? 'bg-amber-500/10 text-amber-400 border-amber-500/40 shadow shadow-amber-500/10'
-                      : `${isDarkMode ? 'text-gray-400 border-transparent hover:bg-amber-500/5 hover:text-amber-300 hover:border-amber-500/20' : 'text-gray-600 border-transparent hover:bg-amber-500/10 hover:text-amber-700 hover:border-amber-500/30'}`
+                      : 'text-gray-400 border-transparent hover:bg-amber-500/5 hover:text-amber-300 hover:border-amber-500/20'
                   } ${isCollapsedDesktop ? 'lg:justify-center lg:px-2' : ''}`}
                   title={isCollapsedDesktop ? item.name : ''}
                 >
                   <div className="flex items-center min-w-0">
                     <item.icon className={`h-4 w-4 flex-shrink-0 transition-colors ${
-                      activeSection === item.key ? 'text-amber-400' : `${isDarkMode ? 'text-gray-500 group-hover:text-amber-400' : 'text-gray-600 group-hover:text-amber-600'}`
+                      activeSection === item.key ? 'text-amber-400' : 'text-gray-500 group-hover:text-amber-400'
                     } ${!isCollapsedDesktop ? 'mr-2' : ''}`} />
                     {!isCollapsedDesktop && <span className="truncate">{item.name}</span>}
                   </div>
@@ -2670,9 +2788,11 @@ const CashierDashboard = () => {
             </button>
           </nav>
 
-          <div className={`p-2 lg:p-3 border-t ${isDarkMode ? 'border-amber-500/20' : 'border-amber-300/40'} flex-shrink-0 transition-all duration-300 ${isCollapsedDesktop ? 'lg:flex lg:items-center lg:justify-center' : ''}`}>
-            {/* sidebar footer content can be added here */}
-          </div>
+          <div className={`p-2 lg:p-3 border-t border-amber-500/20 flex-shrink-0 transition-all duration-300 ${isCollapsedDesktop ? 'lg:flex lg:items-center lg:justify-center' : ''}`}>
+              {/* sidebar profile removed per request (SA / System Administrator / admin) */}
+              
+              {/* sidebar logout removed per request - header will show confirmation-only logout */}
+            </div>
         </div>
       </div>
 

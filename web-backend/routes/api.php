@@ -144,6 +144,13 @@ Route::get('/analytics/alternative-slots', [AnalyticsController::class, 'alterna
 Route::get('/unavailable-dates', [UnavailableDateController::class, 'index']);
 Route::get('/unavailable-dates/last-update', [UnavailableDateController::class, 'lastUpdate']);
 
+// Real-time updates endpoints (public - no auth needed for polling)
+Route::prefix('realtime')->group(function () {
+    Route::get('/updates', [\App\Http\Controllers\RealtimeUpdateController::class, 'getUpdates']);
+    Route::get('/slot-capacities', [\App\Http\Controllers\RealtimeUpdateController::class, 'getSlotCapacityData']);
+    Route::get('/appointment-settings', [\App\Http\Controllers\RealtimeUpdateController::class, 'getAppointmentSettings']);
+});
+
 // Public appointment settings (for user booking limit checks)
 Route::get('/appointment-settings/current', [AppointmentSettingsController::class, 'index']);
 Route::get('/appointment-settings/user-limit/{userId}/{date?}', [AppointmentSettingsController::class, 'getUserLimit']);
@@ -246,6 +253,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::prefix('blackout-dates')->group(function () {
             Route::get('/', [BlackoutDateController::class, 'index']);
             Route::post('/', [BlackoutDateController::class, 'store']);
+            Route::post('/affected', [UnavailableDateController::class, 'getAffectedAppointments']); // Reuse the method from UnavailableDateController
             Route::put('/{blackoutDate}', [BlackoutDateController::class, 'update']);
             Route::delete('/{blackoutDate}', [BlackoutDateController::class, 'destroy']);
         });
@@ -460,14 +468,75 @@ Route::prefix('chatbot')->group(function () {
     // Public routes (guests can ask questions)
     Route::post('/send-message', [ChatbotController::class, 'sendMessage']);
     Route::get('/suggested-questions', [ChatbotController::class, 'getSuggestedQuestions']);
-    Route::post('/save-to-messages', [ChatbotController::class, 'saveMessageToMessageCenter']);
+    Route::get('/rate-limit-status', [ChatbotController::class, 'getRateLimitStatus']);
+    Route::get('/capabilities', [ChatbotController::class, 'getCapabilities']);
+    
+    // NEW: Streaming & Advanced AI routes
+    Route::post('/stream', [\App\Http\Controllers\ChatbotStreamController::class, 'streamMessage']);
+    Route::get('/status', [\App\Http\Controllers\ChatbotStreamController::class, 'getStatus']);
+    Route::get('/suggestions', [\App\Http\Controllers\ChatbotStreamController::class, 'getSuggestions']);
+    Route::post('/search-knowledge', [\App\Http\Controllers\ChatbotStreamController::class, 'searchKnowledge']);
     
     // Protected routes (authenticated users only)
     Route::middleware(['auth:sanctum'])->group(function () {
+        Route::post('/save-to-messages', [ChatbotController::class, 'saveMessageToMessageCenter']);
         Route::get('/history', [ChatbotController::class, 'getHistory']);
         Route::delete('/clear-history', [ChatbotController::class, 'clearHistory']);
         Route::get('/conversation-summary', [ChatbotController::class, 'getConversationSummary']);
+        
+        // Action execution routes
+        Route::post('/execute-action', [ChatbotController::class, 'executeAction']);
+        Route::post('/confirm-action', [ChatbotController::class, 'confirmAction']);
+        Route::post('/real-time-data', [ChatbotController::class, 'getRealTimeData']);
+        
+        // Conversation management routes
+        Route::get('/conversations', [ChatbotController::class, 'getConversations']);
+        Route::post('/conversations/new', [ChatbotController::class, 'startNewConversation']);
+        Route::get('/conversations/{conversationId}', [ChatbotController::class, 'getConversationMessages']);
+        Route::delete('/conversations/{conversationId}', [ChatbotController::class, 'deleteConversation']);
+        
+        // NEW: User preference management
+        Route::post('/preferences', [\App\Http\Controllers\ChatbotStreamController::class, 'setPreference']);
     });
+    
+    // Admin-only analytics routes
+    Route::middleware(['auth:sanctum', 'role:admin'])->prefix('admin')->group(function () {
+        Route::get('/analytics', [ChatbotController::class, 'getAnalytics']);
+        Route::get('/priority-conversations', [ChatbotController::class, 'getPriorityConversations']);
+        Route::get('/training-data', [ChatbotController::class, 'getTrainingData']);
+    });
+});
+
+// CHATBOT ADVANCED FEATURES ROUTES (WebSocket, Workflows, Threading, Metrics)
+Route::prefix('chatbot/advanced')->middleware(['auth:sanctum'])->group(function () {
+    // WebSocket Management
+    Route::post('/websocket/init', [\App\Http\Controllers\ChatbotAdvancedFeaturesController::class, 'initializeWebSocket']);
+    Route::post('/websocket/subscribe', [\App\Http\Controllers\ChatbotAdvancedFeaturesController::class, 'subscribeToUpdates']);
+    Route::get('/websocket/messages', [\App\Http\Controllers\ChatbotAdvancedFeaturesController::class, 'getPendingMessages']);
+    Route::get('/websocket/stats', [\App\Http\Controllers\ChatbotAdvancedFeaturesController::class, 'getWebSocketStats']);
+
+    // Workflow Orchestration
+    Route::post('/workflow/execute', [\App\Http\Controllers\ChatbotAdvancedFeaturesController::class, 'executeWorkflow']);
+    Route::get('/workflow/available', [\App\Http\Controllers\ChatbotAdvancedFeaturesController::class, 'getAvailableWorkflows']);
+
+    // Permission & Action Control
+    Route::post('/permission/check', [\App\Http\Controllers\ChatbotAdvancedFeaturesController::class, 'checkActionPermission']);
+    Route::get('/permission/actions', [\App\Http\Controllers\ChatbotAdvancedFeaturesController::class, 'getPermittedActions']);
+
+    // Conversation Threading
+    Route::post('/thread/create', [\App\Http\Controllers\ChatbotAdvancedFeaturesController::class, 'createThread']);
+    Route::get('/thread/list', [\App\Http\Controllers\ChatbotAdvancedFeaturesController::class, 'getUserThreads']);
+    Route::post('/thread/switch', [\App\Http\Controllers\ChatbotAdvancedFeaturesController::class, 'switchThread']);
+    Route::get('/thread/suggestions', [\App\Http\Controllers\ChatbotAdvancedFeaturesController::class, 'getConversationSuggestions']);
+
+    // Metrics & Analytics
+    Route::post('/metrics/satisfaction', [\App\Http\Controllers\ChatbotAdvancedFeaturesController::class, 'recordSatisfaction']);
+    Route::get('/metrics/quality', [\App\Http\Controllers\ChatbotAdvancedFeaturesController::class, 'getConversationQuality']);
+    Route::get('/metrics/performance', [\App\Http\Controllers\ChatbotAdvancedFeaturesController::class, 'getPerformanceMetrics']);
+    Route::get('/metrics/bottlenecks', [\App\Http\Controllers\ChatbotAdvancedFeaturesController::class, 'identifyBottlenecks']);
+
+    // Error Handling
+    Route::get('/errors/summary', [\App\Http\Controllers\ChatbotAdvancedFeaturesController::class, 'getErrorSummary']);
 });
 
 // Fallback route for undefined API endpoints

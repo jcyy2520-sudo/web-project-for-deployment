@@ -17,7 +17,8 @@ class Message extends Model
         'subject',
         'type',
         'reply_to_message_id',
-        'replies_count'
+        'replies_count',
+        'conversation_id'
     ];
 
     protected $casts = [
@@ -42,5 +43,21 @@ class Message extends Model
     public function replies()
     {
         return $this->hasMany(Message::class, 'reply_to_message_id');
+    }
+
+    /**
+     * Scope to get chatbot messages
+     */
+    public function scopeChatbot($query)
+    {
+        return $query->where('type', 'chatbot');
+    }
+
+    /**
+     * Scope to get messages by conversation
+     */
+    public function scopeConversation($query, $conversationId)
+    {
+        return $query->where('conversation_id', $conversationId);
     }
 }

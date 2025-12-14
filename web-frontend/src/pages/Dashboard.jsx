@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useApi } from '../hooks/useApi';
+import useRealtimeUpdates from '../hooks/useRealtimeUpdates';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
 import TimePicker from '../components/TimePicker';
@@ -1160,6 +1161,31 @@ const Dashboard = () => {
         break;
     }
   };
+
+  // Initialize real-time updates polling
+  const { startPolling: startRealtimePolling, stopPolling: stopRealtimePolling } = useRealtimeUpdates(
+    // onCapacityChange callback
+    (capacitiesData) => {
+      console.log('[Dashboard] Capacity data received from polling, reloading slots');
+      if (appointmentData?.appointment_date) {
+        loadAvailableSlots(appointmentData.appointment_date);
+      }
+    },
+    // onSettingsChange callback
+    (settingsData) => {
+      console.log('[Dashboard] Settings data received from polling, checking daily limit');
+      const dateToCheck = appointmentData?.appointment_date || new Date().toISOString().split('T')[0];
+      checkDailyLimit(dateToCheck);
+    }
+  );
+
+  // Start polling when Dashboard mounts
+  useEffect(() => {
+    startRealtimePolling();
+    return () => {
+      stopRealtimePolling();
+    };
+  }, [startRealtimePolling, stopRealtimePolling]);
 
   const loadAppointments = async () => {
     const result = await callApi((signal) => 

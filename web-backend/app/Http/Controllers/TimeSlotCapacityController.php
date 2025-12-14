@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\TimeSlotCapacity;
+use App\Events\SlotCapacityChanged;
 use Illuminate\Http\Request;
 
 class TimeSlotCapacityController extends Controller
@@ -50,6 +51,9 @@ class TimeSlotCapacityController extends Controller
 
             try {
                 $capacity = TimeSlotCapacity::create($request->all());
+                
+                // Broadcast the change to all connected clients
+                broadcast(new SlotCapacityChanged($capacity, 'created', [$capacity->start_time]));
 
                 return response()->json([
                     'success' => true,
@@ -82,6 +86,9 @@ class TimeSlotCapacityController extends Controller
 
             try {
                 $timeSlotCapacity->update($request->all());
+                
+                // Broadcast the change to all connected clients
+                broadcast(new SlotCapacityChanged($timeSlotCapacity, 'updated', [$timeSlotCapacity->start_time]));
 
                 return response()->json([
                     'success' => true,
@@ -104,7 +111,11 @@ class TimeSlotCapacityController extends Controller
     {
         return $this->wrapExperimental(function () use ($timeSlotCapacity) {
             try {
+                $affectedTime = $timeSlotCapacity->start_time;
                 $timeSlotCapacity->delete();
+                
+                // Broadcast the change to all connected clients
+                broadcast(new SlotCapacityChanged($timeSlotCapacity, 'deleted', [$affectedTime]));
 
                 return response()->json([
                     'success' => true,
@@ -211,6 +222,13 @@ class TimeSlotCapacityController extends Controller
                         $created++;
                     }
                 }
+
+                // Broadcast the change to all connected clients with all affected hours
+                broadcast(new SlotCapacityChanged(
+                    (object)['max_appointments_per_slot' => $capacity],
+                    'apply_all',
+                    array_column($timeSlots, 0) // All start times
+                ));
 
                 return response()->json([
                     'success' => true,

@@ -608,6 +608,8 @@ class ChatbotService
                 return $this->getStaffSuggestedQuestions($userId);
             case 'admin':
                 return $this->getAdminSuggestedQuestions();
+            case 'cashier':
+                return $this->getCashierSuggestedQuestions($userId);
             default:
                 return $this->getGeneralSuggestedQuestions();
         }
@@ -718,6 +720,49 @@ class ChatbotService
 
         if ($totalUsers > 0) {
             $questions[3] = "How many active users do we have? ({$totalUsers})";
+        }
+
+        return array_slice($questions, 0, 4);
+    }
+
+    /**
+     * Get suggested questions for cashiers
+     */
+    private function getCashierSuggestedQuestions($userId)
+    {
+        $today = Carbon::now()->startOfDay();
+        
+        // Get today's payment statistics
+        $todayPayments = Payment::whereDate('created_at', $today)->count();
+        $pendingPayments = Payment::where('status', 'pending')->count();
+        $todayRevenue = Payment::whereDate('created_at', $today)
+            ->where('status', 'completed')
+            ->sum('amount');
+        
+        // Get pending refunds
+        $pendingRefunds = Refund::where('status', 'pending')->count();
+        
+        $questions = [
+            "What's my shift summary today?",
+            "Show pending payments",
+            "How much revenue was collected today?",
+            "Are there any pending refunds?",
+        ];
+
+        if ($todayPayments > 0) {
+            $questions[0] = "What's my shift summary? ({$todayPayments} transactions today)";
+        }
+
+        if ($pendingPayments > 0) {
+            $questions[1] = "Show {$pendingPayments} pending payments";
+        }
+
+        if ($todayRevenue > 0) {
+            $questions[2] = "Today's revenue: ₱" . number_format($todayRevenue, 2);
+        }
+
+        if ($pendingRefunds > 0) {
+            $questions[3] = "Process {$pendingRefunds} pending refunds";
         }
 
         return array_slice($questions, 0, 4);
@@ -2444,18 +2489,26 @@ class ChatbotService
                 }
                 $basePrompt .= "\n";
             }
+        } elseif ($role === 'cashier' && isset($context['cashier_data'])) {
+            $data = $context['cashier_data'];
+            $basePrompt .= "=== CASHIER DASHBOARD ===\n";
+            $basePrompt .= "Today's Transactions: " . ($data['today_transactions'] ?? 0) . "\n";
+            $basePrompt .= "Today's Revenue: ₱" . number_format($data['today_revenue'] ?? 0, 2) . "\n";
+            $basePrompt .= "Pending Payments: " . ($data['pending_payments'] ?? 0) . "\n";
+            $basePrompt .= "Pending Refunds: " . ($data['pending_refunds'] ?? 0) . "\n";
+            $basePrompt .= "\n";
         }
 
         // No static FAQs; assistant relies on current DB-backed context.
         $basePrompt .= "=== GUIDELINES ===\n";
-        $basePrompt .= "1. Use provided real data to give accurate, specific responses\n";
-        $basePrompt .= "2. For {$role}s, prioritize relevant features and workflows\n";
-        $basePrompt .= "3. Be professional, courteous, knowledgeable, and concise\n";
-        $basePrompt .= "4. Provide actionable guidance for common tasks\n";
-        $basePrompt .= "5. When unsure, suggest contacting support at {$context['business_info']['phone']} or {$context['business_info']['email']}\n";
-        $basePrompt .= "6. Never make up features that don't exist in the system\n";
-        $basePrompt .= "7. Always maintain professional demeanor\n";
-        $basePrompt .= "8. Help clients understand the appointment process clearly\n";
+        $basePrompt .= "1. KEEP RESPONSES SHORT: 1-3 sentences maximum. Be direct and concise.\n";
+        $basePrompt .= "2. Use provided real data to give accurate, specific responses\n";
+        $basePrompt .= "3. For {$role}s, prioritize relevant features and workflows\n";
+        $basePrompt .= "4. Be professional and friendly but brief\n";
+        $basePrompt .= "5. When unsure, suggest contacting support at {$context['business_info']['phone']}\n";
+        $basePrompt .= "6. Never make up features or data that doesn't exist\n";
+        $basePrompt .= "7. DO NOT repeat information already shown in context\n";
+        $basePrompt .= "8. Current user role is: {$role} - respond appropriately for this role\n";
 
         return $basePrompt;
     }

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\AppointmentSettings;
+use App\Events\AppointmentSettingsChanged;
 use App\Traits\SafeExperimentalFeature;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -62,13 +63,8 @@ class AppointmentSettingsController extends Controller
                 Cache::forget('appointment_settings');
                 Cache::forget('analytics_dashboard_comprehensive');
 
-                // Broadcast change to all clients via a notification or event
-                // This will trigger an update on the user-facing booking system
-                broadcast(new \App\Events\AppointmentSettingsUpdated(
-                    $settings,
-                    $oldLimit,
-                    $request->daily_booking_limit_per_user
-                ))->toOthers();
+                // Broadcast change to all clients
+                broadcast(new AppointmentSettingsChanged($settings, 'updated'));
 
                 return response()->json([
                     'success' => true,

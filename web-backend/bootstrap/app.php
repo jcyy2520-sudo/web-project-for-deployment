@@ -25,6 +25,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->alias([
             'role' => \App\Http\Middleware\RoleMiddleware::class,
+            'chatbot.rate-limit' => \App\Http\Middleware\ChatbotRateLimitMiddleware::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {

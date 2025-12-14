@@ -14,7 +14,30 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // Register advanced chatbot services
+        $this->app->singleton(\App\Services\WebSocketService::class, function ($app) {
+            return new \App\Services\WebSocketService();
+        });
+
+        $this->app->singleton(\App\Services\WorkflowService::class, function ($app) {
+            return new \App\Services\WorkflowService();
+        });
+
+        $this->app->singleton(\App\Services\ActionPermissionService::class, function ($app) {
+            return new \App\Services\ActionPermissionService();
+        });
+
+        $this->app->singleton(\App\Services\ConversationThreadService::class, function ($app) {
+            return new \App\Services\ConversationThreadService();
+        });
+
+        $this->app->singleton(\App\Services\ErrorHandlingService::class, function ($app) {
+            return new \App\Services\ErrorHandlingService();
+        });
+
+        $this->app->singleton(\App\Services\ChatbotMetricsService::class, function ($app) {
+            return new \App\Services\ChatbotMetricsService();
+        });
     }
 
     /**

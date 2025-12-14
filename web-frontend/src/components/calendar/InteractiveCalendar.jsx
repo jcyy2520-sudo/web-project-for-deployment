@@ -122,10 +122,10 @@ const InteractiveCalendar = ({
     return appointmentsByDate[dateStr] || [];
   }, [year, month, appointmentsByDate]);
 
-  // Count appointments by type for a date
+  // Count appointments by type for a date (memoized)
   const getDateStats = useCallback((day) => {
     const dateAppts = getAppointmentsForDate(day);
-    const stats = {
+    return {
       total: dateAppts.length,
       approved: dateAppts.filter(a => a.status === 'approved').length,
       completed: dateAppts.filter(a => a.payment_status === 'paid' || a.status === 'completed').length,
@@ -134,8 +134,18 @@ const InteractiveCalendar = ({
       pending: dateAppts.filter(a => a.status === 'pending').length,
       cancelled: dateAppts.filter(a => ['cancelled', 'refunded'].includes(a.status)).length,
     };
-    return stats;
   }, [getAppointmentsForDate]);
+
+  // Memoize stats for all days to prevent recalculation
+  const allDayStats = useMemo(() => {
+    const stats = {};
+    days.forEach(day => {
+      if (day) {
+        stats[day] = getDateStats(day);
+      }
+    });
+    return stats;
+  }, [days, getDateStats]);
 
   // Determine if date has appointments matching filters
   const hasMatchingAppointments = useCallback((day) => {
@@ -273,7 +283,7 @@ const InteractiveCalendar = ({
           {days.map((day, index) => {
             const isSelected = day === selectedDate;
             const hasAppts = hasMatchingAppointments(day);
-            const stats = day ? getDateStats(day) : null;
+            const stats = day ? allDayStats[day] : null;
             const tooltip = day ? getTooltipContent(day) : null;
             const isDisabled = day && (isWeekend(day) || isDateUnavailable(day));
 

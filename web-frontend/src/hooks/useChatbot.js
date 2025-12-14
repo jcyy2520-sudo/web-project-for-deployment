@@ -8,18 +8,65 @@ export const useChatbot = () => {
   const [lastSuggestions, setLastSuggestions] = useState([]);
   const [error, setError] = useState(null);
   const [pollingEnabled, setPollingEnabled] = useState(true);
+  const [lastMessageCount, setLastMessageCount] = useState(0);
+  const [conversations, setConversations] = useState([]);
+  const [conversationsLoading, setConversationsLoading] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  
+  // Rate limiting state
+  const [rateLimitInfo, setRateLimitInfo] = useState({
+    remaining: 20,
+    isLimited: false,
+    mustStartNew: false,
+    conversationLimit: 20,
+  });
+  const [isRateLimited, setIsRateLimited] = useState(false);
+  const [rateLimitMessage, setRateLimitMessage] = useState(null);
+  
+  // Language and sentiment state
+  const [detectedLanguage, setDetectedLanguage] = useState('en');
+  const [lastSentiment, setLastSentiment] = useState('neutral');
+  
   const messagesEndRef = useRef(null);
+  const lastUserActionRef = useRef(Date.now());
+  const sessionIdRef = useRef(null);
+
+  // Generate or retrieve session ID for guests
+  useEffect(() => {
+    if (!sessionIdRef.current) {
+      sessionIdRef.current = localStorage.getItem('chatbot_session_id') || 
+        `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      localStorage.setItem('chatbot_session_id', sessionIdRef.current);
+    }
+  }, []);
 
   // Load chat history on mount
   useEffect(() => {
     const loadInitialHistory = async () => {
       try {
-        const response = await axios.get('/api/chatbot/history?limit=50');
+        // First, check if there's a saved conversation ID in localStorage
+        const savedConversationId = localStorage.getItem('chatbot_current_conversation_id');
+        
+        // Build the URL with conversation_id if we have one saved
+        let url = '/api/chatbot/history?limit=50';
+        if (savedConversationId) {
+          url += `&conversation_id=${encodeURIComponent(savedConversationId)}`;
+        }
+        
+        const response = await axios.get(url);
         if (response.data.success) {
           setMessages(response.data.data || []);
-          const lastMsg = response.data.data?.[response.data.data.length - 1];
-          if (lastMsg) {
-            setConversationId(lastMsg.conversation_id);
+          setLastMessageCount(response.data.data?.length || 0);
+          
+          // If there was a saved conversation, use it. Otherwise use the last message's conversation
+          if (savedConversationId) {
+            setConversationId(savedConversationId);
+          } else {
+            const lastMsg = response.data.data?.[response.data.data.length - 1];
+            if (lastMsg) {
+              setConversationId(lastMsg.conversation_id);
+              localStorage.setItem('chatbot_current_conversation_id', lastMsg.conversation_id);
+            }
           }
         }
       } catch (err) {
@@ -31,18 +78,41 @@ export const useChatbot = () => {
     loadInitialHistory();
   }, []);
 
-  // Lightweight polling to keep the chat UI in sync with server-side changes
+  // Smart polling: Only check for updates if no recent user activity (prevents overwriting optimistic updates)
+  // Use a ref to track the current conversation ID for polling
+  const currentConversationIdRef = useRef(conversationId);
+  
+  // Keep the ref in sync with state
+  useEffect(() => {
+    currentConversationIdRef.current = conversationId;
+  }, [conversationId]);
+  
   useEffect(() => {
     if (!pollingEnabled) return;
     
     const pollChatHistory = async () => {
       try {
-        const response = await axios.get('/api/chatbot/history?limit=50');
-        if (response.data.success) {
-          setMessages(response.data.data || []);
-          const lastMsg = response.data.data?.[response.data.data.length - 1];
-          if (lastMsg) {
-            setConversationId(lastMsg.conversation_id);
+        const timeSinceLastAction = Date.now() - lastUserActionRef.current;
+        // Only poll if more than 3 seconds have passed since last user action
+        // This prevents overwriting optimistic updates that are being sent
+        if (timeSinceLastAction < 3000) {
+          return;
+        }
+        
+        // Only poll for the current conversation
+        const convId = currentConversationIdRef.current;
+        if (!convId) {
+          return; // Don't poll if no conversation is active
+        }
+
+        const response = await axios.get(`/api/chatbot/history?limit=50&conversation_id=${encodeURIComponent(convId)}`);
+        if (response.data.success && response.data.data) {
+          const serverMessages = response.data.data;
+          // Only update if server has different messages to avoid unnecessary re-renders
+          // and to preserve optimistic updates in progress
+          if (serverMessages.length !== lastMessageCount) {
+            setMessages(serverMessages);
+            setLastMessageCount(serverMessages.length);
           }
         }
       } catch (err) {
@@ -54,9 +124,9 @@ export const useChatbot = () => {
       }
     };
     
-    const id = setInterval(pollChatHistory, 15000);
+    const id = setInterval(pollChatHistory, 20000); // Poll every 20 seconds instead of 15
     return () => clearInterval(id);
-  }, [pollingEnabled]);
+  }, [pollingEnabled, lastMessageCount]);
 
   const scrollToBottom = () => {
     setTimeout(() => {
@@ -64,15 +134,26 @@ export const useChatbot = () => {
     }, 100);
   };
 
-  const loadChatHistory = useCallback(async ({ silent = false, ignoreErrors = false } = {}) => {
+  const loadChatHistory = useCallback(async ({ silent = false, ignoreErrors = false, targetConversationId = null } = {}) => {
     try {
-      const response = await axios.get('/api/chatbot/history?limit=50');
+      // Use provided conversation ID, or current one, or none
+      const convId = targetConversationId || conversationId;
+      let url = '/api/chatbot/history?limit=50';
+      if (convId) {
+        url += `&conversation_id=${encodeURIComponent(convId)}`;
+      }
+      
+      const response = await axios.get(url);
       if (response.data.success) {
         setMessages(response.data.data || []);
-        // Set conversation ID from the last message if exists
-        const lastMsg = response.data.data?.[response.data.data.length - 1];
-        if (lastMsg) {
-          setConversationId(lastMsg.conversation_id);
+        // Set conversation ID from response or last message
+        if (convId) {
+          setConversationId(convId);
+        } else {
+          const lastMsg = response.data.data?.[response.data.data.length - 1];
+          if (lastMsg) {
+            setConversationId(lastMsg.conversation_id);
+          }
         }
       }
     } catch (err) {
@@ -91,12 +172,22 @@ export const useChatbot = () => {
         setError('Failed to load chat history');
       }
     }
-  }, []);
+  }, [conversationId]);
 
   const sendMessage = useCallback(async (userMessage) => {
     if (!userMessage.trim()) return;
 
+    // Check if rate limited before sending
+    if (isRateLimited && rateLimitInfo.mustStartNew) {
+      setError(rateLimitMessage || 'Message limit reached. Please start a new conversation.');
+      return;
+    }
+
     setError(null);
+    setRateLimitMessage(null);
+    // Track user action to prevent polling from overwriting optimistic updates
+    lastUserActionRef.current = Date.now();
+    
     const newUserMessage = {
       id: Date.now(),
       message: userMessage,
@@ -106,13 +197,36 @@ export const useChatbot = () => {
     };
 
     setMessages((prev) => [...prev, newUserMessage]);
+    setLastMessageCount((prev) => prev + 1);
     setLoading(true);
 
     try {
       const response = await axios.post('/api/chatbot/send-message', {
         message: userMessage,
         conversation_id: conversationId
+      }, {
+        headers: {
+          'X-Session-ID': sessionIdRef.current
+        }
       });
+
+      // Check for rate limit response (429)
+      if (response.status === 429 || response.data?.rate_limited) {
+        const limitInfo = response.data?.rate_limit_info || {};
+        setIsRateLimited(true);
+        setRateLimitInfo({
+          remaining: limitInfo.remaining || 0,
+          isLimited: true,
+          mustStartNew: limitInfo.must_start_new || response.data?.must_start_new_conversation || false,
+          conversationLimit: limitInfo.conversation_limit || 20,
+          blockedUntil: limitInfo.blocked_until || null,
+        });
+        setRateLimitMessage(response.data?.message || 'Rate limit reached. Please start a new conversation.');
+        setError(response.data?.message || 'Rate limit reached.');
+        setMessages((prev) => prev.filter((msg) => msg.id !== newUserMessage.id));
+        setLastMessageCount((prev) => Math.max(0, prev - 1));
+        return;
+      }
 
       // Validate response structure
       if (!response.data) {
@@ -121,10 +235,43 @@ export const useChatbot = () => {
 
       // Check for API-level success flag
       if (response.data.success === false) {
+        // Check if it's a rate limit error
+        if (response.data.rate_limited) {
+          const limitInfo = response.data.rate_limit_info || {};
+          setIsRateLimited(true);
+          setRateLimitInfo({
+            remaining: limitInfo.remaining || 0,
+            isLimited: true,
+            mustStartNew: limitInfo.must_start_new || response.data.must_start_new_conversation || false,
+            conversationLimit: limitInfo.conversation_limit || 20,
+          });
+          setRateLimitMessage(response.data.message);
+        }
+        
         const errorMsg = response.data?.message || 'Failed to get response from chatbot';
         setError(errorMsg);
         setMessages((prev) => prev.filter((msg) => msg.id !== newUserMessage.id));
         return;
+      }
+
+      // Update rate limit info from meta
+      const meta = response.data.meta || {};
+      if (meta.rate_limit_remaining !== undefined) {
+        setRateLimitInfo(prev => ({
+          ...prev,
+          remaining: meta.rate_limit_remaining,
+          isLimited: meta.rate_limit_remaining <= 0,
+          mustStartNew: meta.rate_limit_remaining <= 0,
+        }));
+        setIsRateLimited(meta.rate_limit_remaining <= 0);
+      }
+
+      // Update detected language and sentiment
+      if (meta.detected_language) {
+        setDetectedLanguage(meta.detected_language);
+      }
+      if (meta.sentiment) {
+        setLastSentiment(meta.sentiment);
       }
 
       // Normalize ai_response/message
@@ -139,9 +286,6 @@ export const useChatbot = () => {
         return;
       }
 
-      // Validate meta object
-      const meta = (response.data.meta && typeof response.data.meta === 'object') ? response.data.meta : {};
-
       const aiMessage = {
         id: Date.now() + 1,
         message: aiResponseText,
@@ -149,7 +293,10 @@ export const useChatbot = () => {
         created_at: response.data.timestamp || new Date().toISOString(),
         source: meta?.source || meta?.meta_source || 'huggingface',
         suggestions: Array.isArray(meta?.suggestions) ? meta.suggestions : [],
-        meta: meta || {}
+        meta: meta || {},
+        isPriority: meta?.is_priority || false,
+        sentiment: meta?.sentiment || 'neutral',
+        detectedLanguage: meta?.detected_language || 'en',
       };
 
       // Persist suggestions from the assistant so the UI can show them
@@ -158,10 +305,13 @@ export const useChatbot = () => {
       }
 
       setMessages((prev) => [...prev, aiMessage]);
+      setLastMessageCount((prev) => prev + 1);
       
       // Validate conversation_id
       if (response.data.conversation_id) {
         setConversationId(response.data.conversation_id);
+        // Save conversation ID to localStorage for persistence
+        localStorage.setItem('chatbot_current_conversation_id', response.data.conversation_id);
       }
 
       // Save user message to Message Center (handle auth errors gracefully)
@@ -194,6 +344,23 @@ export const useChatbot = () => {
     } catch (err) {
       console.error('Failed to send message:', err);
       
+      // Check for rate limit error (429)
+      if (err.response?.status === 429) {
+        const limitInfo = err.response?.data?.rate_limit_info || {};
+        setIsRateLimited(true);
+        setRateLimitInfo({
+          remaining: 0,
+          isLimited: true,
+          mustStartNew: err.response?.data?.must_start_new_conversation || true,
+          conversationLimit: 20,
+        });
+        setRateLimitMessage(err.response?.data?.message || 'Message limit reached. Please start a new conversation.');
+        setError(err.response?.data?.message || 'Rate limit exceeded. Please start a new conversation.');
+        setMessages((prev) => prev.filter((msg) => msg.id !== newUserMessage.id));
+        setLastMessageCount((prev) => Math.max(0, prev - 1));
+        return;
+      }
+      
       // Determine user-friendly error message
       let errorMsg = 'Failed to send message. Please try again.';
       if (err.response?.status === 401) {
@@ -212,11 +379,13 @@ export const useChatbot = () => {
 
       // Remove the user message on error
       setMessages((prev) => prev.filter((msg) => msg.id !== newUserMessage.id));
+      setLastMessageCount((prev) => Math.max(0, prev - 1));
     } finally {
       setLoading(false);
+      lastUserActionRef.current = Date.now() + 3000; // Extend cooldown after send attempt
       scrollToBottom();
     }
-  }, [conversationId]);
+  }, [conversationId, isRateLimited, rateLimitInfo, rateLimitMessage]);
 
   const clearHistory = useCallback(async () => {
     try {
@@ -224,9 +393,11 @@ export const useChatbot = () => {
         data: { conversation_id: conversationId }
       });
       setMessages([]);
+      setLastMessageCount(0);
       setConversationId(null);
       setError(null);
       setLastSuggestions([]);
+      lastUserActionRef.current = Date.now();
     } catch (err) {
       console.error('Failed to clear history:', err);
       setError('Failed to clear chat history');
@@ -237,14 +408,144 @@ export const useChatbot = () => {
     try {
       await axios.delete('/api/chatbot/clear-history');
       setMessages([]);
+      setLastMessageCount(0);
       setConversationId(null);
       setError(null);
       setLastSuggestions([]);
+      lastUserActionRef.current = Date.now();
+      // Refresh conversations list after clearing
+      loadConversations();
     } catch (err) {
       console.error('Failed to clear all history:', err);
       setError('Failed to clear chat history');
     }
   }, []);
+
+  // Load all conversations for the current user
+  const loadConversations = useCallback(async () => {
+    try {
+      setConversationsLoading(true);
+      const response = await axios.get('/api/chatbot/conversations');
+      if (response.data.success) {
+        setConversations(response.data.data || []);
+      }
+    } catch (err) {
+      console.error('Failed to load conversations:', err);
+      // Silently fail - not critical for user experience
+      if (err?.response?.status === 401) {
+        setConversations([]);
+      }
+    } finally {
+      setConversationsLoading(false);
+    }
+  }, []);
+
+  // Start a new conversation
+  const startNewConversation = useCallback(async () => {
+    try {
+      setError(null);
+      // Reset rate limit state when starting new conversation
+      setIsRateLimited(false);
+      setRateLimitInfo({
+        remaining: 20,
+        isLimited: false,
+        mustStartNew: false,
+        conversationLimit: 20,
+      });
+      setRateLimitMessage(null);
+      
+      const response = await axios.post('/api/chatbot/conversations/new', {}, {
+        headers: {
+          'X-Session-ID': sessionIdRef.current
+        }
+      });
+      if (response.data.success) {
+        const newConvId = response.data.conversation_id;
+        setConversationId(newConvId);
+        setMessages([]);
+        setLastMessageCount(0);
+        setLastSuggestions([]);
+        lastUserActionRef.current = Date.now();
+        
+        // IMPORTANT: Save the new conversation ID to localStorage so it persists
+        localStorage.setItem('chatbot_current_conversation_id', newConvId);
+        
+        // Refresh conversations list
+        await loadConversations();
+        return newConvId;
+      }
+    } catch (err) {
+      console.error('Failed to start new conversation:', err);
+      setError('Failed to start new conversation');
+      return null;
+    }
+  }, [loadConversations]);
+
+  // Switch to a specific conversation
+  const switchConversation = useCallback(async (targetConversationId) => {
+    try {
+      setError(null);
+      lastUserActionRef.current = Date.now();
+      
+      if (!targetConversationId) {
+        setMessages([]);
+        setConversationId(null);
+        setLastMessageCount(0);
+        localStorage.removeItem('chatbot_current_conversation_id');
+        return;
+      }
+
+      const response = await axios.get(`/api/chatbot/conversations/${targetConversationId}`);
+      if (response.data.success) {
+        setMessages(response.data.data || []);
+        setConversationId(targetConversationId);
+        // Save the conversation ID to localStorage
+        localStorage.setItem('chatbot_current_conversation_id', targetConversationId);
+        setLastMessageCount(response.data.data?.length || 0);
+        setLastSuggestions([]);
+      }
+    } catch (err) {
+      console.error('Failed to switch conversation:', err);
+      setError('Failed to load conversation');
+    }
+  }, []);
+
+  // Delete a specific conversation
+  const deleteConversation = useCallback(async (targetConversationId) => {
+    try {
+      await axios.delete(`/api/chatbot/conversations/${targetConversationId}`);
+      
+      // If we deleted the current conversation, clear messages
+      if (targetConversationId === conversationId) {
+        setMessages([]);
+        setConversationId(null);
+        setLastMessageCount(0);
+        setLastSuggestions([]);
+      }
+      
+      // Refresh conversations list
+      await loadConversations();
+      return true;
+    } catch (err) {
+      console.error('Failed to delete conversation:', err);
+      setError('Failed to delete conversation');
+      return false;
+    }
+  }, [conversationId, loadConversations]);
+
+  // Toggle history panel visibility
+  const toggleHistory = useCallback(() => {
+    setShowHistory(prev => !prev);
+    if (!showHistory) {
+      // Load conversations when opening history
+      loadConversations();
+    }
+  }, [showHistory, loadConversations]);
+
+  // Load conversations on mount
+  useEffect(() => {
+    loadConversations();
+  }, [loadConversations]);
 
   return {
     messages,
@@ -257,7 +558,24 @@ export const useChatbot = () => {
     clearAllHistory,
     loadChatHistory,
     messagesEndRef,
-    setError
+    setError,
+    // Conversation management
+    conversations,
+    conversationsLoading,
+    showHistory,
+    loadConversations,
+    startNewConversation,
+    switchConversation,
+    deleteConversation,
+    toggleHistory,
+    setShowHistory,
+    // Rate limiting
+    rateLimitInfo,
+    isRateLimited,
+    rateLimitMessage,
+    // Language and sentiment
+    detectedLanguage,
+    lastSentiment,
   };
 };
 

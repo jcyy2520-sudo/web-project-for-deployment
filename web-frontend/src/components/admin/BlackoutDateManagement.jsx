@@ -12,6 +12,7 @@ import {
 } from '@heroicons/react/24/outline';
 import LoadingSpinner from '../LoadingSpinner';
 import Modal from '../Modal';
+import AffectedAppointmentsModal from './AffectedAppointmentsModal';
 
 /**
  * Blackout Date Management Component
@@ -24,6 +25,11 @@ const BlackoutDateManagement = ({ isDarkMode = true }) => {
   const [editingId, setEditingId] = useState(null);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
+  
+  // Affected appointments state
+  const [showAffectedModal, setShowAffectedModal] = useState(false);
+  const [affectedAppointments, setAffectedAppointments] = useState([]);
+  const [pendingDateData, setPendingDateData] = useState(null);
 
   const [formData, setFormData] = useState({
     date: '',
@@ -109,10 +115,46 @@ const BlackoutDateManagement = ({ isDarkMode = true }) => {
       return;
     }
 
+    // Check for affected appointments before proceeding
+    if (!formData.is_recurring && formData.date) {
+      await checkAffectedAppointments(formData);
+    } else {
+      // For recurring dates or if editing, proceed directly
+      await proceedWithSave(formData);
+    }
+  };
+
+  const checkAffectedAppointments = async (dateData) => {
+    try {
+      const result = await callApi(() =>
+        axios.post('/api/admin/blackout-dates/affected', {
+          date: dateData.date,
+          all_day: !dateData.start_time && !dateData.end_time,
+          start_time: dateData.start_time || null,
+          end_time: dateData.end_time || null
+        })
+      );
+
+      if (result.success && result.data.data && result.data.data.length > 0) {
+        // There are affected appointments - show the modal
+        setAffectedAppointments(result.data.data);
+        setPendingDateData(dateData);
+        setShowModal(false);
+        setShowAffectedModal(true);
+      } else {
+        // No affected appointments - proceed directly
+        await proceedWithSave(dateData);
+      }
+    } catch (err) {
+      setError('Failed to check for affected appointments: ' + err.message);
+    }
+  };
+
+  const proceedWithSave = async (dateData, options = {}) => {
     try {
       if (editingId) {
         const result = await callApi(() =>
-          axios.put(`/api/admin/blackout-dates/${editingId}`, formData)
+          axios.put(`/api/admin/blackout-dates/${editingId}`, dateData)
         );
 
         if (result.success) {
@@ -123,7 +165,7 @@ const BlackoutDateManagement = ({ isDarkMode = true }) => {
         }
       } else {
         const result = await callApi(() =>
-          axios.post('/api/admin/blackout-dates', formData)
+          axios.post('/api/admin/blackout-dates', dateData)
         );
 
         if (result.success) {
@@ -135,6 +177,9 @@ const BlackoutDateManagement = ({ isDarkMode = true }) => {
       }
 
       setShowModal(false);
+      setShowAffectedModal(false);
+      setPendingDateData(null);
+      setAffectedAppointments([]);
     } catch (err) {
       setError('An error occurred: ' + (err.message || 'Unknown error'));
     }
@@ -152,6 +197,57 @@ const BlackoutDateManagement = ({ isDarkMode = true }) => {
       await loadBlackoutDates();
     } else {
       setError('Failed to delete blackout date');
+    }
+  };
+
+  // Handle proceeding without canceling appointments
+  const handleConfirmAffected = async ({ dateData }) => {
+    await proceedWithSave(dateData || pendingDateData);
+  };
+
+  // Handle canceling selected appointments
+  const handleCancelSelected = async ({ selectedIds, dateData, cancellationReason }) => {
+    try {
+      // Cancel appointments one by one using the cancel endpoint
+      const cancelPromises = selectedIds.map(id =>
+        axios.put(`/api/admin/appointments/${id}/cancel`, {
+          cancellation_reason: cancellationReason || 'Date marked as unavailable by admin',
+          cancelled_by_admin: true
+        })
+      );
+
+      const results = await Promise.all(cancelPromises);
+      const successCount = results.filter(r => r.data && r.data.success !== false).length;
+      
+      setSuccess(`Successfully cancelled ${successCount} appointment(s)`);
+      
+      // Now save the blackout date
+      await proceedWithSave(dateData || pendingDateData);
+    } catch (err) {
+      setError('Failed to cancel appointments: ' + err.message);
+    }
+  };
+
+  // Handle sending messages to affected users
+  const handleSendMessage = async ({ appointments, message, sendOption }) => {
+    try {
+      // Send messages to affected users
+      const messagePromises = appointments.map(apt =>
+        axios.post('/api/messages', {
+          receiver_id: apt.user_id,
+          message: message,
+          subject: 'Important: Appointment Date Unavailable',
+          appointment_id: apt.id
+        })
+      );
+
+      await Promise.all(messagePromises);
+      setSuccess(`Successfully sent ${appointments.length} message(s) to affected users`);
+      
+      // Optionally proceed with saving the blackout date
+      await proceedWithSave(pendingDateData);
+    } catch (err) {
+      setError('Failed to send messages: ' + err.message);
     }
   };
 
@@ -422,6 +518,22 @@ const BlackoutDateManagement = ({ isDarkMode = true }) => {
           </div>
         </form>
       </Modal>
+
+      {/* Affected Appointments Modal */}
+      <AffectedAppointmentsModal
+        isOpen={showAffectedModal}
+        onClose={() => {
+          setShowAffectedModal(false);
+          setPendingDateData(null);
+          setAffectedAppointments([]);
+        }}
+        affected={affectedAppointments}
+        dateData={pendingDateData}
+        onConfirm={handleConfirmAffected}
+        onCancelSelected={handleCancelSelected}
+        onSendMessage={handleSendMessage}
+        loading={loading}
+      />
     </div>
   );
 };

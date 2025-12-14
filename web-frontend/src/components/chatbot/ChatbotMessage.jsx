@@ -6,6 +6,11 @@ const ChatbotMessage = ({ message }) => {
   const actionResult = meta?.action_result || {};
   const data = meta?.data || actionResult?.data || {};
 
+  // Check for priority/sentiment indicators
+  const isPriority = message?.isPriority || meta?.is_priority;
+  const sentiment = message?.sentiment || meta?.sentiment || 'neutral';
+  const detectedLanguage = message?.detectedLanguage || meta?.detected_language || 'en';
+
   // Helper to format currency
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-PH', {
@@ -29,6 +34,47 @@ const ChatbotMessage = ({ message }) => {
     return colors[status?.toLowerCase()] || 'bg-gray-500/20 text-gray-300 border-gray-500/30';
   };
 
+  // Get sentiment color
+  const getSentimentIndicator = () => {
+    if (isUser) return null;
+    
+    const sentimentConfig = {
+      'positive': { color: 'text-green-400', icon: '😊' },
+      'neutral': { color: 'text-gray-400', icon: null },
+      'frustrated': { color: 'text-yellow-400', icon: '😤' },
+      'angry': { color: 'text-red-400', icon: '😠' },
+    };
+    
+    const config = sentimentConfig[sentiment] || sentimentConfig['neutral'];
+    return config.icon ? (
+      <span className={`text-xs ${config.color}`} title={`Sentiment: ${sentiment}`}>
+        {config.icon}
+      </span>
+    ) : null;
+  };
+
+  // Render language indicator
+  const renderLanguageIndicator = () => {
+    if (isUser || detectedLanguage === 'en') return null;
+    
+    const langNames = {
+      'tl': '🇵🇭 Filipino',
+      'es': '🇪🇸 Spanish',
+      'zh': '🇨🇳 Chinese',
+      'ja': '🇯🇵 Japanese',
+      'ko': '🇰🇷 Korean',
+    };
+    
+    const langName = langNames[detectedLanguage];
+    if (!langName) return null;
+    
+    return (
+      <span className="text-[10px] text-gray-500 ml-2" title={`Detected language: ${langName}`}>
+        {langName}
+      </span>
+    );
+  };
+
   // Render role badge for assistant messages
   const renderRoleBadge = () => {
     const role = meta?.role;
@@ -44,6 +90,17 @@ const ChatbotMessage = ({ message }) => {
     return (
       <span className={`text-[10px] px-2 py-0.5 rounded-full border ${roleColors[role] || roleColors['SYSTEM']} mb-2 inline-block`}>
         {role}
+      </span>
+    );
+  };
+
+  // Render priority indicator
+  const renderPriorityIndicator = () => {
+    if (!isPriority || isUser) return null;
+    
+    return (
+      <span className="text-[10px] px-2 py-0.5 rounded-full border bg-red-500/20 text-red-300 border-red-500/30 mb-2 ml-2 inline-block animate-pulse">
+        ⚡ Priority Response
       </span>
     );
   };
@@ -397,13 +454,17 @@ const ChatbotMessage = ({ message }) => {
         className={`max-w-[85%] rounded-xl px-4 py-3 ${
           isUser
             ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/20'
-            : 'bg-gray-900 text-gray-100 border border-amber-500/20'
+            : isPriority 
+              ? 'bg-gray-900 text-gray-100 border-2 border-red-500/40 ring-2 ring-red-500/20'
+              : 'bg-gray-900 text-gray-100 border border-amber-500/20'
         }`}
       >
         <div>
-          <div className="flex items-center flex-wrap">
+          <div className="flex items-center flex-wrap gap-1">
             {renderRoleBadge()}
+            {renderPriorityIndicator()}
             {renderActionBadge()}
+            {getSentimentIndicator()}
           </div>
           <p className="text-sm leading-relaxed break-words whitespace-pre-wrap">{message.message}</p>
 
@@ -476,9 +537,12 @@ const ChatbotMessage = ({ message }) => {
             </div>
           )}
 
-          <span className={`text-xs mt-2 block ${isUser ? 'text-amber-100/70' : 'text-gray-400'}`}>
-            {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-          </span>
+          <div className="flex items-center justify-between mt-2">
+            <span className={`text-xs ${isUser ? 'text-amber-100/70' : 'text-gray-400'}`}>
+              {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              {renderLanguageIndicator()}
+            </span>
+          </div>
         </div>
       </div>
     </div>
