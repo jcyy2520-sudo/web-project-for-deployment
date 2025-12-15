@@ -1,9 +1,10 @@
 import React from 'react';
+import errorLogger from '../utils/errorLogger';
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
-    this.state = { hasError: false, error: null };
+    this.state = { hasError: false, error: null, errorInfo: null };
   }
 
   static getDerivedStateFromError(error) {
@@ -11,7 +12,17 @@ class ErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error, errorInfo) {
+    this.setState({ errorInfo });
     console.error('Error caught by boundary:', error, errorInfo);
+    
+    // Log error to backend
+    errorLogger.captureError({
+      message: error.toString(),
+      error_type: 'react_error_boundary',
+      severity: 'critical',
+      stack_trace: errorInfo?.componentStack || error.stack,
+      url: window.location.href,
+    });
   }
 
   render() {

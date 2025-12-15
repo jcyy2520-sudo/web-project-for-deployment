@@ -14,6 +14,7 @@ class User extends Authenticatable
     use HasApiTokens, HasFactory, Notifiable, HasRoles, SoftDeletes;
 
     protected $fillable = [
+        'uuid',
         'username',
         'email',
         'password',
@@ -107,5 +108,21 @@ class User extends Authenticatable
     public function getFullNameAttribute()
     {
         return $this->first_name . ' ' . $this->last_name;
+    }
+
+    public function accessTokens()
+    {
+        return $this->hasMany(AccessToken::class);
+    }
+
+    protected static function boot()
+    {
+        parent::boot();
+
+        static::creating(function ($model) {
+            if (!$model->uuid) {
+                $model->uuid = \Illuminate\Support\Str::uuid();
+            }
+        });
     }
 }

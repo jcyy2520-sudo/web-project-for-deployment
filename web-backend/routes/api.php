@@ -25,6 +25,13 @@ use App\Http\Controllers\ChatbotController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\CashierController;
 use App\Http\Controllers\RefundController;
+use App\Http\Controllers\ErrorLogController;
+use App\Http\Controllers\HealthCheckController;
+use App\Http\Controllers\MetricsController;
+use App\Http\Controllers\AlertController;
+use App\Http\Controllers\BackupController;
+use App\Http\Controllers\Admin\FrontendErrorLogController;
+use App\Http\Controllers\Admin\JobController;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Mail;
 use App\Mail\VerificationCodeMail;
@@ -96,17 +103,7 @@ Route::post('/resend-verification', [AuthController::class, 'resendVerificationC
 Route::get('/check-verification-status', [AuthController::class, 'checkVerificationStatus']);
 
 // Health check route
-Route::get('/health', function () {
-    return response()->json([
-        'status' => 'healthy',
-        'timestamp' => now()->toDateTimeString(),
-        'services' => [
-            'database' => 'connected',
-            'mail' => config('mail.default'),
-            'session' => config('session.driver')
-        ]
-    ]);
-});
+Route::get('/health', [\App\Http\Controllers\HealthCheckController::class, 'check']);
 
 // ==================== CRITICAL FIX: /services ROUTE ====================
 
@@ -155,6 +152,116 @@ Route::prefix('realtime')->group(function () {
 Route::get('/appointment-settings/current', [AppointmentSettingsController::class, 'index']);
 Route::get('/appointment-settings/user-limit/{userId}/{date?}', [AppointmentSettingsController::class, 'getUserLimit']);
 
+// Frontend error logging - SECURED with rate limiting and abuse detection
+Route::post('/frontend-errors/log', [\App\Http\Controllers\Admin\FrontendErrorLogController::class, 'storePublic'])
+    ->middleware(['throttle:30,1', 'abuse.detect']); // Rate limit: 30 requests per minute per user/IP + abuse detection
+
+// ==================== TOKENIZED/SECURE ROUTES ====================
+
+// Password reset with tokenized URL
+Route::post('/password-reset-request', function (Request $request) {
+    $validated = $request->validate([
+        'email' => 'required|email|exists:users,email'
+    ]);
+
+    $user = \App\Models\User::where('email', $validated['email'])->first();
+    $tokenData = \App\Services\TokenService::generateTokenizedUrl(
+        $user->id,
+        'password_reset',
+        3600 // 1 hour
+    );
+
+    \Illuminate\Support\Facades\Mail::send([], [], function ($message) use ($user, $tokenData) {
+        $message->from(config('mail.from.address'))
+                ->to($user->email)
+                ->setBody("Reset password: {$tokenData['secure_url']}", 'text/html');
+    });
+
+    return response()->json([
+        'message' => 'Password reset link sent to email',
+        'user_uuid' => $user->uuid,
+        'test_token_url' => $tokenData['secure_url'] // Only for testing, remove in production
+    ]);
+});
+
+Route::post('/password-reset/{uuid}', function (Request $request, $uuid) {
+    $validated = $request->validate([
+        'token' => 'required|string',
+        'password' => 'required|string|min:8|confirmed'
+    ]);
+
+    $result = \App\Services\TokenService::verifyTokenByUuid($uuid, $validated['token']);
+
+    if (!$result || $result['purpose'] !== 'password_reset') {
+        return response()->json(['error' => 'Invalid or expired token'], 401);
+    }
+
+    $result['user']->update(['password' => bcrypt($validated['password'])]);
+    \App\Services\TokenService::revokeAllUserTokens($result['user']->id);
+
+    return response()->json(['message' => 'Password reset successfully']);
+})->middleware('throttle:5,1');
+
+// Email verification with tokenized URL
+Route::get('/verify-email/{uuid}', function ($uuid) {
+    $result = \App\Services\TokenService::verifyTokenByUuid($uuid);
+
+    if (!$result || $result['purpose'] !== 'email_verification') {
+        return response()->json(['error' => 'Invalid or expired token'], 401);
+    }
+
+    $result['user']->update([
+        'email_verified_at' => now(),
+        'verification_code' => null
+    ]);
+
+    return response()->json(['message' => 'Email verified successfully']);
+})->name('verify.email');
+
+// Generate share link (7 days expiration)
+Route::middleware('auth:sanctum')->post('/generate-share-token/{resourceType}/{resourceId}', function (Request $request, $resourceType, $resourceId) {
+    $user = auth()->user();
+
+    $tokenData = \App\Services\TokenService::generateTokenizedUrl(
+        $user->id,
+        "share_{$resourceType}",
+        604800, // 7 days
+        [
+            'resource_type' => $resourceType,
+            'resource_id' => $resourceId,
+            'created_by' => $user->uuid
+        ]
+    );
+
+    return response()->json([
+        'share_token' => $tokenData['token'],
+        'share_url' => $tokenData['secure_url'],
+        'expires_at' => $tokenData['expires_at'],
+        'uuid' => $tokenData['uuid']
+    ]);
+});
+
+// Access shared resource via token
+Route::get('/shared-resource/{uuid}', function (Request $request, $uuid) {
+    $token = $request->query('token');
+    
+    if (!$token) {
+        return response()->json(['error' => 'Missing access token'], 401);
+    }
+
+    $result = \App\Services\TokenService::verifyTokenByUuid($uuid, $token);
+
+    if (!$result || !str_starts_with($result['purpose'], 'share_')) {
+        return response()->json(['error' => 'Invalid or expired share link'], 401);
+    }
+
+    return response()->json([
+        'user' => \App\Services\TokenService::getSecureUserData($result['user']),
+        'resource' => $result['metadata'],
+        'token_data' => $result['token_data']
+    ]);
+});
+
 // ==================== PROTECTED ROUTES ====================
 
 // Protected routes
@@ -186,6 +293,86 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
     // ADMIN DASHBOARD ROUTES - UPDATED WITH ROLE FILTERING
     Route::prefix('admin')->middleware(['role:admin'])->group(function () {
+        // ERROR LOG MANAGEMENT ROUTES - System monitoring and debugging
+        Route::prefix('error-logs')->group(function () {
+            Route::get('/', [ErrorLogController::class, 'index']);
+            Route::get('/summary', [ErrorLogController::class, 'summary']);
+            Route::get('/{id}', [ErrorLogController::class, 'show']);
+            Route::post('/cleanup', [ErrorLogController::class, 'cleanup']);
+            Route::post('/clear', [ErrorLogController::class, 'clear']);
+        });
+
+        // PERFORMANCE METRICS ROUTES - Request monitoring and analysis
+        Route::prefix('metrics')->group(function () {
+            Route::get('/dashboard', [MetricsController::class, 'dashboard']);
+            Route::get('/endpoint', [MetricsController::class, 'endpoint']);
+            Route::get('/slow-requests', [MetricsController::class, 'slowRequests']);
+            Route::get('/errors', [MetricsController::class, 'errors']);
+            Route::post('/cleanup', [MetricsController::class, 'cleanup']);
+        });
+
+        // ALERT MANAGEMENT ROUTES - System alerts and notifications
+        Route::prefix('alerts')->group(function () {
+            Route::get('/dashboard', [AlertController::class, 'dashboard']);
+            Route::get('/', [AlertController::class, 'index']);
+            Route::get('/{id}', [AlertController::class, 'show']);
+            Route::post('/{id}/acknowledge', [AlertController::class, 'acknowledge']);
+            Route::post('/acknowledge-multiple', [AlertController::class, 'acknowledgeMultiple']);
+            
+            // Alert Rules Management
+            Route::get('/rules', [AlertController::class, 'rules']);
+            Route::post('/rules', [AlertController::class, 'createRule']);
+            Route::put('/rules/{id}', [AlertController::class, 'updateRule']);
+            Route::delete('/rules/{id}', [AlertController::class, 'deleteRule']);
+        });
+
+        // BACKUP MANAGEMENT ROUTES - Database backups and restoration
+        Route::prefix('backups')->group(function () {
+            Route::get('/', [BackupController::class, 'index']);
+            Route::post('/', [BackupController::class, 'create']);
+            Route::post('/{backup}/restore', [BackupController::class, 'restore']);
+            Route::delete('/{backup}', [BackupController::class, 'delete']);
+            Route::post('/cleanup', [BackupController::class, 'cleanup']);
+            Route::get('/statistics', [BackupController::class, 'statistics']);
+        });
+
+        // FRONTEND ERROR LOG ROUTES - Client-side error tracking
+        Route::prefix('frontend-errors')->group(function () {
+            Route::get('/', [FrontendErrorLogController::class, 'index']);
+            Route::get('/{frontendErrorLog}', [FrontendErrorLogController::class, 'show']);
+            Route::post('/{frontendErrorLog}/report', [FrontendErrorLogController::class, 'report']);
+            Route::get('/stats', [FrontendErrorLogController::class, 'stats']);
+            Route::post('/cleanup', [FrontendErrorLogController::class, 'cleanup']);
+            Route::post('/bulk-report', [FrontendErrorLogController::class, 'bulkReport']);
+        });
+
+        // JOB MONITORING ROUTES - Background job tracking and management
+        Route::prefix('jobs')->group(function () {
+            Route::get('/dashboard', [JobController::class, 'dashboard']);
+            Route::get('/', [JobController::class, 'index']);
+            Route::get('/{job}', [JobController::class, 'show']);
+            Route::get('/stats', [JobController::class, 'stats']);
+            Route::get('/by-queue', [JobController::class, 'byQueue']);
+            Route::get('/by-name', [JobController::class, 'byName']);
+            Route::get('/slow-jobs', [JobController::class, 'slowJobs']);
+            Route::get('/failed', [JobController::class, 'failedJobs']);
+            Route::get('/stuck', [JobController::class, 'stuckJobs']);
+            Route::post('/{job}/retry', [JobController::class, 'retry']);
+            Route::post('/cleanup', [JobController::class, 'cleanup']);
+        });
+
+        // SYSTEM ADMINISTRATION ROUTES - Comprehensive admin dashboard
+        Route::prefix('system')->group(function () {
+            Route::get('/dashboard', [\App\Http\Controllers\Admin\SystemAdminController::class, 'dashboard']);
+            Route::get('/health', [\App\Http\Controllers\Admin\SystemAdminController::class, 'health']);
+            Route::get('/security-audit', [\App\Http\Controllers\Admin\SystemAdminController::class, 'securityAudit']);
+            Route::post('/backup', [\App\Http\Controllers\Admin\SystemAdminController::class, 'runBackup']);
+            Route::post('/clear-cache', [\App\Http\Controllers\Admin\SystemAdminController::class, 'clearCache']);
+            Route::get('/users', [\App\Http\Controllers\Admin\SystemAdminController::class, 'listUsers']);
+            Route::put('/users/{user}/role', [\App\Http\Controllers\Admin\SystemAdminController::class, 'updateUserRole']);
+            Route::post('/users/{user}/toggle-status', [\App\Http\Controllers\Admin\SystemAdminController::class, 'toggleUserStatus']);
+        });
+        
         // Optimized admin stats
         Route::get('/stats/summary', [StatsController::class, 'summary']);
         Route::get('/stats', [StatsController::class, 'index']);
@@ -538,6 +725,57 @@ Route::prefix('chatbot/advanced')->middleware(['auth:sanctum'])->group(function 
     // Error Handling
     Route::get('/errors/summary', [\App\Http\Controllers\ChatbotAdvancedFeaturesController::class, 'getErrorSummary']);
 });
+
+// ==================== PHASE 3: INTELLIGENCE AT SCALE ====================
+
+// Analytics Dashboard endpoints (Admin only)
+Route::middleware(['auth:sanctum', 'admin'])->prefix('analytics')->group(function () {
+    Route::get('/dashboard', [App\Http\Controllers\AnalyticsDashboardController::class, 'dashboard']);
+    Route::get('/cpu', [App\Http\Controllers\AnalyticsDashboardController::class, 'cpuMetrics']);
+    Route::get('/memory', [App\Http\Controllers\AnalyticsDashboardController::class, 'memoryMetrics']);
+    Route::get('/disk', [App\Http\Controllers\AnalyticsDashboardController::class, 'diskMetrics']);
+    Route::get('/health', [App\Http\Controllers\AnalyticsDashboardController::class, 'healthOverview']);
+    Route::get('/trends', [App\Http\Controllers\AnalyticsDashboardController::class, 'trends']);
+});
+
+// Security & DDoS endpoints (Admin only)
+Route::middleware(['auth:sanctum', 'admin'])->prefix('security')->group(function () {
+    Route::get('/events', [\App\Http\Controllers\SecurityController::class, 'getSecurityEvents']);
+    Route::get('/blocked-ips', [\App\Http\Controllers\SecurityController::class, 'getBlockedIps']);
+    Route::post('/ip/block', [\App\Http\Controllers\SecurityController::class, 'blockIp']);
+    Route::post('/ip/unblock', [\App\Http\Controllers\SecurityController::class, 'unblockIp']);
+    Route::get('/summary', [\App\Http\Controllers\SecurityController::class, 'securitySummary']);
+    Route::get('/rate-limit/{ip}', [\App\Http\Controllers\SecurityController::class, 'getRateLimit']);
+    Route::post('/rate-limit/update', [\App\Http\Controllers\SecurityController::class, 'updateRateLimit']);
+});
+
+// Backup & Recovery endpoints (Admin only)
+Route::middleware(['auth:sanctum', 'admin'])->prefix('backups')->group(function () {
+    Route::get('/', [\App\Http\Controllers\BackupController::class, 'list']);
+    Route::post('/create', [\App\Http\Controllers\BackupController::class, 'create']);
+    Route::get('/{id}/verify', [\App\Http\Controllers\BackupController::class, 'verify']);
+    Route::post('/{id}/restore', [\App\Http\Controllers\BackupController::class, 'restore']);
+    Route::post('/{id}/test-restore', [\App\Http\Controllers\BackupController::class, 'testRestore']);
+    Route::get('/{id}/recovery-plan', [\App\Http\Controllers\BackupController::class, 'recoveryPlan']);
+    Route::get('/schedule/status', [\App\Http\Controllers\BackupController::class, 'scheduleStatus']);
+    Route::post('/schedule/update', [\App\Http\Controllers\BackupController::class, 'updateSchedule']);
+    Route::get('/statistics', [\App\Http\Controllers\BackupController::class, 'statistics']);
+});
+
+// Cleanup & Maintenance endpoints (Admin only)
+Route::middleware(['auth:sanctum', 'admin'])->prefix('maintenance')->group(function () {
+    Route::post('/cleanup', [\App\Http\Controllers\MaintenanceController::class, 'cleanup']);
+    Route::post('/cleanup/logs', [\App\Http\Controllers\MaintenanceController::class, 'rotateLogs']);
+    Route::post('/cleanup/cache', [\App\Http\Controllers\MaintenanceController::class, 'clearCache']);
+    Route::post('/cleanup/old-backups', [\App\Http\Controllers\MaintenanceController::class, 'removeOldBackups']);
+    Route::post('/cleanup/temp-files', [\App\Http\Controllers\MaintenanceController::class, 'cleanupTempFiles']);
+    Route::post('/cleanup/sessions', [\App\Http\Controllers\MaintenanceController::class, 'cleanupSessions']);
+    Route::get('/tasks/status', [\App\Http\Controllers\MaintenanceController::class, 'getTaskStatus']);
+});
+
+// System Health & Monitoring (Admin only, with optional public health endpoint)
+Route::get('/health/public', [\App\Http\Controllers\HealthCheckController::class, 'publicCheck']);
+Route::middleware(['auth:sanctum', 'admin'])->get('/health/detailed', [\App\Http\Controllers\HealthCheckController::class, 'detailedCheck']);
 
 // Fallback route for undefined API endpoints
 Route::fallback(function () {

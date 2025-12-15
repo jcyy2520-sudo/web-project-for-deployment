@@ -268,8 +268,6 @@ class ErrorHandlingService
                 'timestamp' => now()->toDateTimeString(),
                 'context' => $context,
             ]);
-
-            return $errorId;
         } catch (\Exception $e) {
             Log::error('Failed to log error with context: ' . $e->getMessage());
         }

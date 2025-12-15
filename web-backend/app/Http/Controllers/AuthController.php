@@ -15,6 +15,8 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Auth\Events\Registered;
 
+use App\Models\AuditLog;
+
 class AuthController extends Controller
 {
     // Rate limiting for registration attempts
@@ -457,6 +459,10 @@ class AuthController extends Controller
         if (!$user) {
             RateLimiter::hit($key, 300); // 5 minutes
             Log::warning('❌ USER NOT FOUND with email: ' . $request->email);
+            
+            // Log failed login attempt for security audit
+            $this->logFailedLogin($request->email, $request->ip(), 'user_not_found');
+            
             return response()->json([
                 'message' => 'Invalid credentials',
                 'success' => false
@@ -477,6 +483,10 @@ class AuthController extends Controller
         if (!$passwordMatches) {
             RateLimiter::hit($key, 300); // 5 minutes
             Log::warning('❌ PASSWORD MISMATCH for user: ' . $user->email);
+            
+            // Log failed login attempt for security audit
+            $this->logFailedLogin($request->email, $request->ip(), 'invalid_password', $user->id);
+            
             return response()->json([
                 'message' => 'Invalid credentials',
                 'success' => false
@@ -486,6 +496,10 @@ class AuthController extends Controller
         // Check if user is active
         if (!$user->is_active) {
             Log::warning('❌ USER ACCOUNT INACTIVE: ' . $user->email);
+            
+            // Log failed login attempt for security audit
+            $this->logFailedLogin($request->email, $request->ip(), 'account_inactive', $user->id);
+            
             return response()->json([
                 'message' => 'Your account has been deactivated. Please contact support.',
                 'success' => false
@@ -609,5 +623,47 @@ class AuthController extends Controller
             'verification_codes' => $verificationCodes,
             'database' => config('database.connections.mysql.database')
         ]);
+    }
+
+    /**
+     * Log failed login attempts for security monitoring
+     */
+    private function logFailedLogin(string $email, ?string $ip, string $reason, ?int $userId = null): void
+    {
+        try {
+            AuditLog::create([
+                'user_id' => $userId,
+                'action' => 'login_failed',
+                'entity_type' => 'auth',
+                'entity_id' => $userId,
+                'description' => "Failed login attempt for {$email}: {$reason}",
+                'old_values' => null,
+                'new_values' => [
+                    'email' => $email,
+                    'reason' => $reason,
+                    'timestamp' => now()->toISOString(),
+                ],
+                'ip_address' => $ip,
+                'user_agent' => request()->userAgent(),
+                'status' => 'failed',
+                'error_message' => $reason,
+            ]);
+
+            // Check for suspicious patterns (many failed attempts from same IP)
+            $recentFailures = AuditLog::where('action', 'login_failed')
+                ->where('ip_address', $ip)
+                ->where('created_at', '>=', now()->subHour())
+                ->count();
+
+            if ($recentFailures >= 10) {
+                Log::channel('security')->critical('Potential brute force attack detected', [
+                    'ip' => $ip,
+                    'email' => $email,
+                    'failed_attempts_last_hour' => $recentFailures,
+                ]);
+            }
+        } catch (\Exception $e) {
+            Log::error('Failed to log login attempt: ' . $e->getMessage());
+        }
     }
 }

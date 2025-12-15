@@ -9,6 +9,11 @@ import InstallPrompt from './components/InstallPrompt';
 import ConnectionTest from './components/ConnectionTest';
 import './css/animations.css';
 import { debugApiConfig } from './utils/debugApi';
+import errorLogger from './utils/errorLogger';
+
+// Initialize error logging
+errorLogger.initialize();
+errorLogger.loadFromLocalStorage();
 
 // Debug API configuration on app load (development only)
 if (import.meta.env.DEV) {
