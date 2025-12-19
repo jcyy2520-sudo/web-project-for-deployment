@@ -28,8 +28,8 @@ class AdminController extends Controller
                 $stats = DB::table('appointments')
                     ->selectRaw('
                         COUNT(*) as total_appointments,
-                        SUM(CASE WHEN status = "pending" THEN 1 ELSE 0 END) as pending_appointments,
-                        SUM(CASE WHEN status = "completed" THEN 1 ELSE 0 END) as completed_appointments
+                        SUM(CASE WHEN status = \'pending\' THEN 1 ELSE 0 END) as pending_appointments,
+                        SUM(CASE WHEN status = \'completed\' THEN 1 ELSE 0 END) as completed_appointments
                     ')
                     ->first();
 

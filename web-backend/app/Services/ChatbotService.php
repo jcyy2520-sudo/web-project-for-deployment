@@ -133,7 +133,19 @@ class ChatbotService
             return null;
         }
 
-        $role = $user->getRoleNames()->first() ?? 'user';
+        // Try to get role from Spatie Permission first, then fallback to 'role' column
+        $role = $user->getRoleNames()->first();
+        if (empty($role)) {
+            $role = $user->role ?? 'client';
+        }
+        // Normalize role
+        $role = strtolower($role);
+        if ($role === 'user' || $role === 'customer') {
+            $role = 'client';
+        }
+        if ($role === 'administrator') {
+            $role = 'admin';
+        }
 
         $context = [
             'user_id' => $userId,
@@ -588,30 +600,65 @@ class ChatbotService
      */
     public function getSuggestedQuestions(?int $userId)
     {
-        // For guests, return general questions
-        if (!$userId) {
-            return $this->getGeneralSuggestedQuestions();
-        }
-
-        $user = User::find($userId);
-        
-        if (!$user) {
-            return [];
-        }
-
-        $role = $user->getRoleNames()->first() ?? 'user';
-        
-        switch ($role) {
-            case 'client':
-                return $this->getClientSuggestedQuestions($userId);
-            case 'staff':
-                return $this->getStaffSuggestedQuestions($userId);
-            case 'admin':
-                return $this->getAdminSuggestedQuestions();
-            case 'cashier':
-                return $this->getCashierSuggestedQuestions($userId);
-            default:
+        try {
+            // For guests, return general questions
+            if (!$userId) {
                 return $this->getGeneralSuggestedQuestions();
+            }
+
+            $user = User::find($userId);
+            
+            if (!$user) {
+                return $this->getGeneralSuggestedQuestions();
+            }
+
+            // Try to get role from Spatie Permission first, then fallback to 'role' column
+            $role = null;
+            try {
+                if (method_exists($user, 'getRoleNames')) {
+                    $role = $user->getRoleNames()->first();
+                }
+            } catch (\Exception $e) {
+                Log::debug('Failed to get Spatie role: ' . $e->getMessage());
+            }
+            
+            // If Spatie role is empty, use the role column from the database
+            if (empty($role)) {
+                $role = $user->role ?? 'client';
+            }
+            
+            // Normalize role names
+            $role = strtolower($role);
+            
+            // Log for debugging
+            try {
+                Log::debug('getSuggestedQuestions role detection', [
+                    'user_id' => $userId,
+                    'spatie_role' => method_exists($user, 'getRoleNames') ? $user->getRoleNames()->first() : 'N/A',
+                    'db_role' => $user->role ?? 'N/A',
+                    'resolved_role' => $role,
+                ]);
+            } catch (\Exception $e) {
+                // Ignore logging errors
+            }
+            
+            switch ($role) {
+                case 'client':
+                case 'user':
+                    return $this->getClientSuggestedQuestions($userId);
+                case 'staff':
+                    return $this->getStaffSuggestedQuestions($userId);
+                case 'admin':
+                case 'administrator':
+                    return $this->getAdminSuggestedQuestions();
+                case 'cashier':
+                    return $this->getCashierSuggestedQuestions($userId);
+                default:
+                    return $this->getClientSuggestedQuestions($userId);
+            }
+        } catch (\Exception $e) {
+            Log::error('Error in getSuggestedQuestions for user ' . $userId . ': ' . $e->getMessage());
+            return $this->getGeneralSuggestedQuestions();
         }
     }
 
@@ -695,38 +742,45 @@ class ChatbotService
 
     /**
      * Get suggested questions for admins
+     * Returns context-aware questions based on current system state
      */
     private function getAdminSuggestedQuestions()
     {
         $pendingCount = Appointment::where('status', 'pending')->count();
         $today = Carbon::now()->startOfDay();
         $todayCount = Appointment::whereDate('appointment_date', $today)->count();
-        $totalUsers = User::count();
+        $pendingRefunds = Refund::where('status', 'pending')->count();
         
-        $questions = [
-            "How many total appointments do we have?",
-            "Show me all pending appointments",
-            "What's the system status?",
-            "How many active users do we have?",
-        ];
-
+        // Build questions based on what needs attention most
+        $questions = [];
+        
+        // Priority: Pending appointments that need approval
         if ($pendingCount > 0) {
-            $questions[1] = "How many appointments need attention? ({$pendingCount} pending)";
+            $questions[] = "Review {$pendingCount} pending appointment(s)";
         }
-
+        
+        // Today's appointments
         if ($todayCount > 0) {
-            $questions[0] = "How many appointments are scheduled today? ({$todayCount})";
+            $questions[] = "Show today's {$todayCount} scheduled appointment(s)";
+        } else {
+            $questions[] = "What appointments are scheduled for today?";
         }
-
-        if ($totalUsers > 0) {
-            $questions[3] = "How many active users do we have? ({$totalUsers})";
+        
+        // Pending refunds
+        if ($pendingRefunds > 0) {
+            $questions[] = "Review {$pendingRefunds} pending refund request(s)";
+        } else {
+            $questions[] = "Show system analytics";
         }
+        
+        $questions[] = "What's the current system status?";
 
         return array_slice($questions, 0, 4);
     }
 
     /**
      * Get suggested questions for cashiers
+     * Returns context-aware questions based on pending transactions
      */
     private function getCashierSuggestedQuestions($userId)
     {
@@ -735,35 +789,33 @@ class ChatbotService
         // Get today's payment statistics
         $todayPayments = Payment::whereDate('created_at', $today)->count();
         $pendingPayments = Payment::where('status', 'pending')->count();
-        $todayRevenue = Payment::whereDate('created_at', $today)
-            ->where('status', 'completed')
-            ->sum('amount');
+        $approvedRefunds = Refund::where('status', 'approved')->count();
         
-        // Get pending refunds
-        $pendingRefunds = Refund::where('status', 'pending')->count();
+        // Build questions based on what needs attention most
+        $questions = [];
         
-        $questions = [
-            "What's my shift summary today?",
-            "Show pending payments",
-            "How much revenue was collected today?",
-            "Are there any pending refunds?",
-        ];
-
-        if ($todayPayments > 0) {
-            $questions[0] = "What's my shift summary? ({$todayPayments} transactions today)";
-        }
-
+        // Priority: Pending payments
         if ($pendingPayments > 0) {
-            $questions[1] = "Show {$pendingPayments} pending payments";
+            $questions[] = "Process {$pendingPayments} pending payment(s)";
+        } else {
+            $questions[] = "Show pending payments";
         }
-
-        if ($todayRevenue > 0) {
-            $questions[2] = "Today's revenue: ₱" . number_format($todayRevenue, 2);
+        
+        // Approved refunds ready to process
+        if ($approvedRefunds > 0) {
+            $questions[] = "Process {$approvedRefunds} approved refund(s)";
+        } else {
+            $questions[] = "Check refund status";
         }
-
-        if ($pendingRefunds > 0) {
-            $questions[3] = "Process {$pendingRefunds} pending refunds";
+        
+        // Today's activity
+        if ($todayPayments > 0) {
+            $questions[] = "What's my shift summary? ({$todayPayments} today)";
+        } else {
+            $questions[] = "What's my shift summary today?";
         }
+        
+        $questions[] = "What's today's total revenue?";
 
         return array_slice($questions, 0, 4);
     }
@@ -777,8 +829,281 @@ class ChatbotService
             "How do I book an appointment?",
             "What services do you offer?",
             "How do I contact support?",
-            "Can I reschedule my appointment?",
+            "What are your business hours?",
         ];
+    }
+
+    /**
+     * Get dynamic suggested questions based on system state for admin
+     * Returns questions about new/urgent items that need attention
+     */
+    public function getAdminDynamicSuggestions(): array
+    {
+        $suggestions = [];
+        
+        try {
+            $today = Carbon::now()->startOfDay();
+            
+            // Check for new pending appointments (last 24 hours)
+            try {
+                $newPendingCount = Appointment::where('status', 'pending')
+                    ->where('created_at', '>=', $today->copy()->subDay())
+                    ->count();
+                
+                if ($newPendingCount > 0) {
+                    $suggestions[] = [
+                        'text' => $newPendingCount === 1 
+                            ? "There's 1 new appointment waiting for approval" 
+                            : "There are {$newPendingCount} new appointments waiting for approval",
+                        'action' => 'view_pending_appointments',
+                        'route' => '/admin/appointments?status=pending',
+                        'priority' => 'high',
+                    ];
+                }
+            } catch (\Exception $e) {
+                Log::warning('Failed to fetch pending appointments count: ' . $e->getMessage());
+            }
+            
+            // Check for today's appointments
+            try {
+                $todayCount = Appointment::whereDate('appointment_date', $today)
+                    ->where('status', '!=', 'cancelled')
+                    ->count();
+                    
+                if ($todayCount > 0) {
+                    $suggestions[] = [
+                        'text' => "You have {$todayCount} appointment(s) scheduled for today",
+                        'action' => 'view_today_appointments',
+                        'route' => '/admin/appointments?date=today',
+                        'priority' => 'medium',
+                    ];
+                }
+            } catch (\Exception $e) {
+                Log::warning('Failed to fetch today appointments count: ' . $e->getMessage());
+            }
+            
+            // Check for pending refunds
+            try {
+                $pendingRefunds = Refund::where('status', 'pending')->count();
+                if ($pendingRefunds > 0) {
+                    $suggestions[] = [
+                        'text' => "{$pendingRefunds} refund request(s) need your attention",
+                        'action' => 'view_pending_refunds',
+                        'route' => '/admin/refunds?status=pending',
+                        'priority' => 'high',
+                    ];
+                }
+            } catch (\Exception $e) {
+                Log::warning('Failed to fetch pending refunds count: ' . $e->getMessage());
+            }
+            
+            // Check for new users this week
+            try {
+                $newUsers = User::where('created_at', '>=', $today->copy()->subWeek())->count();
+                if ($newUsers > 0) {
+                    $suggestions[] = [
+                        'text' => "{$newUsers} new user(s) registered this week",
+                        'action' => 'view_users',
+                        'route' => '/admin/users',
+                        'priority' => 'low',
+                    ];
+                }
+            } catch (\Exception $e) {
+                Log::warning('Failed to fetch new users count: ' . $e->getMessage());
+            }
+        } catch (\Exception $e) {
+            Log::error('Error in getAdminDynamicSuggestions: ' . $e->getMessage());
+        }
+        
+        return $suggestions;
+    }
+
+    /**
+     * Get dynamic suggested questions based on system state for cashier
+     * Returns questions about payments and transactions needing attention
+     */
+    public function getCashierDynamicSuggestions(?int $userId = null): array
+    {
+        $suggestions = [];
+        
+        try {
+            $today = Carbon::now()->startOfDay();
+            
+            // Check for pending payments
+            try {
+                $pendingPayments = Payment::where('status', 'pending')->count();
+                if ($pendingPayments > 0) {
+                    $suggestions[] = [
+                        'text' => "{$pendingPayments} payment(s) are waiting to be processed",
+                        'action' => 'view_pending_payments',
+                        'route' => '/cashier/payments?status=pending',
+                        'priority' => 'high',
+                    ];
+                }
+            } catch (\Exception $e) {
+                Log::warning('Failed to fetch pending payments count: ' . $e->getMessage());
+            }
+            
+            // Check for appointments arriving today (needing payment)
+            try {
+                $todayAppointments = Appointment::whereDate('appointment_date', $today)
+                    ->where('status', 'approved')
+                    ->whereDoesntHave('payment', function($q) {
+                        $q->where('status', 'completed');
+                    })
+                    ->count();
+                    
+                if ($todayAppointments > 0) {
+                    $suggestions[] = [
+                        'text' => "{$todayAppointments} appointment(s) arriving today may need payment processing",
+                        'action' => 'view_today_payments',
+                        'route' => '/cashier/payments?date=today',
+                        'priority' => 'medium',
+                    ];
+                }
+            } catch (\Exception $e) {
+                Log::warning('Failed to fetch today appointments for payments: ' . $e->getMessage());
+            }
+            
+            // Check for approved refunds to process
+            try {
+                $approvedRefunds = Refund::where('status', 'approved')->count();
+                if ($approvedRefunds > 0) {
+                    $suggestions[] = [
+                        'text' => "{$approvedRefunds} approved refund(s) ready to process",
+                        'action' => 'process_refunds',
+                        'route' => '/cashier/refunds?status=approved',
+                        'priority' => 'high',
+                    ];
+                }
+            } catch (\Exception $e) {
+                Log::warning('Failed to fetch approved refunds count: ' . $e->getMessage());
+            }
+            
+            // Today's transaction summary
+            try {
+                $todayCompletedPayments = Payment::whereDate('created_at', $today)
+                    ->where('status', 'completed')
+                    ->count();
+                    
+                if ($todayCompletedPayments > 0) {
+                    $todayRevenue = Payment::whereDate('created_at', $today)
+                        ->where('status', 'completed')
+                        ->sum('amount');
+                    $suggestions[] = [
+                        'text' => "You've processed {$todayCompletedPayments} payment(s) today (₱" . number_format($todayRevenue, 2) . ")",
+                        'action' => 'view_shift_summary',
+                        'route' => '/cashier/reports/shift',
+                        'priority' => 'low',
+                    ];
+                }
+            } catch (\Exception $e) {
+                Log::warning('Failed to fetch today completed payments summary: ' . $e->getMessage());
+            }
+        } catch (\Exception $e) {
+            Log::error('Error in getCashierDynamicSuggestions: ' . $e->getMessage());
+        }
+        
+        return $suggestions;
+    }
+
+    /**
+     * Get dynamic suggested questions based on user's appointments
+     */
+    public function getClientDynamicSuggestions(?int $userId): array
+    {
+        $suggestions = [];
+        
+        if (!$userId) {
+            return $suggestions;
+        }
+        
+        try {
+            $today = Carbon::now()->startOfDay();
+            
+            // Check for upcoming appointments
+            try {
+                $nextAppointment = Appointment::where('user_id', $userId)
+                    ->where('appointment_date', '>=', $today)
+                    ->where('status', '!=', 'cancelled')
+                    ->orderBy('appointment_date')
+                    ->orderBy('appointment_time')
+                    ->first();
+                    
+                if ($nextAppointment) {
+                    $date = Carbon::parse($nextAppointment->appointment_date)->format('M d, Y');
+                    $suggestions[] = [
+                        'text' => "Your next appointment is on {$date}",
+                        'action' => 'view_appointment',
+                        'route' => '/appointments/' . $nextAppointment->id,
+                        'priority' => 'high',
+                    ];
+                }
+            } catch (\Exception $e) {
+                Log::warning('Failed to fetch upcoming appointments for user ' . $userId . ': ' . $e->getMessage());
+            }
+            
+            // Check for pending appointments (waiting for approval)
+            try {
+                $pendingAppointments = Appointment::where('user_id', $userId)
+                    ->where('status', 'pending')
+                    ->count();
+                    
+                if ($pendingAppointments > 0) {
+                    $suggestions[] = [
+                        'text' => "{$pendingAppointments} of your appointment(s) are pending approval",
+                        'action' => 'view_pending',
+                        'route' => '/appointments?status=pending',
+                        'priority' => 'medium',
+                    ];
+                }
+            } catch (\Exception $e) {
+                Log::warning('Failed to fetch pending appointments for user ' . $userId . ': ' . $e->getMessage());
+            }
+            
+            // Check for unpaid appointments
+            try {
+                $unpaidAppointments = Appointment::where('user_id', $userId)
+                    ->where('status', 'approved')
+                    ->whereDoesntHave('payment', function($q) {
+                        $q->where('status', 'completed');
+                    })
+                    ->count();
+                    
+                if ($unpaidAppointments > 0) {
+                    $suggestions[] = [
+                        'text' => "You have {$unpaidAppointments} approved appointment(s) with pending payment",
+                        'action' => 'view_payments',
+                        'route' => '/payments',
+                        'priority' => 'high',
+                    ];
+                }
+            } catch (\Exception $e) {
+                Log::warning('Failed to fetch unpaid appointments for user ' . $userId . ': ' . $e->getMessage());
+            }
+            
+            // Check for pending refund requests
+            try {
+                $pendingRefunds = Refund::whereHas('appointment', function($q) use ($userId) {
+                    $q->where('user_id', $userId);
+                })->where('status', 'pending')->count();
+                
+                if ($pendingRefunds > 0) {
+                    $suggestions[] = [
+                        'text' => "Your refund request is being processed",
+                        'action' => 'view_refunds',
+                        'route' => '/refunds',
+                        'priority' => 'medium',
+                    ];
+                }
+            } catch (\Exception $e) {
+                Log::warning('Failed to fetch pending refunds for user ' . $userId . ': ' . $e->getMessage());
+            }
+        } catch (\Exception $e) {
+            Log::error('Error in getClientDynamicSuggestions for user ' . $userId . ': ' . $e->getMessage());
+        }
+        
+        return $suggestions;
     }
 
     /**

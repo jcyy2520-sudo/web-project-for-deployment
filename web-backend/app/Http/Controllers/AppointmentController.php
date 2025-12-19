@@ -22,6 +22,13 @@ class AppointmentController extends Controller
 {
     public function index(Request $request)
     {
+        \Log::info('[AppointmentController@index] Request received', [
+            'user_id' => $request->user()->id,
+            'user_email' => $request->user()->email,
+            'user_role' => $request->user()->role,
+            'isClient' => $request->user()->isClient()
+        ]);
+        
         // Create cache key based on user and query parameters
         $cacheKey = 'appointments_' . $request->user()->id . '_' . md5(json_encode($request->all()));
         $cacheDuration = 30; // Cache for 30 seconds
@@ -34,6 +41,11 @@ class AppointmentController extends Controller
                 return $this->fetchAppointments($request);
             })
             : $this->fetchAppointments($request);
+
+        \Log::info('[AppointmentController@index] Returning result', [
+            'count' => count($result['data'] ?? []),
+            'success' => $result['success'] ?? false
+        ]);
 
         return response()->json($result);
     }
@@ -101,7 +113,17 @@ class AppointmentController extends Controller
                              ->orderBy('appointment_time', 'desc')
                              ->paginate($request->get('per_page', 10));
 
-        return $appointments;
+        // Return with success wrapper for consistent API response
+        return [
+            'data' => $appointments->items(),
+            'success' => true,
+            'pagination' => [
+                'current_page' => $appointments->currentPage(),
+                'last_page' => $appointments->lastPage(),
+                'per_page' => $appointments->perPage(),
+                'total' => $appointments->total(),
+            ]
+        ];
     }
 
     /**
@@ -294,10 +316,26 @@ class AppointmentController extends Controller
             ], 422);
         }
 
+        // Get service_id - either from request or by looking up service by name/type
+        $serviceId = $request->service_id;
+        if (!$serviceId && $request->service_type) {
+            $service = \App\Models\Service::where('name', $request->service_type)
+                ->orWhere('name', 'LIKE', str_replace('_', ' ', $request->type ?? ''))
+                ->first();
+            $serviceId = $service?->id;
+        }
+        
+        // If still no service ID, try to find by type (snake_case to Title Case)
+        if (!$serviceId && $request->type) {
+            $typeName = ucwords(str_replace('_', ' ', $request->type));
+            $service = \App\Models\Service::where('name', $typeName)->first();
+            $serviceId = $service?->id;
+        }
+
         $appointment = Appointment::create([
             'user_id' => $request->user()->id,
             'type' => $request->type,
-            'service_id' => $request->service_id,
+            'service_id' => $serviceId,
             'service_type' => $request->service_type,
             'appointment_date' => $request->appointment_date,
             'appointment_time' => $request->appointment_time,
@@ -849,11 +887,11 @@ class AppointmentController extends Controller
 
         $stats = $query->selectRaw('
             COUNT(*) as total,
-            SUM(CASE WHEN status = "pending" THEN 1 ELSE 0 END) as pending,
-            SUM(CASE WHEN status = "approved" THEN 1 ELSE 0 END) as approved,
-            SUM(CASE WHEN status = "completed" THEN 1 ELSE 0 END) as completed,
-            SUM(CASE WHEN status = "cancelled" THEN 1 ELSE 0 END) as cancelled,
-            SUM(CASE WHEN status = "declined" THEN 1 ELSE 0 END) as declined
+            SUM(CASE WHEN status = \'pending\' THEN 1 ELSE 0 END) as pending,
+            SUM(CASE WHEN status = \'approved\' THEN 1 ELSE 0 END) as approved,
+            SUM(CASE WHEN status = \'completed\' THEN 1 ELSE 0 END) as completed,
+            SUM(CASE WHEN status = \'cancelled\' THEN 1 ELSE 0 END) as cancelled,
+            SUM(CASE WHEN status = \'declined\' THEN 1 ELSE 0 END) as declined
         ')
         ->first();
 
@@ -873,15 +911,26 @@ class AppointmentController extends Controller
     {
         $user = $request->user();
         
+        \Log::info('[userAppointments] Fetching appointments for user', [
+            'user_id' => $user->id,
+            'user_email' => $user->email,
+            'user_role' => $user->role
+        ]);
+        
         $appointments = $user->appointments()
             ->with(['staff', 'service'])
             ->orderBy('appointment_date', 'desc')
             ->orderBy('appointment_time', 'desc')
             ->get();
 
+        \Log::info('[userAppointments] Found appointments', [
+            'count' => $appointments->count()
+        ]);
+
         return response()->json([
             'data' => $appointments,
-            'success' => true
+            'success' => true,
+            'count' => $appointments->count()
         ]);
     }
 
@@ -1037,11 +1086,11 @@ class AppointmentController extends Controller
         $stats = DB::table('appointments')
             ->selectRaw('
                 COUNT(*) as total,
-                SUM(CASE WHEN status = "pending" THEN 1 ELSE 0 END) as pending,
-                SUM(CASE WHEN status = "approved" THEN 1 ELSE 0 END) as approved,
-                SUM(CASE WHEN status = "completed" THEN 1 ELSE 0 END) as completed,
-                SUM(CASE WHEN status = "cancelled" THEN 1 ELSE 0 END) as cancelled,
-                SUM(CASE WHEN status = "declined" THEN 1 ELSE 0 END) as declined
+                SUM(CASE WHEN status = \'pending\' THEN 1 ELSE 0 END) as pending,
+                SUM(CASE WHEN status = \'approved\' THEN 1 ELSE 0 END) as approved,
+                SUM(CASE WHEN status = \'completed\' THEN 1 ELSE 0 END) as completed,
+                SUM(CASE WHEN status = \'cancelled\' THEN 1 ELSE 0 END) as cancelled,
+                SUM(CASE WHEN status = \'declined\' THEN 1 ELSE 0 END) as declined
             ')
             ->first();
 

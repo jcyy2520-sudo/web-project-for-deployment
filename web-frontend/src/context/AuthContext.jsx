@@ -39,12 +39,18 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   
-  // Get token from localStorage on initial load
+  // Get token from localStorage on initial load AND set axios header immediately
   const [token, setToken] = useState(() => {
-    return localStorage.getItem('token');
+    const storedToken = localStorage.getItem('token');
+    // Set axios header synchronously during initialization to prevent race conditions
+    if (storedToken) {
+      axios.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
+      console.log('[AuthContext] Token loaded from localStorage, axios header set');
+    }
+    return storedToken;
   });
 
-  // Set up axios interceptor for auth
+  // Keep axios header in sync with token state changes
   useEffect(() => {
     if (token) {
       axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
@@ -83,9 +89,14 @@ export const AuthProvider = ({ children }) => {
               setUser(freshUserData);
               localStorage.setItem('user', JSON.stringify(freshUserData));
             } catch (verifyError) {
-              console.warn('Token validation failed, but keeping user logged in:', verifyError.message);
-              // Keep the user logged in even if token verification fails
-              // This can happen if the API endpoint doesn't exist
+              // Check if this is an authentication error (401)
+              if (verifyError.response?.status === 401) {
+                console.warn('Token expired or invalid, logging out...');
+                handleLogout();
+                return; // Exit early, don't keep invalid state
+              }
+              // For other errors (network issues, etc.), keep user logged in with cached data
+              console.warn('Token validation failed due to non-auth error, keeping user logged in:', verifyError.message);
             }
             
           } catch (error) {

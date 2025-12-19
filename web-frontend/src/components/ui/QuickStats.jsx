@@ -6,7 +6,7 @@ import {
   BuildingLibraryIcon
 } from '@heroicons/react/24/outline';
 
-const QuickStats = ({ stats, onStatClick }) => {
+const QuickStats = ({ stats, onStatClick, isDarkMode = true }) => {
   const statCards = [
     {
       name: 'Total Users',
@@ -52,18 +52,18 @@ const QuickStats = ({ stats, onStatClick }) => {
         <div
           key={index}
           onClick={() => onStatClick(card.key)}
-          className="bg-gray-900 border border-amber-500/20 rounded-lg shadow p-4 hover:border-amber-500/40 hover:shadow-amber-500/10 transition-all duration-300 cursor-pointer group transform hover:-translate-y-1"
+          className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4 hover:border-amber-500/40 hover:shadow-amber-500/10 transition-all duration-300 cursor-pointer group transform hover:-translate-y-1`}
         >
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs font-medium text-gray-400 group-hover:text-amber-300 transition-colors">
+              <p className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} group-hover:text-amber-500 transition-colors`}>
                 {card.name}
               </p>
-              <p className="text-lg font-bold text-amber-50 mt-0.5 group-hover:scale-105 transition-transform">
+              <p className={`text-lg font-bold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mt-0.5 group-hover:scale-105 transition-transform`}>
                 {card.value}
               </p>
               <div className={`flex items-center mt-1 text-xs ${
-                card.trend === 'up' ? 'text-green-400' : 'text-red-400'
+                card.trend === 'up' ? 'text-green-500' : 'text-red-500'
               }`}>
                 <span>{card.change}</span>
                 <span className="ml-1">from last month</span>

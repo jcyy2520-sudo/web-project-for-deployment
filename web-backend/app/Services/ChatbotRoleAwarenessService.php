@@ -264,17 +264,41 @@ class ChatbotRoleAwarenessService
      */
     private function determinePrimaryRole(User $user): string
     {
-        // Check if user has specific roles (priority order)
-        if ($user->hasRole('admin')) {
+        // First, check the role column in the database (most reliable)
+        $dbRole = strtolower($user->role ?? '');
+        if (in_array($dbRole, ['admin', 'administrator'])) {
             return 'admin';
         }
-
-        if ($user->hasRole('cashier')) {
+        if ($dbRole === 'cashier') {
             return 'cashier';
         }
-        
-        if ($user->hasRole('staff')) {
+        if ($dbRole === 'staff') {
             return 'staff';
+        }
+        if (in_array($dbRole, ['client', 'user'])) {
+            return 'client';
+        }
+        
+        // Fallback: Check Spatie Permission roles (priority order)
+        try {
+            if ($user->hasRole('admin') || $user->hasRole('administrator')) {
+                return 'admin';
+            }
+
+            if ($user->hasRole('cashier')) {
+                return 'cashier';
+            }
+            
+            if ($user->hasRole('staff')) {
+                return 'staff';
+            }
+            
+            if ($user->hasRole('client') || $user->hasRole('user')) {
+                return 'client';
+            }
+        } catch (\Exception $e) {
+            // Spatie roles not configured, ignore
+            Log::debug('Spatie role check failed: ' . $e->getMessage());
         }
 
         // Default to client

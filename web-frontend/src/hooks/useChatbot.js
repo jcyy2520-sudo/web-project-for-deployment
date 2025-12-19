@@ -15,10 +15,10 @@ export const useChatbot = () => {
   
   // Rate limiting state
   const [rateLimitInfo, setRateLimitInfo] = useState({
-    remaining: 20,
+    remaining: 50, // Updated to match new backend limit
     isLimited: false,
     mustStartNew: false,
-    conversationLimit: 20,
+    conversationLimit: 50, // Updated to match new backend limit
   });
   const [isRateLimited, setIsRateLimited] = useState(false);
   const [rateLimitMessage, setRateLimitMessage] = useState(null);
@@ -314,33 +314,7 @@ export const useChatbot = () => {
         localStorage.setItem('chatbot_current_conversation_id', response.data.conversation_id);
       }
 
-      // Save user message to Message Center (handle auth errors gracefully)
-      try {
-        await axios.post('/api/chatbot/save-to-messages', {
-          message: userMessage,
-          role: 'user',
-          conversation_id: response.data.conversation_id
-        });
-      } catch (saveErr) {
-        // Only warn for non-401 errors; 401 is expected for guests
-        if (saveErr.response?.status !== 401) {
-          console.warn('Failed to save user message to Message Center:', saveErr);
-        }
-      }
-
-      // Save AI response to Message Center (handle auth errors gracefully)
-      try {
-        await axios.post('/api/chatbot/save-to-messages', {
-          message: aiResponseText,
-          role: 'assistant',
-          conversation_id: response.data.conversation_id
-        });
-      } catch (saveErr) {
-        // Only warn for non-401 errors; 401 is expected for guests
-        if (saveErr.response?.status !== 401) {
-          console.warn('Failed to save AI response to Message Center:', saveErr);
-        }
-      }
+      // Note: Chatbot messages are NOT saved to Message Center to keep them separate
     } catch (err) {
       console.error('Failed to send message:', err);
       
@@ -352,7 +326,7 @@ export const useChatbot = () => {
           remaining: 0,
           isLimited: true,
           mustStartNew: err.response?.data?.must_start_new_conversation || true,
-          conversationLimit: 20,
+          conversationLimit: 50, // Updated to match new backend limit
         });
         setRateLimitMessage(err.response?.data?.message || 'Message limit reached. Please start a new conversation.');
         setError(err.response?.data?.message || 'Rate limit exceeded. Please start a new conversation.');
@@ -447,30 +421,39 @@ export const useChatbot = () => {
       // Reset rate limit state when starting new conversation
       setIsRateLimited(false);
       setRateLimitInfo({
-        remaining: 20,
+        remaining: 50, // Updated to match new backend limit
         isLimited: false,
         mustStartNew: false,
-        conversationLimit: 20,
+        conversationLimit: 50, // Updated to match new backend limit
       });
       setRateLimitMessage(null);
       
-      const response = await axios.post('/api/chatbot/conversations/new', {}, {
+      // Get the current conversation ID to save it before creating new one
+      const previousConversationId = conversationId || localStorage.getItem('chatbot_current_conversation_id');
+      
+      const response = await axios.post('/api/chatbot/conversations/new', {
+        previous_conversation_id: previousConversationId // Send previous conversation to be saved
+      }, {
         headers: {
           'X-Session-ID': sessionIdRef.current
         }
       });
       if (response.data.success) {
         const newConvId = response.data.conversation_id;
-        setConversationId(newConvId);
+        
+        // Clear the old conversation from state FIRST
         setMessages([]);
         setLastMessageCount(0);
         setLastSuggestions([]);
+        
+        // THEN set the new conversation ID
+        setConversationId(newConvId);
         lastUserActionRef.current = Date.now();
         
         // IMPORTANT: Save the new conversation ID to localStorage so it persists
         localStorage.setItem('chatbot_current_conversation_id', newConvId);
         
-        // Refresh conversations list
+        // Refresh conversations list to show the saved previous conversation
         await loadConversations();
         return newConvId;
       }
@@ -479,7 +462,7 @@ export const useChatbot = () => {
       setError('Failed to start new conversation');
       return null;
     }
-  }, [loadConversations]);
+  }, [conversationId, loadConversations]);
 
   // Switch to a specific conversation
   const switchConversation = useCallback(async (targetConversationId) => {
@@ -515,12 +498,13 @@ export const useChatbot = () => {
     try {
       await axios.delete(`/api/chatbot/conversations/${targetConversationId}`);
       
-      // If we deleted the current conversation, clear messages
+      // If we deleted the current conversation, clear messages and localStorage
       if (targetConversationId === conversationId) {
         setMessages([]);
         setConversationId(null);
         setLastMessageCount(0);
         setLastSuggestions([]);
+        localStorage.removeItem('chatbot_current_conversation_id');
       }
       
       // Refresh conversations list

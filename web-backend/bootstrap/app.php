@@ -29,6 +29,15 @@ return Application::configure(basePath: dirname(__DIR__))
             'abuse.detect' => \App\Http\Middleware\AbuseDetectionMiddleware::class,
             'production.safety' => \App\Http\Middleware\ProductionSafetyMiddleware::class,
         ]);
+        
+        // Configure unauthenticated redirect for API requests
+        // This prevents the "Route [login] not defined" error
+        $middleware->redirectGuestsTo(function ($request) {
+            if ($request->expectsJson() || $request->is('api/*')) {
+                return null; // Return null to throw AuthenticationException instead of redirecting
+            }
+            return '/login';
+        });
     })
     ->withExceptions(function (Exceptions $exceptions) {
         // Custom exception handling

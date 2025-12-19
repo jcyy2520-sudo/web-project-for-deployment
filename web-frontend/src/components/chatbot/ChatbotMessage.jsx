@@ -519,6 +519,41 @@ const ChatbotMessage = ({ message }) => {
           {/* Render pending items for action required */}
           {renderPendingItems()}
 
+          {/* Render action buttons with navigation links */}
+          {meta?.action_buttons && Array.isArray(meta.action_buttons) && meta.action_buttons.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {meta.action_buttons.map((action, idx) => (
+                <button
+                  key={idx}
+                  className={`text-xs px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                    action.type === 'primary'
+                      ? 'bg-amber-500 text-gray-900 hover:bg-amber-400'
+                      : action.type === 'danger'
+                      ? 'bg-red-500/20 text-red-300 border border-red-500/30 hover:bg-red-500/30'
+                      : 'bg-gray-800 border border-amber-500/20 text-amber-400 hover:bg-amber-500/10 hover:border-amber-500/40'
+                  }`}
+                  onClick={() => {
+                    if (action.route) {
+                      // Navigate to the route
+                      window.dispatchEvent(new CustomEvent('chatbot-navigate', { detail: { route: action.route } }));
+                    } else if (action.message) {
+                      // Send a follow-up message
+                      window.dispatchEvent(new CustomEvent('chatbot-suggestion', { detail: action.message }));
+                    }
+                  }}
+                >
+                  {action.icon && <span>{action.icon}</span>}
+                  {action.label}
+                  {action.route && (
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+
           {/* Render suggestions as clickable buttons */}
           {meta?.suggestions && Array.isArray(meta.suggestions) && meta.suggestions.length > 0 && (
             <div className="mt-3 flex flex-wrap gap-2">

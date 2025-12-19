@@ -29,6 +29,16 @@ const ActionLogViewer = ({ isDarkMode = true }) => {
     loadLogs();
   }, [currentPage]);
 
+  // Real-time polling for action logs
+  useEffect(() => {
+    // Poll for new action logs every 10 seconds
+    const pollInterval = setInterval(() => {
+      loadLogs();
+    }, 10000);
+
+    return () => clearInterval(pollInterval);
+  }, [currentPage, actionFilter, searchTerm]);
+
   const loadLogs = async () => {
     try {
       setLoading(true);

@@ -1,10 +1,118 @@
-/* Base styles for the application */
+/* Google Fonts import - must be first */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+/* Tailwind CSS directives - REQUIRED */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Theme-aware utility classes using Tailwind layers */
+@layer components {
+  /* Card/Container theme classes */
+  .theme-card {
+    @apply bg-white border-amber-300/40 transition-colors duration-300;
+  }
+  .dark .theme-card {
+    @apply bg-gray-900 border-amber-500/20;
+  }
+  
+  /* Table header theme classes */
+  .theme-table-header {
+    @apply bg-gray-50 border-gray-200 transition-colors duration-300;
+  }
+  .dark .theme-table-header {
+    @apply bg-gray-800 border-gray-700;
+  }
+  
+  /* Table header text */
+  .theme-table-header-text {
+    @apply text-amber-600 transition-colors duration-300;
+  }
+  .dark .theme-table-header-text {
+    @apply text-amber-400;
+  }
+  
+  /* Table row hover */
+  .theme-table-row {
+    @apply hover:bg-gray-50 transition-colors duration-200;
+  }
+  .dark .theme-table-row {
+    @apply hover:bg-gray-800;
+  }
+  
+  /* Table divider */
+  .theme-table-divider {
+    @apply divide-gray-200;
+  }
+  .dark .theme-table-divider {
+    @apply divide-gray-700;
+  }
+  
+  /* Primary text */
+  .theme-text-primary {
+    @apply text-amber-900 transition-colors duration-300;
+  }
+  .dark .theme-text-primary {
+    @apply text-amber-50;
+  }
+  
+  /* Secondary text */
+  .theme-text-secondary {
+    @apply text-amber-700/70 transition-colors duration-300;
+  }
+  .dark .theme-text-secondary {
+    @apply text-amber-400/70;
+  }
+  
+  /* Muted text */
+  .theme-text-muted {
+    @apply text-gray-600 transition-colors duration-300;
+  }
+  .dark .theme-text-muted {
+    @apply text-gray-400;
+  }
+  
+  /* Input fields */
+  .theme-input {
+    @apply bg-white border-gray-300 text-gray-900 placeholder-gray-500 transition-colors duration-200;
+  }
+  .dark .theme-input {
+    @apply bg-gray-800 border-gray-600 text-white placeholder-gray-400;
+  }
+  
+  /* Icon colors */
+  .theme-icon {
+    @apply text-amber-600 transition-colors duration-200;
+  }
+  .dark .theme-icon {
+    @apply text-amber-400;
+  }
+  
+  /* Border colors */
+  .theme-border {
+    @apply border-gray-300 transition-colors duration-200;
+  }
+  .dark .theme-border {
+    @apply border-gray-600;
+  }
+}
+
+/* Base styles for the application */
 
 * {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
+}
+
+/* Hide scrollbar utility - keeps scrolling functional but hides the scrollbar */
+.scrollbar-hide {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;  /* Chrome, Safari and Opera */
 }
 
 html {
@@ -16,31 +124,60 @@ body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  min-height: 100vh;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Light mode styles (default) */
+body {
+  background-color: #f3f4f6;
+  color: #1f2937;
+}
+
+/* Dark mode styles */
+.dark body,
+body.dark,
+html.dark body {
   background-color: #0f172a;
   color: #e2e8f0;
-  min-height: 100vh;
 }
 
 #root {
   min-height: 100vh;
 }
 
-/* Scrollbar styling */
+/* Scrollbar styling - adapts to theme */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #1e293b;
+  background: #e5e7eb;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #475569;
+  background: #9ca3af;
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
+  background: #6b7280;
+}
+
+/* Dark mode scrollbar */
+.dark ::-webkit-scrollbar-track,
+html.dark ::-webkit-scrollbar-track {
+  background: #1e293b;
+}
+
+.dark ::-webkit-scrollbar-thumb,
+html.dark ::-webkit-scrollbar-thumb {
+  background: #475569;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover,
+html.dark ::-webkit-scrollbar-thumb:hover {
   background: #64748b;
 }
 
@@ -54,4 +191,65 @@ body {
 ::selection {
   background-color: #3b82f6;
   color: white;
+}
+
+/* Landing page animations */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeInRight {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes fadeInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+@keyframes gradient {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+@keyframes progress {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
 }

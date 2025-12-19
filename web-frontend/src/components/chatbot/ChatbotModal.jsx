@@ -83,6 +83,10 @@ const ChatbotModal = ({ onClose }) => {
     setDeleteConfirmId(null);
   };
 
+  // State for dynamic updates (system notifications for admin/cashier)
+  const [dynamicUpdates, setDynamicUpdates] = useState([]);
+  const [userRole, setUserRole] = useState('guest');
+
   // Fetch suggested questions on mount
   useEffect(() => {
     fetchSuggestedQuestions();
@@ -100,6 +104,21 @@ const ChatbotModal = ({ onClose }) => {
     window.addEventListener('chatbot-suggestion', handleSuggestionClick);
     return () => window.removeEventListener('chatbot-suggestion', handleSuggestionClick);
   }, [sendMessage]);
+
+  // Listen for navigation events from ChatbotMessage
+  useEffect(() => {
+    const handleNavigation = (event) => {
+      const { route } = event.detail || {};
+      if (route) {
+        // Close chatbot and navigate
+        onClose();
+        window.location.href = route;
+      }
+    };
+
+    window.addEventListener('chatbot-navigate', handleNavigation);
+    return () => window.removeEventListener('chatbot-navigate', handleNavigation);
+  }, [onClose]);
 
   const fetchSuggestedQuestions = async () => {
     try {
@@ -130,12 +149,32 @@ const ChatbotModal = ({ onClose }) => {
       } else {
         setSuggestedQuestions(FALLBACK_QUESTIONS);
       }
+
+      // Set dynamic updates if available (for admin/cashier)
+      if (Array.isArray(response.data.dynamic_updates)) {
+        setDynamicUpdates(response.data.dynamic_updates);
+      }
+
+      // Set user role
+      if (response.data.role) {
+        setUserRole(response.data.role);
+      }
     } catch (err) {
       console.error('Failed to fetch suggested questions:', err);
       // Use fallback questions on error
       setSuggestedQuestions(FALLBACK_QUESTIONS);
     } finally {
       setLoadingSuggestions(false);
+    }
+  };
+
+  // Handle clicking on a dynamic update
+  const handleDynamicUpdateClick = (update) => {
+    if (update.route) {
+      onClose();
+      window.location.href = update.route;
+    } else if (update.text) {
+      sendMessage(update.text);
     }
   };
 
@@ -170,8 +209,8 @@ const ChatbotModal = ({ onClose }) => {
         onClick={onClose}
       />
 
-      {/* Modal */}
-      <div className="fixed bottom-24 right-6 w-[400px] bg-gray-900 rounded-xl shadow-2xl flex flex-col h-[600px] z-50 border border-amber-500/30 overflow-hidden">
+      {/* Modal - Responsive: full screen on mobile, positioned on desktop */}
+      <div className="fixed inset-4 sm:inset-auto sm:bottom-24 sm:right-6 sm:w-[400px] sm:max-w-[calc(100vw-3rem)] bg-gray-900 rounded-xl shadow-2xl flex flex-col sm:h-[600px] sm:max-h-[calc(100vh-8rem)] max-h-[calc(100vh-2rem)] z-50 border border-amber-500/30 overflow-hidden">
         {/* Header */}
         <div className="bg-gray-900 border-b border-amber-500/20 px-5 py-4 flex justify-between items-center flex-shrink-0">
           <div className="flex items-center gap-3">
@@ -414,25 +453,71 @@ const ChatbotModal = ({ onClose }) => {
                     <div className="w-2 h-2 bg-amber-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
                   </div>
                 </div>
-              ) : Array.isArray(suggestedQuestions) && suggestedQuestions.length > 0 ? (
-                <div className="w-full space-y-2">
-                  {suggestedQuestions.map((question, index) => (
-                    <button
-                      key={index}
-                      onClick={() => handleSuggestedQuestion(question)}
-                      className="w-full text-left px-4 py-3 rounded-lg bg-gray-900/50 border border-amber-500/20 hover:bg-gray-900 hover:border-amber-500/40 transition-all text-sm text-gray-300 hover:text-amber-400 group"
-                    >
-                      <span className="flex items-center gap-2">
-                        <svg className="w-4 h-4 text-amber-500/50 group-hover:text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                        </svg>
-                        {question}
-                      </span>
-                    </button>
-                  ))}
-                </div>
               ) : (
-                <p className="text-sm text-gray-500">Feel free to ask me anything!</p>
+                <div className="w-full space-y-4">
+                  {/* Dynamic Updates Section for Admin/Cashier */}
+                  {dynamicUpdates && dynamicUpdates.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-xs text-amber-400 font-medium uppercase tracking-wide mb-2">📋 Updates</p>
+                      {dynamicUpdates.slice(0, 3).map((update, index) => (
+                        <button
+                          key={`update-${index}`}
+                          onClick={() => handleDynamicUpdateClick(update)}
+                          className={`w-full text-left px-4 py-3 rounded-lg border transition-all text-sm group ${
+                            update.priority === 'high'
+                              ? 'bg-red-500/10 border-red-500/30 hover:bg-red-500/20 hover:border-red-500/50'
+                              : update.priority === 'medium'
+                              ? 'bg-amber-500/10 border-amber-500/30 hover:bg-amber-500/20 hover:border-amber-500/50'
+                              : 'bg-gray-900/50 border-gray-700 hover:bg-gray-900 hover:border-gray-600'
+                          }`}
+                        >
+                          <span className="flex items-center justify-between gap-2">
+                            <span className={`${
+                              update.priority === 'high' ? 'text-red-300' : 
+                              update.priority === 'medium' ? 'text-amber-300' : 'text-gray-300'
+                            }`}>
+                              {update.priority === 'high' && '⚠️ '}
+                              {update.priority === 'medium' && '📌 '}
+                              {update.text}
+                            </span>
+                            {update.route && (
+                              <svg className="w-4 h-4 text-gray-500 group-hover:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                              </svg>
+                            )}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Regular Suggested Questions */}
+                  {Array.isArray(suggestedQuestions) && suggestedQuestions.length > 0 && (
+                    <div className="space-y-2">
+                      {dynamicUpdates && dynamicUpdates.length > 0 && (
+                        <p className="text-xs text-gray-500 font-medium uppercase tracking-wide mb-2">💬 Questions</p>
+                      )}
+                      {suggestedQuestions.map((question, index) => (
+                        <button
+                          key={index}
+                          onClick={() => handleSuggestedQuestion(question)}
+                          className="w-full text-left px-4 py-3 rounded-lg bg-gray-900/50 border border-amber-500/20 hover:bg-gray-900 hover:border-amber-500/40 transition-all text-sm text-gray-300 hover:text-amber-400 group"
+                        >
+                          <span className="flex items-center gap-2">
+                            <svg className="w-4 h-4 text-amber-500/50 group-hover:text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                            </svg>
+                            {question}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {(!suggestedQuestions || suggestedQuestions.length === 0) && (!dynamicUpdates || dynamicUpdates.length === 0) && (
+                    <p className="text-sm text-gray-500">Feel free to ask me anything!</p>
+                  )}
+                </div>
               )}
             </div>
           ) : (

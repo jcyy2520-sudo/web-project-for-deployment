@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\ChatMessage;
+use App\Models\ChatbotConversation;
 use App\Models\ChatbotRateLimit;
 use App\Models\User;
 use App\Services\ChatbotService;
@@ -13,6 +14,7 @@ use App\Services\ChatbotRoleAwarenessService;
 use App\Services\ChatbotSmartResponseBuilder;
 use App\Services\ChatbotActionService;
 use App\Services\ChatbotLLMIntegration;
+use App\Services\ChatbotGuardService;
 use App\Services\LLMService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -28,6 +30,7 @@ class ChatbotController extends Controller
     private ChatbotRealTimeDataService $dataService;
     private ChatbotSmartResponseBuilder $responseBuilder;
     private ChatbotLLMIntegration $llmIntegration;
+    private ChatbotGuardService $guardService;
     private ?ChatbotAnalyticsService $analyticsService = null;
 
     private const MAX_HISTORY = 10;
@@ -38,7 +41,8 @@ class ChatbotController extends Controller
         ChatbotNLUService $nluService,
         ChatbotRealTimeDataService $dataService,
         ChatbotSmartResponseBuilder $responseBuilder,
-        ChatbotLLMIntegration $llmIntegration
+        ChatbotLLMIntegration $llmIntegration,
+        ChatbotGuardService $guardService
     ) {
         $this->chatbotService = $chatbotService;
         $this->roleService = $roleService;
@@ -46,6 +50,7 @@ class ChatbotController extends Controller
         $this->dataService = $dataService;
         $this->responseBuilder = $responseBuilder;
         $this->llmIntegration = $llmIntegration;
+        $this->guardService = $guardService;
         
         try {
             $this->analyticsService = app(ChatbotAnalyticsService::class);
@@ -334,6 +339,54 @@ class ChatbotController extends Controller
             $ipAddress = $request->ip();
             $userAgent = $request->userAgent();
 
+            // ========== SAFETY & CONTENT CHECKS (BEFORE ANY PROCESSING) ==========
+            
+            // Step 0A: Check for inappropriate/offensive content
+            $contentCheck = $this->guardService->checkContent($userMessage);
+            if (!$contentCheck['safe']) {
+                Log::warning('Chatbot: Inappropriate content blocked', [
+                    'user_id' => $userId,
+                    'ip' => $ipAddress,
+                    'type' => $contentCheck['type'],
+                    'message_snippet' => substr($userMessage, 0, 50),
+                ]);
+                
+                return response()->json([
+                    'success' => true,
+                    'conversation_id' => $conversationId,
+                    'user_message' => $userMessage,
+                    'ai_response' => $contentCheck['response'],
+                    'meta' => [
+                        'source' => 'content_filter',
+                        'content_filtered' => true,
+                        'filter_type' => $contentCheck['type'],
+                    ],
+                    'timestamp' => now()->toIso8601String(),
+                ]);
+            }
+            
+            // Step 0B: Check if request is within system scope
+            $scopeCheck = $this->guardService->checkScope($userMessage);
+            if (!$scopeCheck['in_scope']) {
+                Log::info('Chatbot: Out-of-scope request', [
+                    'user_id' => $userId,
+                    'message_snippet' => substr($userMessage, 0, 50),
+                ]);
+                
+                return response()->json([
+                    'success' => true,
+                    'conversation_id' => $conversationId,
+                    'user_message' => $userMessage,
+                    'ai_response' => $scopeCheck['response'],
+                    'meta' => [
+                        'source' => 'scope_filter',
+                        'out_of_scope' => true,
+                    ],
+                    'timestamp' => now()->toIso8601String(),
+                ]);
+            }
+
+
             // ========== INTELLIGENT CHATBOT FLOW ==========
 
             // Step 1: Detect User Role (using the authenticated user ID)
@@ -414,14 +467,67 @@ class ChatbotController extends Controller
                 $sentimentScore = 3;
             }
             
+            // Step 2B: Check if user is trying to request bot to perform actions
+            $detectedIntent = $intentData['intent'] ?? 'general_question';
+            $actionCheck = $this->guardService->checkActionRequest($userMessage, $detectedIntent);
+            if ($actionCheck['is_action_request']) {
+                // User is asking bot to DO something - provide guidance instead
+                Log::info('Chatbot: Action request detected, providing guidance', [
+                    'user_id' => $userId,
+                    'intent' => $detectedIntent,
+                ]);
+                
+                $guidanceResponse = $this->responseBuilder->buildActionGuidanceResponse(
+                    $detectedIntent,
+                    $detectedLanguage ?? 'english'
+                );
+                
+                return response()->json([
+                    'success' => true,
+                    'conversation_id' => $conversationId,
+                    'user_message' => $userMessage,
+                    'ai_response' => $guidanceResponse['response'],
+                    'meta' => [
+                        'source' => 'action_guidance',
+                        'intent' => $detectedIntent,
+                        'role' => $userRole,
+                        'action_guidance' => true,
+                    ],
+                    'timestamp' => now()->toIso8601String(),
+                ]);
+            }
+            
             // Check role permission for the detected intent
-            $permissionCheck = $this->roleService->canPerformIntent($userId, $intentData['intent'] ?? 'general_question');
+            $permissionCheck = $this->roleService->canPerformIntent($userId, $detectedIntent);
             if (!$permissionCheck['allowed'] && ($intentData['confidence'] ?? 0) > 0.7) {
-                // User is trying to do something they don't have permission for
+                // User is trying to access something they don't have permission for
                 Log::info('Permission denied for intent', [
                     'user_id' => $userId,
                     'role' => $userRole,
-                    'intent' => $intentData['intent'],
+                    'intent' => $detectedIntent,
+                ]);
+                
+                // Provide role restriction response
+                $restrictionResponse = $this->responseBuilder->buildRoleRestrictionResponse(
+                    $detectedIntent,
+                    $userRole,
+                    $permissionCheck['roles_with_access'] ?? ['admin'],
+                    $detectedLanguage ?? 'english'
+                );
+                
+                return response()->json([
+                    'success' => true,
+                    'conversation_id' => $conversationId,
+                    'user_message' => $userMessage,
+                    'ai_response' => $restrictionResponse['response'],
+                    'meta' => [
+                        'source' => 'role_restriction',
+                        'intent' => $detectedIntent,
+                        'role' => $userRole,
+                        'role_restricted' => true,
+                        'required_roles' => $permissionCheck['roles_with_access'] ?? [],
+                    ],
+                    'timestamp' => now()->toIso8601String(),
                 ]);
             }
 
@@ -513,6 +619,17 @@ class ChatbotController extends Controller
                     'role' => 'user',
                     'source' => 'user'
                 ]);
+                
+                // Ensure conversation is tracked in ChatbotConversation table
+                ChatbotConversation::updateOrCreate(
+                    ['conversation_id' => $conversationId],
+                    [
+                        'user_id' => $userId,
+                        'session_id' => $sessionId,
+                        'status' => 'active',
+                        'last_activity_at' => now(),
+                    ]
+                );
             } catch (\Exception $e) {
                 Log::warning('Failed to save user message: ' . $e->getMessage());
             }
@@ -564,12 +681,18 @@ class ChatbotController extends Controller
                 $actionExecuted = $responseData['action_executed'] ?? false;
                 $actionResult = $responseData['action_result'] ?? null;
                 
-                // If SmartResponseBuilder returned a generic response, try LLM for better intelligence
-                if (($responseData['meta']['source'] ?? null) === 'fallback' && $this->llmIntegration->isAvailable()) {
-                    Log::debug('Attempting LLM enhancement for low-confidence intent', [
+                // Check if SmartResponseBuilder is signaling to use LLM
+                $shouldUseLLM = $responseData['should_use_llm'] ?? false;
+                $isFallback = ($responseData['meta']['source'] ?? null) === 'fallback';
+                
+                // If SmartResponseBuilder returned a generic response or flagged for LLM, try LLM for better intelligence
+                if (($shouldUseLLM || $isFallback) && $this->llmIntegration->isAvailable()) {
+                    Log::debug('Using LLM for intelligent response', [
                         'intent' => $intentData['intent'],
                         'confidence' => $intentData['confidence'],
                         'language' => $detectedLanguage,
+                        'should_use_llm_flag' => $shouldUseLLM,
+                        'is_fallback' => $isFallback,
                     ]);
                     
                     $llmResult = $this->llmIntegration->shouldUseLLMAndRespond(
@@ -580,9 +703,12 @@ class ChatbotController extends Controller
                         $detectedLanguage
                     );
                     
-                    if ($llmResult) {
+                    if ($llmResult && !empty($llmResult['response'])) {
                         $aiResponse = $llmResult['response'];
                         $meta = array_merge($meta, $llmResult['meta']);
+                        Log::debug('LLM response generated successfully');
+                    } else {
+                        Log::debug('LLM did not generate response, keeping SmartResponseBuilder result');
                     }
                 }
             } catch (\Exception $e) {
@@ -659,6 +785,12 @@ class ChatbotController extends Controller
                 'conversation_message_count' => $recentMessages->count() + 2,
                 'context_refreshed_at' => now()->toIso8601String(),
             ]);
+
+            // Include action buttons if present from response builder
+            $actionButtons = $responseData['action_buttons'] ?? null;
+            if ($actionButtons && is_array($actionButtons) && !empty($actionButtons)) {
+                $finalMeta['action_buttons'] = $actionButtons;
+            }
 
             if ($isPriority) {
                 $finalMeta['priority_reason'] = $this->getPriorityReason($sentiment, $sentimentScore, $userMessage);
@@ -1123,7 +1255,15 @@ class ChatbotController extends Controller
     public function getSuggestedQuestions(Request $request)
     {
         try {
-            $userId = auth()->id();
+            // Try to get user ID from Sanctum first, then fallback to default auth
+            $userId = auth('sanctum')->id() ?? auth()->id();
+            
+            // Log for debugging
+            Log::debug('getSuggestedQuestions auth check', [
+                'sanctum_id' => auth('sanctum')->id(),
+                'default_id' => auth()->id(),
+                'resolved_id' => $userId,
+            ]);
 
             // For guests, try service first, fallback to hardcoded
             if (!$userId) {
@@ -1132,7 +1272,9 @@ class ChatbotController extends Controller
                     if (!empty($questions)) {
                         return response()->json([
                             'success' => true,
-                            'data' => $questions
+                            'data' => $questions,
+                            'dynamic_updates' => [],
+                            'role' => 'guest'
                         ]);
                     }
                 } catch (\Exception $e) {
@@ -1147,15 +1289,43 @@ class ChatbotController extends Controller
                         "What services do you offer?",
                         "How do I register?",
                         "What are your business hours?"
-                    ]
+                    ],
+                    'dynamic_updates' => [],
+                    'role' => 'guest'
                 ]);
             }
 
+            // Get user role for dynamic suggestions
+            $roleInfo = $this->roleService->detectUserRole($userId);
+            $role = $roleInfo['primary_role'] ?? 'client';
+            
             $questions = $this->chatbotService->getSuggestedQuestions($userId);
+            
+            // Get dynamic updates based on role
+            $dynamicUpdates = [];
+            try {
+                switch ($role) {
+                    case 'admin':
+                    case 'administrator':
+                        $dynamicUpdates = $this->chatbotService->getAdminDynamicSuggestions();
+                        break;
+                    case 'cashier':
+                        $dynamicUpdates = $this->chatbotService->getCashierDynamicSuggestions($userId);
+                        break;
+                    case 'client':
+                    case 'user':
+                        $dynamicUpdates = $this->chatbotService->getClientDynamicSuggestions($userId);
+                        break;
+                }
+            } catch (\Exception $e) {
+                Log::warning('Failed to get dynamic suggestions: ' . $e->getMessage());
+            }
 
             return response()->json([
                 'success' => true,
-                'data' => $questions
+                'data' => $questions,
+                'dynamic_updates' => $dynamicUpdates,
+                'role' => $role
             ]);
         } catch (\Exception $e) {
             Log::error('Get suggested questions error: ' . $e->getMessage());
@@ -1322,8 +1492,27 @@ class ChatbotController extends Controller
                 Log::debug('Admin role not found, trying alternative methods: ' . $roleError->getMessage());
             }
 
-            // Fallback: Try to get the most privileged user (usually first user or creator)
+            // Fallback: Try to find an existing chatbot admin system user (created in previous requests)
+            $chatbotUser = User::where('username', 'ai-chatbot-assistant')
+                ->where('email', 'chatbot@system.local')
+                ->first();
+            
+            if ($chatbotUser) {
+                return $chatbotUser->id;
+            }
+
+            // Try to get the most privileged user (usually first user or creator)
             // Look for users with is_active status (more likely to be admin)
+            $user = User::where('is_active', true)
+                ->where('role', 'admin')
+                ->orderBy('id', 'asc')
+                ->first();
+            
+            if ($user) {
+                return $user->id;
+            }
+
+            // Try any active user
             $user = User::where('is_active', true)
                 ->orderBy('id', 'asc')
                 ->first();
@@ -1340,12 +1529,12 @@ class ChatbotController extends Controller
 
             // If no user exists at all, create a lightweight system user to avoid NULL FK errors
             $systemUser = User::create([
-                'username' => 'chatbot-admin',
-                'email' => 'chatbot-admin@system.local',
+                'username' => 'ai-chatbot-assistant',
+                'email' => 'chatbot@system.local',
                 'password' => Hash::make(Str::random(32)),
                 'role' => 'admin',
-                'first_name' => 'Chatbot',
-                'last_name' => 'Admin',
+                'first_name' => 'AI',
+                'last_name' => 'Chatbot Assistant',
                 'is_active' => true,
             ]);
 
@@ -1412,7 +1601,7 @@ class ChatbotController extends Controller
                 ], 401);
             }
 
-            // Get all conversations grouped by conversation_id with summary info
+            // Get all conversations that have messages, grouped by conversation_id
             $conversations = ChatMessage::where('user_id', $userId)
                 ->select('conversation_id')
                 ->distinct()
@@ -1423,6 +1612,11 @@ class ChatbotController extends Controller
                         ->orderBy('created_at', 'asc')
                         ->get();
 
+                    // Skip conversations with no messages
+                    if ($messages->count() === 0) {
+                        return null;
+                    }
+
                     $firstUserMessage = $messages->where('role', 'user')->first();
                     $lastMessage = $messages->last();
                     
@@ -1431,16 +1625,21 @@ class ChatbotController extends Controller
                         ? Str::limit($firstUserMessage->message, 50) 
                         : 'New Conversation';
 
+                    // Check if this conversation has a record in ChatbotConversation
+                    $convRecord = ChatbotConversation::where('conversation_id', $conv->conversation_id)->first();
+
                     return [
                         'conversation_id' => $conv->conversation_id,
-                        'title' => $title,
+                        'title' => $convRecord?->title ?? $title,
                         'message_count' => $messages->count(),
                         'last_message' => $lastMessage ? Str::limit($lastMessage->message, 100) : null,
                         'last_message_role' => $lastMessage?->role,
                         'created_at' => $messages->first()?->created_at,
-                        'updated_at' => $lastMessage?->created_at,
+                        'updated_at' => $lastMessage?->created_at ?? $convRecord?->last_activity_at,
+                        'status' => $convRecord?->status ?? 'active',
                     ];
                 })
+                ->filter() // Remove null entries (conversations with no messages)
                 ->sortByDesc('updated_at')
                 ->values();
 
@@ -1461,6 +1660,7 @@ class ChatbotController extends Controller
     /**
      * Start a new conversation
      * Generates a new conversation_id and returns it
+     * Also properly closes/saves the previous conversation
      */
     public function startNewConversation(Request $request)
     {
@@ -1474,13 +1674,70 @@ class ChatbotController extends Controller
                 ], 401);
             }
 
+            // Get the previous conversation ID from the request (if provided)
+            $previousConversationId = $request->input('previous_conversation_id');
+            
+            // Properly close/save the previous conversation if it exists
+            if ($previousConversationId) {
+                try {
+                    // Check if there are messages in the previous conversation
+                    $previousMessages = ChatMessage::where('user_id', $userId)
+                        ->where('conversation_id', $previousConversationId)
+                        ->orderBy('created_at', 'asc')
+                        ->get();
+                    
+                    if ($previousMessages->count() > 0) {
+                        // Ensure the conversation record exists in chatbot_conversations table
+                        $firstUserMessage = $previousMessages->where('role', 'user')->first();
+                        $lastMessage = $previousMessages->last();
+                        
+                        ChatbotConversation::updateOrCreate(
+                            ['conversation_id' => $previousConversationId],
+                            [
+                                'user_id' => $userId,
+                                'title' => $firstUserMessage 
+                                    ? Str::limit($firstUserMessage->message, 50) 
+                                    : 'Conversation',
+                                'message_count' => $previousMessages->count(),
+                                'user_message_count' => $previousMessages->where('role', 'user')->count(),
+                                'bot_message_count' => $previousMessages->where('role', 'assistant')->count(),
+                                'status' => 'completed',
+                                'last_activity_at' => $lastMessage?->created_at ?? now(),
+                            ]
+                        );
+                        
+                        Log::info('Previous conversation saved to history', [
+                            'conversation_id' => $previousConversationId,
+                            'message_count' => $previousMessages->count(),
+                        ]);
+                    }
+                } catch (\Exception $e) {
+                    Log::warning('Failed to save previous conversation: ' . $e->getMessage());
+                    // Continue anyway - don't block creating new conversation
+                }
+            }
+
             // Generate new conversation ID with timestamp for uniqueness
             $conversationId = 'chat_' . $userId . '_' . time() . '_' . Str::random(6);
+            
+            // Create a new conversation record
+            try {
+                ChatbotConversation::create([
+                    'conversation_id' => $conversationId,
+                    'user_id' => $userId,
+                    'status' => 'active',
+                    'last_activity_at' => now(),
+                ]);
+            } catch (\Exception $e) {
+                Log::debug('Could not pre-create conversation record: ' . $e->getMessage());
+                // Continue anyway - it will be created when first message is sent
+            }
 
             return response()->json([
                 'success' => true,
                 'conversation_id' => $conversationId,
-                'message' => 'New conversation started'
+                'message' => 'New conversation started',
+                'previous_conversation_saved' => !empty($previousConversationId),
             ]);
         } catch (\Exception $e) {
             Log::error('Start new conversation error: ' . $e->getMessage());
@@ -1546,8 +1803,14 @@ class ChatbotController extends Controller
                 ], 401);
             }
 
+            // Delete messages from ChatMessage table
             $deleted = ChatMessage::where('user_id', $userId)
                 ->where('conversation_id', $conversationId)
+                ->delete();
+            
+            // Also delete from ChatbotConversation table
+            ChatbotConversation::where('conversation_id', $conversationId)
+                ->where('user_id', $userId)
                 ->delete();
 
             return response()->json([

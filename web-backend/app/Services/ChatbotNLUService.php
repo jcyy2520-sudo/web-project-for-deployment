@@ -16,6 +16,8 @@ use Illuminate\Support\Facades\Cache;
  * - Support for multiple languages (English, Filipino/Taglish)
  * - Smart spell correction and slang normalization
  * - Confidence scoring and clarification prompts
+ * - Content filtering and safety checks
+ * - Out-of-scope detection
  * 
  * Handles incomplete messages, spelling mistakes, slang, and informal text
  */
@@ -26,6 +28,32 @@ class ChatbotNLUService
      */
     private const CONTEXT_CACHE_PREFIX = 'chatbot_context_';
     private const CONTEXT_TTL = 1800; // 30 minutes
+
+    /**
+     * Profanity and offensive language patterns (English + Filipino)
+     */
+    private array $profanityPatterns = [
+        // English profanity
+        '/\bf+u+c+k+\w*/i', '/\bs+h+i+t+\w*/i', '/\ba+s+s+h+o+l+e+/i', '/\bb+i+t+c+h+\w*/i',
+        '/\bc+u+n+t+/i', '/\bd+i+c+k+\w*/i', '/\bp+u+s+s+y+/i', '/\bf+a+g+\w*/i',
+        '/\br+e+t+a+r+d+\w*/i', '/\bw+h+o+r+e+/i', '/\bs+l+u+t+/i', '/\bstfu\b/i', '/\bwtf\b/i',
+        // Filipino profanity
+        '/\bp+u+t+a+n*g*\s*i+n+a+/i', '/\bg+a+g+o+/i', '/\bt+a+n+g+i+n+a+/i', '/\bu+l+o+l+/i',
+        '/\bb+o+b+o+/i', '/\bt+a+r+a+n+t+a+d+o+/i', '/\bl+i+n+t+i+k+/i', '/\bp+u+n+y+e+t+a+/i',
+        '/\bl+e+c+h+e+/i', '/\bp+a+k+y+u+/i', '/\bp+a+k+s+h+e+t+/i',
+        // Directed hostility
+        '/\b(stupid|idiot|dumb|useless)\s*(bot|ai|assistant|chatbot)/i',
+    ];
+
+    /**
+     * Harmful content patterns
+     */
+    private array $harmfulPatterns = [
+        '/\b(how|can|help)\s*(to)?\s*(kill|murder|hurt|harm|attack)/i',
+        '/\b(suicide|kill\s*myself|end\s*(my)?\s*life)/i',
+        '/\b(weapon|gun|bomb|explosive)\s*(make|create|build)/i',
+        '/\b(hack|steal|scam|fraud|illegal)/i',
+    ];
 
     /**
      * Intent patterns with comprehensive fuzzy matching support
@@ -238,6 +266,41 @@ class ChatbotNLUService
             'taglish' => ['oras ba', 'bukas ba', 'sarado na ba'],
             'role_hint' => ['client', 'guest'],
         ],
+        'contact_info' => [
+            'patterns' => [
+                'contact information', 'contact details', 'how to contact', 'phone number',
+                'email address', 'contact you', 'reach you', 'get in touch', 'contact number',
+                'your number', 'your email', 'office number', 'call you', 'contact na',
+                'pano kayo kontakin', 'ano number', 'ano email', 'paano tumawag'
+            ],
+            'keywords' => ['contact', 'phone', 'email', 'call', 'reach', 'number', 'telephone'],
+            'taglish' => ['kontakin', 'tawag', 'number niyo', 'email niyo'],
+            'role_hint' => ['client', 'guest'],
+        ],
+        'location_info' => [
+            'patterns' => [
+                'where are you located', 'where is your office', 'office location', 'address',
+                'where to find you', 'your location', 'office address', 'where is the office',
+                'saan kayo', 'saan ang office', 'anong address', 'location niyo', 'nasaan kayo',
+                'how to get there', 'directions', 'where can i find you'
+            ],
+            'keywords' => ['location', 'address', 'where', 'located', 'office', 'find', 'directions'],
+            'taglish' => ['saan', 'nasaan', 'location', 'address niyo'],
+            'role_hint' => ['client', 'guest'],
+        ],
+        'about_business' => [
+            'patterns' => [
+                'about the lawyer', 'about the attorney', 'who is the lawyer', 'who is the attorney',
+                'about your company', 'about your office', 'about your firm', 'who runs this',
+                'who is peejay', 'who is pj', 'atty de guzman', 'attorney de guzman',
+                'sino ang abogado', 'sino ang attorney', 'sino lawyer', 'about peejayy',
+                'what services do you offer', 'what do you do', 'what kind of lawyer',
+                'ano services', 'ano ginagawa', 'anong serbisyo'
+            ],
+            'keywords' => ['lawyer', 'attorney', 'atty', 'legal', 'firm', 'company', 'about', 'who'],
+            'taglish' => ['abogado', 'sino', 'tungkol sa', 'anong serbisyo'],
+            'role_hint' => ['client', 'guest'],
+        ],
 
         // ==================== USER PROFILE INTENTS ====================
         'view_profile' => [
@@ -444,6 +507,7 @@ class ChatbotNLUService
 
     /**
      * Common misspellings and their corrections - Extended
+     * Includes informal typing, SMS speak, and common typos
      */
     private array $commonMisspellings = [
         // Appointment
@@ -454,25 +518,37 @@ class ChatbotNLUService
         'appointmen' => 'appointment',
         'appoinment' => 'appointment',
         'apptment' => 'appointment',
+        'apptmnt' => 'appointment',
+        'apt' => 'appointment',
+        'apts' => 'appointments',
+        'appt' => 'appointment',
+        'appts' => 'appointments',
         // Booking
         'beuking' => 'booking',
         'bokking' => 'booking',
         'bookng' => 'booking',
         'bookin' => 'booking',
+        'bok' => 'book',
+        'buking' => 'booking',
         // Schedule
         'reshcedule' => 'reschedule',
         'reschdule' => 'reschedule',
         'reshedule' => 'reschedule',
         'schdule' => 'schedule',
         'sched' => 'schedule',
+        'resched' => 'reschedule',
+        'skejul' => 'schedule',
         // Payment
         'pament' => 'payment',
         'paymnet' => 'payment',
         'paymet' => 'payment',
         'paymnt' => 'payment',
+        'pymnt' => 'payment',
+        'bayad' => 'payment',
         // Refund
         'refnd' => 'refund',
         'refun' => 'refund',
+        'refnd' => 'refund',
         // General
         'recieve' => 'receive',
         'verificaion' => 'verification',
@@ -484,32 +560,65 @@ class ChatbotNLUService
         'cansel' => 'cancel',
         'servise' => 'service',
         'servis' => 'service',
+        'serbisyo' => 'service',
         'availble' => 'available',
         'avalable' => 'available',
         'pendin' => 'pending',
         'pendng' => 'pending',
+        'pls' => 'please',
+        'plz' => 'please',
+        'plss' => 'please',
+        'thx' => 'thanks',
+        'tnx' => 'thanks',
+        'ty' => 'thank you',
+        'thnks' => 'thanks',
+        'thankss' => 'thanks',
+        'hlp' => 'help',
+        'hw' => 'how',
+        'wht' => 'what',
+        'wer' => 'where',
+        'wen' => 'when',
+        'tmrw' => 'tomorrow',
+        'tday' => 'today',
+        'ystrdy' => 'yesterday',
+        '2day' => 'today',
+        '2mrw' => 'tomorrow',
         // Taglish/Tagalog shortcuts
         'mag' => 'mag',  // Keep as is (prefix)
         'po' => 'po',    // Keep as is (polite marker)
         'naman' => 'naman', // Keep as is
+        'pde' => 'pwede',
+        'pwd' => 'pwede',
+        'pano' => 'paano',
+        'kelan' => 'when',
+        'saan' => 'where',
+        'ano' => 'what',
+        'sino' => 'who',
+        'mgkano' => 'magkano',
+        'gsto' => 'gusto',
+        'klangan' => 'kailangan',
     ];
 
     /**
      * Taglish/slang normalization mapping
+     * Enhanced with more Filipino expressions and internet slang
      */
     private array $slangNormalization = [
+        // Filipino question words
         'paki' => 'please',
         'sana' => 'hope',
         'gusto' => 'want',
         'kailangan' => 'need',
         'pwede' => 'can',
         'paano' => 'how',
+        'pano' => 'how',
         'ano' => 'what',
         'kelan' => 'when',
         'saan' => 'where',
         'sino' => 'who',
         'bakit' => 'why',
         'magkano' => 'how much',
+        // Filipino nouns/verbs
         'bayad' => 'payment',
         'singil' => 'charge',
         'ibalik' => 'return',
@@ -517,6 +626,50 @@ class ChatbotNLUService
         'tulong' => 'help',
         'problema' => 'problem',
         'isyu' => 'issue',
+        'serbisyo' => 'service',
+        'opisina' => 'office',
+        'oras' => 'time',
+        'bukas' => 'tomorrow',
+        'ngayon' => 'today',
+        'kahapon' => 'yesterday',
+        'mamaya' => 'later',
+        // Common expressions
+        'eto' => 'here',
+        'dito' => 'here',
+        'doon' => 'there',
+        'oo' => 'yes',
+        'hindi' => 'no',
+        'opo' => 'yes (polite)',
+        'sige' => 'okay',
+        'ayos' => 'okay',
+        'okey' => 'okay',
+        'okei' => 'okay',
+        'oki' => 'okay',
+        // Internet slang (Tagalog/English mix)
+        'asap' => 'as soon as possible',
+        'pls' => 'please',
+        'plsss' => 'please',
+        'ty' => 'thank you',
+        'tysm' => 'thank you so much',
+        'np' => 'no problem',
+        'nvm' => 'nevermind',
+        'idk' => 'I dont know',
+        'btw' => 'by the way',
+        'rn' => 'right now',
+        'irl' => 'in real life',
+        'lol' => '', // Skip
+        'lmao' => '', // Skip
+        'haha' => '', // Skip
+        'hehe' => '', // Skip
+        // Abbreviations
+        'appt' => 'appointment',
+        'svc' => 'service',
+        'amt' => 'amount',
+        'bal' => 'balance',
+        'acct' => 'account',
+        'info' => 'information',
+        'mins' => 'minutes',
+        'hrs' => 'hours',
     ];
 
     /**
@@ -615,15 +768,21 @@ class ChatbotNLUService
                 return $socialIntent;
             }
 
-            // Default to general question
+            // Default to general question with LOW confidence
+            // This signals to the controller to use LLM for a smarter response
+            // IMPORTANT: Provide hints about what the user might be asking about
+            $generalHints = $this->analyzeMessageForHints($lowerMessage);
+
             return [
                 'intent' => 'general_question',
-                'confidence' => 0.5,
+                'confidence' => 0.3, // LOW confidence = controller should use LLM
                 'detected_at' => now()->toDateTimeString(),
                 'raw_message' => $message,
                 'requires_clarification' => true,
                 'match_type' => 'default',
-                'note' => 'Could not determine specific intent',
+                'note' => 'Could not determine specific intent - using LLM for intelligent response',
+                'possible_topics' => $generalHints['topics'] ?? [], // Help LLM understand context
+                'message_keywords' => $generalHints['keywords'] ?? [], // Extracted keywords for context
             ];
         } catch (\Exception $e) {
             Log::warning('Error detecting intent', ['message' => $message, 'error' => $e->getMessage()]);
@@ -1169,6 +1328,140 @@ class ChatbotNLUService
     }
 
     /**
+     * Check if message contains inappropriate content
+     * 
+     * @param string $message User message
+     * @return array Content check result
+     */
+    public function checkContentSafety(string $message): array
+    {
+        $normalizedMessage = mb_strtolower(trim($message));
+        
+        // Check for profanity
+        foreach ($this->profanityPatterns as $pattern) {
+            if (preg_match($pattern, $normalizedMessage)) {
+                Log::warning('Chatbot: Profanity detected', [
+                    'message_snippet' => substr($message, 0, 50),
+                ]);
+                return [
+                    'safe' => false,
+                    'type' => 'profanity',
+                    'response' => $this->getInappropriateResponse(),
+                ];
+            }
+        }
+        
+        // Check for harmful content
+        foreach ($this->harmfulPatterns as $pattern) {
+            if (preg_match($pattern, $normalizedMessage)) {
+                Log::warning('Chatbot: Harmful content detected', [
+                    'message_snippet' => substr($message, 0, 50),
+                ]);
+                return [
+                    'safe' => false,
+                    'type' => 'harmful',
+                    'response' => $this->getHarmfulContentResponse(),
+                ];
+            }
+        }
+        
+        return ['safe' => true, 'type' => null, 'response' => null];
+    }
+
+    /**
+     * Check if message is within system scope
+     * 
+     * @param string $message User message
+     * @return array Scope check result
+     */
+    public function checkSystemScope(string $message): array
+    {
+        $normalizedMessage = mb_strtolower(trim($message));
+        
+        // System-related keywords
+        $systemKeywords = [
+            'appointment', 'booking', 'schedule', 'service', 'payment', 'refund',
+            'account', 'profile', 'password', 'login', 'register', 'status',
+            'cancel', 'reschedule', 'price', 'cost', 'fee', 'available',
+            'hour', 'open', 'close', 'office', 'location', 'help',
+            // Filipino
+            'bayad', 'presyo', 'magkano', 'serbisyo', 'appointment', 'book',
+            'schedule', 'oras', 'bukas', 'sarado', 'tulong'
+        ];
+        
+        // Check if message contains system keywords
+        foreach ($systemKeywords as $keyword) {
+            if (stripos($normalizedMessage, $keyword) !== false) {
+                return ['in_scope' => true, 'reason' => null];
+            }
+        }
+        
+        // Out of scope patterns
+        $outOfScopePatterns = [
+            '/\b(weather|news|sports|movie|music|recipe|joke|story|poem)\b/i',
+            '/\b(who\s+is|what\s+is\s+the\s+capital|president|history)\b/i',
+            '/\b(translate|translation|language\s+learning)\b/i',
+            '/\b(code|program|develop)\s+(me|a)\s+(website|app|software)/i',
+            '/\b(medical|health)\s+(advice|diagnosis)/i',
+            '/\b(financial|investment|stock|crypto)\s+(advice|tips)/i',
+        ];
+        
+        foreach ($outOfScopePatterns as $pattern) {
+            if (preg_match($pattern, $normalizedMessage)) {
+                return [
+                    'in_scope' => false,
+                    'reason' => 'out_of_scope',
+                    'response' => $this->getOutOfScopeResponse(),
+                ];
+            }
+        }
+        
+        // Short greetings are in scope
+        if (strlen($normalizedMessage) < 15) {
+            return ['in_scope' => true, 'reason' => null];
+        }
+        
+        // Default to in scope but flag as uncertain
+        return ['in_scope' => true, 'reason' => null, 'uncertain' => true];
+    }
+
+    /**
+     * Get response for inappropriate language
+     */
+    private function getInappropriateResponse(): string
+    {
+        $responses = [
+            "I'm here to help with system-related questions. Let's keep our conversation respectful and professional. How can I assist you with appointments, services, or payments?",
+            "I understand you may be frustrated, but I'm unable to respond to inappropriate language. I'm happy to help if you have questions about our services, appointments, or your account.",
+            "Let's maintain a professional conversation. I'm here to assist you with booking appointments, checking statuses, understanding services, and answering your questions about the system.",
+        ];
+        return $responses[array_rand($responses)];
+    }
+
+    /**
+     * Get response for harmful content
+     */
+    private function getHarmfulContentResponse(): string
+    {
+        return "I'm not able to assist with that request. If you're experiencing difficulties, please consider reaching out to appropriate support services. I'm here to help with system-related questions about appointments, services, and payments.";
+    }
+
+    /**
+     * Get response for out of scope requests
+     * Provides a friendly response without listing all capabilities
+     */
+    private function getOutOfScopeResponse(): string
+    {
+        $responses = [
+            "I appreciate your question, but that's outside the scope of what I'm designed to help with. I'm your assistant for this appointment booking system. Is there anything I can help you with regarding appointments or services?",
+            "I'm sorry, but I can only assist with matters related to this appointment system. If you have questions about booking, services, or your account, I'd be happy to help!",
+            "That's not something I'm able to help with, as my expertise is limited to this booking system. Feel free to ask me about appointments, services, or payments instead!",
+        ];
+
+        return $responses[array_rand($responses)];
+    }
+
+    /**
      * Build clarification questions for ambiguous intents
      * 
      * @param string $intent Detected intent
@@ -1215,5 +1508,94 @@ class ChatbotNLUService
         }
 
         return $questions;
+    }
+
+    /**
+     * Comprehensive message analysis with safety checks
+     * 
+     * @param string $message User message
+     * @param int|null $userId User ID for context
+     * @return array Complete analysis result
+     */
+    public function analyzeMessageComprehensive(string $message, ?int $userId = null): array
+    {
+        // Step 1: Content safety check
+        $safetyCheck = $this->checkContentSafety($message);
+        if (!$safetyCheck['safe']) {
+            return [
+                'safe' => false,
+                'type' => $safetyCheck['type'],
+                'response' => $safetyCheck['response'],
+                'intent' => null,
+                'entities' => [],
+                'sentiment' => ['sentiment' => 'negative', 'score' => 5],
+            ];
+        }
+        
+        // Step 2: Scope check
+        $scopeCheck = $this->checkSystemScope($message);
+        if (!$scopeCheck['in_scope']) {
+            return [
+                'safe' => true,
+                'in_scope' => false,
+                'response' => $scopeCheck['response'],
+                'intent' => 'out_of_scope',
+                'entities' => [],
+                'sentiment' => $this->analyzeSentiment($message),
+            ];
+        }
+        
+        // Step 3: Full NLU analysis
+        $analysis = $this->analyze($message, $userId);
+        
+        return array_merge($analysis, [
+            'safe' => true,
+            'in_scope' => true,
+        ]);
+    }
+
+    /**
+     * Analyze message to extract hints about possible topics
+     * Helps LLM understand what the user might be asking about
+     * even when intent pattern matching fails
+     * 
+     * @param string $message Lowercase message
+     * @return array Topics and keywords hints
+     */
+    private function analyzeMessageForHints(string $message): array
+    {
+        $topics = [];
+        $keywords = [];
+
+        // Extract all words for LLM context
+        $words = array_filter(str_word_count($message, 1));
+        $keywords = array_slice($words, 0, 10); // Top 10 keywords
+
+        // Analyze for common system-related topics
+        $topicPatterns = [
+            'appointment' => ['appointment', 'booking', 'schedule', 'book', 'booked', 'appointment'],
+            'service' => ['service', 'services', 'offer', 'provided', 'available'],
+            'payment' => ['payment', 'pay', 'paid', 'charge', 'cost', 'price', 'bill'],
+            'refund' => ['refund', 'return', 'money back', 'refunded', 'reimburs'],
+            'status' => ['status', 'pending', 'approved', 'completed', 'where', 'what', 'check'],
+            'profile' => ['profile', 'account', 'personal', 'info', 'information'],
+            'help' => ['help', 'how', 'guide', 'tutorial', 'assist', 'support'],
+            'admin' => ['pending', 'approve', 'review', 'admin', 'approve', 'decline'],
+            'cashier' => ['payment', 'collect', 'refund', 'transaction', 'receipt'],
+        ];
+
+        foreach ($topicPatterns as $topic => $patterns) {
+            foreach ($patterns as $pattern) {
+                if (str_contains($message, $pattern)) {
+                    $topics[] = $topic;
+                    break;
+                }
+            }
+        }
+
+        return [
+            'topics' => array_unique($topics),
+            'keywords' => array_unique($keywords),
+        ];
     }
 }

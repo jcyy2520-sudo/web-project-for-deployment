@@ -32,11 +32,11 @@ class ChatbotRateLimit extends Model
     ];
 
     // Rate limit configuration
-    public const MESSAGES_PER_CONVERSATION = 20;
-    public const MESSAGES_PER_MINUTE = 5;
-    public const MESSAGES_PER_HOUR = 50;
-    public const BLOCK_DURATION_MINUTES = 5;
-    public const SPAM_THRESHOLD = 3; // Messages in 10 seconds
+    public const MESSAGES_PER_CONVERSATION = 50; // Increased from 20 for better UX
+    public const MESSAGES_PER_MINUTE = 8; // Increased from 5 for smoother conversations
+    public const MESSAGES_PER_HOUR = 100; // Increased from 50
+    public const BLOCK_DURATION_MINUTES = 3; // Reduced from 5 for less punitive blocking
+    public const SPAM_THRESHOLD = 4; // Messages in 10 seconds (increased from 3)
     
     public function user(): BelongsTo
     {
@@ -76,7 +76,7 @@ class ChatbotRateLimit extends Model
             ];
         }
 
-        // Check conversation limit (20 messages per conversation)
+        // Check conversation limit (50 messages per conversation)
         if ($conversationId) {
             $conversationMessages = \App\Models\ChatMessage::where('conversation_id', $conversationId)
                 ->where('role', 'user')

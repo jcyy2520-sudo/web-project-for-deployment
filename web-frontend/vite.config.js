@@ -78,21 +78,20 @@ export default defineConfig({
     },
     proxy: {
       '/api': {
-        target: process.env.VITE_API_URL || 'http://127.0.0.1:8000',
+        target: 'http://localhost/web/web-backend/public',
         changeOrigin: true,
         secure: false,
         rewrite: (path) => path,
         ws: true,
-        logLevel: 'info',
-        onProxyReq: (proxyReq, req, res) => {
-          // Ensure proper headers for all requests
-          proxyReq.setHeader('X-Forwarded-For', req.socket.remoteAddress);
-          proxyReq.setHeader('X-Forwarded-Proto', 'http');
-          proxyReq.setHeader('X-Forwarded-Host', '127.0.0.1:3000');
+        configure: (proxy, options) => {
+          proxy.on('error', (err, req, res) => {
+            console.log('proxy error', err);
+          });
+          // Removed verbose proxy logging
         }
       },
       '/sanctum': {
-        target: process.env.VITE_API_URL || 'http://127.0.0.1:8000',
+        target: 'http://localhost/web/web-backend/public',
         changeOrigin: true,
         secure: false,
       }

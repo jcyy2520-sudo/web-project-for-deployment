@@ -60,7 +60,7 @@ import CancelBulkAppointmentsModal from '../components/admin/CancelBulkAppointme
 import AdminRefundManagement from '../components/admin/AdminRefundManagement';
 
 // Chart Components
-const BarChart = ({ data, title, color = 'amber', height = 160 }) => {
+const BarChart = ({ data, title, color = 'amber', height = 160, isDarkMode = true }) => {
   const safeData = useMemo(() => 
     data.map(item => ({ ...item, value: Number(item.value) || 0 })), 
     [data]
@@ -68,15 +68,15 @@ const BarChart = ({ data, title, color = 'amber', height = 160 }) => {
   const maxValue = Math.max(...safeData.map(item => item.value), 1);
   
   return (
-    <div className="bg-gray-900 border border-amber-500/20 rounded-lg shadow p-4 hover:border-amber-500/40 transition-all duration-300 overflow-auto max-h-[280px]">
-      <h3 className="text-sm font-semibold text-amber-50 mb-3 flex items-center">
+    <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4 hover:border-amber-500/40 transition-all duration-300 overflow-auto max-h-[280px]`}>
+      <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-3 flex items-center`}>
         <ChartBarIcon className="h-4 w-4 mr-2" />
         {title}
       </h3>
       <div className="space-y-2" style={{ height: `${height}px` }}>
         {safeData.map((item, index) => (
           <div key={index} className="flex items-center justify-between group">
-            <span className="text-xs text-gray-300 w-16 truncate group-hover:text-amber-200 transition-colors">
+            <span className={`text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-600'} w-16 truncate group-hover:text-amber-500 transition-colors`}>
               {item.label}
             </span>
             <div className="flex-1 mx-2">
@@ -90,7 +90,7 @@ const BarChart = ({ data, title, color = 'amber', height = 160 }) => {
                 <div className="absolute inset-0 bg-white/10"></div>
               </div>
             </div>
-            <span className="text-xs font-medium text-amber-50 w-6 text-right group-hover:scale-110 transition-transform">
+            <span className={`text-xs font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} w-6 text-right group-hover:scale-110 transition-transform`}>
               {item.value}
             </span>
           </div>
@@ -100,7 +100,7 @@ const BarChart = ({ data, title, color = 'amber', height = 160 }) => {
   );
 };
 
-const PieChart = ({ data, title }) => {
+const PieChart = ({ data, title, isDarkMode = true }) => {
   const safeData = useMemo(() => 
     data.map(item => ({ ...item, value: Number(item.value) || 0 })), 
     [data]
@@ -109,8 +109,8 @@ const PieChart = ({ data, title }) => {
   let currentAngle = 0;
   
   return (
-    <div className="bg-gray-900 border border-amber-500/20 rounded-lg shadow p-4 hover:border-amber-500/40 transition-all duration-300">
-      <h3 className="text-sm font-semibold text-amber-50 mb-3 flex items-center">
+    <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4 hover:border-amber-500/40 transition-all duration-300`}>
+      <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-3 flex items-center`}>
         <ChartPieIcon className="h-4 w-4 mr-2" />
         {title}
       </h3>
@@ -140,7 +140,7 @@ const PieChart = ({ data, title }) => {
                   key={index}
                   d={pathData}
                   fill={item.color}
-                  stroke="#1f2937"
+                  stroke={isDarkMode ? "#1f2937" : "#e5e7eb"}
                   strokeWidth="2"
                   className="transition-all duration-300 hover:opacity-80 cursor-pointer"
                 />
@@ -149,24 +149,24 @@ const PieChart = ({ data, title }) => {
           </svg>
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="text-center">
-              <span className="text-amber-50 font-bold text-sm block">{total}</span>
-              <span className="text-amber-400 text-xs">Total</span>
+              <span className={`${isDarkMode ? 'text-amber-50' : 'text-amber-900'} font-bold text-sm block`}>{total}</span>
+              <span className="text-amber-500 text-xs">Total</span>
             </div>
           </div>
         </div>
       </div>
       <div className="mt-3 space-y-1">
         {safeData.map((item, index) => (
-          <div key={index} className="flex items-center text-xs group cursor-pointer hover:bg-gray-800 p-1 rounded transition-colors">
+          <div key={index} className={`flex items-center text-xs group cursor-pointer ${isDarkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-100'} p-1 rounded transition-colors`}>
             <div 
               className="w-2 h-2 rounded-full mr-2 transition-transform group-hover:scale-125"
               style={{ backgroundColor: item.color }}
             ></div>
-            <span className="text-gray-300 flex-1 group-hover:text-amber-50 truncate">{item.label}</span>
-            <span className="text-amber-50 font-medium text-xs">
+            <span className={`${isDarkMode ? 'text-gray-300 group-hover:text-amber-50' : 'text-gray-600 group-hover:text-amber-900'} flex-1 truncate`}>{item.label}</span>
+            <span className={`${isDarkMode ? 'text-amber-50' : 'text-amber-900'} font-medium text-xs`}>
               {((item.value / total) * 100).toFixed(1)}%
             </span>
-            <span className="text-gray-500 text-xs ml-1">({item.value})</span>
+            <span className={`${isDarkMode ? 'text-gray-500' : 'text-gray-400'} text-xs ml-1`}>({item.value})</span>
           </div>
         ))}
       </div>
@@ -174,7 +174,7 @@ const PieChart = ({ data, title }) => {
   );
 };
 
-const LineChart = ({ data, title, color = 'amber' }) => {
+const LineChart = ({ data, title, color = 'amber', isDarkMode = true }) => {
   const safeData = useMemo(() => 
     data.map(item => ({ ...item, value: Number(item.value) || 0 })), 
     [data]
@@ -187,8 +187,8 @@ const LineChart = ({ data, title, color = 'amber' }) => {
   }).join(' ');
 
   return (
-    <div className="bg-gray-900 border border-amber-500/20 rounded-lg shadow p-4 hover:border-amber-500/40 transition-all duration-300">
-      <h3 className="text-sm font-semibold text-amber-50 mb-3 flex items-center">
+    <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4 hover:border-amber-500/40 transition-all duration-300`}>
+      <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-3 flex items-center`}>
         <ChartBarIcon className="h-4 w-4 mr-2" />
         {title}
       </h3>
@@ -1282,7 +1282,7 @@ const UserDetailModal = ({ isOpen, onClose, user, onDeactivate, loading }) => {
   );
 };
 
-const QuickStats = ({ stats, onStatClick }) => {
+const QuickStats = ({ stats, onStatClick, isDarkMode = true }) => {
   const statCards = [
     {
       name: 'Total Users',
@@ -1328,18 +1328,18 @@ const QuickStats = ({ stats, onStatClick }) => {
         <div
           key={index}
           onClick={() => onStatClick(card.key)}
-          className="bg-gray-900 border border-amber-500/20 rounded-lg shadow p-4 hover:border-amber-500/40 hover:shadow-amber-500/10 transition-all duration-300 cursor-pointer group transform hover:-translate-y-1"
+          className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4 hover:border-amber-500/40 hover:shadow-amber-500/10 transition-all duration-300 cursor-pointer group transform hover:-translate-y-1`}
         >
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-xs font-medium text-gray-400 group-hover:text-amber-300 transition-colors">
+              <p className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} group-hover:text-amber-500 transition-colors`}>
                 {card.name}
               </p>
-              <p className="text-lg font-bold text-amber-50 mt-0.5 group-hover:scale-105 transition-transform">
+              <p className={`text-lg font-bold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mt-0.5 group-hover:scale-105 transition-transform`}>
                 {card.value}
               </p>
               <div className={`flex items-center mt-1 text-xs ${
-                card.trend === 'up' ? 'text-green-400' : 'text-red-400'
+                card.trend === 'up' ? 'text-green-500' : 'text-red-500'
               }`}>
                 <span>{card.change}</span>
                 <span className="ml-1">from last month</span>
@@ -2118,14 +2118,18 @@ const AdminDashboard = () => {
     }
   }, [callApi]);
 
-  // Load data when component mounts and when activeTab changes
+  // Load data when component mounts - preload critical data in parallel for faster UX
   useEffect(() => {
     const loadInitialData = async () => {
-      await loadDashboardData();
+      // Load dashboard stats and commonly-used data in parallel
+      await Promise.all([
+        loadDashboardData(),
+        loadServices() // Preload services as they're used often
+      ]);
     };
     
     loadInitialData();
-  }, [loadDashboardData]);
+  }, [loadDashboardData, loadServices]);
 
   // Listen for services updates from AdminServices component
   useEffect(() => {
@@ -2137,7 +2141,7 @@ const AdminDashboard = () => {
     return () => window.removeEventListener('servicesUpdated', handleServicesUpdate);
   }, [loadServices]);
 
-  // Load data based on active tab
+  // Load data based on active tab - optimized with parallel loading
   useEffect(() => {
     const loadTabData = async () => {
       switch (activeTab) {
@@ -2174,8 +2178,11 @@ const AdminDashboard = () => {
           break;
         case 'archive':
           if (!dataLoaded.archive) {
-            await loadArchivedUsers();
-            await loadArchivedAppointments();
+            // Load archive data in parallel
+            await Promise.all([
+              loadArchivedUsers(),
+              loadArchivedAppointments()
+            ]);
             setDataLoaded(prev => ({ ...prev, archive: true }));
           }
           break;
@@ -3467,19 +3474,19 @@ const AdminDashboard = () => {
         </div>
       </div>
 
-      <div className="bg-gray-900 border border-amber-500/20 rounded-lg shadow p-3 space-y-3">
+      <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-3 space-y-3`}>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="relative">
-            <MagnifyingGlassIcon className="absolute left-2 top-1/2 transform -translate-y-1/2 h-3 w-3 text-amber-400" />
+            <MagnifyingGlassIcon className={`absolute left-2 top-1/2 transform -translate-y-1/2 h-3 w-3 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`} />
             <input
               type="text"
               placeholder="Search admins..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-7 pr-3 py-1.5 bg-gray-800 border border-gray-600 rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm text-white placeholder-gray-400"
+              className={`w-full pl-7 pr-3 py-1.5 border rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm ${isDarkMode ? 'bg-gray-800 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-500'}`}
             />
           </div>
-          <div className="flex items-center space-x-1 text-xs text-gray-400">
+          <div className={`flex items-center space-x-1 text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
             <FunnelIcon className="h-3 w-3" />
             <span>{filteredAdmins.length} admins found</span>
           </div>
@@ -3905,7 +3912,7 @@ const AdminDashboard = () => {
 
         {sortedUsers.length > 0 && (
           <div className="px-3 py-2 border-t border-gray-700 bg-gray-800/50">
-            <div className="flex flex-col sm:flexRow justify-between items-center space-y-2 sm:space-y-0">
+            <div className="flex flex-col sm:flex-row justify-between items-center space-y-2 sm:space-y-0">
               <p className="text-xs text-gray-400">
                 Showing <span className="font-medium text-amber-50">{((currentPage - 1) * itemsPerPage) + 1}</span> to{' '}
                 <span className="font-medium text-amber-50">{Math.min(currentPage * itemsPerPage, sortedUsers.length)}</span> of{' '}
@@ -4038,7 +4045,7 @@ const AdminDashboard = () => {
       </div>
 
       {/* Appointment Tabs */}
-      <div className="bg-gray-900 border border-amber-500/20 rounded-lg shadow overflow-x-auto">
+      <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow overflow-x-auto`}>
         <div className="flex space-x-0">
           {[
             { key: 'all', label: 'All', count: stats.totalAppointments || appointments.length },
@@ -4077,7 +4084,7 @@ const AdminDashboard = () => {
         </div>
       </div>
 
-      <div className="bg-gray-900 border border-amber-500/20 rounded-lg shadow p-3 space-y-3">
+      <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-3 space-y-3`}>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div className="relative">
             <MagnifyingGlassIcon className="absolute left-2 top-1/2 transform -translate-y-1/2 h-3 w-3 text-amber-400" />
@@ -4116,7 +4123,7 @@ const AdminDashboard = () => {
         </div>
       </div>
 
-      <div className="bg-gray-900 border border-amber-500/20 rounded-lg shadow overflow-hidden hover:border-amber-500/40 transition-all duration-300">
+      <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow overflow-hidden hover:border-amber-500/40 transition-all duration-300`}>
         <div className="overflow-x-auto -mx-4 sm:mx-0">
           <table className="w-full min-w-full">
             <thead className="bg-gray-800">
@@ -4462,39 +4469,39 @@ const AdminDashboard = () => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        <div className="bg-gray-900 border border-amber-500/20 rounded-lg shadow p-4 hover:border-amber-500/40 transition-all duration-300 cursor-pointer group">
+        <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4 hover:border-amber-500/40 transition-all duration-300 cursor-pointer group`}>
           <div className="flex items-center justify-between mb-3">
             <DocumentChartBarIcon className="h-6 w-6 text-blue-400 group-hover:scale-110 transition-transform" />
             <span className="text-xs font-medium text-blue-400 bg-blue-500/20 px-2 py-0.5 rounded-full">PDF</span>
           </div>
-          <h3 className="text-sm font-semibold text-amber-50 mb-1.5">Appointments Report</h3>
-          <p className="text-gray-400 text-xs mb-3">Detailed analysis of all appointments with status breakdown</p>
+          <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-1.5`}>Appointments Report</h3>
+          <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-600'} text-xs mb-3`}>Detailed analysis of all appointments with status breakdown</p>
           <div className="flex justify-between items-center text-xs text-gray-500">
             <span>Last generated: 2 days ago</span>
             <span className="text-amber-400">Ready</span>
           </div>
         </div>
 
-        <div className="bg-gray-900 border border-amber-500/20 rounded-lg shadow p-4 hover:border-amber-500/40 transition-all duration-300 cursor-pointer group">
+        <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4 hover:border-amber-500/40 transition-all duration-300 cursor-pointer group`}>
           <div className="flex items-center justify-between mb-3">
             <UsersIcon className="h-6 w-6 text-green-400 group-hover:scale-110 transition-transform" />
             <span className="text-xs font-medium text-green-400 bg-green-500/20 px-2 py-0.5 rounded-full">Excel</span>
           </div>
-          <h3 className="text-sm font-semibold text-amber-50 mb-1.5">Users Report</h3>
-          <p className="text-gray-400 text-xs mb-3">Complete user database with role distribution</p>
+          <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-1.5`}>Users Report</h3>
+          <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-600'} text-xs mb-3`}>Complete user database with role distribution</p>
           <div className="flex justify-between items-center text-xs text-gray-500">
             <span>Last generated: 1 week ago</span>
             <span className="text-amber-400">Ready</span>
           </div>
         </div>
 
-        <div className="bg-gray-900 border border-amber-500/20 rounded-lg shadow p-4 hover:border-amber-500/40 transition-all duration-300 cursor-pointer group">
+        <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4 hover:border-amber-500/40 transition-all duration-300 cursor-pointer group`}>
           <div className="flex items-center justify-between mb-3">
             <BuildingLibraryIcon className="h-6 w-6 text-purple-400 group-hover:scale-110 transition-transform" />
             <span className="text-xs font-medium text-purple-400 bg-purple-500/20 px-2 py-0.5 rounded-full">CSV</span>
           </div>
-          <h3 className="text-sm font-semibold text-amber-50 mb-1.5">Revenue Report</h3>
-          <p className="text-gray-400 text-xs mb-3">Financial overview and revenue analytics</p>
+          <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-1.5`}>Revenue Report</h3>
+          <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-600'} text-xs mb-3`}>Financial overview and revenue analytics</p>
           <div className="flex justify-between items-center text-xs text-gray-500">
             <span>Last generated: 3 days ago</span>
             <span className="text-amber-400">Ready</span>
@@ -4503,29 +4510,29 @@ const AdminDashboard = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-6">
-        <div className="bg-gray-900 border border-amber-500/20 rounded-lg shadow p-4">
-          <h3 className="text-sm font-semibold text-amber-50 mb-3 flex items-center">
+        <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4`}>
+          <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-3 flex items-center`}>
             <ChartBarIcon className="h-4 w-4 mr-2" />
             Report Statistics
           </h3>
           <div className="space-y-2">
-            <div className="flex justify-between items-center p-2 bg-gray-800/50 rounded">
-              <span className="text-gray-300 text-xs">Total Reports Generated</span>
+            <div className={`flex justify-between items-center p-2 ${isDarkMode ? 'bg-gray-800/50' : 'bg-gray-100'} rounded`}>
+              <span className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} text-xs`}>Total Reports Generated</span>
               <span className="text-amber-400 font-bold text-xs">47</span>
             </div>
-            <div className="flex justify-between items-center p-2 bg-gray-800/50 rounded">
-              <span className="text-gray-300 text-xs">Most Popular Format</span>
+            <div className={`flex justify-between items-center p-2 ${isDarkMode ? 'bg-gray-800/50' : 'bg-gray-100'} rounded`}>
+              <span className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} text-xs`}>Most Popular Format</span>
               <span className="text-blue-400 font-bold text-xs">PDF</span>
             </div>
-            <div className="flex justify-between items-center p-2 bg-gray-800/50 rounded">
-              <span className="text-gray-300 text-xs">Average Generation Time</span>
+            <div className={`flex justify-between items-center p-2 ${isDarkMode ? 'bg-gray-800/50' : 'bg-gray-100'} rounded`}>
+              <span className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} text-xs`}>Average Generation Time</span>
               <span className="text-green-400 font-bold text-xs">2.3s</span>
             </div>
           </div>
         </div>
 
-        <div className="bg-gray-900 border border-amber-500/20 rounded-lg shadow p-4">
-          <h3 className="text-sm font-semibold text-amber-50 mb-3 flex items-center">
+        <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4`}>
+          <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-3 flex items-center`}>
             <ClockIcon className="h-4 w-4 mr-2" />
             Recent Reports
           </h3>
@@ -4640,7 +4647,7 @@ const AdminDashboard = () => {
 
       {/* Deactivated Users Table */}
       {deactivatedTab === 'users' && filteredDeactivatedUsers.length > 0 && (
-        <div className="bg-gray-900 border border-amber-500/20 rounded-lg shadow overflow-x-auto">
+        <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow overflow-x-auto`}>
           <table className="w-full text-xs">
             <thead>
               <tr className="bg-gray-800/50 border-b border-gray-700">
@@ -4676,7 +4683,7 @@ const AdminDashboard = () => {
 
       {/* Deactivated Admin Accounts Table */}
       {deactivatedTab === 'admins' && filteredDeactivatedAdmins.length > 0 && (
-        <div className="bg-gray-900 border border-amber-500/20 rounded-lg shadow overflow-x-auto">
+        <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow overflow-x-auto`}>
           <table className="w-full text-xs">
             <thead>
               <tr className="bg-gray-800/50 border-b border-gray-700">

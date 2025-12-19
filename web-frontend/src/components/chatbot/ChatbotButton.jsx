@@ -6,10 +6,10 @@ const ChatbotButton = ({ className = '' }) => {
 
   return (
     <>
-      {/* Floating Button */}
+      {/* Floating Button - Responsive positioning to avoid mobile nav collision */}
       <button
         onClick={() => setIsOpen(true)}
-        className={`fixed bottom-6 right-6 bg-gray-900 border-2 border-amber-500/50 text-amber-500 rounded-full shadow-lg hover:shadow-amber-500/20 hover:border-amber-500 hover:bg-gray-800 transform hover:scale-105 transition-all duration-200 z-40 flex items-center justify-center w-14 h-14 group ${className}`}
+        className={`fixed bottom-20 sm:bottom-6 right-4 sm:right-6 bg-gray-900 border-2 border-amber-500/50 text-amber-500 rounded-full shadow-lg hover:shadow-amber-500/20 hover:border-amber-500 hover:bg-gray-800 transform hover:scale-105 transition-all duration-200 z-40 flex items-center justify-center w-12 h-12 sm:w-14 sm:h-14 group ${className}`}
         title="Chat Assistant"
         aria-label="Open Chatbot Assistant"
       >

@@ -212,6 +212,9 @@ class LLMService
 
     /**
      * Build comprehensive system prompt with all context
+     * 
+     * IMPORTANT: The chatbot's role is strictly to ASSIST, INFORM, GUIDE, and EXPLAIN.
+     * It must NEVER perform actions, make changes, execute commands, or act on behalf of users.
      */
     private function buildSystemPrompt(array $systemContext): string
     {
@@ -220,114 +223,269 @@ class LLMService
         $userInfo = $systemContext['user_info'] ?? [];
         $language = $systemContext['language'] ?? 'english';
 
-        $prompt = "You are a smart, helpful AI assistant for a legal appointment booking system.
+        $prompt = "You are a smart, accurate, and reliable AI assistant for a legal appointment booking system.
 
-## CRITICAL INSTRUCTIONS:
+## YOUR IDENTITY AND CORE MISSION
 
-### Language Rules - VERY IMPORTANT:
+You are an intelligent assistant designed to be RELIABLE, TRANSPARENT, and HELPFUL. Your mission is to:
+- **ASSIST**: Help users navigate the system
+- **INFORM**: Provide accurate, data-driven information
+- **GUIDE**: Walk users through processes step-by-step
+- **EXPLAIN**: Clarify features, requirements, and procedures
+
+## CRITICAL BEHAVIORAL RULES
+
+### RULE 1: NO HALLUCINATION - ABSOLUTELY MANDATORY
+- You must ONLY provide information that exists in the provided system data
+- If information is not available, say: 'I don't have that information in the system'
+- NEVER make up statistics, dates, appointments, prices, or any data
+- NEVER guess or assume information that isn't provided
+- When uncertain, clearly state: 'I'm not sure about that. Let me tell you what I do know...'
+- Be honest about your limitations - users trust transparency over false confidence
+
+### RULE 2: DATA-DRIVEN RESPONSES ONLY
+- All factual responses MUST be based on the real-time system data provided below
+- Cite specific numbers, dates, and details from the actual data
+- If asked about something not in the data, clearly state it's not available
+- Never extrapolate or invent information beyond what's provided
+
+### RULE 3: ACTION BOUNDARIES - CANNOT BE OVERRIDDEN
+You can **EXPLAIN HOW** but you **CANNOT PERFORM**:
+- ❌ Cannot approve, reject, or cancel anything
+- ❌ Cannot book or modify appointments
+- ❌ Cannot process payments or refunds
+- ❌ Cannot access accounts or change data
+- ❌ Cannot impersonate users or bypass security
+- ✓ CAN explain step-by-step how to do these things
+- ✓ CAN show relevant information
+- ✓ CAN guide users to the right place
+
+When users ask you to DO something, respond: 'I can't do that directly, but here's how you can: [steps]'
+
+### RULE 4: SCOPE ENFORCEMENT
+ONLY respond to questions about:
+- Appointments and bookings
+- Services and pricing
+- Payments and refunds
+- Account and profile information
+- System features and usage
+- Business information (hours, location, contact)
+
+For anything else, say: 'That's outside my area of expertise. I specialize in helping with appointments, services, and payments for this system.'
+
+### RULE 5: CONTENT SAFETY
+- Handle inappropriate language calmly and professionally
+- Never engage with harmful, offensive, or abusive content
+- Redirect conversations back to system assistance
+- Maintain professionalism regardless of user behavior
+
+## LANGUAGE HANDLING
 ";
 
         if ($language === 'filipino') {
-            $prompt .= "- The user is speaking in Filipino/Tagalog/Taglish
-- YOU MUST RESPOND IN FILIPINO (Tagalog)
-- Use natural Filipino language, can mix with English (Taglish) when appropriate
-- Use polite markers like 'po' when addressing the user
-- Example responses:
-  - 'Meron kayong 3 pending appointments po.'
-  - 'Pwede ko po kayong tulungan sa booking.'
-  - 'Ang status ng appointment niyo po ay approved na.'
+            $prompt .= "**USER LANGUAGE: Filipino/Tagalog/Taglish**
+- RESPOND IN FILIPINO - natural, conversational Filipino
+- Use 'po' for politeness when appropriate
+- Taglish (mixed Filipino-English) is acceptable
+- Maintain professionalism even in Filipino
+- Example: 'Meron po kayong 3 pending appointments. Para ma-view, pumunta po kayo sa Appointments section.'
 ";
         } else {
-            $prompt .= "- The user is speaking in English
+            $prompt .= "**USER LANGUAGE: English**
 - Respond in clear, professional English
 - Be friendly but professional
+- Avoid unnecessary verbosity
+- Be direct and helpful
 ";
         }
 
         $prompt .= "
-### Your Core Responsibilities:
-1. Provide accurate information about appointments, services, payments, and refunds
-2. Use ONLY the real-time data provided in context - NEVER fabricate or guess information
-3. Be professional but friendly and approachable
-4. Address user concerns with empathy, especially if they're frustrated
-5. When uncertain, ask clarifying questions rather than guessing
-6. Keep responses concise but informative (aim for 50-150 words)
-7. Always acknowledge the user's role and provide role-appropriate information
+## ROLE-SPECIFIC CONTEXT
 
-## User Role & Capabilities:
+Current user role: **" . strtoupper($role) . "**
 ";
         
         $roleCapabilities = [
-            'guest' => $language === 'filipino' 
-                ? "Tumutulong ka sa isang guest visitor.\n- Public information lang ang ibigay\n- I-encourage ang registration/login para sa personalized help\n- I-share ang general business info (hours, services, booking process)"
-                : "You're helping a guest visitor.\n- Only provide public information\n- Encourage registration/login for personalized help\n- Share general business info (hours, services, booking process)",
-            'client' => $language === 'filipino'
-                ? "Tumutulong ka sa isang registered client/user.\n- Ibigay ang personalized appointment details nila\n- Tulungan sa booking, rescheduling, cancellations\n- Ipaliwanag ang payment at refund processes\n- Maging helpful sa specific concerns nila"
-                : "You're helping a registered client.\n- Provide personalized appointment details\n- Help with booking, rescheduling, cancellations\n- Explain payment and refund processes\n- Be helpful with their specific concerns",
-            'admin' => $language === 'filipino'
-                ? "Tumutulong ka sa isang ADMINISTRATOR.\n- Ibigay ang system-wide information\n- Tulungan sa approval workflows (pending appointments, refunds)\n- Discuss analytics at reports\n- Support administrative tasks\n- May full access sa lahat ng data"
-                : "You're helping a system ADMINISTRATOR.\n- Provide system-wide information\n- Help with approval workflows (pending appointments, refunds)\n- Discuss analytics and reports\n- Support administrative tasks\n- Has full access to all data",
-            'cashier' => $language === 'filipino'
-                ? "Tumutulong ka sa isang CASHIER/payment processor.\n- Ibigay ang payment at refund information\n- Tulungan sa transaction verification\n- Support shift reporting\n- Help with payment processing"
-                : "You're helping a CASHIER/payment processor.\n- Provide payment and refund information\n- Help with transaction verification\n- Support shift reporting\n- Help with payment processing",
+            'guest' => "**Guest User Access:**
+- Can view public information only
+- Cannot access personal data or appointments
+- Encourage registration for full features
+- Share general business info (services, hours, location)
+- Guide them toward creating an account",
+            
+            'client' => "**Registered Client Access:**
+- Can view their own appointments, payments, refunds
+- Can book new appointments (guide them how)
+- Can request refunds (guide them how)
+- Cannot approve/reject anything
+- Cannot view other users' data
+- Help with their specific appointment needs",
+            
+            'admin' => "**Administrator Access:**
+- Has full system overview
+- Can see all appointments, users, analytics
+- Can approve/decline appointments and refunds (guide them how)
+- Provide system-wide statistics from the data
+- Help with administrative workflows",
+            
+            'cashier' => "**Cashier Access:**
+- Can view payment-related information
+- Can see pending payments and refunds
+- Can process transactions (guide them how)
+- Help with payment verification and shift reports
+- Focus on financial operations guidance",
         ];
 
         $prompt .= $roleCapabilities[$role] ?? $roleCapabilities['guest'];
 
+        $prompt .= "\n\n## RESPONSE GUIDELINES - CRITICAL
+1. **Be Helpful**: Answer the user's actual question
+2. **Be Accurate**: Only state facts from the data provided
+3. **Be Honest**: Say 'I don't know' when information isn't available
+4. **Be Clear**: Use simple, understandable language
+5. **Be Professional**: Maintain a helpful, respectful tone
+6. **Be Concise**: Keep responses focused (50-200 words typically)
+7. **Be Actionable**: Tell users what they can do next
+
+**REMEMBER**: You EXPLAIN how to do things, you don't DO them. Always guide users to the appropriate system interface.";
+
         // Add system data context - THIS IS CRITICAL FOR ACCURACY
         if (!empty($systemData)) {
-            $prompt .= "\n\n## REAL-TIME SYSTEM DATA (Use this for accurate responses):\n";
+            $prompt .= "\n\n## REAL-TIME SYSTEM DATA (Use this for accurate responses - cite these numbers):\n";
             
-            if (isset($systemData['pending_appointments'])) {
-                $prompt .= "- Pending Appointments awaiting approval: " . $systemData['pending_appointments'] . "\n";
+            // === BUSINESS INFORMATION - ALWAYS INCLUDE ===
+            if (isset($systemData['business_info']) && is_array($systemData['business_info'])) {
+                $biz = $systemData['business_info'];
+                $prompt .= "\n### BUSINESS/COMPANY INFORMATION (Use this to answer location, contact, attorney questions):\n";
+                $prompt .= "- Company Name: " . ($biz['company_name'] ?? 'Peejayy De Guzman Legal') . "\n";
+                $prompt .= "- Phone: " . ($biz['phone'] ?? '09765075274') . "\n";
+                $prompt .= "- Email: " . ($biz['email'] ?? 'peejaydeguzmanlegal@gmail.com') . "\n";
+                $prompt .= "- Address: " . ($biz['address'] ?? '233 Aljenjay Building, Vicente Ylagan Street, Bagong Bayan 2, Bongabong, Oriental Mindoro') . "\n";
+                $prompt .= "- Type: " . ($biz['type'] ?? 'Notary Services & Legal Consultation') . "\n";
+                if (isset($biz['specialties']) && is_array($biz['specialties'])) {
+                    $prompt .= "- Services Offered: " . implode(', ', $biz['specialties']) . "\n";
+                }
+            } else {
+                // Fallback if business_info not in context
+                $prompt .= "\n### BUSINESS/COMPANY INFORMATION:\n";
+                $prompt .= "- Company Name: Peejayy De Guzman Legal\n";
+                $prompt .= "- Phone: 09765075274\n";
+                $prompt .= "- Email: peejaydeguzmanlegal@gmail.com\n";
+                $prompt .= "- Address: 233 Aljenjay Building, Vicente Ylagan Street, Bagong Bayan 2, Bongabong, Oriental Mindoro\n";
+                $prompt .= "- Type: Notary Services & Legal Consultation\n";
+                $prompt .= "- Services: Notary Services, Legal Consultations, Document Review, Contract Drafting, Court Representation, Legal Opinions, Case Evaluations\n";
             }
-            if (isset($systemData['pending_payments'])) {
-                $prompt .= "- Pending Payments to collect: " . $systemData['pending_payments'] . "\n";
-            }
-            if (isset($systemData['pending_refunds'])) {
-                $prompt .= "- Pending Refunds to process: " . $systemData['pending_refunds'] . "\n";
-            }
-            if (isset($systemData['today_appointments'])) {
-                $prompt .= "- Today's Appointments: " . $systemData['today_appointments'] . "\n";
-            }
+            
+            // Services and pricing
             if (isset($systemData['services_available']) && is_array($systemData['services_available'])) {
-                $prompt .= "- Available Services: " . implode(', ', array_slice($systemData['services_available'], 0, 10)) . "\n";
+                $prompt .= "\n### SERVICES & PRICING:\n";
+                foreach ($systemData['services_available'] as $svc) {
+                    $prompt .= "- " . ($svc['name'] ?? 'Service') . ": " . ($svc['price'] ?? 'Contact for pricing') . "\n";
+                }
             }
+            
+            // Business hours
             if (isset($systemData['business_hours'])) {
-                $prompt .= "- Business Hours: " . $systemData['business_hours'] . "\n";
+                $prompt .= "\n### BUSINESS HOURS:\n";
+                $prompt .= "- Hours: " . $systemData['business_hours'] . "\n";
             }
+            
+            // System statistics (role-dependent)
+            if ($role === 'admin' || $role === 'cashier') {
+                $prompt .= "\n### SYSTEM STATISTICS:\n";
+                if (isset($systemData['pending_appointments'])) {
+                    $prompt .= "- Pending Appointments (awaiting approval): " . $systemData['pending_appointments'] . "\n";
+                }
+                if (isset($systemData['total_appointments'])) {
+                    $prompt .= "- Total Appointments: " . $systemData['total_appointments'] . "\n";
+                }
+                if (isset($systemData['appointments_today'])) {
+                    $prompt .= "- Today's Appointments: " . $systemData['appointments_today'] . "\n";
+                }
+                if (isset($systemData['pending_payments'])) {
+                    $prompt .= "- Pending Payments: " . $systemData['pending_payments'] . "\n";
+                }
+                if (isset($systemData['pending_refunds'])) {
+                    $prompt .= "- Pending Refunds: " . $systemData['pending_refunds'] . "\n";
+                }
+                if (isset($systemData['total_users'])) {
+                    $prompt .= "- Total Users: " . $systemData['total_users'] . "\n";
+                }
+                if (isset($systemData['total_revenue'])) {
+                    $prompt .= "- Total Revenue: ₱" . number_format($systemData['total_revenue'], 2) . "\n";
+                }
+            }
+            
+            // Current date/time
+            if (isset($systemData['current_date'])) {
+                $prompt .= "\n### CURRENT TIME:\n";
+                $prompt .= "- Date: " . $systemData['current_date'] . "\n";
+                $prompt .= "- Day: " . ($systemData['current_day'] ?? '') . "\n";
+            }
+        } else {
+            // Even without system data, always include business info
+            $prompt .= "\n\n## BUSINESS INFORMATION:\n";
+            $prompt .= "- Company Name: Peejayy De Guzman Legal\n";
+            $prompt .= "- Phone: 09765075274\n";
+            $prompt .= "- Email: peejaydeguzmanlegal@gmail.com\n";
+            $prompt .= "- Address: 233 Aljenjay Building, Vicente Ylagan Street, Bagong Bayan 2, Bongabong, Oriental Mindoro\n";
+            $prompt .= "- Type: Notary Services & Legal Consultation\n";
+            $prompt .= "- Services: Notary Services, Legal Consultations, Document Review, Contract Drafting, Court Representation, Legal Opinions, Case Evaluations\n";
         }
 
         // Add user-specific context
         if (!empty($userInfo) && $role !== 'guest') {
-            $prompt .= "\n## USER PROFILE (Current user's real data):\n";
+            $prompt .= "\n## USER'S PERSONAL DATA (This user's real information):\n";
             if (isset($userInfo['name'])) {
-                $prompt .= "- User Name: " . $userInfo['name'] . "\n";
+                $prompt .= "- Name: " . $userInfo['name'] . "\n";
             }
-            if (isset($userInfo['appointment_count'])) {
-                $prompt .= "- Total Appointments: " . $userInfo['appointment_count'] . "\n";
+            if (isset($userInfo['email'])) {
+                $prompt .= "- Email: " . $userInfo['email'] . "\n";
+            }
+            if (isset($userInfo['member_since'])) {
+                $prompt .= "- Member Since: " . $userInfo['member_since'] . "\n";
+            }
+            
+            // Appointment data
+            if (isset($userInfo['total_appointments'])) {
+                $prompt .= "- Total Appointments: " . $userInfo['total_appointments'] . "\n";
             }
             if (isset($userInfo['pending_appointments'])) {
                 $prompt .= "- Pending Appointments: " . $userInfo['pending_appointments'] . "\n";
             }
-            if (isset($userInfo['pending_items'])) {
-                $prompt .= "- Pending Items to handle: " . $userInfo['pending_items'] . "\n";
+            if (isset($userInfo['approved_appointments'])) {
+                $prompt .= "- Approved Appointments: " . $userInfo['approved_appointments'] . "\n";
             }
-            if (isset($userInfo['upcoming_appointments']) && is_array($userInfo['upcoming_appointments'])) {
-                $prompt .= "- Upcoming Appointments:\n";
+            if (isset($userInfo['completed_appointments'])) {
+                $prompt .= "- Completed Appointments: " . $userInfo['completed_appointments'] . "\n";
+            }
+            
+            // Upcoming appointments with details
+            if (isset($userInfo['upcoming_appointments']) && is_array($userInfo['upcoming_appointments']) && count($userInfo['upcoming_appointments']) > 0) {
+                $prompt .= "\n### UPCOMING APPOINTMENTS:\n";
                 foreach ($userInfo['upcoming_appointments'] as $apt) {
-                    $prompt .= "  • ID #{$apt['id']}: {$apt['date']} at {$apt['time']} - {$apt['service']} (Status: {$apt['status']})\n";
+                    $prompt .= "- **Appointment #{$apt['id']}**:\n";
+                    $prompt .= "  - Date: " . ($apt['date'] ?? 'TBD') . "\n";
+                    $prompt .= "  - Time: " . ($apt['time'] ?? 'TBD') . "\n";
+                    $prompt .= "  - Service: " . ($apt['service'] ?? 'N/A') . "\n";
+                    $prompt .= "  - Status: " . strtoupper($apt['status'] ?? 'unknown') . "\n";
+                    $prompt .= "  - Payment: " . ($apt['payment_status'] ?? 'Pending') . " (" . ($apt['payment_amount'] ?? 'TBD') . ")\n";
                 }
             }
+            
+            // Payment data
+            if (isset($userInfo['pending_payments'])) {
+                $prompt .= "- Pending Payments: " . $userInfo['pending_payments'] . "\n";
+            }
+            if (isset($userInfo['total_amount_paid'])) {
+                $prompt .= "- Total Paid: ₱" . number_format($userInfo['total_amount_paid'], 2) . "\n";
+            }
+            
+            // Refund data
+            if (isset($userInfo['pending_refunds'])) {
+                $prompt .= "- Pending Refunds: " . $userInfo['pending_refunds'] . "\n";
+            }
         }
-
-        $prompt .= "\n## RESPONSE INSTRUCTIONS:
-- Respond directly to the user's question using the data above
-- Reference REAL data when available - cite specific numbers
-- Be specific, not vague - use actual counts and details from the data
-- Suggest next steps when appropriate
-- Keep a professional but warm tone
-- If data is not available, say so honestly rather than guessing";
 
         return $prompt;
     }

@@ -187,8 +187,8 @@ export default function InstallPrompt() {
   const installCtaLabel = promptAvailable ? 'Install' : 'Install (use browser menu)';
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 animate-slide-up">
-      <div className="bg-white rounded-lg shadow-lg p-4 max-w-sm">
+    <div className="fixed bottom-36 sm:bottom-24 left-4 right-4 sm:left-auto sm:right-4 z-50 animate-slide-up">
+      <div className="bg-white rounded-lg shadow-lg p-4 max-w-sm mx-auto sm:mx-0">
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1">
             <h3 className="font-semibold text-gray-900">Install Legal Ease</h3>

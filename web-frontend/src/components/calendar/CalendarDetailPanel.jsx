@@ -22,11 +22,12 @@ const CalendarDetailPanel = ({
   monthNames = [],
   onAppointmentClick = () => {},
   isLoading = false,
+  isDarkMode = true,
 }) => {
   if (!selectedDate) {
     return (
-      <div className="bg-gray-900 border border-amber-500/20 rounded-lg p-6 text-center">
-        <div className="text-gray-400 text-sm">
+      <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/30'} border rounded-lg p-6 text-center`}>
+        <div className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'} text-sm`}>
           <CalendarIcon className="h-12 w-12 mx-auto mb-2 opacity-30" />
           <p>Select a date to view appointments</p>
         </div>
@@ -52,12 +53,12 @@ const CalendarDetailPanel = ({
 
   if (isLoading) {
     return (
-      <div className="bg-gray-900 border border-amber-500/20 rounded-lg p-6 text-center">
+      <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/30'} border rounded-lg p-6 text-center`}>
         <div className="animate-pulse">
-          <div className="h-8 bg-gray-800 rounded w-1/3 mx-auto mb-4"></div>
+          <div className={`h-8 ${isDarkMode ? 'bg-gray-800' : 'bg-gray-200'} rounded w-1/3 mx-auto mb-4`}></div>
           <div className="space-y-3">
             {[1, 2, 3].map(i => (
-              <div key={i} className="h-12 bg-gray-800 rounded"></div>
+              <div key={i} className={`h-12 ${isDarkMode ? 'bg-gray-800' : 'bg-gray-200'} rounded`}></div>
             ))}
           </div>
         </div>
@@ -67,8 +68,8 @@ const CalendarDetailPanel = ({
 
   if (dateAppointments.length === 0) {
     return (
-      <div className="bg-gray-900 border border-amber-500/20 rounded-lg p-6 text-center">
-        <p className="text-gray-400 text-sm">
+      <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/30'} border rounded-lg p-6 text-center`}>
+        <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'} text-sm`}>
           No appointments for {monthName} {selectedDate}, {year}
         </p>
       </div>
@@ -104,11 +105,11 @@ const CalendarDetailPanel = ({
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="bg-gray-900 border border-amber-500/20 rounded-lg p-4">
+      <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/30'} border rounded-lg p-4`}>
         <h4 className="text-sm font-semibold text-amber-400 flex items-center gap-2">
           <ClockIcon className="h-4 w-4" />
           Appointments for {monthName} {selectedDate}, {year}
-          <span className="ml-auto bg-amber-500/20 text-amber-400 text-xs px-2 py-1 rounded">
+          <span className={`ml-auto ${isDarkMode ? 'bg-amber-500/20 text-amber-400' : 'bg-amber-100 text-amber-700'} text-xs px-2 py-1 rounded`}>
             {dateAppointments.length} appointment{dateAppointments.length > 1 ? 's' : ''}
           </span>
         </h4>
@@ -128,52 +129,52 @@ const CalendarDetailPanel = ({
             <div
               key={apt.id}
               onClick={() => onAppointmentClick(apt)}
-              className="bg-gray-900 border border-gray-700 rounded-lg p-4 hover:border-amber-500/40 hover:bg-gray-800/50 transition-all cursor-pointer group"
+              className={`${isDarkMode ? 'bg-gray-900 border-gray-700 hover:bg-gray-800/50' : 'bg-white border-gray-200 hover:bg-gray-50'} border rounded-lg p-4 hover:border-amber-500/40 transition-all cursor-pointer group`}
             >
               {/* Top row: Client name and appointment status */}
               <div className="flex items-start justify-between mb-3">
                 <div className="flex-1">
-                  <p className="text-sm font-semibold text-amber-50">{clientName}</p>
-                  <p className="text-xs text-gray-500 mt-1">{apt.user?.email || 'No email'}</p>
+                  <p className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>{clientName}</p>
+                  <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} mt-1`}>{apt.user?.email || 'No email'}</p>
                 </div>
                 <div className="flex items-center gap-2 ml-3">
                   <span className={`text-xs font-medium px-2 py-1 rounded ${appointmentBadge.bg} ${appointmentBadge.text}`}>
                     {appointmentBadge.label}
                   </span>
-                  <div className="w-8 h-8 rounded border border-amber-500/30 bg-amber-500/10 flex items-center justify-center text-amber-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className={`w-8 h-8 rounded border ${isDarkMode ? 'border-amber-500/30 bg-amber-500/10' : 'border-amber-300 bg-amber-50'} flex items-center justify-center text-amber-400 opacity-0 group-hover:opacity-100 transition-opacity`}>
                     <EyeIcon className="h-4 w-4" />
                   </div>
                 </div>
               </div>
 
               {/* Middle row: Service info and time */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3 pb-3 border-b border-gray-800">
+              <div className={`grid grid-cols-2 md:grid-cols-4 gap-3 mb-3 pb-3 border-b ${isDarkMode ? 'border-gray-800' : 'border-gray-100'}`}>
                 {/* Service */}
                 <div>
-                  <p className="text-xs text-gray-500 mb-1">Service</p>
-                  <p className="text-sm text-gray-300">{serviceName}</p>
+                  <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} mb-1`}>Service</p>
+                  <p className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>{serviceName}</p>
                 </div>
 
                 {/* Time */}
                 <div>
-                  <p className="text-xs text-gray-500 mb-1">Time</p>
-                  <p className="text-sm text-gray-300 font-mono">
+                  <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} mb-1`}>Time</p>
+                  <p className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'} font-mono`}>
                     {time}{apt.end_time ? ` - ${apt.end_time}` : ''}
                   </p>
                 </div>
 
                 {/* ID/Reference */}
                 <div>
-                  <p className="text-xs text-gray-500 mb-1">Reference</p>
-                  <p className="text-sm text-gray-300 font-mono truncate" title={typeof apt.id === 'string' ? apt.id : JSON.stringify(apt.id)}>
+                  <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} mb-1`}>Reference</p>
+                  <p className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'} font-mono truncate`} title={typeof apt.id === 'string' ? apt.id : JSON.stringify(apt.id)}>
                     {typeof apt.id === 'string' ? apt.id?.substring(0, 8) : (apt.id?.id || JSON.stringify(apt.id)).toString().substring(0, 8)}...
                   </p>
                 </div>
 
                 {/* ID Type */}
                 <div>
-                  <p className="text-xs text-gray-500 mb-1">ID Type</p>
-                  <p className="text-sm text-gray-300">
+                  <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} mb-1`}>ID Type</p>
+                  <p className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
                     {apt.identification_type || apt.form_of_id || 'Not specified'}
                   </p>
                 </div>
@@ -184,13 +185,13 @@ const CalendarDetailPanel = ({
                 <div className="grid grid-cols-2 gap-4">
                   {/* Price */}
                   <div>
-                    <p className="text-xs text-gray-500 mb-1">Price</p>
+                    <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} mb-1`}>Price</p>
                     <p className="text-sm font-semibold text-amber-400">{formatPrice(price)}</p>
                   </div>
 
                   {/* Payment Status */}
                   <div>
-                    <p className="text-xs text-gray-500 mb-1">Payment</p>
+                    <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} mb-1`}>Payment</p>
                     <span className={`text-xs font-medium px-2 py-1 rounded inline-block ${paymentBadge.bg} ${paymentBadge.text}`}>
                       {paymentBadge.label}
                     </span>

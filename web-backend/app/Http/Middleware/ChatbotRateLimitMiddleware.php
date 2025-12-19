@@ -14,9 +14,9 @@ class ChatbotRateLimitMiddleware
      * Handle an incoming request.
      * 
      * Implements:
-     * - 20 messages per conversation limit (must start new conversation)
-     * - 5 messages per minute rate limit
-     * - Spam detection (3 messages in 10 seconds = block)
+     * - 50 messages per conversation limit (must start new conversation)
+     * - 8 messages per minute rate limit
+     * - Spam detection (4 messages in 10 seconds = block)
      * - Abuse pattern detection
      */
     public function handle(Request $request, Closure $next): Response

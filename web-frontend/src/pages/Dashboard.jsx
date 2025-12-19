@@ -819,15 +819,26 @@ const Dashboard = () => {
   // Redirect based on user role
   useEffect(() => {
     if (user?.role === 'admin') {
-      navigate('/admin/dashboard', { replace: true });
-      return;
+      setRedirecting(true);
+      // Use a small timeout to allow React to update state
+      const timer = setTimeout(() => {
+        navigate('/admin/dashboard', { replace: true });
+      }, 100);
+      return () => clearTimeout(timer);
     }
     if (user?.role === 'staff') {
-      navigate('/cashier', { replace: true });
-      return;
+      setRedirecting(true);
+      // Use a small timeout to allow React to update state
+      const timer = setTimeout(() => {
+        navigate('/cashier', { replace: true });
+      }, 100);
+      return () => clearTimeout(timer);
     }
+    setRedirecting(false);
   }, [user, navigate]);
 
+  const [redirecting, setRedirecting] = useState(false);
+  
   const [activeTab, setActiveTab] = useState('home');
   const [isEditing, setIsEditing] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -844,6 +855,7 @@ const Dashboard = () => {
   const [messages, setMessages] = useState([]);
   const [staff, setStaff] = useState([]);
   const [refunds, setRefunds] = useState([]);
+  const [refundsLoading, setRefundsLoading] = useState(false);
   
   // Pagination state for appointments
   const [appointmentsPagination, setAppointmentsPagination] = useState({
@@ -968,7 +980,7 @@ const Dashboard = () => {
           href: '#', 
           icon: CurrencyDollarIcon, 
           current: activeTab === 'refunds',
-          badge: null
+          badge: refunds.filter(r => r.status === 'pending').length || null
         }
       ]
     },
@@ -1090,7 +1102,7 @@ const Dashboard = () => {
       
       const result = await callApi((signal) =>
         axios.get(`/api/appointment-settings/user-limit/${user.id}/${checkDate}`, { signal })
-      );
+      , { abortPrevious: false }); // Don't abort - this may run in parallel with other requests
 
       if (result.success && result.data && result.data.data) {
         const data = result.data.data;
@@ -1111,121 +1123,13 @@ const Dashboard = () => {
     }
   }, [user?.id, callApi]);
 
-  // NOW define the useEffect hooks that depend on checkDailyLimit
-  // Listen for slot capacity changes so availability reloads automatically
-  useEffect(() => {
-    const handleSlotCapacitiesChanged = () => {
-      if (appointmentData?.appointment_date) {
-        console.log('Slot capacities changed, reloading available slots for', appointmentData.appointment_date);
-        loadAvailableSlots(appointmentData.appointment_date);
-      }
-    };
-
-    window.addEventListener('slotCapacitiesChanged', handleSlotCapacitiesChanged);
-    return () => window.removeEventListener('slotCapacitiesChanged', handleSlotCapacitiesChanged);
-  }, [appointmentData?.appointment_date]);
-
-  // Listen for appointment settings changes and refresh daily limit
-  useEffect(() => {
-    const handleAppointmentSettingsChanged = () => {
-      console.log('Appointment settings changed, checking daily limit...');
-      // Check today's limit or the selected appointment date
-      const dateToCheck = appointmentData?.appointment_date || new Date().toISOString().split('T')[0];
-      checkDailyLimit(dateToCheck);
-    };
-
-    window.addEventListener('appointmentSettingsChanged', handleAppointmentSettingsChanged);
-    return () => window.removeEventListener('appointmentSettingsChanged', handleAppointmentSettingsChanged);
-  }, [appointmentData?.appointment_date, checkDailyLimit]);
-
-  const loadInitialData = async () => {
-    switch (activeTab) {
-      case 'home':
-      case 'book':
-        await loadAppointmentTypes();
-        await loadAppointments();
-        await checkDailyLimit();
-        break;
-      case 'appointments':
-        await loadAppointments();
-        await checkDailyLimit();
-        break;
-      case 'refunds':
-        await loadRefunds();
-        break;
-      case 'messages':
-        await loadMessages();
-        break;
-      case 'profile':
-        // Profile data is already loaded from auth context
-        break;
-    }
-  };
-
-  // Initialize real-time updates polling
-  const { startPolling: startRealtimePolling, stopPolling: stopRealtimePolling } = useRealtimeUpdates(
-    // onCapacityChange callback
-    (capacitiesData) => {
-      console.log('[Dashboard] Capacity data received from polling, reloading slots');
-      if (appointmentData?.appointment_date) {
-        loadAvailableSlots(appointmentData.appointment_date);
-      }
-    },
-    // onSettingsChange callback
-    (settingsData) => {
-      console.log('[Dashboard] Settings data received from polling, checking daily limit');
-      const dateToCheck = appointmentData?.appointment_date || new Date().toISOString().split('T')[0];
-      checkDailyLimit(dateToCheck);
-    }
-  );
-
-  // Start polling when Dashboard mounts
-  useEffect(() => {
-    startRealtimePolling();
-    return () => {
-      stopRealtimePolling();
-    };
-  }, [startRealtimePolling, stopRealtimePolling]);
-
-  const loadAppointments = async () => {
-    const result = await callApi((signal) => 
-      axios.get('/api/appointments/my/appointments', { signal })
-    );
-    
-    if (result.success) {
-      // Sort appointments by created_at in descending order (newest first)
-      const sortedAppointments = (result.data.data || []).sort((a, b) => 
-        new Date(b.created_at) - new Date(a.created_at)
-      );
-      setAppointments(sortedAppointments);
-      // Reset pagination to first page
-      setAppointmentsPagination(prev => ({
-        ...prev,
-        currentPage: 1
-      }));
-    }
-  };
-
-  const loadRefunds = async () => {
-    const result = await callApi((signal) => 
-      axios.get('/api/refunds/my', { signal })
-    );
-    
-    if (result.success) {
-      // Sort refunds by created_at in descending order (newest first)
-      const sortedRefunds = (result.data.data || result.data || []).sort((a, b) => 
-        new Date(b.created_at) - new Date(a.created_at)
-      );
-      setRefunds(sortedRefunds);
-    }
-  };
-
-  const loadAppointmentTypes = async () => {
+  // Define loadAppointmentTypes before it's used
+  const loadAppointmentTypes = useCallback(async () => {
     try {
       // First, try to load services from the Services table
       const servicesResult = await callApi((signal) => 
         axios.get('/api/services', { signal })
-      );
+      , { abortPrevious: false }); // Don't abort - this runs in parallel with other requests
       
       if (servicesResult.success && servicesResult.data.data && Array.isArray(servicesResult.data.data)) {
         // Map services to appointment type format with pricing
@@ -1263,23 +1167,63 @@ const Dashboard = () => {
           }
         });
         
+        console.log('[Dashboard] Loaded appointment types:', merged.length, 'total. With IDs:', merged.filter(t => t.id).length);
         setAppointmentTypes(merged);
       } else {
-        // Fallback to static types if services endpoint fails
+        console.warn('[Dashboard] Services API returned no data, trying alternate endpoint');
+        // Fallback to static types if services endpoint fails - include default prices
         const result = await callApi((signal) => 
           axios.get('/api/appointments/types/all', { signal })
         );
         
+        // Default prices for static types
+        const defaultPrices = {
+          'consultation': 550.00,
+          'legal_consultation': 550.00,
+          'document_review': 500.00,
+          'contract_drafting': 300.00,
+          'court_representation': 450.00,
+          'notary_services': 250.00,
+          'legal_opinion': 550.00,
+          'case_evaluation': 500.00,
+          'document_notarization': 500.00,
+          'affidavit': 500.00,
+          'power_of_attorney': 400.00,
+          'loan_signing': 350.00,
+          'real_estate_documents': 500.00,
+          'will_and_testament': 450.00,
+          'other': 500.00
+        };
+        
         if (result.success) {
           setAppointmentTypes(Object.entries(result.data.data || {}).map(([value, label]) => ({
             value,
-            label
+            label,
+            price: defaultPrices[value] || 500.00
           })));
         }
       }
     } catch (error) {
       console.error('Failed to load appointment types:', error);
-      // Fallback to static types
+      // Fallback to static types with default prices
+      const defaultPrices = {
+        'consultation': 550.00,
+        'legal_consultation': 550.00,
+        'document_review': 500.00,
+        'contract_drafting': 300.00,
+        'court_representation': 450.00,
+        'notary_services': 250.00,
+        'legal_opinion': 550.00,
+        'case_evaluation': 500.00,
+        'document_notarization': 500.00,
+        'affidavit': 500.00,
+        'power_of_attorney': 400.00,
+        'loan_signing': 350.00,
+        'real_estate_documents': 500.00,
+        'will_and_testament': 450.00,
+        'other': 500.00
+      };
+      
       const result = await callApi((signal) => 
         axios.get('/api/appointments/types/all', { signal })
       );
@@ -1287,13 +1231,97 @@ const Dashboard = () => {
       if (result.success) {
         setAppointmentTypes(Object.entries(result.data.data || {}).map(([value, label]) => ({
           value,
-          label
+          label,
+          price: defaultPrices[value] || 500.00
         })));
       }
     }
-  };
+  }, [callApi]);
 
-  const loadAvailableSlots = async (date) => {
+  // Define loadAppointments before it's used
+  const loadAppointments = useCallback(async () => {
+    console.log('[Dashboard] Loading user appointments...');
+    // Debug: Check if auth header is set
+    console.log('[Dashboard] Auth header:', axios.defaults.headers.common['Authorization'] ? 'SET' : 'NOT SET');
+    
+    const result = await callApi((signal) => 
+      axios.get('/api/appointments/my/appointments', { signal })
+    , { skipCache: true, abortPrevious: false }); // Don't abort - this runs in parallel with other requests
+    
+    console.log('[Dashboard] Appointments API result:', result);
+    
+    // Check for auth errors specifically
+    if (result.isAuthError) {
+      console.error('[Dashboard] Authentication failed when loading appointments. User may need to re-login.');
+      return; // Don't clear appointments on auth error - might be temporary
+    }
+    
+    if (result.success) {
+      // Handle both direct array and nested data structure
+      const appointmentsData = result.data?.data || result.data || [];
+      console.log('[Dashboard] Raw appointments data:', appointmentsData);
+      console.log('[Dashboard] appointmentsData type:', typeof appointmentsData, Array.isArray(appointmentsData));
+      
+      // Sort appointments by created_at in descending order (newest first)
+      const sortedAppointments = (Array.isArray(appointmentsData) ? appointmentsData : []).sort((a, b) => 
+        new Date(b.created_at) - new Date(a.created_at)
+      );
+      console.log('[Dashboard] Sorted appointments:', sortedAppointments.length, 'items');
+      setAppointments(sortedAppointments);
+      // Reset pagination to first page
+      setAppointmentsPagination(prev => ({
+        ...prev,
+        currentPage: 1
+      }));
+    } else if (!result.isAuthError) {
+      // Only clear appointments on non-auth errors
+      // Auth errors are handled by AuthContext and will redirect to login if needed
+      console.error('[Dashboard] Failed to load appointments (non-auth error):', result.error);
+      setAppointments([]);
+    }
+  }, [callApi]);
+
+  // Define loadRefunds before it's used
+  const loadRefunds = useCallback(async () => {
+    setRefundsLoading(true);
+    try {
+      const result = await callApi((signal) => 
+        axios.get('/api/refunds/my', { 
+          signal,
+          params: { per_page: 100 } // Get all refunds
+        })
+      , { abortPrevious: false }); // Don't abort - this runs in parallel with other requests
+      
+      if (result.success) {
+        // Handle paginated response from Laravel
+        let refundsData = [];
+        if (result.data?.data && Array.isArray(result.data.data)) {
+          // Paginated response: { data: [...], current_page, last_page, ... }
+          refundsData = result.data.data;
+        } else if (Array.isArray(result.data)) {
+          // Direct array response
+          refundsData = result.data;
+        }
+        
+        // Sort refunds by created_at in descending order (newest first)
+        const sortedRefunds = refundsData.sort((a, b) => 
+          new Date(b.created_at) - new Date(a.created_at)
+        );
+        setRefunds(sortedRefunds);
+      } else {
+        console.error('Failed to load refunds:', result.error);
+        setRefunds([]);
+      }
+    } catch (error) {
+      console.error('Error loading refunds:', error);
+      setRefunds([]);
+    } finally {
+      setRefundsLoading(false);
+    }
+  }, [callApi]);
+
+  // Define loadAvailableSlots before it's used
+  const loadAvailableSlots = useCallback(async (date) => {
     if (!date) return;
     
     const result = await callApi((signal) => 
@@ -1305,9 +1333,10 @@ const Dashboard = () => {
     } else {
       setAvailableSlots([]);
     }
-  };
+  }, [callApi]);
 
-  const loadMessages = async () => {
+  // Define loadMessages before it's used
+  const loadMessages = useCallback(async () => {
     const result = await callApi((signal) => 
       axios.get('/api/messages/all/messages', { signal })
     );
@@ -1330,7 +1359,121 @@ const Dashboard = () => {
         }
       }
     }
-  };
+  }, [callApi, user?.role, user?.id]);
+
+  // NOW define the useEffect hooks that depend on checkDailyLimit
+  // Listen for slot capacity changes so availability reloads automatically
+  useEffect(() => {
+    const handleSlotCapacitiesChanged = () => {
+      if (appointmentData?.appointment_date) {
+        console.log('Slot capacities changed, reloading available slots for', appointmentData.appointment_date);
+        loadAvailableSlots(appointmentData.appointment_date);
+      }
+    };
+
+    window.addEventListener('slotCapacitiesChanged', handleSlotCapacitiesChanged);
+    return () => window.removeEventListener('slotCapacitiesChanged', handleSlotCapacitiesChanged);
+  }, [appointmentData?.appointment_date]);
+
+  // Listen for appointment settings changes and refresh daily limit
+  useEffect(() => {
+    const handleAppointmentSettingsChanged = () => {
+      console.log('Appointment settings changed, checking daily limit...');
+      // Check today's limit or the selected appointment date
+      const dateToCheck = appointmentData?.appointment_date || new Date().toISOString().split('T')[0];
+      checkDailyLimit(dateToCheck);
+    };
+
+    window.addEventListener('appointmentSettingsChanged', handleAppointmentSettingsChanged);
+    return () => window.removeEventListener('appointmentSettingsChanged', handleAppointmentSettingsChanged);
+  }, [appointmentData?.appointment_date, checkDailyLimit]);
+
+  const loadInitialData = useCallback(async () => {
+    switch (activeTab) {
+      case 'home':
+      case 'book':
+        // Load all data in PARALLEL for faster loading
+        await Promise.all([
+          loadAppointmentTypes(),
+          loadAppointments(),
+          loadRefunds(),
+          checkDailyLimit()
+        ]);
+        break;
+      case 'appointments':
+        // Load in parallel
+        await Promise.all([
+          loadAppointments(),
+          loadRefunds(),
+          checkDailyLimit()
+        ]);
+        break;
+      case 'refunds':
+        await loadRefunds();
+        break;
+      case 'messages':
+        await loadMessages();
+        break;
+      case 'profile':
+        // Profile data is already loaded from auth context
+        break;
+    }
+  }, [activeTab, loadAppointmentTypes, loadAppointments, loadRefunds, checkDailyLimit, loadMessages]);
+
+  // Initialize real-time updates polling
+  const { startPolling: startRealtimePolling, stopPolling: stopRealtimePolling } = useRealtimeUpdates(
+    // onCapacityChange callback
+    (capacitiesData) => {
+      console.log('[Dashboard] Capacity data received from polling, reloading slots');
+      if (appointmentData?.appointment_date) {
+        loadAvailableSlots(appointmentData.appointment_date);
+      }
+    },
+    // onSettingsChange callback
+    (settingsData) => {
+      console.log('[Dashboard] Settings data received from polling, checking daily limit');
+      const dateToCheck = appointmentData?.appointment_date || new Date().toISOString().split('T')[0];
+      checkDailyLimit(dateToCheck);
+    }
+  );
+
+  // Start polling when Dashboard mounts
+  useEffect(() => {
+    startRealtimePolling();
+    return () => {
+      stopRealtimePolling();
+    };
+  }, [startRealtimePolling, stopRealtimePolling]);
+
+  // Listen for real-time appointment settings updates (moved here to comply with React hooks rules)
+  useEffect(() => {
+    const handleSettingsUpdate = (event) => {
+      // Refresh daily limit when settings are updated by admin
+      checkDailyLimit();
+    };
+
+    let channel = null;
+    try {
+      if (window.Echo && typeof window.Echo.channel === 'function') {
+        channel = window.Echo.channel('appointment-settings');
+        if (channel && typeof channel.listen === 'function') {
+          channel.listen('AppointmentSettingsUpdated', handleSettingsUpdate);
+        }
+      }
+    } catch (error) {
+      console.debug('Echo not available for appointment settings:', error);
+    }
+
+    return () => {
+      try {
+        if (channel && typeof channel.stopListening === 'function') {
+          channel.stopListening('AppointmentSettingsUpdated');
+        }
+      } catch (error) {
+        // Silently fail if Echo cleanup doesn't work
+      }
+    };
+  }, [user?.id, checkDailyLimit]);
 
   const handleNavClick = (tabName) => {
     setActiveTab(tabName);
@@ -1471,8 +1614,24 @@ const Dashboard = () => {
     }
 
     // Get the service ID from the selected appointment type
-    const selectedService = appointmentTypes.find(t => t.value === appointmentData.type);
+    // First try exact match, then try case-insensitive match
+    let selectedService = appointmentTypes.find(t => t.value === appointmentData.type);
+    if (!selectedService?.id) {
+      // Try to find by label matching (case-insensitive)
+      const typeLabel = appointmentData.type.replace(/_/g, ' ');
+      selectedService = appointmentTypes.find(t => 
+        t.label?.toLowerCase() === typeLabel.toLowerCase() && t.id
+      ) || selectedService;
+    }
     const serviceId = selectedService?.id || null;
+    
+    // Debug log for service matching
+    console.log('[Booking] Service lookup:', { 
+      type: appointmentData.type, 
+      foundService: selectedService, 
+      serviceId,
+      availableTypes: appointmentTypes.length 
+    });
 
     const submitData = {
       type: appointmentData.type,
@@ -1594,8 +1753,9 @@ const Dashboard = () => {
         setShowRefundModal(false);
         setSelectedAppointment(null);
         setRefundData({ reason: 'customer_request', description: '' });
-        // Refresh appointments
+        // Refresh appointments and refunds
         loadAppointments();
+        loadRefunds();
       }
     } catch (error) {
       console.error('Refund request failed:', error);
@@ -1686,11 +1846,11 @@ const Dashboard = () => {
   const renderHome = () => (
     <div className="space-y-6">
       {/* Welcome Section */}
-      <div className="bg-gray-900 border border-amber-500/20 rounded-lg shadow p-4 sm:p-6 hover:border-amber-500/40 transition-all duration-300">
+      <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4 sm:p-6 hover:border-amber-500/40 transition-all duration-300`}>
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="flex-1">
-            <h2 className="text-base sm:text-lg font-bold text-amber-50">Welcome back, {user?.first_name}! 👋</h2>
-            <p className="text-amber-400/70 mt-1 text-xs sm:text-sm">Ready to schedule your next notarization service?</p>
+            <h2 className={`text-base sm:text-lg font-bold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>Welcome back, {user?.first_name}! 👋</h2>
+            <p className={`mt-1 text-xs sm:text-sm ${isDarkMode ? 'text-amber-400/70' : 'text-amber-700/70'}`}>Ready to schedule your next notarization service?</p>
           </div>
           <button
             onClick={() => setActiveTab('book')}
@@ -1707,63 +1867,63 @@ const Dashboard = () => {
 
       {/* Quick Actions */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="bg-gray-900 border border-amber-500/20 rounded-lg shadow p-4 hover:border-amber-500/40 transition-all duration-300">
-          <h3 className="text-sm font-semibold text-amber-50 mb-3 flex items-center">
+        <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4 hover:border-amber-500/40 transition-all duration-300`}>
+          <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-3 flex items-center`}>
             <ClockIcon className="h-4 w-4 mr-2" />
             Quick Actions
           </h3>
           <div className="space-y-2">
             <button
               onClick={() => setActiveTab('book')}
-              className="w-full text-left p-2 border border-gray-600 rounded hover:border-amber-500/40 hover:bg-amber-500/5 transition-all duration-200 text-amber-50 text-sm flex items-center justify-between group"
+              className={`w-full text-left p-2 border rounded hover:border-amber-500/40 hover:bg-amber-500/5 transition-all duration-200 text-sm flex items-center justify-between group ${isDarkMode ? 'border-gray-600 text-amber-50' : 'border-gray-300 text-amber-900'}`}
             >
               <div className="flex items-center">
-                <PlusIcon className="h-4 w-4 mr-2 text-amber-400" />
+                <PlusIcon className={`h-4 w-4 mr-2 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`} />
                 <span>Book New Appointment</span>
               </div>
-              <ChevronDownIcon className="h-3 w-3 text-amber-400 transform -rotate-90 group-hover:scale-110" />
+              <ChevronDownIcon className={`h-3 w-3 transform -rotate-90 group-hover:scale-110 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`} />
             </button>
             <button
               onClick={() => setActiveTab('appointments')}
-              className="w-full text-left p-2 border border-gray-600 rounded hover:border-amber-500/40 hover:bg-amber-500/5 transition-all duration-200 text-amber-50 text-sm flex items-center justify-between group"
+              className={`w-full text-left p-2 border rounded hover:border-amber-500/40 hover:bg-amber-500/5 transition-all duration-200 text-sm flex items-center justify-between group ${isDarkMode ? 'border-gray-600 text-amber-50' : 'border-gray-300 text-amber-900'}`}
             >
               <div className="flex items-center">
-                <CalendarIcon className="h-4 w-4 mr-2 text-amber-400" />
+                <CalendarIcon className={`h-4 w-4 mr-2 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`} />
                 <span>View All Appointments</span>
               </div>
-              <ChevronDownIcon className="h-3 w-3 text-amber-400 transform -rotate-90 group-hover:scale-110" />
+              <ChevronDownIcon className={`h-3 w-3 transform -rotate-90 group-hover:scale-110 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`} />
             </button>
           </div>
         </div>
 
         {/* Recent Appointments Preview */}
-        <div className="bg-gray-900 border border-amber-500/20 rounded-lg shadow p-4 hover:border-amber-500/40 transition-all duration-300">
+        <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4 hover:border-amber-500/40 transition-all duration-300`}>
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-amber-50 flex items-center">
+            <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} flex items-center`}>
               <CalendarDaysIcon className="h-4 w-4 mr-2" />
               Recent Appointments
             </h3>
             <button
               onClick={() => setActiveTab('appointments')}
-              className="text-amber-400 hover:text-amber-300 text-xs font-medium hover:bg-amber-500/10 px-2 py-1 rounded border border-amber-500/30 transition-colors duration-200"
+              className={`text-xs font-medium hover:bg-amber-500/10 px-2 py-1 rounded border transition-colors duration-200 ${isDarkMode ? 'text-amber-400 hover:text-amber-300 border-amber-500/30' : 'text-amber-600 hover:text-amber-700 border-amber-400/50'}`}
             >
               View All
             </button>
           </div>
           {appointments.length === 0 ? (
             <div className="text-center py-4">
-              <CalendarIcon className="mx-auto h-8 w-8 text-gray-600" />
-              <h3 className="mt-1 text-xs font-medium text-amber-50">No appointments</h3>
-              <p className="text-amber-400/70 text-xs mt-0.5">Schedule your first appointment to get started</p>
+              <CalendarIcon className={`mx-auto h-8 w-8 ${isDarkMode ? 'text-gray-600' : 'text-gray-400'}`} />
+              <h3 className={`mt-1 text-xs font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>No appointments</h3>
+              <p className={`text-xs mt-0.5 ${isDarkMode ? 'text-amber-400/70' : 'text-amber-700/70'}`}>Schedule your first appointment to get started</p>
             </div>
           ) : (
             <div className="space-y-2">
               {appointments.slice(0, 3).map((appointment) => (
-                <div key={appointment.id} className="flex items-center justify-between p-2 border border-gray-600 rounded hover:border-amber-500/30 hover:bg-amber-500/5 transition-all duration-200 group">
+                <div key={appointment.id} className={`flex items-center justify-between p-2 border rounded hover:border-amber-500/30 hover:bg-amber-500/5 transition-all duration-200 group ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
                   <div className="flex items-center space-x-2">
                     <div className="flex-shrink-0">
-                      <div className="w-8 h-8 bg-amber-500/20 rounded-full flex items-center justify-center border border-amber-500/30">
-                        <DocumentTextIcon className="h-3 w-3 text-amber-400" />
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center border ${isDarkMode ? 'bg-amber-500/20 border-amber-500/30' : 'bg-amber-100 border-amber-300'}`}>
+                        <DocumentTextIcon className={`h-3 w-3 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`} />
                       </div>
                     </div>
                     <div>
@@ -1842,7 +2002,7 @@ const Dashboard = () => {
         </div>
       )}
 
-      <div className="bg-gray-900 border border-amber-500/20 rounded-lg shadow p-6 hover:border-amber-500/40 transition-all duration-300">
+      <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-6 hover:border-amber-500/40 transition-all duration-300`}>
         <form onSubmit={handleAppointmentSubmit} className="space-y-4">
           {/* Display general form errors */}
           {formErrors.general && (
@@ -1883,7 +2043,7 @@ const Dashboard = () => {
             />
 
             <div className="lg:col-span-2">
-              <label className="block text-xs font-medium text-amber-50 mb-1">
+              <label className={`block text-xs font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-1`}>
                 Additional Notes (Optional)
               </label>
               <textarea
@@ -1892,8 +2052,8 @@ const Dashboard = () => {
                 onChange={handleAppointmentChange}
                 disabled={dailyLimitInfo.hasReachedLimit}
                 rows="3"
-                className={`w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm text-white placeholder-gray-400 resize-none ${
-                  dailyLimitInfo.hasReachedLimit ? 'opacity-50 cursor-not-allowed bg-gray-900' : ''
+                className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm placeholder-gray-400 resize-none ${isDarkMode ? 'bg-gray-800 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} ${
+                  dailyLimitInfo.hasReachedLimit ? 'opacity-50 cursor-not-allowed' : ''
                 }`}
                 placeholder="Any special requirements, document details, or specific instructions..."
               />
@@ -2007,8 +2167,8 @@ const Dashboard = () => {
       <div className="space-y-6">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
-            <h2 className="text-lg font-bold text-amber-50">My Appointments</h2>
-            <p className="text-amber-400/70 mt-1 text-sm">View and manage your notarization appointments</p>
+            <h2 className={`text-lg font-bold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>My Appointments</h2>
+            <p className={`mt-1 text-sm ${isDarkMode ? 'text-amber-400/70' : 'text-amber-700/70'}`}>View and manage your notarization appointments</p>
           </div>
           <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
             <button
@@ -2033,14 +2193,14 @@ const Dashboard = () => {
 
         {/* Status Filter Dropdown */}
         <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
-          <label className="text-sm font-medium text-amber-400">Filter by status:</label>
+          <label className={`text-sm font-medium ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>Filter by status:</label>
           <select
             value={appointmentsStatusFilter}
             onChange={(e) => {
               setAppointmentsStatusFilter(e.target.value);
               setAppointmentsPagination(prev => ({ ...prev, currentPage: 1 }));
             }}
-            className="px-3 py-1.5 bg-gray-800 border border-amber-500/30 rounded text-amber-50 text-sm hover:border-amber-500/50 focus:outline-none focus:ring-1 focus:ring-amber-500 transition-all duration-200"
+            className={`px-3 py-1.5 border rounded text-sm hover:border-amber-500/50 focus:outline-none focus:ring-1 focus:ring-amber-500 transition-all duration-200 ${isDarkMode ? 'bg-gray-800 border-amber-500/30 text-amber-50' : 'bg-white border-amber-300 text-amber-900'}`}
           >
             <option value="all">All Appointments</option>
             <option value="pending">Pending</option>
@@ -2051,12 +2211,12 @@ const Dashboard = () => {
           </select>
         </div>
 
-        <div className="bg-gray-900 border border-amber-500/20 rounded-lg shadow overflow-hidden hover:border-amber-500/40 transition-all duration-300">
+        <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow overflow-hidden hover:border-amber-500/40 transition-all duration-300`}>
           {appointments.length === 0 ? (
             <div className="text-center py-8">
-              <CalendarIcon className="mx-auto h-12 w-12 text-gray-600" />
-              <h3 className="mt-4 text-sm font-medium text-amber-50">No appointments yet</h3>
-              <p className="mt-2 text-amber-400/70 text-xs">Schedule your first notarization appointment to get started</p>
+              <CalendarIcon className={`mx-auto h-12 w-12 ${isDarkMode ? 'text-gray-600' : 'text-gray-400'}`} />
+              <h3 className={`mt-4 text-sm font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>No appointments yet</h3>
+              <p className={`mt-2 text-xs ${isDarkMode ? 'text-amber-400/70' : 'text-amber-700/70'}`}>Schedule your first notarization appointment to get started</p>
               <button
                 onClick={() => setActiveTab('book')}
                 className="mt-4 px-4 py-2 bg-gradient-to-r from-amber-600 to-amber-700 text-white rounded-lg hover:from-amber-700 hover:to-amber-800 transition-all duration-200 font-medium text-sm shadow border border-amber-500/30"
@@ -2066,36 +2226,36 @@ const Dashboard = () => {
             </div>
           ) : paginatedAppointments.length === 0 ? (
             <div className="text-center py-8">
-              <CalendarIcon className="mx-auto h-12 w-12 text-gray-600" />
-              <h3 className="mt-4 text-sm font-medium text-amber-50">No {appointmentsStatusFilter === 'all' ? '' : appointmentsStatusFilter} appointments</h3>
-              <p className="mt-2 text-amber-400/70 text-xs">Try selecting a different status filter</p>
+              <CalendarIcon className={`mx-auto h-12 w-12 ${isDarkMode ? 'text-gray-600' : 'text-gray-400'}`} />
+              <h3 className={`mt-4 text-sm font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>No {appointmentsStatusFilter === 'all' ? '' : appointmentsStatusFilter} appointments</h3>
+              <p className={`mt-2 text-xs ${isDarkMode ? 'text-amber-400/70' : 'text-amber-700/70'}`}>Try selecting a different status filter</p>
             </div>
           ) : (
             <>
-              <div className="divide-y divide-gray-700">
+              <div className={`divide-y ${isDarkMode ? 'divide-gray-700' : 'divide-gray-200'}`}>
                 {paginatedAppointments.map((appointment) => (
-                  <div key={appointment.id} className="p-4 hover:bg-gray-800 transition-all duration-200 group">
+                  <div key={appointment.id} className={`p-4 transition-all duration-200 group ${isDarkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-50'}`}>
                     <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-3">
                         <div className="flex-shrink-0">
-                          <div className="w-10 h-10 bg-amber-500/20 rounded-full flex items-center justify-center border border-amber-500/30">
-                            <DocumentTextIcon className="h-5 w-5 text-amber-400" />
+                          <div className={`w-10 h-10 rounded-full flex items-center justify-center border ${isDarkMode ? 'bg-amber-500/20 border-amber-500/30' : 'bg-amber-100 border-amber-300'}`}>
+                            <DocumentTextIcon className={`h-5 w-5 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`} />
                           </div>
                         </div>
                         <div className="flex-1">
                           <div className="flex items-center space-x-2">
-                            <h3 className="text-sm font-semibold text-amber-50 group-hover:text-amber-300">
+                            <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50 group-hover:text-amber-300' : 'text-amber-900 group-hover:text-amber-700'}`}>
                               {formatServiceName(appointment)}
                             </h3>
                             <StatusBadge status={appointment.status} />
                           </div>
-                          <p className="text-xs text-amber-400/70 mt-1">
+                          <p className={`text-xs mt-1 ${isDarkMode ? 'text-amber-400/70' : 'text-amber-700/70'}`}>
                             {new Date(appointment.appointment_date).toLocaleDateString()} at {appointment.appointment_time}
                           </p>
                           {appointment.staff && (
-                            <div className="flex items-center space-x-1 mt-1 text-xs text-amber-400/70">
+                            <div className={`flex items-center space-x-1 mt-1 text-xs ${isDarkMode ? 'text-amber-400/70' : 'text-amber-700/70'}`}>
                               <span>Assigned to:</span>
-                              <span className="text-amber-300">
+                              <span className={isDarkMode ? 'text-amber-300' : 'text-amber-600'}>
                                 {appointment.staff.first_name} {appointment.staff.last_name}
                               </span>
                             </div>
@@ -2232,18 +2392,26 @@ const Dashboard = () => {
           </div>
           <button
             onClick={loadRefunds}
-            className="px-3 py-1.5 border border-amber-500/30 text-amber-50 rounded hover:bg-amber-500/10 transition-all duration-200 font-medium text-xs sm:text-sm flex items-center justify-center flex-1 sm:flex-none"
+            disabled={refundsLoading}
+            className="px-3 py-1.5 border border-amber-500/30 text-amber-50 rounded hover:bg-amber-500/10 transition-all duration-200 font-medium text-xs sm:text-sm flex items-center justify-center flex-1 sm:flex-none disabled:opacity-50"
             title="Refresh refunds"
           >
-            <ArrowPathIcon className="h-3 w-3 mr-1" />
-            <span className="hidden sm:inline">Refresh</span>
-            <span className="sm:hidden">Refresh</span>
+            <ArrowPathIcon className={`h-3 w-3 mr-1 ${refundsLoading ? 'animate-spin' : ''}`} />
+            <span className="hidden sm:inline">{refundsLoading ? 'Loading...' : 'Refresh'}</span>
+            <span className="sm:hidden">{refundsLoading ? '...' : 'Refresh'}</span>
           </button>
         </div>
 
         {/* Refunds List */}
         <div className={`${isDarkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'} border rounded-lg shadow overflow-hidden`}>
-          {refunds.length === 0 ? (
+          {refundsLoading && refunds.length === 0 ? (
+            <div className="p-6 text-center">
+              <div className="flex flex-col items-center justify-center">
+                <ArrowPathIcon className="h-8 w-8 text-amber-400 animate-spin mb-3" />
+                <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Loading refunds...</p>
+              </div>
+            </div>
+          ) : refunds.length === 0 ? (
             <div className="p-6 text-center">
               <div className={`${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                 <CurrencyDollarIcon className="h-12 w-12 mx-auto mb-3 opacity-50" />
@@ -2252,13 +2420,13 @@ const Dashboard = () => {
               </div>
             </div>
           ) : (
-            <div className="divide-y divide-gray-700">
+            <div className={`divide-y ${isDarkMode ? 'divide-gray-700' : 'divide-gray-200'}`}>
               {refunds.map((refund) => (
-                <div key={refund.id} className="p-4 hover:bg-gray-800/50 transition-all duration-200">
+                <div key={refund.id} className={`p-4 transition-all duration-200 ${isDarkMode ? 'hover:bg-gray-800/50' : 'hover:bg-gray-50'}`}>
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-2">
-                        <h3 className="text-sm font-semibold text-amber-50">
+                        <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>
                           Appointment #{refund.appointment_id}
                         </h3>
                         <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(refund.status)}`}>
@@ -2268,15 +2436,15 @@ const Dashboard = () => {
                       
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3 text-xs">
                         <div>
-                          <p className="text-gray-400">Service</p>
-                          <p className="text-amber-50 font-medium">{refund.appointment?.service?.name || formatServiceName(refund.appointment) || 'N/A'}</p>
+                          <p className={isDarkMode ? 'text-gray-400' : 'text-gray-600'}>Service</p>
+                          <p className={`font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>{refund.appointment?.service?.name || formatServiceName(refund.appointment) || 'N/A'}</p>
                         </div>
                         <div>
-                          <p className="text-gray-400">Amount</p>
+                          <p className={isDarkMode ? 'text-gray-400' : 'text-gray-600'}>Amount</p>
                           <p className="text-green-400 font-medium">₱{parseFloat(refund.refund_amount).toFixed(2)}</p>
                         </div>
                         <div>
-                          <p className="text-gray-400">Reason</p>
+                          <p className={isDarkMode ? 'text-gray-400' : 'text-gray-600'}>Reason</p>
                           <p className="text-amber-50 font-medium">{refund.reason?.replace(/_/g, ' ') || 'N/A'}</p>
                         </div>
                         <div>
@@ -2370,21 +2538,21 @@ const Dashboard = () => {
       )}
 
       {/* Profile Overview */}
-      <div className="bg-gray-900 border border-amber-500/20 rounded-lg shadow p-6 hover:border-amber-500/40 transition-all duration-300">
+      <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-6 hover:border-amber-500/40 transition-all duration-300`}>
         <div className="flex items-center space-x-3 mb-6">
           <div className="w-12 h-12 bg-gradient-to-r from-amber-500 to-amber-600 rounded-full flex items-center justify-center text-gray-900 text-sm font-bold shadow">
             {user?.first_name?.charAt(0)}{user?.last_name?.charAt(0)}
           </div>
           <div>
-            <h3 className="text-sm font-bold text-amber-50">{user?.first_name} {user?.last_name}</h3>
-            <p className="text-amber-400/70 text-xs">Client Account</p>
-            <p className="text-xs text-amber-400/70">Member since {new Date(user?.created_at).toLocaleDateString()}</p>
+            <h3 className={`text-sm font-bold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>{user?.first_name} {user?.last_name}</h3>
+            <p className={`text-xs ${isDarkMode ? 'text-amber-400/70' : 'text-amber-700/70'}`}>Client Account</p>
+            <p className={`text-xs ${isDarkMode ? 'text-amber-400/70' : 'text-amber-700/70'}`}>Member since {new Date(user?.created_at).toLocaleDateString()}</p>
           </div>
         </div>
 
         {/* Profile Information Form */}
         <div className="mb-6">
-          <h4 className="text-sm font-semibold text-amber-50 mb-4 flex items-center">
+          <h4 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-4 flex items-center`}>
             <UserIcon className="h-4 w-4 mr-2" />
             Personal Information
           </h4>
@@ -2392,7 +2560,7 @@ const Dashboard = () => {
           <form onSubmit={handleProfileSubmit} className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-medium text-amber-50 mb-1">
+                <label className={`block text-xs font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-1`}>
                   Username *
                 </label>
                 <input
@@ -2401,13 +2569,13 @@ const Dashboard = () => {
                   value={profileData.username}
                   onChange={handleProfileChange}
                   disabled={!isEditing}
-                  className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm text-white disabled:bg-gray-800/50 disabled:cursor-not-allowed disabled:text-gray-400"
+                  className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm ${isDarkMode ? 'bg-gray-800 border-gray-600 text-white disabled:bg-gray-800/50 disabled:text-gray-400' : 'bg-white border-gray-300 text-gray-900 disabled:bg-gray-100 disabled:text-gray-500'} disabled:cursor-not-allowed`}
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-amber-50 mb-1">
+                <label className={`block text-xs font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-1`}>
                   Email Address *
                 </label>
                 <input
@@ -2416,13 +2584,13 @@ const Dashboard = () => {
                   value={profileData.email}
                   onChange={handleProfileChange}
                   disabled={!isEditing}
-                  className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm text-white disabled:bg-gray-800/50 disabled:cursor-not-allowed disabled:text-gray-400"
+                  className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm ${isDarkMode ? 'bg-gray-800 border-gray-600 text-white disabled:bg-gray-800/50 disabled:text-gray-400' : 'bg-white border-gray-300 text-gray-900 disabled:bg-gray-100 disabled:text-gray-500'} disabled:cursor-not-allowed`}
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-amber-50 mb-1">
+                <label className={`block text-xs font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-1`}>
                   First Name *
                 </label>
                 <input
@@ -2431,13 +2599,13 @@ const Dashboard = () => {
                   value={profileData.first_name}
                   onChange={handleProfileChange}
                   disabled={!isEditing}
-                  className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm text-white disabled:bg-gray-800/50 disabled:cursor-not-allowed disabled:text-gray-400"
+                  className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm ${isDarkMode ? 'bg-gray-800 border-gray-600 text-white disabled:bg-gray-800/50 disabled:text-gray-400' : 'bg-white border-gray-300 text-gray-900 disabled:bg-gray-100 disabled:text-gray-500'} disabled:cursor-not-allowed`}
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-amber-50 mb-1">
+                <label className={`block text-xs font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-1`}>
                   Last Name *
                 </label>
                 <input
@@ -2446,13 +2614,13 @@ const Dashboard = () => {
                   value={profileData.last_name}
                   onChange={handleProfileChange}
                   disabled={!isEditing}
-                  className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm text-white disabled:bg-gray-800/50 disabled:cursor-not-allowed disabled:text-gray-400"
+                  className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm ${isDarkMode ? 'bg-gray-800 border-gray-600 text-white disabled:bg-gray-800/50 disabled:text-gray-400' : 'bg-white border-gray-300 text-gray-900 disabled:bg-gray-100 disabled:text-gray-500'} disabled:cursor-not-allowed`}
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-amber-50 mb-1">
+                <label className={`block text-xs font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-1`}>
                   Phone Number
                 </label>
                 <div className="relative">
@@ -2463,13 +2631,13 @@ const Dashboard = () => {
                     value={profileData.phone}
                     onChange={handleProfileChange}
                     disabled={!isEditing}
-                    className="w-full pl-9 pr-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm text-white disabled:bg-gray-800/50 disabled:cursor-not-allowed disabled:text-gray-400"
+                    className={`w-full pl-9 pr-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm ${isDarkMode ? 'bg-gray-800 border-gray-600 text-white disabled:bg-gray-800/50 disabled:text-gray-400' : 'bg-white border-gray-300 text-gray-900 disabled:bg-gray-100 disabled:text-gray-500'} disabled:cursor-not-allowed`}
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-amber-50 mb-1">
+                <label className={`block text-xs font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-1`}>
                   New Password
                 </label>
                 <div className="relative">
@@ -2481,13 +2649,13 @@ const Dashboard = () => {
                     onChange={handleProfileChange}
                     disabled={!isEditing}
                     placeholder="Leave blank to keep current password"
-                    className="w-full pl-9 pr-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm text-white disabled:bg-gray-800/50 disabled:cursor-not-allowed disabled:text-gray-400 placeholder-gray-400"
+                    className={`w-full pl-9 pr-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm ${isDarkMode ? 'bg-gray-800 border-gray-600 text-white disabled:bg-gray-800/50 disabled:text-gray-400 placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900 disabled:bg-gray-100 disabled:text-gray-500 placeholder-gray-400'} disabled:cursor-not-allowed`}
                   />
                 </div>
               </div>
 
               <div className="md:col-span-2">
-                <label className="block text-xs font-medium text-amber-50 mb-1">
+                <label className={`block text-xs font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-1`}>
                   Address
                 </label>
                 <div className="relative">
@@ -2498,25 +2666,25 @@ const Dashboard = () => {
                     onChange={handleProfileChange}
                     disabled={!isEditing}
                     rows="2"
-                    className="w-full pl-9 pr-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm text-white disabled:bg-gray-800/50 disabled:cursor-not-allowed disabled:text-gray-400 resize-none"
+                    className={`w-full pl-9 pr-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm ${isDarkMode ? 'bg-gray-800 border-gray-600 text-white disabled:bg-gray-800/50 disabled:text-gray-400' : 'bg-white border-gray-300 text-gray-900 disabled:bg-gray-100 disabled:text-gray-500'} disabled:cursor-not-allowed resize-none`}
                   />
                 </div>
               </div>
             </div>
 
             {isEditing && (
-              <div className="flex justify-end space-x-3 pt-4 border-t border-gray-700">
+              <div className={`flex justify-end space-x-3 pt-4 border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
                 <button
                   type="button"
                   onClick={() => setIsEditing(false)}
-                  className="px-4 py-2 border border-gray-600 text-gray-300 rounded-lg hover:bg-gray-800 transition-all duration-200 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 focus:ring-offset-gray-900 hover:scale-105"
+                  className={`px-4 py-2 border rounded-lg transition-all duration-200 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 hover:scale-105 ${isDarkMode ? 'border-gray-600 text-gray-300 hover:bg-gray-800 focus:ring-offset-gray-900' : 'border-gray-300 text-gray-600 hover:bg-gray-100 focus:ring-offset-white'}`}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={loading}
-                  className="px-4 py-2 bg-gradient-to-r from-amber-600 to-amber-700 text-white rounded-lg hover:from-amber-700 hover:to-amber-800 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 focus:ring-offset-gray-900 transition-all duration-200 font-medium text-sm shadow border border-amber-500/30 disabled:opacity-50 hover:scale-105"
+                  className={`px-4 py-2 bg-gradient-to-r from-amber-600 to-amber-700 text-white rounded-lg hover:from-amber-700 hover:to-amber-800 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 transition-all duration-200 font-medium text-sm shadow border border-amber-500/30 disabled:opacity-50 hover:scale-105 ${isDarkMode ? 'focus:ring-offset-gray-900' : 'focus:ring-offset-white'}`}
                 >
                   {loading ? (
                     <div className="flex items-center">
@@ -2533,8 +2701,8 @@ const Dashboard = () => {
         </div>
 
         {/* Password Change Section */}
-        <div className="border-t border-gray-700 pt-6">
-          <h4 className="text-sm font-semibold text-amber-50 mb-4 flex items-center">
+        <div className={`border-t pt-6 ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+          <h4 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-4 flex items-center`}>
             <KeyIcon className="h-4 w-4 mr-2" />
             Change Password
           </h4>
@@ -2560,7 +2728,7 @@ const Dashboard = () => {
           <form onSubmit={handlePasswordSubmit} className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-medium text-amber-50 mb-1">
+                <label className={`block text-xs font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-1`}>
                   Current Password *
                 </label>
                 <input
@@ -2568,13 +2736,13 @@ const Dashboard = () => {
                   name="current_password"
                   value={passwordData.current_password}
                   onChange={handlePasswordChange}
-                  className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm text-white"
+                  className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm ${isDarkMode ? 'bg-gray-800 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-amber-50 mb-1">
+                <label className={`block text-xs font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-1`}>
                   New Password *
                 </label>
                 <input
@@ -2582,13 +2750,13 @@ const Dashboard = () => {
                   name="new_password"
                   value={passwordData.new_password}
                   onChange={handlePasswordChange}
-                  className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm text-white"
+                  className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm ${isDarkMode ? 'bg-gray-800 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
                   required
                 />
               </div>
 
               <div className="md:col-span-2">
-                <label className="block text-xs font-medium text-amber-50 mb-1">
+                <label className={`block text-xs font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-1`}>
                   Confirm New Password *
                 </label>
                 <input
@@ -2596,17 +2764,17 @@ const Dashboard = () => {
                   name="new_password_confirmation"
                   value={passwordData.new_password_confirmation}
                   onChange={handlePasswordChange}
-                  className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm text-white"
+                  className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm ${isDarkMode ? 'bg-gray-800 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
                   required
                 />
               </div>
             </div>
 
-            <div className="flex justify-end pt-4 border-t border-gray-700">
+            <div className={`flex justify-end pt-4 border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
               <button
                 type="submit"
                 disabled={loading}
-                className="px-4 py-2 bg-gradient-to-r from-amber-600 to-amber-700 text-white rounded-lg hover:from-amber-700 hover:to-amber-800 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 focus:ring-offset-gray-900 transition-all duration-200 font-medium text-sm shadow border border-amber-500/30 disabled:opacity-50 hover:scale-105"
+                className={`px-4 py-2 bg-gradient-to-r from-amber-600 to-amber-700 text-white rounded-lg hover:from-amber-700 hover:to-amber-800 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 transition-all duration-200 font-medium text-sm shadow border border-amber-500/30 disabled:opacity-50 hover:scale-105 ${isDarkMode ? 'focus:ring-offset-gray-900' : 'focus:ring-offset-white'}`}
               >
                 {loading ? (
                   <div className="flex items-center">
@@ -2638,7 +2806,7 @@ const Dashboard = () => {
   };
 
   // Show loading or redirect message while redirecting
-  if (user?.role === 'admin') {
+  if (redirecting || user?.role === 'admin' || user?.role === 'staff') {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-900 to-black flex items-center justify-center">
         <div className="text-center">
@@ -2649,38 +2817,8 @@ const Dashboard = () => {
     );
   }
 
-  // Listen for real-time appointment settings updates
-  useEffect(() => {
-    const handleSettingsUpdate = (event) => {
-      // Refresh daily limit when settings are updated by admin
-      checkDailyLimit();
-    };
-
-    let channel = null;
-    try {
-      if (window.Echo && typeof window.Echo.channel === 'function') {
-        channel = window.Echo.channel('appointment-settings');
-        if (channel && typeof channel.listen === 'function') {
-          channel.listen('AppointmentSettingsUpdated', handleSettingsUpdate);
-        }
-      }
-    } catch (error) {
-      console.debug('Echo not available for appointment settings:', error);
-    }
-
-    return () => {
-      try {
-        if (channel && typeof channel.stopListening === 'function') {
-          channel.stopListening('AppointmentSettingsUpdated');
-        }
-      } catch (error) {
-        // Silently fail if Echo cleanup doesn't work
-      }
-    };
-  }, [user?.id, checkDailyLimit]);
-
   return (
-    <div className={`min-h-screen ${isDarkMode ? 'bg-gray-900' : 'bg-gray-50'} flex flex-col lg:flex-row transition-colors duration-300`}>
+    <div className={`h-screen ${isDarkMode ? 'bg-gray-900' : 'bg-gray-50'} flex flex-col lg:flex-row transition-colors duration-300 overflow-hidden`}>
       {/* Mobile Hamburger Menu */}
       <div className={`lg:hidden fixed top-0 left-0 right-0 z-40 ${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-gray-50 border-amber-300/40'} border-b shadow-md transition-colors duration-300`}>
         <div className="flex justify-between items-center px-4 py-3">
@@ -2705,10 +2843,10 @@ const Dashboard = () => {
       )}
 
       {/* Sidebar - Hidden on mobile by default, shown on desktop and when toggled on mobile */}
-      <div className={`fixed lg:static inset-y-0 right-0 lg:right-auto lg:left-0 z-40 w-64 h-screen lg:h-auto ${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border-l lg:border-l-0 lg:border-r shadow-xl transition-all duration-300 lg:translate-x-0 lg:w-64 ${
+      <div className={`fixed inset-y-0 right-0 lg:right-auto lg:left-0 z-40 w-64 h-screen ${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border-l lg:border-l-0 lg:border-r shadow-xl transition-all duration-300 lg:translate-x-0 ${
         showMobileSidebar ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'
       }`}>
-        <div className="flex flex-col h-full overflow-y-auto lg:overflow-y-visible">
+        <div className="flex flex-col h-full overflow-y-auto scrollbar-hide">
           {/* Logo Section */}
           <div className={`p-4 shadow-md ${isDarkMode ? 'bg-gray-800 border-amber-500/30' : 'bg-gray-50 border-amber-300/50'} px-3 border-b transition-colors duration-300`}>
             <div className="flex items-center justify-center space-x-3">
@@ -2845,7 +2983,7 @@ const Dashboard = () => {
       </div>
 
       {/* Main content */}
-      <div className="flex-1 flex flex-col min-w-0 lg:mt-0 mt-16">
+      <div className="flex-1 flex flex-col min-w-0 lg:mt-0 mt-16 lg:ml-64 h-screen overflow-hidden">
         {/* Header */}
         <header className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-gray-50 border-amber-300/40'} border-b shadow flex-shrink-0 transition-colors duration-300`}>
           <div className="flex justify-between items-center px-4 lg:px-6 py-3 lg:py-4">
@@ -2906,7 +3044,7 @@ const Dashboard = () => {
         )}
 
         {/* Page content */}
-        <main className={`flex-1 p-3 sm:p-4 lg:p-6 overflow-auto ${isDarkMode ? '' : 'bg-gray-100'} transition-colors duration-300`}>
+        <main className={`flex-1 p-3 sm:p-4 lg:p-6 overflow-y-auto scrollbar-hide ${isDarkMode ? '' : 'bg-gray-100'} transition-colors duration-300`}>
           {renderContent()}
         </main>
       </div>

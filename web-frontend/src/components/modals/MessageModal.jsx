@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { XMarkIcon, EnvelopeIcon, ExclamationTriangleIcon, ChatBubbleLeftRightIcon } from '@heroicons/react/24/outline';
 
-const MessageModal = ({ isOpen, onClose, user, onSend, loading }) => {
+const MessageModal = ({ isOpen, onClose, user, onSend, loading, isDarkMode = true }) => {
   const [messageData, setMessageData] = useState({
     subject: '',
     message: '',
@@ -33,17 +33,17 @@ const MessageModal = ({ isOpen, onClose, user, onSend, loading }) => {
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4 animate-fadeIn">
-      <div className="bg-gray-900 border border-amber-500/30 rounded-lg shadow-xl w-full max-w-md max-h-[85vh] overflow-hidden flex flex-col transform animate-scaleIn">
-        <div className="flex justify-between items-center p-4 border-b border-gray-700 bg-gray-900 flex-shrink-0">
+      <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/30' : 'bg-white border-amber-300/40'} border rounded-lg shadow-xl w-full max-w-md max-h-[85vh] overflow-hidden flex flex-col transform animate-scaleIn`}>
+        <div className={`flex justify-between items-center p-4 border-b ${isDarkMode ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-white'} flex-shrink-0`}>
           <div className="flex items-center">
             <ChatBubbleLeftRightIcon className="h-5 w-5 text-amber-400 mr-2" />
-            <h3 className="text-sm font-semibold text-amber-50">
+            <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>
               Message to {user.first_name} {user.last_name}
             </h3>
           </div>
           <button 
             onClick={onClose} 
-            className="text-gray-400 hover:text-amber-400 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-amber-500 rounded p-1"
+            className={`${isDarkMode ? 'text-gray-400 hover:text-amber-400' : 'text-gray-500 hover:text-amber-500'} transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-amber-500 rounded p-1`}
             disabled={loading}
           >
             <XMarkIcon className="h-4 w-4" />
@@ -52,14 +52,14 @@ const MessageModal = ({ isOpen, onClose, user, onSend, loading }) => {
         
         <form onSubmit={handleSubmit} className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3 flex flex-col">
           <div>
-            <label className="block text-xs font-medium text-amber-50 mb-1">
+            <label className={`block text-xs font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-1`}>
               Subject *
             </label>
             <input
               type="text"
               value={messageData.subject}
               onChange={(e) => setMessageData(prev => ({ ...prev, subject: e.target.value }))}
-              className="w-full px-2 py-1.5 bg-gray-800 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-xs text-white placeholder-gray-400"
+              className={`w-full px-2 py-1.5 ${isDarkMode ? 'bg-gray-800 border-gray-600 text-white placeholder-gray-400' : 'bg-gray-50 border-gray-300 text-gray-900 placeholder-gray-500'} border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-xs`}
               disabled={loading}
               placeholder="Subject"
               required
@@ -67,13 +67,13 @@ const MessageModal = ({ isOpen, onClose, user, onSend, loading }) => {
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-amber-50 mb-1">
+            <label className={`block text-xs font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-1`}>
               Type
             </label>
             <select
               value={messageData.type}
               onChange={(e) => setMessageData(prev => ({ ...prev, type: e.target.value }))}
-              className="w-full px-2 py-1.5 bg-gray-800 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-xs text-white"
+              className={`w-full px-2 py-1.5 ${isDarkMode ? 'bg-gray-800 border-gray-600 text-white' : 'bg-gray-50 border-gray-300 text-gray-900'} border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-xs`}
               disabled={loading}
             >
               <option value="general">General</option>
@@ -84,34 +84,34 @@ const MessageModal = ({ isOpen, onClose, user, onSend, loading }) => {
           </div>
 
           <div className="flex-1 flex flex-col">
-            <label className="block text-xs font-medium text-amber-50 mb-1">
+            <label className={`block text-xs font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-1`}>
               Message *
             </label>
             <textarea
               value={messageData.message}
               onChange={(e) => setMessageData(prev => ({ ...prev, message: e.target.value }))}
               rows="4"
-              className="flex-1 px-2 py-1.5 bg-gray-800 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-xs text-white placeholder-gray-400 resize-none"
+              className={`flex-1 px-2 py-1.5 ${isDarkMode ? 'bg-gray-800 border-gray-600 text-white placeholder-gray-400' : 'bg-gray-50 border-gray-300 text-gray-900 placeholder-gray-500'} border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-xs resize-none`}
               disabled={loading}
               placeholder="Message..."
               required
             />
           </div>
 
-          <div className="bg-amber-500/10 border border-amber-500/30 rounded p-2 flex-shrink-0">
+          <div className={`${isDarkMode ? 'bg-amber-500/10 border-amber-500/30' : 'bg-amber-50 border-amber-200'} border rounded p-2 flex-shrink-0`}>
             <div className="flex items-center gap-1">
               <ExclamationTriangleIcon className="h-3.5 w-3.5 text-amber-400 flex-shrink-0" />
-              <span className="text-amber-200 text-xs">
+              <span className={`${isDarkMode ? 'text-amber-200' : 'text-amber-700'} text-xs`}>
                 Message will be sent to email
               </span>
             </div>
           </div>
 
-          <div className="flex justify-end space-x-2 pt-3 border-t border-gray-700 flex-shrink-0">
+          <div className={`flex justify-end space-x-2 pt-3 border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-200'} flex-shrink-0`}>
             <button
               type="button"
               onClick={onClose}
-              className="px-3 py-1.5 border border-gray-600 text-gray-300 rounded-lg hover:bg-gray-800 transition-all duration-200 font-medium text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:opacity-50"
+              className={`px-3 py-1.5 border ${isDarkMode ? 'border-gray-600 text-gray-300 hover:bg-gray-800' : 'border-gray-300 text-gray-600 hover:bg-gray-100'} rounded-lg transition-all duration-200 font-medium text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:opacity-50`}
               disabled={loading}
             >
               Cancel

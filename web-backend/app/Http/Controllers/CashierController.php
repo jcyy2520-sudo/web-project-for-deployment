@@ -15,40 +15,52 @@ class CashierController extends Controller
 {
     /**
      * Get cashier dashboard statistics
+     * Cached for 30 seconds for faster loading
      */
     public function getDashboardStats(Request $request)
     {
         $timeframe = $request->get('timeframe', 'monthly');
-        $dateRange = $this->getDateRange($timeframe);
+        $cacheKey = "cashier_dashboard_stats_{$timeframe}";
+        $ttl = 30; // Cache for 30 seconds
 
-        // Get revenue and sales statistics
-        $stats = [
-            'totalRevenue' => Appointment::where('payment_status', 'paid')
-                ->whereBetween('payment_date', $dateRange)
-                ->sum('payment_amount'),
-            'totalSales' => Appointment::where('payment_status', 'paid')
-                ->whereBetween('payment_date', $dateRange)
-                ->count(),
-            'todayRevenue' => Appointment::where('payment_status', 'paid')
-                ->whereDate('payment_date', now())
-                ->sum('payment_amount'),
-            'todaySales' => Appointment::where('payment_status', 'paid')
-                ->whereDate('payment_date', now())
-                ->count(),
-        ];
+        $data = Cache::remember($cacheKey, $ttl, function () use ($timeframe) {
+            $dateRange = $this->getDateRange($timeframe);
 
-        // Get revenue trend data
-        $revenueTrend = $this->getRevenueTrend($timeframe);
-        
-        // Get sales by service
-        $salesByService = $this->getSalesByService($dateRange);
+            // Get revenue and sales statistics using raw queries for speed
+            $stats = [
+                'totalRevenue' => (float) DB::table('appointments')
+                    ->where('payment_status', 'paid')
+                    ->whereBetween('payment_date', $dateRange)
+                    ->sum('payment_amount'),
+                'totalSales' => DB::table('appointments')
+                    ->where('payment_status', 'paid')
+                    ->whereBetween('payment_date', $dateRange)
+                    ->count(),
+                'todayRevenue' => (float) DB::table('appointments')
+                    ->where('payment_status', 'paid')
+                    ->whereDate('payment_date', now())
+                    ->sum('payment_amount'),
+                'todaySales' => DB::table('appointments')
+                    ->where('payment_status', 'paid')
+                    ->whereDate('payment_date', now())
+                    ->count(),
+            ];
 
-        return response()->json([
-            'stats' => $stats,
-            'revenueTrend' => $revenueTrend,
-            'salesByService' => $salesByService,
-            'success' => true
-        ]);
+            // Get revenue trend data
+            $revenueTrend = $this->getRevenueTrend($timeframe);
+            
+            // Get sales by service
+            $salesByService = $this->getSalesByService($dateRange);
+
+            return [
+                'stats' => $stats,
+                'revenueTrend' => $revenueTrend,
+                'salesByService' => $salesByService,
+                'success' => true
+            ];
+        });
+
+        return response()->json($data);
     }
 
     /**
@@ -517,26 +529,28 @@ class CashierController extends Controller
     }
 
     /**
-     * Helper: Get sales by service
+     * Helper: Get sales by service - optimized with raw query
      */
     private function getSalesByService($dateRange)
     {
-        $services = Appointment::with('service:id,name')
-            ->where('payment_status', 'paid')
-            ->whereBetween('payment_date', $dateRange)
-            ->get()
-            ->groupBy('service_id')
-            ->map(function($appointments, $serviceId) {
-                $service = $appointments->first()->service;
-                return [
-                    'label' => $service ? $service->name : 'Unknown',
-                    'value' => $appointments->count(),
-                    'color' => $this->getRandomColor()
-                ];
-            })
-            ->values();
+        $colors = ['#f59e0b', '#3b82f6', '#10b981', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6'];
+        
+        $services = DB::table('appointments')
+            ->join('services', 'appointments.service_id', '=', 'services.id')
+            ->where('appointments.payment_status', 'paid')
+            ->whereBetween('appointments.payment_date', $dateRange)
+            ->select('services.name', DB::raw('COUNT(*) as count'))
+            ->groupBy('services.name')
+            ->orderBy('count', 'desc')
+            ->get();
 
-        return $services;
+        return $services->map(function($item, $index) use ($colors) {
+            return [
+                'label' => $item->name ?? 'Unknown',
+                'value' => (int) $item->count,
+                'color' => $colors[$index % count($colors)]
+            ];
+        })->values();
     }
 
     /**

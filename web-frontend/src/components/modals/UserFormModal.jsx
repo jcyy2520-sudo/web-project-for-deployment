@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { XMarkIcon, UserGroupIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline';
 
-const UserFormModal = ({ isOpen, onClose, user, onSave, loading }) => {
+const UserFormModal = ({ isOpen, onClose, user, onSave, loading, isDarkMode = true }) => {
   const [formData, setFormData] = useState({
     first_name: '',
     last_name: '',
@@ -65,17 +65,17 @@ const UserFormModal = ({ isOpen, onClose, user, onSave, loading }) => {
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4 animate-fadeIn">
-      <div className="bg-gray-900 border border-amber-500/30 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto transform animate-scaleIn">
-        <div className="flex justify-between items-center p-4 border-b border-gray-700 sticky top-0 bg-gray-900">
+      <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/30' : 'bg-white border-amber-300/40'} border rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto transform animate-scaleIn`}>
+        <div className={`flex justify-between items-center p-4 border-b ${isDarkMode ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-white'} sticky top-0`}>
           <div className="flex items-center">
             <UserGroupIcon className="h-5 w-5 text-amber-400 mr-2" />
-            <h3 className="text-sm font-semibold text-amber-50">
+            <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>
               {user ? 'Edit User' : 'Add New User'}
             </h3>
           </div>
           <button 
             onClick={onClose} 
-            className="text-gray-400 hover:text-amber-400 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-amber-500 rounded p-1"
+            className={`${isDarkMode ? 'text-gray-400 hover:text-amber-400' : 'text-gray-500 hover:text-amber-500'} transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-amber-500 rounded p-1`}
             disabled={loading}
           >
             <XMarkIcon className="h-4 w-4" />
@@ -85,15 +85,15 @@ const UserFormModal = ({ isOpen, onClose, user, onSave, loading }) => {
         <form onSubmit={handleSubmit} className="p-4 space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-medium text-amber-50 mb-1">
+              <label className={`block text-xs font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-1`}>
                 First Name *
               </label>
               <input
                 type="text"
                 value={formData.first_name}
                 onChange={(e) => setFormData(prev => ({ ...prev, first_name: e.target.value }))}
-                className={`w-full px-3 py-2 bg-gray-800 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 transition-all duration-200 text-sm text-white placeholder-gray-400 ${
-                  errors.first_name ? 'border-red-500' : 'border-gray-600 focus:border-amber-500'
+                className={`w-full px-3 py-2 ${isDarkMode ? 'bg-gray-800 text-white placeholder-gray-400' : 'bg-gray-50 text-gray-900 placeholder-gray-500'} border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 transition-all duration-200 text-sm ${
+                  errors.first_name ? 'border-red-500' : `${isDarkMode ? 'border-gray-600' : 'border-gray-300'} focus:border-amber-500`
                 }`}
                 disabled={loading}
                 placeholder="Enter first name"
@@ -106,15 +106,15 @@ const UserFormModal = ({ isOpen, onClose, user, onSave, loading }) => {
               )}
             </div>
             <div>
-              <label className="block text-xs font-medium text-amber-50 mb-1">
+              <label className={`block text-xs font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-1`}>
                 Last Name *
               </label>
               <input
                 type="text"
                 value={formData.last_name}
                 onChange={(e) => setFormData(prev => ({ ...prev, last_name: e.target.value }))}
-                className={`w-full px-3 py-2 bg-gray-800 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 transition-all duration-200 text-sm text-white placeholder-gray-400 ${
-                  errors.last_name ? 'border-red-500' : 'border-gray-600 focus:border-amber-500'
+                className={`w-full px-3 py-2 ${isDarkMode ? 'bg-gray-800 text-white placeholder-gray-400' : 'bg-gray-50 text-gray-900 placeholder-gray-500'} border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 transition-all duration-200 text-sm ${
+                  errors.last_name ? 'border-red-500' : `${isDarkMode ? 'border-gray-600' : 'border-gray-300'} focus:border-amber-500`
                 }`}
                 disabled={loading}
                 placeholder="Enter last name"
@@ -129,15 +129,15 @@ const UserFormModal = ({ isOpen, onClose, user, onSave, loading }) => {
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-amber-50 mb-1">
+            <label className={`block text-xs font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-1`}>
               Email Address *
             </label>
             <input
               type="email"
               value={formData.email}
               onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
-              className={`w-full px-3 py-2 bg-gray-800 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 transition-all duration-200 text-sm text-white placeholder-gray-400 ${
-                errors.email ? 'border-red-500' : 'border-gray-600 focus:border-amber-500'
+              className={`w-full px-3 py-2 ${isDarkMode ? 'bg-gray-800 text-white placeholder-gray-400' : 'bg-gray-50 text-gray-900 placeholder-gray-500'} border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 transition-all duration-200 text-sm ${
+                errors.email ? 'border-red-500' : `${isDarkMode ? 'border-gray-600' : 'border-gray-300'} focus:border-amber-500`
               }`}
               disabled={loading}
               placeholder="Enter email address"
@@ -152,26 +152,26 @@ const UserFormModal = ({ isOpen, onClose, user, onSave, loading }) => {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-medium text-amber-50 mb-1">
+              <label className={`block text-xs font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-1`}>
                 Phone Number
               </label>
               <input
                 type="tel"
                 value={formData.phone}
                 onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
-                className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm text-white placeholder-gray-400"
+                className={`w-full px-3 py-2 ${isDarkMode ? 'bg-gray-800 border-gray-600 text-white placeholder-gray-400' : 'bg-gray-50 border-gray-300 text-gray-900 placeholder-gray-500'} border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm`}
                 disabled={loading}
                 placeholder="Enter phone number"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-amber-50 mb-1">
+              <label className={`block text-xs font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-1`}>
                 Role *
               </label>
               <select
                 value={formData.role}
                 onChange={(e) => setFormData(prev => ({ ...prev, role: e.target.value }))}
-                className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm text-white"
+                className={`w-full px-3 py-2 ${isDarkMode ? 'bg-gray-800 border-gray-600 text-white' : 'bg-gray-50 border-gray-300 text-gray-900'} border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm`}
                 disabled={loading}
               >
                 <option value="client">Client</option>
@@ -181,14 +181,14 @@ const UserFormModal = ({ isOpen, onClose, user, onSave, loading }) => {
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-amber-50 mb-1">
+            <label className={`block text-xs font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-1`}>
               Address
             </label>
             <textarea
               value={formData.address}
               onChange={(e) => setFormData(prev => ({ ...prev, address: e.target.value }))}
               rows="2"
-              className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm text-white placeholder-gray-400 resize-none"
+              className={`w-full px-3 py-2 ${isDarkMode ? 'bg-gray-800 border-gray-600 text-white placeholder-gray-400' : 'bg-gray-50 border-gray-300 text-gray-900 placeholder-gray-500'} border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm resize-none`}
               disabled={loading}
               placeholder="Enter full address"
             />
@@ -196,15 +196,15 @@ const UserFormModal = ({ isOpen, onClose, user, onSave, loading }) => {
 
           {!user && (
             <div>
-              <label className="block text-xs font-medium text-amber-50 mb-1">
+              <label className={`block text-xs font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-1`}>
                 Password *
               </label>
               <input
                 type="password"
                 value={formData.password}
                 onChange={(e) => setFormData(prev => ({ ...prev, password: e.target.value }))}
-                className={`w-full px-3 py-2 bg-gray-800 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 transition-all duration-200 text-sm text-white placeholder-gray-400 ${
-                  errors.password ? 'border-red-500' : 'border-gray-600 focus:border-amber-500'
+                className={`w-full px-3 py-2 ${isDarkMode ? 'bg-gray-800 text-white placeholder-gray-400' : 'bg-gray-50 text-gray-900 placeholder-gray-500'} border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 transition-all duration-200 text-sm ${
+                  errors.password ? 'border-red-500' : `${isDarkMode ? 'border-gray-600' : 'border-gray-300'} focus:border-amber-500`
                 }`}
                 disabled={loading}
                 placeholder="Enter password"
@@ -218,11 +218,11 @@ const UserFormModal = ({ isOpen, onClose, user, onSave, loading }) => {
             </div>
           )}
 
-          <div className="flex justify-end space-x-3 pt-4 border-t border-gray-700">
+          <div className={`flex justify-end space-x-3 pt-4 border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 border border-gray-600 text-gray-300 rounded-lg hover:bg-gray-800 transition-all duration-200 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 focus:ring-offset-gray-900 hover:scale-105 disabled:opacity-50"
+              className={`px-4 py-2 border ${isDarkMode ? 'border-gray-600 text-gray-300 hover:bg-gray-800 focus:ring-offset-gray-900' : 'border-gray-300 text-gray-600 hover:bg-gray-100 focus:ring-offset-white'} rounded-lg transition-all duration-200 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 hover:scale-105 disabled:opacity-50`}
               disabled={loading}
             >
               Cancel

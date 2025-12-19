@@ -24,6 +24,7 @@ const InteractiveCalendar = ({
   onFiltersChange = () => {},
   isLoading = false,
   monthSummary = null,
+  isDarkMode = true,
 }) => {
   const [showFilters, setShowFilters] = useState(false);
   const [hoveredDate, setHoveredDate] = useState(null);
@@ -223,13 +224,13 @@ const InteractiveCalendar = ({
   return (
     <div className="space-y-3">
       {/* Calendar Header with Controls */}
-      <div className="bg-gray-900 border border-amber-500/20 rounded-lg p-3">
+      <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/30'} border rounded-lg p-3`}>
         {/* Top Controls */}
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <button
               onClick={goToPreviousMonth}
-              className="p-1 text-amber-400 hover:bg-amber-500/10 rounded transition-colors"
+              className={`p-1 text-amber-400 ${isDarkMode ? 'hover:bg-amber-500/10' : 'hover:bg-amber-50'} rounded transition-colors`}
               title="Previous month"
             >
               <ChevronLeftIcon className="h-4 w-4" />
@@ -237,14 +238,14 @@ const InteractiveCalendar = ({
 
             <div className="flex items-center gap-1">
               <CalendarIcon className="h-4 w-4 text-amber-400" />
-              <h3 className="text-sm font-semibold text-amber-50">
+              <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>
                 {monthNames[month]} {year}
               </h3>
             </div>
 
             <button
               onClick={goToNextMonth}
-              className="p-1 text-amber-400 hover:bg-amber-500/10 rounded transition-colors"
+              className={`p-1 text-amber-400 ${isDarkMode ? 'hover:bg-amber-500/10' : 'hover:bg-amber-50'} rounded transition-colors`}
               title="Next month"
             >
               <ChevronRightIcon className="h-4 w-4" />
@@ -254,7 +255,7 @@ const InteractiveCalendar = ({
           {/* Filter Toggle */}
           <button
             onClick={() => setShowFilters(!showFilters)}
-            className="flex items-center gap-1 px-2 py-1 rounded border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 transition-colors"
+            className={`flex items-center gap-1 px-2 py-1 rounded border ${isDarkMode ? 'border-amber-500/30 hover:bg-amber-500/10' : 'border-amber-300 hover:bg-amber-50'} text-amber-400 transition-colors`}
           >
             <FunnelIcon className="h-3 w-3" />
             <span className="text-xs font-medium">Filters</span>
@@ -274,7 +275,7 @@ const InteractiveCalendar = ({
         <div className="grid grid-cols-7 gap-0.5">
           {/* Day headers */}
           {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
-            <div key={day} className="text-center text-xs font-semibold text-gray-400 py-0.5">
+            <div key={day} className={`text-center text-xs font-semibold ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} py-0.5`}>
               {day}
             </div>
           ))}
@@ -296,12 +297,12 @@ const InteractiveCalendar = ({
                 className={`group aspect-square relative flex items-center justify-center text-xs rounded cursor-pointer transition-all duration-200 ${
                   day
                     ? isDisabled
-                      ? 'bg-gray-800/50 text-gray-500 cursor-not-allowed opacity-50'
+                      ? `${isDarkMode ? 'bg-gray-800/50 text-gray-500' : 'bg-gray-100 text-gray-400'} cursor-not-allowed opacity-50`
                       : hasAppts
                       ? `${getBadgeColor(day)} font-bold hover:shadow-lg hover:shadow-amber-500/30`
-                      : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                      : `${isDarkMode ? 'bg-gray-800 text-gray-300 hover:bg-gray-700' : 'bg-gray-50 text-gray-700 hover:bg-gray-100'}`
                     : 'bg-transparent'
-                } ${isSelected && !isDisabled ? 'ring-2 ring-amber-400 ring-offset-1 ring-offset-gray-900' : ''}`}
+                } ${isSelected && !isDisabled ? `ring-2 ring-amber-400 ring-offset-1 ${isDarkMode ? 'ring-offset-gray-900' : 'ring-offset-white'}` : ''}`}
               >
                 {/* Date number */}
                 <span className="relative z-10 text-xs">{day}</span>
@@ -316,19 +317,19 @@ const InteractiveCalendar = ({
                 {/* Hover Tooltip */}
                 {hoveredDate === day && tooltip && !isDisabled && (
                   <div className="absolute -top-2 left-full ml-1 z-50 pointer-events-none">
-                    <div className="bg-gray-800 border border-gray-700 text-gray-100 text-xs px-2 py-1 rounded shadow-lg whitespace-nowrap">
+                    <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-100' : 'bg-white border-gray-200 text-gray-900 shadow-lg'} border text-xs px-2 py-1 rounded whitespace-nowrap`}>
                       <div className="font-semibold text-amber-400 mb-1">
                         {tooltip.total} Apt{tooltip.total > 1 ? 's' : ''}
                       </div>
                       {tooltip.services.length > 0 && (
                         <div className="mb-1">
-                          <span className="text-gray-400">Svc: </span>
+                          <span className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Svc: </span>
                           <span>{tooltip.services.slice(0, 1).join(', ')}</span>
                         </div>
                       )}
                       {tooltip.earliest && (
                         <div>
-                          <span className="text-gray-400">Time: </span>
+                          <span className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Time: </span>
                           <span>{tooltip.earliest}</span>
                         </div>
                       )}
@@ -352,7 +353,7 @@ const InteractiveCalendar = ({
 /**
  * Filter Controls Component
  */
-const CalendarFilters = ({ filters = {}, onFiltersChange = () => {}, onClose = () => {} }) => {
+const CalendarFilters = ({ filters = {}, onFiltersChange = () => {}, onClose = () => {}, isDarkMode = true }) => {
   const filterOptions = [
     { key: 'approved', label: 'Approved', icon: '✓' },
     { key: 'completed', label: 'Completed', icon: '✓' },
@@ -369,12 +370,12 @@ const CalendarFilters = ({ filters = {}, onFiltersChange = () => {}, onClose = (
   };
 
   return (
-    <div className="bg-gray-800 border border-gray-700 rounded p-2 mb-3 space-y-1">
+    <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'} border rounded p-2 mb-3 space-y-1`}>
       <div className="flex items-center justify-between mb-1">
-        <h4 className="text-xs font-semibold text-amber-50 uppercase tracking-wide">Filter</h4>
+        <h4 className={`text-xs font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} uppercase tracking-wide`}>Filter</h4>
         <button
           onClick={onClose}
-          className="text-gray-400 hover:text-gray-300 transition-colors"
+          className={`${isDarkMode ? 'text-gray-400 hover:text-gray-300' : 'text-gray-500 hover:text-gray-700'} transition-colors`}
         >
           <XMarkIcon className="h-3 w-3" />
         </button>
@@ -383,15 +384,15 @@ const CalendarFilters = ({ filters = {}, onFiltersChange = () => {}, onClose = (
         {filterOptions.map(option => (
           <label
             key={option.key}
-            className="flex items-center gap-1 px-1 py-0.5 rounded cursor-pointer hover:bg-gray-700/50 transition-colors"
+            className={`flex items-center gap-1 px-1 py-0.5 rounded cursor-pointer ${isDarkMode ? 'hover:bg-gray-700/50' : 'hover:bg-gray-200/50'} transition-colors`}
           >
             <input
               type="checkbox"
               checked={filters[option.key] || false}
               onChange={() => toggleFilter(option.key)}
-              className="w-2 h-2 rounded border-gray-600 text-amber-500 cursor-pointer"
+              className={`w-2 h-2 rounded ${isDarkMode ? 'border-gray-600' : 'border-gray-300'} text-amber-500 cursor-pointer`}
             />
-            <span className="text-xs text-gray-300">{option.label}</span>
+            <span className={`text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>{option.label}</span>
           </label>
         ))}
       </div>
@@ -402,35 +403,35 @@ const CalendarFilters = ({ filters = {}, onFiltersChange = () => {}, onClose = (
 /**
  * Calendar Summary Panel Component
  */
-const CalendarSummary = ({ summary = {} }) => {
+const CalendarSummary = ({ summary = {}, isDarkMode = true }) => {
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
       {/* Total Approved */}
-      <div className="bg-gray-900 border border-emerald-500/30 rounded-lg p-2">
-        <p className="text-xs text-gray-400 mb-0.5">Total Approved</p>
+      <div className={`${isDarkMode ? 'bg-gray-900 border-emerald-500/30' : 'bg-white border-emerald-300'} border rounded-lg p-2`}>
+        <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} mb-0.5`}>Total Approved</p>
         <p className="text-lg font-bold text-emerald-400">{summary.totalApproved || 0}</p>
-        <p className="text-xs text-gray-500 mt-0.5">appts</p>
+        <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} mt-0.5`}>appts</p>
       </div>
 
       {/* Completed */}
-      <div className="bg-gray-900 border border-green-500/30 rounded-lg p-2">
-        <p className="text-xs text-gray-400 mb-0.5">Completed</p>
+      <div className={`${isDarkMode ? 'bg-gray-900 border-green-500/30' : 'bg-white border-green-300'} border rounded-lg p-2`}>
+        <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} mb-0.5`}>Completed</p>
         <p className="text-lg font-bold text-green-400">{summary.totalCompleted || 0}</p>
-        <p className="text-xs text-gray-500 mt-0.5">paid</p>
+        <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} mt-0.5`}>paid</p>
       </div>
 
       {/* Expected Revenue */}
-      <div className="bg-gray-900 border border-blue-500/30 rounded-lg p-2">
-        <p className="text-xs text-gray-400 mb-0.5">Expected</p>
+      <div className={`${isDarkMode ? 'bg-gray-900 border-blue-500/30' : 'bg-white border-blue-300'} border rounded-lg p-2`}>
+        <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} mb-0.5`}>Expected</p>
         <p className="text-lg font-bold text-blue-400">{formatPrice(summary.expectedRevenue || 0)}</p>
-        <p className="text-xs text-gray-500 mt-0.5">revenue</p>
+        <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} mt-0.5`}>revenue</p>
       </div>
 
       {/* Actual Revenue */}
-      <div className="bg-gray-900 border border-amber-500/30 rounded-lg p-2">
-        <p className="text-xs text-gray-400 mb-0.5">Actual</p>
+      <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/30' : 'bg-white border-amber-300'} border rounded-lg p-2`}>
+        <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} mb-0.5`}>Actual</p>
         <p className="text-lg font-bold text-amber-400">{formatPrice(summary.actualRevenue || 0)}</p>
-        <p className="text-xs text-gray-500 mt-0.5">collected</p>
+        <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} mt-0.5`}>collected</p>
       </div>
     </div>
   );

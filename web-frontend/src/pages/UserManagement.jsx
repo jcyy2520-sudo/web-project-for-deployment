@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import axios from 'axios';
 import { useApi } from '../hooks/useApi';
 import Modal from '../components/Modal';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -31,6 +32,7 @@ const UserManagement = () => {
     is_active: true
   });
 
+  // Load users on component mount and when filters change
   useEffect(() => {
     loadUsers();
   }, [searchTerm, roleFilter]);
@@ -124,6 +126,7 @@ const UserManagement = () => {
   const getRoleColor = (role) => {
     switch (role) {
       case 'admin': return 'bg-purple-100 text-purple-800';
+      case 'staff': return 'bg-blue-100 text-blue-800';
       case 'client': return 'bg-green-100 text-green-800';
       default: return 'bg-gray-100 text-gray-800';
     }
@@ -170,6 +173,7 @@ const UserManagement = () => {
             >
               <option value="all">All Roles</option>
               <option value="admin">Admin</option>
+              <option value="staff">Staff</option>
               <option value="client">Client</option>
             </select>
           </div>
@@ -339,6 +343,7 @@ const UserManagement = () => {
                 required
               >
                 <option value="admin">Admin</option>
+                <option value="staff">Staff</option>
                 <option value="client">Client</option>
               </select>
             </div>
@@ -468,6 +473,7 @@ const UserManagement = () => {
                   required
                 >
                   <option value="admin">Admin</option>
+                  <option value="staff">Staff</option>
                   <option value="client">Client</option>
                 </select>
               </div>

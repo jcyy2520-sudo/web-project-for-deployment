@@ -372,7 +372,6 @@ const RefundDetailsModal = ({ isOpen, onClose, appointment, onConfirm }) => {
                     </div>
                   </div>
                 )}
-              </div>
 
                 {appointment.cashier && (
                   <div className="text-xs text-gray-600 pt-2 border-t">

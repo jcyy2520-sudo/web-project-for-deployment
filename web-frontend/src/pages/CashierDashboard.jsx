@@ -38,7 +38,7 @@ import AdminMessages from '../components/admin/AdminMessages';
 import { formatServiceName, formatPrice } from '../utils/format';
 
 // Chart Components (copied from admin)
-const BarChart = ({ data, title, color = 'amber', height = 160 }) => {
+const BarChart = ({ data, title, color = 'amber', height = 160, isDarkMode = true }) => {
   const safeData = useMemo(() => 
     data.map(item => ({ ...item, value: Number(item.value) || 0 })), 
     [data]
@@ -46,15 +46,15 @@ const BarChart = ({ data, title, color = 'amber', height = 160 }) => {
   const maxValue = Math.max(...safeData.map(item => item.value), 1);
   
   return (
-    <div className="bg-gray-900 border border-amber-500/20 rounded-lg shadow p-4 hover:border-amber-500/40 transition-all duration-300 overflow-auto max-h-[280px]">
-      <h3 className="text-sm font-semibold text-amber-50 mb-3 flex items-center">
+    <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4 hover:border-amber-500/40 transition-all duration-300 overflow-auto max-h-[280px]`}>
+      <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-3 flex items-center`}>
         <ChartBarIcon className="h-4 w-4 mr-2" />
         {title}
       </h3>
       <div className="space-y-2" style={{ height: `${height}px` }}>
         {safeData.map((item, index) => (
           <div key={index} className="flex items-center justify-between group" title={`${item.label}: ${item.value}`}>
-            <span className="text-xs text-gray-300 w-16 truncate group-hover:text-amber-200 transition-colors">
+            <span className={`text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-600'} w-16 truncate group-hover:text-amber-500 transition-colors`}>
               {item.label}
             </span>
             <div className="flex-1 mx-2">
@@ -68,7 +68,7 @@ const BarChart = ({ data, title, color = 'amber', height = 160 }) => {
                 <div className="absolute inset-0 bg-white/10"></div>
               </div>
             </div>
-            <span className="text-xs font-medium text-amber-50 w-6 text-right group-hover:scale-110 transition-transform">
+            <span className={`text-xs font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} w-6 text-right group-hover:scale-110 transition-transform`}>
               {item.value}
             </span>
           </div>
@@ -78,7 +78,7 @@ const BarChart = ({ data, title, color = 'amber', height = 160 }) => {
   );
 };
 
-const PieChart = ({ data, title }) => {
+const PieChart = ({ data, title, isDarkMode = true }) => {
   const safeData = useMemo(() => 
     data.map(item => ({ ...item, value: Number(item.value) || 0 })), 
     [data]
@@ -87,8 +87,8 @@ const PieChart = ({ data, title }) => {
   let currentAngle = 0;
   
   return (
-    <div className="bg-gray-900 border border-amber-500/20 rounded-lg shadow p-4 hover:border-amber-500/40 transition-all duration-300">
-      <h3 className="text-sm font-semibold text-amber-50 mb-3 flex items-center">
+    <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4 hover:border-amber-500/40 transition-all duration-300`}>
+      <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-3 flex items-center`}>
         <ChartPieIcon className="h-4 w-4 mr-2" />
         {title}
       </h3>
@@ -118,7 +118,7 @@ const PieChart = ({ data, title }) => {
                   key={index}
                   d={pathData}
                   fill={item.color}
-                  stroke="#1f2937"
+                  stroke={isDarkMode ? "#1f2937" : "#e5e7eb"}
                   strokeWidth="2"
                   title={`${item.label}: ${item.value}`}
                   className="transition-all duration-300 hover:opacity-80 cursor-pointer"
@@ -128,8 +128,8 @@ const PieChart = ({ data, title }) => {
           </svg>
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="text-center">
-              <span className="text-amber-50 font-bold text-sm block">{total}</span>
-              <span className="text-amber-400 text-xs">Total</span>
+              <span className={`${isDarkMode ? 'text-amber-50' : 'text-amber-900'} font-bold text-sm block`}>{total}</span>
+              <span className="text-amber-500 text-xs">Total</span>
             </div>
           </div>
         </div>
@@ -137,16 +137,16 @@ const PieChart = ({ data, title }) => {
       <div className="mt-3">
         <div className="space-y-1 max-h-40 overflow-auto pr-2">
           {safeData.map((item, index) => (
-            <div key={index} title={`${item.label}: ${item.value}`} className="flex items-center text-xs group cursor-pointer hover:bg-gray-800 p-1 rounded transition-colors">
+            <div key={index} title={`${item.label}: ${item.value}`} className={`flex items-center text-xs group cursor-pointer ${isDarkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-100'} p-1 rounded transition-colors`}>
               <div 
                 className="w-2 h-2 rounded-full mr-2 transition-transform group-hover:scale-125"
                 style={{ backgroundColor: item.color }}
               ></div>
-              <span className="text-gray-300 flex-1 group-hover:text-amber-50 truncate">{item.label}</span>
-              <span className="text-amber-50 font-medium text-xs">
+              <span className={`${isDarkMode ? 'text-gray-300 group-hover:text-amber-50' : 'text-gray-600 group-hover:text-amber-900'} flex-1 truncate`}>{item.label}</span>
+              <span className={`${isDarkMode ? 'text-amber-50' : 'text-amber-900'} font-medium text-xs`}>
                 {((item.value / total) * 100).toFixed(1)}%
               </span>
-              <span className="text-gray-500 text-xs ml-1">({item.value})</span>
+              <span className={`${isDarkMode ? 'text-gray-500' : 'text-gray-400'} text-xs ml-1`}>({item.value})</span>
             </div>
           ))}
         </div>
@@ -387,19 +387,19 @@ const CompletionConfirmationModal = ({ isOpen, onClose, appointment, countdown, 
 };
 
 // Action Log Modal Component - Display full action details
-const ActionLogModal = ({ isOpen, onClose, logData }) => {
+const ActionLogModal = ({ isOpen, onClose, logData, isDarkMode = true }) => {
   if (!isOpen || !logData) return null;
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4 animate-fadeIn">
-      <div className="w-full max-w-md bg-gray-900 border border-amber-500/20 rounded-lg shadow-2xl overflow-hidden">
+      <div className={`w-full max-w-md ${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow-2xl overflow-hidden`}>
         {/* Header */}
-        <div className="p-4 border-b border-amber-500/20 flex items-center justify-between bg-gradient-to-r from-gray-800 to-gray-900">
+        <div className={`p-4 border-b ${isDarkMode ? 'border-amber-500/20 bg-gradient-to-r from-gray-800 to-gray-900' : 'border-amber-300/40 bg-gradient-to-r from-gray-50 to-gray-100'} flex items-center justify-between`}>
           <div>
-            <div className="text-sm font-semibold text-amber-400">📋 ACTION DETAILS</div>
-            <div className="text-xs text-gray-400 mt-0.5">ID #{logData.id}</div>
+            <div className="text-sm font-semibold text-amber-500">📋 ACTION DETAILS</div>
+            <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} mt-0.5`}>ID #{logData.id}</div>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-amber-400 p-2 rounded hover:bg-gray-800 transition-colors">
+          <button onClick={onClose} className={`${isDarkMode ? 'text-gray-400 hover:text-amber-400 hover:bg-gray-800' : 'text-gray-500 hover:text-amber-600 hover:bg-gray-100'} p-2 rounded transition-colors`}>
             <XMarkIcon className="h-5 w-5" />
           </button>
         </div>
@@ -408,52 +408,52 @@ const ActionLogModal = ({ isOpen, onClose, logData }) => {
         <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
           {/* Date & Time */}
           <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Date & Time</p>
-            <p className="text-sm text-amber-50">{new Date(logData.created_at).toLocaleString()}</p>
+            <p className={`text-xs font-semibold ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} uppercase tracking-wide mb-1`}>Date & Time</p>
+            <p className={`text-sm ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>{new Date(logData.created_at).toLocaleString()}</p>
           </div>
 
           {/* User */}
           <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">User</p>
-            <p className="text-sm text-amber-50 font-medium">
+            <p className={`text-xs font-semibold ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} uppercase tracking-wide mb-1`}>User</p>
+            <p className={`text-sm ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} font-medium`}>
               {logData.user ? `${logData.user.first_name} ${logData.user.last_name}` : 'Unknown'}
             </p>
             {logData.user && (
-              <p className="text-xs text-gray-400 mt-1">Role: {logData.user.role}</p>
+              <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} mt-1`}>Role: {logData.user.role}</p>
             )}
           </div>
 
           {/* Action */}
           <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Action</p>
-            <span className="inline-block px-2 py-1 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-400">
+            <p className={`text-xs font-semibold ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} uppercase tracking-wide mb-1`}>Action</p>
+            <span className="inline-block px-2 py-1 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-500">
               {logData.action}
             </span>
           </div>
 
           {/* Description */}
           <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Description</p>
-            <p className="text-sm text-gray-300 bg-gray-800/50 rounded p-3">
+            <p className={`text-xs font-semibold ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} uppercase tracking-wide mb-1`}>Description</p>
+            <p className={`text-sm ${isDarkMode ? 'text-gray-300 bg-gray-800/50' : 'text-gray-600 bg-gray-100'} rounded p-3`}>
               {logData.description}
             </p>
           </div>
 
           {/* Model Info */}
           {(logData.model_type || logData.model_id) && (
-            <div className="pt-4 border-t border-gray-700">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Related To</p>
+            <div className={`pt-4 border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+              <p className={`text-xs font-semibold ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} uppercase tracking-wide mb-2`}>Related To</p>
               <div className="grid grid-cols-2 gap-3">
                 {logData.model_type && (
                   <div>
-                    <p className="text-xs text-gray-400">Type</p>
-                    <p className="text-sm text-amber-50">{logData.model_type}</p>
+                    <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Type</p>
+                    <p className={`text-sm ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>{logData.model_type}</p>
                   </div>
                 )}
                 {logData.model_id && (
                   <div>
-                    <p className="text-xs text-gray-400">ID</p>
-                    <p className="text-sm text-amber-50">#{logData.model_id}</p>
+                    <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>ID</p>
+                    <p className={`text-sm ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>#{logData.model_id}</p>
                   </div>
                 )}
               </div>
@@ -462,10 +462,10 @@ const ActionLogModal = ({ isOpen, onClose, logData }) => {
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-amber-500/20 bg-gray-800/50 flex gap-2">
+        <div className={`p-4 border-t ${isDarkMode ? 'border-amber-500/20 bg-gray-800/50' : 'border-amber-300/40 bg-gray-50'} flex gap-2`}>
           <button
             onClick={onClose}
-            className="flex-1 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded text-sm font-medium transition-colors"
+            className={`flex-1 px-4 py-2 ${isDarkMode ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-gray-200 hover:bg-gray-300 text-gray-800'} rounded text-sm font-medium transition-colors`}
           >
             Close
           </button>
@@ -476,8 +476,7 @@ const ActionLogModal = ({ isOpen, onClose, logData }) => {
 };
 
 // Receipt Modal Component - Professional design matching admin theme
-const ReceiptModal = ({ isOpen, onClose, receiptData }) => {
-  if (!isOpen || !receiptData) return null;
+const ReceiptModal = ({ isOpen, onClose, receiptData, isDarkMode = true }) => {
   const [emailing, setEmailing] = useState(false);
 
   const handlePrint = () => {
@@ -518,9 +517,12 @@ const ReceiptModal = ({ isOpen, onClose, receiptData }) => {
     }
   };
 
+  // Early return AFTER all hooks
+  if (!isOpen || !receiptData) return null;
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4 animate-fadeIn">
-      <div className="w-full max-w-md bg-gray-900 border border-amber-500/20 rounded-lg shadow-2xl overflow-hidden">
+      <div className={`w-full max-w-md ${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow-2xl overflow-hidden`}>
         <style>{`
           @media print {
             body * { visibility: hidden; }
@@ -531,12 +533,12 @@ const ReceiptModal = ({ isOpen, onClose, receiptData }) => {
         `}</style>
 
         {/* Header */}
-        <div className="p-4 border-b border-amber-500/20 flex items-center justify-between no-print bg-gradient-to-r from-gray-800 to-gray-900">
+        <div className={`p-4 border-b ${isDarkMode ? 'border-amber-500/20 bg-gradient-to-r from-gray-800 to-gray-900' : 'border-amber-300/40 bg-gradient-to-r from-gray-50 to-gray-100'} flex items-center justify-between no-print`}>
           <div>
-            <div className="text-sm font-semibold text-amber-400">📋 RECEIPT</div>
-            <div className="text-xs text-gray-400 mt-0.5">Reference #{receiptData.id}</div>
+            <div className="text-sm font-semibold text-amber-500">📋 RECEIPT</div>
+            <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} mt-0.5`}>Reference #{receiptData.id}</div>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-amber-400 p-2 rounded hover:bg-gray-800 transition-colors">
+          <button onClick={onClose} className={`${isDarkMode ? 'text-gray-400 hover:text-amber-400 hover:bg-gray-800' : 'text-gray-500 hover:text-amber-600 hover:bg-gray-100'} p-2 rounded transition-colors`}>
             <XMarkIcon className="h-5 w-5" />
           </button>
         </div>
@@ -819,7 +821,7 @@ const AppointmentModal = ({ isOpen, onClose, appointment, isViewOnly = false,
 };
 
 // Confirm payment modal shown before processing payment
-const ConfirmPaymentModal = ({ isOpen, onClose, appointment, onConfirm, paymentAmount, paymentType, selectedDiscounts, calculateDiscount, inKindDescription }) => {
+const ConfirmPaymentModal = ({ isOpen, onClose, appointment, onConfirm, paymentAmount, paymentType, selectedDiscounts, calculateDiscount, inKindDescription, isDarkMode = true }) => {
   if (!isOpen || !appointment) return null;
 
   const rawSubtotal = (paymentAmount && !Number.isNaN(parseFloat(paymentAmount))) ? parseFloat(paymentAmount) : (Number(appointment.service?.price) || 0);
@@ -829,23 +831,23 @@ const ConfirmPaymentModal = ({ isOpen, onClose, appointment, onConfirm, paymentA
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-900 border border-amber-500/20 rounded-lg shadow-xl w-full max-w-xl p-5">
-        <h3 className="text-lg font-semibold text-amber-50 mb-2">Confirm Payment</h3>
-        <p className="text-sm text-gray-300 mb-4">Please review the payment details before confirming.</p>
+      <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow-xl w-full max-w-xl p-5`}>
+        <h3 className={`text-lg font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-2`}>Confirm Payment</h3>
+        <p className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-600'} mb-4`}>Please review the payment details before confirming.</p>
 
-        <div className="bg-gray-800 border border-gray-700 rounded p-4 text-sm space-y-2">
-          <div className="flex justify-between"><span className="text-gray-400">Client</span><span className="text-amber-50">{appointment.user?.first_name} {appointment.user?.last_name}</span></div>
-          <div className="flex justify-between"><span className="text-gray-400">Service</span><span className="text-amber-50">{appointment.service?.name || 'N/A'}</span></div>
-          <div className="flex justify-between"><span className="text-gray-400">Payment Type</span><span className="text-amber-50">{paymentType}</span></div>
-          {paymentType !== 'in-kind' && <div className="flex justify-between"><span className="text-gray-400">Amount</span><span className="text-amber-50">₱{rawSubtotal.toFixed(2)}</span></div>}
-          {paymentType === 'in-kind' && <div><span className="text-gray-400">In-kind Description</span><p className="text-sm text-gray-300">{inKindDescription || '—'}</p></div>}
-          {selectedDiscounts.length > 0 && <div className="flex justify-between text-green-400"><span>Discount</span><span>-₱{discountVal.toFixed(2)} ({discountObj.discountType || selectedDiscounts[0]})</span></div>}
-          <div className="flex justify-between font-bold"><span className="text-gray-300">Total</span><span className="text-amber-400">₱{totalVal.toFixed(2)}</span></div>
+        <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'} border rounded p-4 text-sm space-y-2`}>
+          <div className="flex justify-between"><span className={isDarkMode ? 'text-gray-400' : 'text-gray-500'}>Client</span><span className={isDarkMode ? 'text-amber-50' : 'text-amber-900'}>{appointment.user?.first_name} {appointment.user?.last_name}</span></div>
+          <div className="flex justify-between"><span className={isDarkMode ? 'text-gray-400' : 'text-gray-500'}>Service</span><span className={isDarkMode ? 'text-amber-50' : 'text-amber-900'}>{appointment.service?.name || 'N/A'}</span></div>
+          <div className="flex justify-between"><span className={isDarkMode ? 'text-gray-400' : 'text-gray-500'}>Payment Type</span><span className={isDarkMode ? 'text-amber-50' : 'text-amber-900'}>{paymentType}</span></div>
+          {paymentType !== 'in-kind' && <div className="flex justify-between"><span className={isDarkMode ? 'text-gray-400' : 'text-gray-500'}>Amount</span><span className={isDarkMode ? 'text-amber-50' : 'text-amber-900'}>₱{rawSubtotal.toFixed(2)}</span></div>}
+          {paymentType === 'in-kind' && <div><span className={isDarkMode ? 'text-gray-400' : 'text-gray-500'}>In-kind Description</span><p className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>{inKindDescription || '—'}</p></div>}
+          {selectedDiscounts.length > 0 && <div className="flex justify-between text-green-500"><span>Discount</span><span>-₱{discountVal.toFixed(2)} ({discountObj.discountType || selectedDiscounts[0]})</span></div>}
+          <div className="flex justify-between font-bold"><span className={isDarkMode ? 'text-gray-300' : 'text-gray-700'}>Total</span><span className="text-amber-500">₱{totalVal.toFixed(2)}</span></div>
         </div>
 
         <div className="mt-4 flex gap-2">
           <button onClick={() => { onConfirm(appointment); onClose(); }} className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded">Confirm Payment</button>
-          <button onClick={onClose} className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded">Cancel</button>
+          <button onClick={onClose} className={`px-4 py-2 ${isDarkMode ? 'bg-gray-800 hover:bg-gray-700' : 'bg-gray-200 hover:bg-gray-300 text-gray-800'} text-white rounded`}>Cancel</button>
         </div>
       </div>
     </div>
@@ -853,15 +855,15 @@ const ConfirmPaymentModal = ({ isOpen, onClose, appointment, onConfirm, paymentA
 };
 
 // Generic confirmation modal for exports/refunds
-const ConfirmModal = ({ isOpen, title = 'Confirm', message = '', onCancel, onConfirm, loading = false }) => {
+const ConfirmModal = ({ isOpen, title = 'Confirm', message = '', onCancel, onConfirm, loading = false, isDarkMode = true }) => {
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-900 border border-amber-500/20 rounded-lg shadow-xl w-full max-w-md p-5">
-        <h3 className="text-lg font-semibold text-amber-50 mb-2">{title}</h3>
-        <p className="text-sm text-gray-300 mb-4">{message}</p>
+      <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow-xl w-full max-w-md p-5`}>
+        <h3 className={`text-lg font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-2`}>{title}</h3>
+        <p className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-600'} mb-4`}>{message}</p>
         <div className="flex gap-2 justify-end">
-          <button onClick={onCancel} className="px-3 py-2 bg-gray-800 text-white rounded">Cancel</button>
+          <button onClick={onCancel} className={`px-3 py-2 ${isDarkMode ? 'bg-gray-800 text-white' : 'bg-gray-200 text-gray-800'} rounded`}>Cancel</button>
           <button onClick={onConfirm} disabled={loading} className="px-3 py-2 bg-amber-600 text-white rounded">{loading ? 'Working...' : 'Confirm'}</button>
         </div>
       </div>
@@ -1258,25 +1260,29 @@ const CashierDashboard = () => {
     }
   }, [callApi, logsTab, logsPage, logsPerPage]);
 
+  // Load section data - optimized with parallel loading where applicable
   useEffect(() => {
     if (activeSection === 'dashboard') {
       loadDashboardData();
     } else if (activeSection === 'appointments') {
       loadAppointments();
     } else if (activeSection === 'calendar') {
-      // Calendar data will be loaded by the separate calendar month change effect
+      // Load current and adjacent months in parallel for smooth navigation
       const year = currentMonth.getFullYear();
       const month = currentMonth.getMonth();
-      
-      // Preload previous and next months for smooth navigation
       const prevMonth = new Date(year, month - 1, 1);
       const nextMonth = new Date(year, month + 1, 1);
-      loadCalendarAppointments(prevMonth.getMonth() + 1, prevMonth.getFullYear());
-      loadCalendarAppointments(nextMonth.getMonth() + 1, nextMonth.getFullYear());
+      
+      // Load all three months in parallel
+      Promise.all([
+        loadCalendarAppointments(month + 1, year),
+        loadCalendarAppointments(prevMonth.getMonth() + 1, prevMonth.getFullYear()),
+        loadCalendarAppointments(nextMonth.getMonth() + 1, nextMonth.getFullYear())
+      ]);
     } else if (activeSection === 'action-logs') {
       loadActionLogs();
     }
-  }, [activeSection, currentMonth, logsTab, loadActionLogs, loadAppointments, loadCalendarAppointments, loadDashboardData]); // Include all data loading functions
+  }, [activeSection, currentMonth, logsTab, loadActionLogs, loadAppointments, loadCalendarAppointments, loadDashboardData]);
 
   // Reset pagination when logs tab changes
   useEffect(() => {
@@ -1754,29 +1760,29 @@ const CashierDashboard = () => {
         {/* header-level controls relocated to top header */}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-gray-900 border border-amber-500/20 rounded-lg p-4">
-            <p className="text-xs text-gray-400">Total Revenue</p>
+          <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg p-4`}>
+            <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Total Revenue</p>
             <p className="text-2xl font-bold text-amber-400 transition-all duration-500">{formatPrice(stats.totalRevenue)}</p>
             <p className="text-xs text-gray-500 mt-1">{revenueData.length} periods</p>
             <div className="mt-3"><Sparkline data={revenueData.slice(-12)} width={140} height={28} type="area" stroke="#f59e0b" /></div>
           </div>
 
-          <div className="bg-gray-900 border border-amber-500/20 rounded-lg p-4">
-            <p className="text-xs text-gray-400">Total Sales</p>
+          <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg p-4`}>
+            <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Total Sales</p>
             <p className="text-2xl font-bold text-amber-400 transition-all duration-500">{stats.totalSales}</p>
             <p className="text-xs text-gray-500 mt-1">Paid orders in timeframe</p>
             <div className="mt-3"><Sparkline data={revenueData.slice(-12)} width={140} height={28} type="bars" stroke="#60a5fa" /></div>
           </div>
 
-          <div className="bg-gray-900 border border-amber-500/20 rounded-lg p-4">
-            <p className="text-xs text-gray-400">Avg. Sale</p>
+          <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg p-4`}>
+            <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Avg. Sale</p>
             <p className="text-2xl font-bold text-amber-400 transition-all duration-500">{formatPrice(stats.totalSales ? (stats.totalRevenue / stats.totalSales) : 0)}</p>
             <p className="text-xs text-gray-500 mt-1">Revenue / Sale</p>
             <div className="mt-3"><Sparkline data={revenueData.slice(-12)} width={140} height={28} type="dots" stroke="#34d399" /></div>
           </div>
 
-          <div className="bg-gray-900 border border-amber-500/20 rounded-lg p-4">
-            <p className="text-xs text-gray-400">Today's Revenue</p>
+          <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg p-4`}>
+            <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Today's Revenue</p>
             <p className="text-2xl font-bold text-amber-400 transition-all duration-500">{formatPrice(stats.todayRevenue)}</p>
             <p className="text-xs text-gray-500 mt-1">Today: {stats.todaySales} sales</p>
             <div className="mt-3"><Sparkline data={revenueData.slice(-12)} width={140} height={28} type="line" stroke="#f97316" /></div>
@@ -1785,19 +1791,19 @@ const CashierDashboard = () => {
 
         {/* Charts area: large line chart + side widgets */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <div className="lg:col-span-2 bg-gray-900 border border-amber-500/20 rounded-lg p-4">
-            <h3 className="text-sm font-semibold text-amber-50 mb-3">Revenue Trend (Last periods)</h3>
+          <div className={`lg:col-span-2 ${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg p-4`}>
+            <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-3`}>Revenue Trend (Last periods)</h3>
             <LineChart data={revenueData} title="Revenue Trend" height={120} embedded variant="bars" responsive maxHeight={260} />
           </div>
 
           <div className="space-y-4">
-            <div className="bg-gray-900 border border-amber-500/20 rounded-lg p-4">
-              <h3 className="text-sm font-semibold text-amber-50 mb-3">Sales by Service</h3>
+            <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg p-4`}>
+              <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-3`}>Sales by Service</h3>
               <PieChart data={salesByService} title="Sales by Service" />
             </div>
 
-            <div className="bg-gray-900 border border-amber-500/20 rounded-lg p-4">
-              <h3 className="text-sm font-semibold text-amber-50 mb-3">Monthly Breakdown</h3>
+            <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg p-4`}>
+              <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-3`}>Monthly Breakdown</h3>
               <BarChart data={revenueData} title="Monthly Revenue" height={120} />
             </div>
           </div>
@@ -1888,8 +1894,8 @@ const CashierDashboard = () => {
             <LoadingSpinner />
           </div>
         ) : filteredAppointments.length === 0 ? (
-          <div className="bg-gray-900 border border-amber-500/20 rounded-lg p-8 text-center">
-            <p className="text-gray-400">No {appointmentsTab} appointments found</p>
+          <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg p-8 text-center`}>
+            <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>No {appointmentsTab} appointments found</p>
           </div>
         ) : (
           (() => {
@@ -1901,7 +1907,7 @@ const CashierDashboard = () => {
                 {displayed.map((appointment) => (
             <div
               key={appointment.id}
-              className={`bg-gray-900 border border-amber-500/20 rounded-lg overflow-hidden hover:border-amber-500/40 transition-all ${isDense ? 'p-2 text-sm' : ''}`}
+              className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg overflow-hidden hover:border-amber-500/40 transition-all ${isDense ? 'p-2 text-sm' : ''}`}
             >
               <div className={`${isDense ? 'p-2' : 'p-3'} text-sm`}>
                 <div className="flex justify-between items-start">
@@ -2111,10 +2117,10 @@ const CashierDashboard = () => {
       </div>
 
       {/* Logs Table */}
-      <div className="bg-gray-900 border border-amber-500/20 rounded-lg overflow-hidden">
+      <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg overflow-hidden`}>
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
-            <thead className="bg-gray-800 border-b border-gray-700">
+            <thead className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'} border-b`}>
               <tr>
                 <th className="px-4 py-3 text-left text-amber-400 font-semibold">Date & Time</th>
                 <th className="px-4 py-3 text-left text-amber-400 font-semibold">User</th>
@@ -2180,15 +2186,15 @@ const CashierDashboard = () => {
   const renderProfile = () => (
     <div className="max-w-3xl space-y-4">
       {/* Profile Header */}
-      <div className="bg-gray-900 border border-amber-500/20 rounded-lg p-6">
+      <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg p-6`}>
         <div className="flex items-start justify-between mb-4">
           <div className="flex items-center gap-4">
             <div className="w-16 h-16 bg-gradient-to-br from-amber-500 to-amber-600 rounded-full flex items-center justify-center shadow-lg">
               <UserIcon className="h-8 w-8 text-white" />
             </div>
             <div>
-              <h2 className="text-2xl font-bold text-amber-50">{user?.first_name} {user?.last_name}</h2>
-              <p className="text-gray-400 text-sm capitalize">{user?.role} • Active</p>
+              <h2 className={`text-2xl font-bold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>{user?.first_name} {user?.last_name}</h2>
+              <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-600'} text-sm capitalize`}>{user?.role} • Active</p>
             </div>
           </div>
           <button
@@ -2205,8 +2211,8 @@ const CashierDashboard = () => {
       </div>
 
       {/* Profile Form/Display */}
-      <div className="bg-gray-900 border border-amber-500/20 rounded-lg p-6">
-        <h3 className="text-lg font-semibold text-amber-50 mb-6 flex items-center">
+      <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg p-6`}>
+        <h3 className={`text-lg font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-6 flex items-center`}>
           <UserCircleIcon className="h-5 w-5 mr-2" />
           Personal Information
         </h3>
@@ -2310,8 +2316,8 @@ const CashierDashboard = () => {
       </div>
 
       {/* Account Information */}
-      <div className="bg-gray-900 border border-amber-500/20 rounded-lg p-6">
-        <h3 className="text-lg font-semibold text-amber-50 mb-4 flex items-center">
+      <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg p-6`}>
+        <h3 className={`text-lg font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-4 flex items-center`}>
           <ShieldCheckIcon className="h-5 w-5 mr-2" />
           Account Information
         </h3>
@@ -2336,12 +2342,12 @@ const CashierDashboard = () => {
       </div>
 
       {/* Security Section */}
-      <div className="bg-gray-900 border border-amber-500/20 rounded-lg p-6">
-        <h3 className="text-lg font-semibold text-amber-50 mb-4 flex items-center">
+      <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg p-6`}>
+        <h3 className={`text-lg font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-4 flex items-center`}>
           <LockClosedIcon className="h-5 w-5 mr-2" />
           Security
         </h3>
-        <p className="text-gray-400 text-sm mb-4">Manage your account security settings</p>
+        <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-600'} text-sm mb-4`}>Manage your account security settings</p>
         <button className="px-4 py-2 bg-gray-700 text-gray-200 rounded text-sm font-medium hover:bg-gray-600 transition-all">
           Change Password
         </button>
@@ -2352,32 +2358,32 @@ const CashierDashboard = () => {
   // Render Transactions (Sales History) Section
   const renderTransactions = () => (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <input type="text" value={txSearch} onChange={(e) => setTxSearch(e.target.value)} placeholder="Search by client, ref, service..." className="flex-1 bg-gray-800 border border-gray-700 px-3 py-2 rounded text-sm" />
-        <input type="date" value={txFilters.from} onChange={(e) => setTxFilters(f => ({ ...f, from: e.target.value }))} className="bg-gray-800 border border-gray-700 px-3 py-2 rounded text-sm" />
-        <input type="date" value={txFilters.to} onChange={(e) => setTxFilters(f => ({ ...f, to: e.target.value }))} className="bg-gray-800 border border-gray-700 px-3 py-2 rounded text-sm" />
-        <select value={txFilters.status} onChange={(e) => setTxFilters(f => ({ ...f, status: e.target.value }))} className="bg-gray-800 border border-gray-700 px-3 py-2 rounded text-sm">
+      <div className="flex items-center gap-2 flex-wrap">
+        <input type="text" value={txSearch} onChange={(e) => setTxSearch(e.target.value)} placeholder="Search by client, ref, service..." className={`flex-1 min-w-[200px] border px-3 py-2 rounded text-sm ${isDarkMode ? 'bg-gray-800 border-gray-700 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-500'}`} />
+        <input type="date" value={txFilters.from} onChange={(e) => setTxFilters(f => ({ ...f, from: e.target.value }))} className={`border px-3 py-2 rounded text-sm ${isDarkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`} />
+        <input type="date" value={txFilters.to} onChange={(e) => setTxFilters(f => ({ ...f, to: e.target.value }))} className={`border px-3 py-2 rounded text-sm ${isDarkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`} />
+        <select value={txFilters.status} onChange={(e) => setTxFilters(f => ({ ...f, status: e.target.value }))} className={`border px-3 py-2 rounded text-sm ${isDarkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`}>
           <option value="">All</option>
           <option value="paid">Paid</option>
           <option value="pending">Pending</option>
           <option value="refunded">Refunded</option>
         </select>
         <button onClick={() => loadTransactions(1)} className="px-3 py-2 bg-amber-600 text-white rounded text-sm">Filter</button>
-        <button onClick={exportTransactionsCSV} className="px-3 py-2 bg-gray-800 text-gray-200 rounded text-sm">Export CSV</button>
+        <button onClick={exportTransactionsCSV} className={`px-3 py-2 rounded text-sm ${isDarkMode ? 'bg-gray-800 text-gray-200' : 'bg-gray-200 text-gray-800'}`}>Export CSV</button>
       </div>
 
-      <div className="bg-gray-900 border border-amber-500/20 rounded-lg overflow-hidden">
+      <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg overflow-hidden`}>
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
-            <thead className="bg-gray-800 border-b border-gray-700">
+            <thead className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'} border-b`}>
               <tr>
-                <th className="px-4 py-3 text-left text-amber-400 font-semibold">Date</th>
-                <th className="px-4 py-3 text-left text-amber-400 font-semibold">Ref</th>
-                <th className="px-4 py-3 text-left text-amber-400 font-semibold">Client</th>
-                <th className="px-4 py-3 text-left text-amber-400 font-semibold">Service</th>
-                <th className="px-4 py-3 text-left text-amber-400 font-semibold">Amount</th>
-                <th className="px-4 py-3 text-left text-amber-400 font-semibold">Cashier</th>
-                <th className="px-4 py-3 text-left text-amber-400 font-semibold">Status</th>
+                <th className={`px-4 py-3 text-left font-semibold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>Date</th>
+                <th className={`px-4 py-3 text-left font-semibold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>Ref</th>
+                <th className={`px-4 py-3 text-left font-semibold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>Client</th>
+                <th className={`px-4 py-3 text-left font-semibold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>Service</th>
+                <th className={`px-4 py-3 text-left font-semibold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>Amount</th>
+                <th className={`px-4 py-3 text-left font-semibold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>Cashier</th>
+                <th className={`px-4 py-3 text-left font-semibold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>Status</th>
                 <th className="px-4 py-3 text-left text-amber-400 font-semibold">Actions</th>
               </tr>
             </thead>
@@ -2446,8 +2452,8 @@ const CashierDashboard = () => {
       </div>
 
       {/* Date Range Selector */}
-      <div className="bg-gray-900 border border-amber-500/20 rounded-lg p-4 space-y-3">
-        <h3 className="text-sm font-semibold text-amber-50">Select Date Range</h3>
+      <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg p-4 space-y-3`}>
+        <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>Select Date Range</h3>
         <div className="flex items-center gap-2 flex-wrap">
           <input 
             type="date" 
@@ -2472,40 +2478,40 @@ const CashierDashboard = () => {
       </div>
 
       {/* Shift Report Summary */}
-      <div className="bg-gray-900 border border-amber-500/20 rounded-lg p-4">
-        <h3 className="text-sm font-semibold text-amber-50 mb-4 flex items-center">
+      <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg p-4`}>
+        <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-4 flex items-center`}>
           <ChartBarIcon className="h-4 w-4 mr-2" />
           Shift Report Summary
         </h3>
         {shiftLoading ? (
           <div className="py-8 text-center"><LoadingSpinner /></div>
         ) : !shiftReportSummary ? (
-          <p className="text-xs text-gray-400">Select a date range and click "Generate Report" to view your shift data</p>
+          <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Select a date range and click "Generate Report" to view your shift data</p>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-            <div className="bg-gray-800/50 rounded p-3 border border-gray-700/50">
-              <p className="text-gray-400 text-xs mb-1">Total Revenue</p>
-              <p className="text-2xl font-bold text-amber-400">{formatPrice(shiftReportSummary.total_revenue || 0)}</p>
+            <div className={`${isDarkMode ? 'bg-gray-800/50 border-gray-700/50' : 'bg-gray-100 border-gray-200'} rounded p-3 border`}>
+              <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'} text-xs mb-1`}>Total Revenue</p>
+              <p className="text-2xl font-bold text-amber-500">{formatPrice(shiftReportSummary.total_revenue || 0)}</p>
             </div>
-            <div className="bg-gray-800/50 rounded p-3 border border-gray-700/50">
-              <p className="text-gray-400 text-xs mb-1">Total Sales</p>
-              <p className="text-2xl font-bold text-green-400">{shiftReportSummary.total_sales || 0}</p>
+            <div className={`${isDarkMode ? 'bg-gray-800/50 border-gray-700/50' : 'bg-gray-100 border-gray-200'} rounded p-3 border`}>
+              <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'} text-xs mb-1`}>Total Sales</p>
+              <p className="text-2xl font-bold text-green-500">{shiftReportSummary.total_sales || 0}</p>
             </div>
-            <div className="bg-gray-800/50 rounded p-3 border border-gray-700/50">
-              <p className="text-gray-400 text-xs mb-1">Total Discounts</p>
-              <p className="text-2xl font-bold text-blue-400">{formatPrice(shiftReportSummary.total_discounts || 0)}</p>
+            <div className={`${isDarkMode ? 'bg-gray-800/50 border-gray-700/50' : 'bg-gray-100 border-gray-200'} rounded p-3 border`}>
+              <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'} text-xs mb-1`}>Total Discounts</p>
+              <p className="text-2xl font-bold text-blue-500">{formatPrice(shiftReportSummary.total_discounts || 0)}</p>
             </div>
-            <div className="bg-gray-800/50 rounded p-3 border border-gray-700/50">
-              <p className="text-gray-400 text-xs mb-1">Cash Collected</p>
-              <p className="text-xl font-bold text-amber-300">{formatPrice(shiftReportSummary.cash_collected || 0)}</p>
+            <div className={`${isDarkMode ? 'bg-gray-800/50 border-gray-700/50' : 'bg-gray-100 border-gray-200'} rounded p-3 border`}>
+              <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'} text-xs mb-1`}>Cash Collected</p>
+              <p className={`text-xl font-bold ${isDarkMode ? 'text-amber-300' : 'text-amber-600'}`}>{formatPrice(shiftReportSummary.cash_collected || 0)}</p>
             </div>
-            <div className="bg-gray-800/50 rounded p-3 border border-gray-700/50">
-              <p className="text-gray-400 text-xs mb-1">Card Collected</p>
-              <p className="text-xl font-bold text-blue-300">{formatPrice(shiftReportSummary.card_collected || 0)}</p>
+            <div className={`${isDarkMode ? 'bg-gray-800/50 border-gray-700/50' : 'bg-gray-100 border-gray-200'} rounded p-3 border`}>
+              <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'} text-xs mb-1`}>Card Collected</p>
+              <p className={`text-xl font-bold ${isDarkMode ? 'text-blue-300' : 'text-blue-600'}`}>{formatPrice(shiftReportSummary.card_collected || 0)}</p>
             </div>
-            <div className="bg-gray-800/50 rounded p-3 border border-gray-700/50">
-              <p className="text-gray-400 text-xs mb-1">Refunds</p>
-              <p className="text-xl font-bold text-red-400">{formatPrice(shiftReportSummary.total_refunds || 0)}</p>
+            <div className={`${isDarkMode ? 'bg-gray-800/50 border-gray-700/50' : 'bg-gray-100 border-gray-200'} rounded p-3 border`}>
+              <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'} text-xs mb-1`}>Refunds</p>
+              <p className="text-xl font-bold text-red-500">{formatPrice(shiftReportSummary.total_refunds || 0)}</p>
             </div>
           </div>
         )}
@@ -2513,39 +2519,39 @@ const CashierDashboard = () => {
 
       {/* Dashboard Statistics */}
       {stats && (
-        <div className="bg-gray-900 border border-amber-500/20 rounded-lg p-4">
-          <h3 className="text-sm font-semibold text-amber-50 mb-4 flex items-center">
+        <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg p-4`}>
+          <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-4 flex items-center`}>
             <ChartPieIcon className="h-4 w-4 mr-2" />
             Overall Dashboard Statistics
           </h3>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <div className="bg-gradient-to-br from-amber-500/10 to-amber-600/10 border border-amber-500/20 rounded p-3 hover:border-amber-500/40 transition-all">
-              <p className="text-gray-400 text-xs mb-1">Monthly Revenue</p>
-              <p className="text-xl font-bold text-amber-400">{formatPrice(stats.totalRevenue)}</p>
-              <p className="text-xs text-gray-500 mt-1">{stats.totalSales} sales</p>
+              <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'} text-xs mb-1`}>Monthly Revenue</p>
+              <p className="text-xl font-bold text-amber-500">{formatPrice(stats.totalRevenue)}</p>
+              <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} mt-1`}>{stats.totalSales} sales</p>
             </div>
             <div className="bg-gradient-to-br from-green-500/10 to-green-600/10 border border-green-500/20 rounded p-3 hover:border-green-500/40 transition-all">
-              <p className="text-gray-400 text-xs mb-1">Today's Revenue</p>
-              <p className="text-xl font-bold text-green-400">{formatPrice(stats.todayRevenue)}</p>
-              <p className="text-xs text-gray-500 mt-1">{stats.todaySales} sales</p>
+              <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'} text-xs mb-1`}>Today's Revenue</p>
+              <p className="text-xl font-bold text-green-500">{formatPrice(stats.todayRevenue)}</p>
+              <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} mt-1`}>{stats.todaySales} sales</p>
             </div>
             <div className="bg-gradient-to-br from-blue-500/10 to-blue-600/10 border border-blue-500/20 rounded p-3 hover:border-blue-500/40 transition-all">
               <p className="text-gray-400 text-xs mb-1">Total Sales (Period)</p>
               <p className="text-xl font-bold text-blue-400">{stats.totalSales}</p>
-              <p className="text-xs text-gray-500 mt-1">transactions</p>
+              <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} mt-1`}>transactions</p>
             </div>
             <div className="bg-gradient-to-br from-purple-500/10 to-purple-600/10 border border-purple-500/20 rounded p-3 hover:border-purple-500/40 transition-all">
-              <p className="text-gray-400 text-xs mb-1">Performance</p>
-              <p className="text-xl font-bold text-purple-400">{((stats.totalSales / 100) * 100).toFixed(1)}%</p>
-              <p className="text-xs text-gray-500 mt-1">completion</p>
+              <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'} text-xs mb-1`}>Performance</p>
+              <p className="text-xl font-bold text-purple-500">{((stats.totalSales / 100) * 100).toFixed(1)}%</p>
+              <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} mt-1`}>completion</p>
             </div>
           </div>
         </div>
       )}
 
       {/* Export Options */}
-      <div className="bg-gray-900 border border-amber-500/20 rounded-lg p-4">
-        <h3 className="text-sm font-semibold text-amber-50 mb-4 flex items-center">
+      <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg p-4`}>
+        <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-4 flex items-center`}>
           <DocumentArrowDownIcon className="h-4 w-4 mr-2" />
           Export Options
         </h3>
@@ -2590,7 +2596,7 @@ const CashierDashboard = () => {
               setShiftRange({ from: today, to: today });
               loadShiftReport(today, today);
             }}
-            className="px-4 py-2 bg-gray-700 text-white rounded text-sm hover:bg-gray-600 transition-all font-medium flex items-center justify-center gap-2 shadow"
+            className={`px-4 py-2 ${isDarkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 text-gray-800 hover:bg-gray-300'} text-white rounded text-sm transition-all font-medium flex items-center justify-center gap-2 shadow`}
           >
             <ArrowPathIcon className="h-4 w-4" />
             Today's Report
@@ -2637,14 +2643,14 @@ const CashierDashboard = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 to-black flex flex-col lg:h-screen">
+    <div className={`min-h-screen ${isDarkMode ? 'bg-gradient-to-br from-gray-900 to-black' : 'bg-gradient-to-br from-gray-50 to-gray-100'} flex flex-col lg:h-screen transition-colors duration-300`}>
       {/* Mobile Header */}
-      <div className="lg:hidden fixed top-0 left-0 right-0 z-40 flex items-center justify-between px-4 py-3 bg-gray-900 border-b border-amber-500/20 shadow">
+      <div className={`lg:hidden fixed top-0 left-0 right-0 z-40 flex items-center justify-between px-4 py-3 ${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-gray-50 border-amber-300/40'} border-b shadow transition-colors duration-300`}>
         <div className="w-10"></div>
-        <span className="text-amber-50 font-bold text-base">Cashier Portal</span>
+        <span className={`${isDarkMode ? 'text-amber-50' : 'text-amber-900'} font-bold text-base`}>Cashier Portal</span>
         <button
           onClick={() => setShowMobileSidebar(!showMobileSidebar)}
-          className="text-amber-400 hover:text-amber-300 transition-colors p-2 rounded-lg hover:bg-amber-500/10"
+          className="text-amber-500 hover:text-amber-400 transition-colors p-2 rounded-lg hover:bg-amber-500/10"
         >
           <Bars3Icon className="h-6 w-6" />
         </button>

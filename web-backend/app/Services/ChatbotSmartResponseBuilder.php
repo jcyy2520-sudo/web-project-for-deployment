@@ -91,6 +91,9 @@ class ChatbotSmartResponseBuilder
                 'service_pricing' => $this->buildServicePricingResponse($entities, $roleInfo, $language),
                 'view_availability' => $this->buildViewAvailabilityResponse($entities, $roleInfo, $language),
                 'business_hours' => $this->buildBusinessHoursResponse($roleInfo, $language),
+                'contact_info' => $this->buildContactInfoResponse($roleInfo, $language),
+                'location_info' => $this->buildLocationInfoResponse($roleInfo, $language),
+                'about_business' => $this->buildAboutBusinessResponse($roleInfo, $language),
                 'view_profile' => $this->buildViewProfileResponse($userId, $roleInfo, $language),
                 'edit_profile' => $this->buildEditProfileResponse($userId, $roleInfo, $language),
                 'view_pending_appointments' => $this->buildPendingAppointmentsResponse($roleInfo, $language),
@@ -139,12 +142,167 @@ class ChatbotSmartResponseBuilder
             
             // Add source tracking
             $response['meta']['source'] = $response['has_data'] ?? false ? 'realtime_data' : 'smart_builder';
+            
+            // Add action buttons for navigation
+            $actionButtons = $this->getActionButtonsForIntent($intent, $roleInfo, $entities);
+            if (!empty($actionButtons)) {
+                $response['action_buttons'] = $actionButtons;
+            }
 
             return $response;
         } catch (\Exception $e) {
             Log::error('Error building response', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
             return $this->buildErrorResponse($e->getMessage());
         }
+    }
+
+    /**
+     * Get action buttons for navigation based on intent and role
+     * 
+     * @param string $intent The detected intent
+     * @param array $roleInfo User role information
+     * @param array $entities Extracted entities
+     * @return array Action buttons with labels and routes
+     */
+    private function getActionButtonsForIntent(string $intent, array $roleInfo, array $entities = []): array
+    {
+        $role = $roleInfo['primary_role'] ?? 'guest';
+        $buttons = [];
+
+        // Define action buttons based on intent
+        $intentButtons = [
+            'view_appointments' => [
+                'client' => [
+                    ['label' => 'View My Appointments', 'route' => '/appointments', 'icon' => '📅', 'type' => 'primary'],
+                    ['label' => 'Book New', 'route' => '/appointments/book', 'icon' => '➕', 'type' => 'secondary'],
+                ],
+                'admin' => [
+                    ['label' => 'Manage Appointments', 'route' => '/admin/appointments', 'icon' => '📅', 'type' => 'primary'],
+                ],
+            ],
+            'book_appointment' => [
+                'client' => [
+                    ['label' => 'Book Appointment', 'route' => '/appointments/book', 'icon' => '📅', 'type' => 'primary'],
+                ],
+                'guest' => [
+                    ['label' => 'Register to Book', 'route' => '/register', 'icon' => '📝', 'type' => 'primary'],
+                    ['label' => 'Login', 'route' => '/login', 'icon' => '🔐', 'type' => 'secondary'],
+                ],
+            ],
+            'view_profile' => [
+                'client' => [
+                    ['label' => 'View Profile', 'route' => '/profile', 'icon' => '👤', 'type' => 'primary'],
+                    ['label' => 'Edit Profile', 'route' => '/profile/edit', 'icon' => '✏️', 'type' => 'secondary'],
+                ],
+                'admin' => [
+                    ['label' => 'View Profile', 'route' => '/admin/profile', 'icon' => '👤', 'type' => 'primary'],
+                ],
+                'cashier' => [
+                    ['label' => 'View Profile', 'route' => '/cashier/profile', 'icon' => '👤', 'type' => 'primary'],
+                ],
+            ],
+            'edit_profile' => [
+                'client' => [
+                    ['label' => 'Edit Profile', 'route' => '/profile/edit', 'icon' => '✏️', 'type' => 'primary'],
+                ],
+            ],
+            'view_payments' => [
+                'client' => [
+                    ['label' => 'View Payments', 'route' => '/payments', 'icon' => '💳', 'type' => 'primary'],
+                ],
+                'cashier' => [
+                    ['label' => 'Payment Dashboard', 'route' => '/cashier/payments', 'icon' => '💳', 'type' => 'primary'],
+                ],
+                'admin' => [
+                    ['label' => 'View All Payments', 'route' => '/admin/payments', 'icon' => '💳', 'type' => 'primary'],
+                ],
+            ],
+            'view_pending_payments' => [
+                'cashier' => [
+                    ['label' => 'Pending Payments', 'route' => '/cashier/payments?status=pending', 'icon' => '⏳', 'type' => 'primary'],
+                ],
+                'admin' => [
+                    ['label' => 'Pending Payments', 'route' => '/admin/payments?status=pending', 'icon' => '⏳', 'type' => 'primary'],
+                ],
+            ],
+            'view_refunds' => [
+                'client' => [
+                    ['label' => 'View Refunds', 'route' => '/refunds', 'icon' => '💸', 'type' => 'primary'],
+                ],
+                'cashier' => [
+                    ['label' => 'Refund Queue', 'route' => '/cashier/refunds', 'icon' => '💸', 'type' => 'primary'],
+                ],
+                'admin' => [
+                    ['label' => 'Manage Refunds', 'route' => '/admin/refunds', 'icon' => '💸', 'type' => 'primary'],
+                ],
+            ],
+            'view_pending_refunds' => [
+                'cashier' => [
+                    ['label' => 'Process Refunds', 'route' => '/cashier/refunds?status=approved', 'icon' => '💸', 'type' => 'primary'],
+                ],
+                'admin' => [
+                    ['label' => 'Pending Refunds', 'route' => '/admin/refunds?status=pending', 'icon' => '⏳', 'type' => 'primary'],
+                ],
+            ],
+            'view_pending_appointments' => [
+                'admin' => [
+                    ['label' => 'Review Appointments', 'route' => '/admin/appointments?status=pending', 'icon' => '📋', 'type' => 'primary'],
+                ],
+            ],
+            'view_services' => [
+                'guest' => [
+                    ['label' => 'Browse Services', 'route' => '/services', 'icon' => '📋', 'type' => 'primary'],
+                ],
+                'client' => [
+                    ['label' => 'View Services', 'route' => '/services', 'icon' => '📋', 'type' => 'primary'],
+                    ['label' => 'Book Now', 'route' => '/appointments/book', 'icon' => '📅', 'type' => 'secondary'],
+                ],
+            ],
+            'view_analytics' => [
+                'admin' => [
+                    ['label' => 'View Analytics', 'route' => '/admin/analytics', 'icon' => '📊', 'type' => 'primary'],
+                ],
+            ],
+            'manage_users' => [
+                'admin' => [
+                    ['label' => 'Manage Users', 'route' => '/admin/users', 'icon' => '👥', 'type' => 'primary'],
+                ],
+            ],
+            'shift_report' => [
+                'cashier' => [
+                    ['label' => 'View Shift Report', 'route' => '/cashier/reports/shift', 'icon' => '📊', 'type' => 'primary'],
+                ],
+            ],
+            'system_status' => [
+                'admin' => [
+                    ['label' => 'System Dashboard', 'route' => '/admin/system', 'icon' => '🔧', 'type' => 'primary'],
+                ],
+            ],
+            'help' => [
+                'guest' => [
+                    ['label' => 'FAQ', 'route' => '/faq', 'icon' => '❓', 'type' => 'secondary'],
+                    ['label' => 'Contact Us', 'route' => '/contact', 'icon' => '📞', 'type' => 'secondary'],
+                ],
+                'client' => [
+                    ['label' => 'Help Center', 'route' => '/help', 'icon' => '❓', 'type' => 'secondary'],
+                ],
+            ],
+            'request_refund' => [
+                'client' => [
+                    ['label' => 'Request Refund', 'route' => '/refunds/request', 'icon' => '💸', 'type' => 'primary'],
+                ],
+            ],
+        ];
+
+        // Get buttons for this intent and role
+        if (isset($intentButtons[$intent][$role])) {
+            $buttons = $intentButtons[$intent][$role];
+        } elseif (isset($intentButtons[$intent]['client']) && in_array($role, ['admin', 'cashier', 'staff'])) {
+            // Staff roles can also use client-level navigation for personal items
+            // but don't show them by default
+        }
+
+        return $buttons;
     }
 
     /**
@@ -795,6 +953,126 @@ class ChatbotSmartResponseBuilder
     }
 
     /**
+     * Build response for contact information
+     */
+    private function buildContactInfoResponse(array $roleInfo, string $language = 'english'): array
+    {
+        $businessInfo = $this->getBusinessInfo();
+
+        if ($language === 'filipino') {
+            $response = "**📞 Contact Information**\n\n";
+            $response .= "**Company:** {$businessInfo['company_name']}\n\n";
+            $response .= "**📱 Phone:** {$businessInfo['phone']}\n";
+            $response .= "**✉️ Email:** {$businessInfo['email']}\n\n";
+            $response .= "Pwede niyo kami kontakin sa mga oras ng opisina para sa mga tanong o appointment inquiries.";
+        } else {
+            $response = "**📞 Contact Information**\n\n";
+            $response .= "**Company:** {$businessInfo['company_name']}\n\n";
+            $response .= "**📱 Phone:** {$businessInfo['phone']}\n";
+            $response .= "**✉️ Email:** {$businessInfo['email']}\n\n";
+            $response .= "Feel free to contact us during business hours for any inquiries or to schedule an appointment.";
+        }
+
+        return [
+            'response' => $response,
+            'business_info' => $businessInfo,
+            'has_data' => true,
+        ];
+    }
+
+    /**
+     * Build response for location/address information
+     */
+    private function buildLocationInfoResponse(array $roleInfo, string $language = 'english'): array
+    {
+        $businessInfo = $this->getBusinessInfo();
+
+        if ($language === 'filipino') {
+            $response = "**📍 Office Location**\n\n";
+            $response .= "**{$businessInfo['company_name']}**\n\n";
+            $response .= "**Address:**\n{$businessInfo['address']}\n\n";
+            $response .= "**📱 Phone:** {$businessInfo['phone']}\n";
+            $response .= "**✉️ Email:** {$businessInfo['email']}\n\n";
+            $response .= "Bisitahin niyo kami sa aming opisina o mag-book ng appointment online.";
+        } else {
+            $response = "**📍 Office Location**\n\n";
+            $response .= "**{$businessInfo['company_name']}**\n\n";
+            $response .= "**Address:**\n{$businessInfo['address']}\n\n";
+            $response .= "**📱 Phone:** {$businessInfo['phone']}\n";
+            $response .= "**✉️ Email:** {$businessInfo['email']}\n\n";
+            $response .= "Visit us at our office or book an appointment online for your convenience.";
+        }
+
+        return [
+            'response' => $response,
+            'business_info' => $businessInfo,
+            'has_data' => true,
+        ];
+    }
+
+    /**
+     * Build response for about business/attorney information
+     */
+    private function buildAboutBusinessResponse(array $roleInfo, string $language = 'english'): array
+    {
+        $businessInfo = $this->getBusinessInfo();
+        $services = implode(', ', $businessInfo['specialties'] ?? []);
+
+        if ($language === 'filipino') {
+            $response = "**⚖️ Tungkol sa {$businessInfo['company_name']}**\n\n";
+            $response .= "Kami ay isang propesyonal na legal services firm na nagbibigay ng mga serbisyong notaryo at legal consultation.\n\n";
+            $response .= "**Mga Serbisyo Namin:**\n";
+            foreach ($businessInfo['specialties'] as $specialty) {
+                $response .= "• {$specialty}\n";
+            }
+            $response .= "\n**📍 Location:** {$businessInfo['address']}\n";
+            $response .= "**📱 Phone:** {$businessInfo['phone']}\n";
+            $response .= "**✉️ Email:** {$businessInfo['email']}\n\n";
+            $response .= "Para sa legal na tulong, pwede kayong mag-book ng appointment online o tumawag sa aming opisina.";
+        } else {
+            $response = "**⚖️ About {$businessInfo['company_name']}**\n\n";
+            $response .= "We are a professional legal services firm providing notary services and legal consultation.\n\n";
+            $response .= "**Our Services:**\n";
+            foreach ($businessInfo['specialties'] as $specialty) {
+                $response .= "• {$specialty}\n";
+            }
+            $response .= "\n**📍 Location:** {$businessInfo['address']}\n";
+            $response .= "**📱 Phone:** {$businessInfo['phone']}\n";
+            $response .= "**✉️ Email:** {$businessInfo['email']}\n\n";
+            $response .= "For legal assistance, you can book an appointment online or call our office directly.";
+        }
+
+        return [
+            'response' => $response,
+            'business_info' => $businessInfo,
+            'has_data' => true,
+        ];
+    }
+
+    /**
+     * Get business information (centralized)
+     */
+    private function getBusinessInfo(): array
+    {
+        return [
+            'company_name' => 'Peejayy De Guzman Legal',
+            'email' => 'peejaydeguzmanlegal@gmail.com',
+            'phone' => '09765075274',
+            'address' => '233 Aljenjay Building, Vicente Ylagan Street, Bagong Bayan 2, Bongabong, Oriental Mindoro',
+            'type' => 'Notary Services & Legal Consultation',
+            'specialties' => [
+                'Notary Services',
+                'Legal Consultations', 
+                'Document Review',
+                'Contract Drafting',
+                'Court Representation',
+                'Legal Opinions',
+                'Case Evaluations'
+            ]
+        ];
+    }
+
+    /**
      * Build response for pending appointments (admin)
      */
     private function buildPendingAppointmentsResponse(array $roleInfo): array
@@ -990,24 +1268,47 @@ class ChatbotSmartResponseBuilder
 
     /**
      * Build response for help request
+     * Explains the chatbot's role and capabilities
      */
     private function buildHelpResponse(array $roleInfo, string $language = 'english'): array
     {
         $role = $roleInfo['primary_role'];
 
         if ($language === 'filipino') {
+            $intro = "👋 **Ako ang AI assistant niyo para sa appointment booking system na ito.**\n\n";
+            $intro .= "**Ang role ko ay:**\n";
+            $intro .= "✓ Sagutin ang mga tanong niyo\n";
+            $intro .= "✓ Magbigay ng information tungkol sa system\n";
+            $intro .= "✓ I-guide kayo kung paano gamitin ang mga features\n";
+            $intro .= "✓ I-explain ang mga processes at requirements\n\n";
+            $intro .= "**Hindi ko po magagawa:**\n";
+            $intro .= "✗ Mag-approve, cancel, o modify ng kahit ano\n";
+            $intro .= "✗ Mag-process ng payments o refunds\n";
+            $intro .= "✗ Mag-execute ng system commands\n\n";
+            
             $helpByRole = [
-                'client' => "👋 **Kumusta! Ako ang AI assistant niyo.**\n\nPwede ko kayong tulungan sa:\n\n📅 **Mga Appointment**\n• Tingnan appointments - \"Ipakita ang appointments ko\"\n• Check status - \"Ano na status ng appointment ko?\"\n• Cancel - \"I-cancel ang appointment #123\"\n• Reschedule - \"Ilipat ang appointment ko\"\n\n💳 **Payments at Refunds**\n• Payment status - \"Check ang bayad ko\"\n• Request refund - \"Gusto ko ng refund sa appointment #123\"\n• Refund status - \"Nasaan na ang refund ko?\"\n\n📋 **Mga Services**\n• Tingnan services - \"Ano ang mga services niyo?\"\n• Presyo - \"Magkano ang notary service?\"\n• Availability - \"Kelan kayo available?\"\n\nMag-type lang po ng tanong niyo!",
-                'admin' => "👋 **Admin Assistant po ay Ready!**\n\nPwede ko po kayong tulungan sa:\n\n📅 **Appointment Management**\n• \"Ipakita ang pending appointments\"\n• \"Approve ang appointment #123\"\n• \"Decline ang appointment #123\"\n• \"Complete ang appointment #123\"\n• \"Lahat ng appointments\"\n\n💰 **Financial Operations**\n• \"Ipakita pending payments\"\n• \"Ipakita pending refunds\"\n• \"Approve ang refund #123\"\n• \"Process ang refund #123\"\n\n📊 **System Management**\n• \"System status\"\n• \"Analytics\"\n• \"Manage users\"\n\nGumamit po ng natural language o specific IDs!",
-                'cashier' => "👋 **Cashier Assistant po ay Ready!**\n\nPwede ko po kayong tulungan sa:\n\n💳 **Payments**\n• \"Ipakita pending payments\"\n• \"Process payment para sa #123\"\n• \"Verify receipt\"\n\n💰 **Refunds**\n• \"Ipakita pending refunds\"\n• \"Process refund #123\"\n• \"Refund requests\"\n\n📊 **Reports**\n• \"Shift report\"\n• \"Mga transactions ko ngayon\"\n• \"Daily summary\"\n\n✅ **Quick Actions**\n• \"Complete appointment #123\"\n• \"Check appointment details\"\n\nTutulungan ko po kayong mag-process ng transactions!",
-                'guest' => "👋 **Welcome po! Ako ang AI assistant niyo.**\n\nBilang guest, pwede ko kayong tulungan sa:\n\n📋 **Information**\n• \"Ano ang mga services niyo?\"\n• \"Magkano po?\"\n• \"Ano ang business hours niyo?\"\n• \"Paano mag-book ng appointment?\"\n\n🔐 **Getting Started**\n• \"Paano mag-register?\"\n• \"Paano mag-login?\"\n\n**Para ma-access ang ibang features tulad ng:**\n• Pag-book ng appointments\n• Pagtingin sa history niyo\n• Pag-bayad\n• Pag-request ng refunds\n\nPaki-**register** o **login** muna po!\n\nMag-type po ng tanong niyo o sabihin 'hi' para magsimula.",
+                'client' => $intro . "📅 **Mga Appointment**\n• \"Ipakita ang appointments ko\"\n• \"Ano na status ng appointment ko?\"\n• \"Paano mag-cancel?\"\n• \"Paano mag-reschedule?\"\n\n💳 **Payments at Refunds**\n• \"Check ang bayad ko\"\n• \"Paano mag-request ng refund?\"\n• \"Nasaan na ang refund ko?\"\n\n📋 **Mga Services**\n• \"Ano ang mga services niyo?\"\n• \"Magkano ang notary service?\"\n• \"Kelan kayo available?\"\n\nMag-type lang po ng tanong niyo!",
+                'admin' => $intro . "📅 **Appointment Information**\n• \"Ipakita ang pending appointments\"\n• \"Ilang appointments ngayon?\"\n• \"Status ng appointments\"\n\n💰 **Financial Information**\n• \"Ipakita pending refunds\"\n• \"Magkano ang collections ngayon?\"\n\n📊 **System Information**\n• \"System status\"\n• \"Analytics overview\"\n• \"User counts\"\n\nTandaan: Para mag-approve o mag-process, gamitin ang Admin Dashboard.",
+                'cashier' => $intro . "💳 **Payment Information**\n• \"Ipakita pending payments\"\n• \"Magkano ang collections ngayon?\"\n\n💰 **Refund Information**\n• \"Ipakita pending refunds\"\n• \"Approved refunds list\"\n\n📊 **Reports**\n• \"Shift report info\"\n• \"Mga transactions ngayon\"\n\nTandaan: Para mag-process ng payments, gamitin ang Cashier Dashboard.",
+                'guest' => $intro . "📋 **Information**\n• \"Ano ang mga services niyo?\"\n• \"Magkano po?\"\n• \"Ano ang business hours niyo?\"\n• \"Paano mag-book ng appointment?\"\n\n🔐 **Getting Started**\n• \"Paano mag-register?\"\n• \"Paano mag-login?\"\n\n**Para ma-access ang ibang features:**\nPaki-**register** o **login** muna po!",
             ];
         } else {
+            $intro = "👋 **I'm your AI assistant for this appointment booking system.**\n\n";
+            $intro .= "**My role is to:**\n";
+            $intro .= "✓ Answer your questions\n";
+            $intro .= "✓ Provide system information\n";
+            $intro .= "✓ Guide you through features\n";
+            $intro .= "✓ Explain processes and requirements\n\n";
+            $intro .= "**I cannot:**\n";
+            $intro .= "✗ Approve, cancel, or modify anything\n";
+            $intro .= "✗ Process payments or refunds\n";
+            $intro .= "✗ Execute system commands\n\n";
+            
             $helpByRole = [
-                'client' => "👋 **Hello! I'm your AI assistant.**\n\nI can help you with:\n\n📅 **Appointments**\n• View appointments - \"Show my appointments\"\n• Check status - \"What's my appointment status?\"\n• Cancel - \"Cancel appointment #123\"\n• Reschedule - \"Reschedule my appointment\"\n\n💳 **Payments & Refunds**\n• Payment status - \"Check my payment\"\n• Request refund - \"I want a refund for appointment #123\"\n• Refund status - \"Where is my refund?\"\n\n📋 **Services**\n• View services - \"What services do you offer?\"\n• Pricing - \"How much is notary service?\"\n• Availability - \"When are you available?\"\n\nJust type your question naturally!",
-                'admin' => "👋 **Admin Assistant Ready!**\n\nI can help you with:\n\n📅 **Appointment Management**\n• \"Show pending appointments\"\n• \"Approve appointment #123\"\n• \"Decline appointment #123\"\n• \"Complete appointment #123\"\n• \"View all appointments\"\n\n💰 **Financial Operations**\n• \"Show pending payments\"\n• \"Show pending refunds\"\n• \"Approve refund #123\"\n• \"Process refund #123\"\n\n📊 **System Management**\n• \"System status\"\n• \"View analytics\"\n• \"Manage users\"\n\nUse natural language or provide specific IDs!",
-                'cashier' => "👋 **Cashier Assistant Ready!**\n\nI can help you with:\n\n💳 **Payments**\n• \"Show pending payments\"\n• \"Process payment for #123\"\n• \"Verify receipt\"\n\n💰 **Refunds**\n• \"Show pending refunds\"\n• \"Process refund #123\"\n• \"Refund requests\"\n\n📊 **Reports**\n• \"Generate shift report\"\n• \"My transactions today\"\n• \"Daily summary\"\n\n✅ **Quick Actions**\n• \"Complete appointment #123\"\n• \"Check appointment details\"\n\nI'll help you process transactions quickly!",
-                'guest' => "👋 **Welcome! I'm your AI assistant.**\n\nAs a guest, I can help you with:\n\n📋 **Information**\n• \"What services do you offer?\"\n• \"How much does it cost?\"\n• \"What are your business hours?\"\n• \"How do I book an appointment?\"\n\n🔐 **Getting Started**\n• \"How do I register?\"\n• \"How do I log in?\"\n\n**To access more features like:**\n• Booking appointments\n• Viewing your history\n• Making payments\n• Requesting refunds\n\nPlease **register** or **log in** first!\n\nType your question or say 'hi' to get started.",
+                'client' => $intro . "📅 **Appointments**\n• \"Show my appointments\"\n• \"What's my appointment status?\"\n• \"How do I cancel?\"\n• \"How do I reschedule?\"\n\n💳 **Payments & Refunds**\n• \"Check my payment\"\n• \"How do I request a refund?\"\n• \"Where is my refund?\"\n\n📋 **Services**\n• \"What services do you offer?\"\n• \"How much is notary service?\"\n• \"When are you available?\"\n\nJust type your question naturally!",
+                'admin' => $intro . "📅 **Appointment Information**\n• \"Show pending appointments\"\n• \"How many appointments today?\"\n• \"Appointments status overview\"\n\n💰 **Financial Information**\n• \"Show pending refunds\"\n• \"Today's collections\"\n\n📊 **System Information**\n• \"System status\"\n• \"Analytics overview\"\n• \"User counts\"\n\nRemember: To approve or process items, use the Admin Dashboard.",
+                'cashier' => $intro . "💳 **Payment Information**\n• \"Show pending payments\"\n• \"Today's collections\"\n\n💰 **Refund Information**\n• \"Show pending refunds\"\n• \"Approved refunds list\"\n\n📊 **Reports**\n• \"Shift report info\"\n• \"Today's transactions\"\n\nRemember: To process payments, use the Cashier Dashboard.",
+                'guest' => $intro . "📋 **Information**\n• \"What services do you offer?\"\n• \"How much does it cost?\"\n• \"What are your business hours?\"\n• \"How do I book an appointment?\"\n\n🔐 **Getting Started**\n• \"How do I register?\"\n• \"How do I log in?\"\n\n**To access more features:**\nPlease **register** or **log in** first!",
             ];
         }
 
@@ -1473,45 +1774,517 @@ class ChatbotSmartResponseBuilder
 
     /**
      * Build response for general questions
+     * Provides a helpful response without listing all commands
      */
     private function buildGeneralResponse(array $context): array
     {
         $message = $context['message'] ?? $context['user_message'] ?? 'your question';
         $roleInfo = $context['role_info'] ?? [];
         $role = $roleInfo['primary_role'] ?? 'guest';
+        $userId = $context['user_id'] ?? null;
+        $language = $context['language'] ?? 'english';
 
-        // Try to provide contextual help based on message content
-        $lowerMessage = strtolower($message);
-
-        if (str_contains($lowerMessage, 'urgent') || str_contains($lowerMessage, 'emergency')) {
-            return [
-                'response' => "I understand this is urgent. Please describe your issue in detail, or if you need immediate assistance, you may contact our office directly.\n\nAlternatively, you can:\n• Check your appointment status\n• View pending items\n• Request support through messages",
-                'priority' => true,
-            ];
-        }
-
-        $helpSuggestion = match ($role) {
-            'admin' => "Try commands like:\n• \"Show pending appointments\"\n• \"System status\"\n• \"View analytics\"",
-            'cashier' => "Try commands like:\n• \"Pending payments\"\n• \"Process payment #123\"\n• \"Shift report\"",
-            'client' => "Try commands like:\n• \"My appointments\"\n• \"Check payment\"\n• \"View services\"",
-            default => "Try asking about:\n• Services we offer\n• Business hours\n• How to register",
-        };
+        // IMPORTANT: For general/unclear questions, return a response that signals
+        // the controller to use LLM instead of just asking for clarification
+        // This ensures the chatbot gives SMART answers instead of generic prompts
 
         return [
-            'response' => "I'm here to help! I couldn't quite understand what you meant by:\n\n> \"{$message}\"\n\n{$helpSuggestion}\n\nOr type **'help'** to see all available commands.",
-            'requires_clarification' => true,
+            'response' => "Processing your question with AI...", // Placeholder - will be replaced by LLM
+            'requires_clarification' => false, // Don't ask for clarification, use LLM
+            'should_use_llm' => true, // Flag for controller to generate LLM response
+            'fallback_reason' => 'general_question',
+            'meta' => [
+                'source' => 'fallback',
+                'intent' => 'general_question',
+                'note' => 'Delegating to LLM for intelligent response',
+            ],
         ];
     }
 
     /**
      * Build error response
+     * Provides helpful error messages without exposing system details
      */
-    private function buildErrorResponse(string $error): array
+    private function buildErrorResponse(string $error, string $language = 'english'): array
     {
+        // Log the actual error for debugging (never expose to user)
+        Log::error('ChatbotSmartResponseBuilder error', ['error' => $error]);
+        
+        if ($language === 'filipino') {
+            return [
+                'response' => "Pasensya na, nagkaroon ng problema habang pinoproseso ang request niyo. Pakisubukan ulit o makipag-ugnayan sa support kung magpatuloy ang problema.\n\nPwede niyo rin subukan:\n• I-rephrase ang tanong niyo\n• Gumamit ng mas simpleng commands\n• I-type ang 'tulong' para sa available options",
+                'error' => 'processing_error',
+                'success' => false,
+                'has_data' => false,
+                'meta' => [
+                    'source' => 'error_handler',
+                    'recoverable' => true,
+                ],
+            ];
+        }
+        
         return [
             'response' => "I encountered an issue while processing your request. Please try again or contact support if the problem persists.\n\nYou can also try:\n• Rephrasing your question\n• Using simpler commands\n• Typing 'help' for available options",
-            'error' => config('app.debug') ? $error : 'processing_error',
+            'error' => 'processing_error',
             'success' => false,
+            'has_data' => false,
+            'meta' => [
+                'source' => 'error_handler',
+                'recoverable' => true,
+            ],
+        ];
+    }
+    
+    /**
+     * Build clarification request response
+     * Used when the chatbot needs more information to fulfill a request
+     * 
+     * @param string $intent Detected intent
+     * @param array $missingInfo What information is missing
+     * @param string $language Response language
+     * @return array Clarification response
+     */
+    public function buildClarificationResponse(
+        string $intent,
+        array $missingInfo = [],
+        string $language = 'english'
+    ): array {
+        $clarificationQuestions = [];
+        
+        // Define clarification questions based on intent and missing info
+        $questions = [
+            'cancel_appointment' => [
+                'appointment_id' => [
+                    'en' => "Which appointment would you like to cancel? Please provide the appointment ID or describe which one (e.g., 'my appointment on Monday').",
+                    'tl' => "Aling appointment po ang gusto niyong i-cancel? Pakibigay po ang appointment ID o i-describe kung alin (hal. 'appointment ko sa Monday').",
+                ],
+            ],
+            'reschedule_appointment' => [
+                'appointment_id' => [
+                    'en' => "Which appointment would you like to reschedule?",
+                    'tl' => "Aling appointment po ang gusto niyong i-reschedule?",
+                ],
+                'date' => [
+                    'en' => "What new date would you prefer for the appointment?",
+                    'tl' => "Anong bagong date po ang gusto niyo para sa appointment?",
+                ],
+            ],
+            'check_appointment_status' => [
+                'appointment_id' => [
+                    'en' => "Which appointment's status would you like to check? You can provide the ID or describe it.",
+                    'tl' => "Aling appointment po ang gusto niyong i-check ang status? Pwede niyo ibigay ang ID o i-describe.",
+                ],
+            ],
+            'service_pricing' => [
+                'service' => [
+                    'en' => "Which service would you like to know the pricing for?",
+                    'tl' => "Aling service po ang gusto niyong malaman ang presyo?",
+                ],
+            ],
+            'book_appointment' => [
+                'service' => [
+                    'en' => "What service would you like to book?",
+                    'tl' => "Anong service po ang gusto niyong i-book?",
+                ],
+                'date' => [
+                    'en' => "What date would you prefer for your appointment?",
+                    'tl' => "Anong date po ang gusto niyo para sa appointment?",
+                ],
+            ],
+        ];
+        
+        $langKey = $language === 'filipino' ? 'tl' : 'en';
+        
+        // Build clarification questions for missing info
+        if (isset($questions[$intent])) {
+            foreach ($missingInfo as $field) {
+                if (isset($questions[$intent][$field][$langKey])) {
+                    $clarificationQuestions[] = $questions[$intent][$field][$langKey];
+                }
+            }
+        }
+        
+        // Default clarification if no specific questions
+        if (empty($clarificationQuestions)) {
+            $clarificationQuestions[] = $language === 'filipino'
+                ? "Pakiklarify po kung pwede para matulungan ko kayo ng mas mabuti."
+                : "Could you please provide more details so I can better assist you?";
+        }
+        
+        $response = implode("\n\n", $clarificationQuestions);
+        
+        return [
+            'response' => $response,
+            'requires_clarification' => true,
+            'missing_info' => $missingInfo,
+            'original_intent' => $intent,
+            'has_data' => false,
+            'meta' => [
+                'source' => 'clarification',
+                'awaiting_response' => true,
+            ],
+        ];
+    }
+    
+    /**
+     * Build data unavailable response
+     * Used when required data is not accessible
+     * 
+     * @param string $dataType Type of data that's unavailable
+     * @param string $language Response language
+     * @return array Response indicating data unavailability
+     */
+    public function buildDataUnavailableResponse(string $dataType, string $language = 'english'): array
+    {
+        $responses = [
+            'appointment' => [
+                'en' => "I don't have access to appointment information at the moment. Please check the Appointments section in your dashboard or try again later.",
+                'tl' => "Wala po akong access sa appointment information ngayon. Pakitingnan po ang Appointments section sa dashboard niyo o subukan ulit mamaya.",
+            ],
+            'payment' => [
+                'en' => "Payment details are not available to me right now. Please visit the Payments section in your dashboard for accurate information.",
+                'tl' => "Hindi po available sa akin ang payment details ngayon. Pumunta po sa Payments section sa dashboard niyo para sa tumpak na information.",
+            ],
+            'refund' => [
+                'en' => "Refund information is not accessible at the moment. Please check your refund status in the dashboard or contact support.",
+                'tl' => "Hindi po accessible ang refund information ngayon. Pakitingnan po ang refund status niyo sa dashboard o makipag-ugnayan sa support.",
+            ],
+            'user' => [
+                'en' => "I don't have access to user account details. Please check your profile settings directly.",
+                'tl' => "Wala po akong access sa user account details. Pakitingnan po directly ang profile settings niyo.",
+            ],
+            'service' => [
+                'en' => "Service information is currently unavailable. Please visit our Services page for the most up-to-date information.",
+                'tl' => "Hindi po available ang service information ngayon. Pumunta po sa Services page para sa updated information.",
+            ],
+            'general' => [
+                'en' => "I don't have access to that information in the system right now. Please contact support or check the relevant section in your dashboard.",
+                'tl' => "Wala po akong access sa information na iyan sa system ngayon. Makipag-ugnayan po sa support o tingnan ang relevant section sa dashboard niyo.",
+            ],
+        ];
+        
+        $langKey = $language === 'filipino' ? 'tl' : 'en';
+        $responseData = $responses[$dataType] ?? $responses['general'];
+        
+        return [
+            'response' => $responseData[$langKey],
+            'data_unavailable' => true,
+            'data_type' => $dataType,
+            'has_data' => false,
+            'meta' => [
+                'source' => 'data_unavailable',
+                'reason' => 'system_data_not_accessible',
+            ],
+        ];
+    }
+
+    /**
+     * Build role restriction response
+     * Used when a user tries to access features outside their role
+     * 
+     * @param string $requestedFeature The feature being requested
+     * @param string $currentRole User's current role
+     * @param array $allowedRoles Roles that can access this feature
+     * @param string $language Response language
+     * @return array Response with guidance
+     */
+    public function buildRoleRestrictionResponse(
+        string $requestedFeature,
+        string $currentRole,
+        array $allowedRoles,
+        string $language = 'english'
+    ): array {
+        $roleNames = array_map(fn($r) => ucfirst($r), $allowedRoles);
+        $roleList = count($roleNames) > 1 
+            ? implode(', ', array_slice($roleNames, 0, -1)) . ' or ' . end($roleNames)
+            : $roleNames[0] ?? 'Admin';
+
+        if ($language === 'filipino') {
+            $messages = [
+                'view_all_appointments' => "Ang pagtingin sa lahat ng appointments ay para sa {$roleList} accounts lang po. Bilang " . ucfirst($currentRole) . ", pwede niyo po tingnan ang sarili niyong appointments sa pamamagitan ng pag-tanong ng 'Ipakita ang mga appointment ko'.",
+                'approve_appointment' => "Ang pag-approve ng appointments ay kailangan ng {$roleList} privileges. Bilang " . ucfirst($currentRole) . ", pwede niyo i-check ang status ng appointment niyo.",
+                'decline_appointment' => "Ang pag-decline ng appointments ay kailangan ng {$roleList} privileges. Pwede niyo i-cancel ang sarili niyong appointment kung kailangan.",
+                'approve_refund' => "Ang refund approvals ay handled ng {$roleList}. Pwede kayong mag-request ng refund at i-track ang status nito.",
+                'process_payment' => "Ang payment processing ay restricted sa {$roleList}. Pwede niyo i-check ang payment status niyo o magbayad sa payment portal.",
+                'view_analytics' => "Ang analytics at reports ay para sa {$roleList} lang. Pwede ko kayo tulungan sa personal appointment at payment information niyo.",
+                'manage_users' => "Ang user management ay para sa {$roleList} accounts lang. Pwede ko kayo tulungan i-update ang sarili niyong profile.",
+                'default' => "Ang feature na ito ay restricted sa {$roleList} accounts. Ang role niyo ngayon (" . ucfirst($currentRole) . ") ay walang access dito. May iba pa ba akong maitutulong sa inyo?",
+            ];
+        } else {
+            $messages = [
+                'view_all_appointments' => "Viewing all appointments is restricted to {$roleList} accounts. As a " . ucfirst($currentRole) . ", you can view your own appointments by asking 'Show my appointments'.",
+                'approve_appointment' => "Approving appointments requires {$roleList} privileges. As a " . ucfirst($currentRole) . ", you can check your appointment status instead.",
+                'decline_appointment' => "Declining appointments requires {$roleList} privileges. You can cancel your own appointments if needed.",
+                'approve_refund' => "Refund approvals are handled by {$roleList}. You can request a refund and track its status.",
+                'process_payment' => "Payment processing is restricted to {$roleList}. You can check your payment status or make payments through the payment portal.",
+                'view_analytics' => "Analytics and reports are only available to {$roleList}. I can help you with your personal appointment and payment information instead.",
+                'manage_users' => "User management is an {$roleList}-only feature. I can help you update your own profile information.",
+                'default' => "This feature is restricted to {$roleList} accounts. Your current role (" . ucfirst($currentRole) . ") doesn't have access to this functionality. Is there something else I can help you with?",
+            ];
+        }
+
+        $message = $messages[$requestedFeature] ?? $messages['default'];
+
+        return [
+            'response' => $message,
+            'role_restricted' => true,
+            'required_roles' => $allowedRoles,
+            'current_role' => $currentRole,
+            'has_data' => false,
+        ];
+    }
+
+    /**
+     * Build transparency response when data is unavailable
+     * 
+     * @param string $dataType Type of data that's unavailable
+     * @param string $language Response language
+     * @return array Response with transparency message
+     */
+    public function buildTransparencyResponse(string $dataType, string $language = 'english'): array
+    {
+        if ($language === 'filipino') {
+            $responses = [
+                'appointment' => "Hindi ko po ma-access ang appointment information ngayon. Pakitingnan po ang Appointments section sa dashboard niyo o makipag-ugnayan sa support para sa tulong.",
+                'payment' => "Hindi ko po makuha ang payment details ngayon. Paki-visit po ang Payments section o makipag-ugnayan sa cashier para sa accurate information.",
+                'refund' => "Hindi available sa akin ang refund information ngayon. Pakitingnan po ang refund status niyo sa dashboard o makipag-ugnayan sa administrator.",
+                'user' => "Hindi ko po ma-access ang user account details. Pakitingnan po ang profile settings niyo o makipag-ugnayan sa support.",
+                'service' => "Hindi available ngayon ang service information. Paki-visit po ang Services page namin para sa updated information.",
+                'schedule' => "Hindi ko po ma-access ang schedule data ngayon. Pakitingnan po ang booking calendar para sa available slots.",
+                'general' => "Wala po akong access sa information na iyon sa system. Makipag-ugnayan po sa support o tingnan ang relevant section sa dashboard niyo.",
+            ];
+        } else {
+            $responses = [
+                'appointment' => "I don't have access to appointment information at the moment. Please check the Appointments section in your dashboard or contact support for assistance.",
+                'payment' => "I cannot retrieve payment details right now. Please visit the Payments section or contact the cashier for accurate information.",
+                'refund' => "Refund information is not available to me at this time. Please check your refund status in the dashboard or contact an administrator.",
+                'user' => "I don't have access to user account details. Please check your profile settings or contact support.",
+                'service' => "Service information is currently unavailable. Please visit our Services page for the most up-to-date information.",
+                'schedule' => "I cannot access schedule data at the moment. Please check the booking calendar for available slots.",
+                'general' => "I don't have access to that information in the system. Please contact support or check the relevant section in your dashboard.",
+            ];
+        }
+
+        return [
+            'response' => $responses[$dataType] ?? $responses['general'],
+            'data_unavailable' => true,
+            'data_type' => $dataType,
+            'has_data' => false,
+        ];
+    }
+
+    /**
+     * Build out of scope response
+     * Provides a friendly response without listing all capabilities
+     * 
+     * @param string $language Response language
+     * @return array Response explaining scope limitations
+     */
+    public function buildOutOfScopeResponse(string $language = 'english'): array
+    {
+        if ($language === 'filipino') {
+            $responses = [
+                "Pasensya na, pero ang tanong na iyan ay labas sa aking kakayahan. Ako po ay para lamang sa appointment booking system na ito. May maitutulong ba ako tungkol sa appointments o services niyo?",
+                "Hindi ko po masagot iyan dahil hindi iyan sakop ng aking trabaho. Nandito po ako para tulungan kayo sa mga appointments, services, at account dito sa sistema. Ano po ang kailangan niyo?",
+                "Pasensya na po, limitado lang po ang aking kakayahan sa appointment system na ito. Kung may tanong po kayo tungkol sa booking o services, masaya po akong tumulong!",
+            ];
+            $response = $responses[array_rand($responses)];
+        } else {
+            $responses = [
+                "I appreciate your question, but that's outside the scope of what I'm designed to help with. I'm your assistant for this appointment booking system. Is there anything I can help you with regarding appointments or services?",
+                "I'm sorry, but I can only assist with matters related to this appointment system. If you have questions about booking, services, or your account, I'd be happy to help!",
+                "That's not something I'm able to help with, as my expertise is limited to this booking system. Feel free to ask me about appointments, services, or payments instead!",
+                "I wish I could help with that, but it's outside my capabilities. I specialize in appointment booking assistance. What can I help you with regarding your appointments today?",
+            ];
+            $response = $responses[array_rand($responses)];
+        }
+
+        return [
+            'response' => $response,
+            'out_of_scope' => true,
+            'has_data' => false,
+        ];
+    }
+
+    /**
+     * Build action guidance response
+     * Used when user asks the bot to perform an action it cannot do
+     * 
+     * @param string $action The action requested
+     * @param string $language Response language
+     * @return array Response with guidance on how to perform the action
+     */
+    public function buildActionGuidanceResponse(string $action, string $language = 'english'): array
+    {
+        if ($language === 'filipino') {
+            $guidance = [
+                'approve_appointment' => "Hindi ko po ma-approve ang appointments directly, pero pwede ko kayong i-guide sa process. Para mag-approve ng appointments:\n\n1. Pumunta sa **Admin Dashboard**\n2. I-click ang **Pending Appointments**\n3. I-review ang appointment details\n4. I-click ang **Approve** o **Decline**\n\nGusto niyo bang ipakita ko ang pending appointments na kailangan i-review?",
+                'process_payment' => "Hindi ko po ma-process ang payments para sa inyo, pero ito ang paraan:\n\n1. Pumunta sa **Payments** section\n2. Piliin ang appointment na babayaran\n3. Piliin ang payment method\n4. Kumpletuhin ang transaction\n\nKailangan niyo ba ng tulong sa pag-intindi ng payment process?",
+                'cancel_appointment' => "Hindi ko po ma-cancel ang appointments directly. Para mag-cancel ng appointment:\n\n1. Pumunta sa **My Appointments**\n2. Hanapin ang appointment na gusto niyo i-cancel\n3. I-click ang **Cancel Appointment**\n4. I-confirm ang cancellation\n\nGusto niyo bang makita ang upcoming appointments niyo?",
+                'default' => "Ako po ay designed para mag-assist, inform, at guide - pero hindi po ako pwedeng mag-perform ng actions para sa inyo. Ito ay para sa security at accuracy ng system.\n\nPwede ko po:\n✓ I-explain kung paano gawin ang isang bagay\n✓ Ipakita ang relevant information\n✓ I-guide kayo sa mga processes\n✓ Sagutin ang mga tanong niyo\n\nAno po ang gusto niyong malaman?",
+            ];
+        } else {
+            $guidance = [
+                'approve_appointment' => "I can't approve appointments directly, but I can guide you through the process. To approve appointments:\n\n1. Go to the **Admin Dashboard**\n2. Navigate to **Pending Appointments**\n3. Review the appointment details\n4. Click **Approve** or **Decline**\n\nWould you like me to show you the pending appointments that need review?",
+                'process_payment' => "I'm unable to process payments on your behalf, but here's how you can do it:\n\n1. Go to the **Payments** section\n2. Select the appointment to pay for\n3. Choose your payment method\n4. Complete the transaction\n\nNeed help understanding the payment process?",
+                'cancel_appointment' => "I can't cancel appointments directly. To cancel an appointment:\n\n1. Go to **My Appointments**\n2. Find the appointment you want to cancel\n3. Click **Cancel Appointment**\n4. Confirm your cancellation\n\nWould you like to see your upcoming appointments?",
+                'default' => "I'm designed to assist, inform, and guide - but I cannot perform actions on your behalf. This ensures security and accuracy in the system.\n\nI can:\n✓ Explain how to do something\n✓ Show you relevant information\n✓ Guide you through processes\n✓ Answer your questions\n\nWhat would you like to know?",
+            ];
+        }
+
+        $response = $guidance[$action] ?? $guidance['default'];
+
+        return [
+            'response' => $response,
+            'action_guidance' => true,
+            'requested_action' => $action,
+            'has_data' => false,
+        ];
+    }
+
+    /**
+     * Build inappropriate content response
+     * 
+     * @param string $language Response language
+     * @return array Response handling inappropriate content
+     */
+    public function buildInappropriateContentResponse(string $language = 'english'): array
+    {
+        if ($language === 'filipino') {
+            $responses = [
+                "Nandito po ako para tumulong sa mga system-related questions. Panatilihin natin na may respeto at professional ang ating usapan. Paano ko po kayo matutulungan sa appointments, services, o payments?",
+                "Naiintindihan ko po na maaaring frustrated kayo, pero hindi ko po masagot ang inappropriate language. Masaya po akong tumulong kung mayroon kayong tanong tungkol sa aming services, appointments, o account niyo.",
+            ];
+        } else {
+            $responses = [
+                "I'm here to help with system-related questions. Let's keep our conversation respectful and professional. How can I assist you with appointments, services, or payments?",
+                "I understand you may be frustrated, but I'm unable to respond to inappropriate language. I'm happy to help if you have questions about our services, appointments, or your account.",
+            ];
+        }
+
+        return [
+            'response' => $responses[array_rand($responses)],
+            'content_filtered' => true,
+            'has_data' => false,
+        ];
+    }
+
+    /**
+     * Build comprehensive error handling response
+     * 
+     * @param string $errorType Type of error
+     * @param string $context Additional context
+     * @param string $language Response language
+     * @return array Response with error handling guidance
+     */
+    public function buildErrorHandlingResponse(string $errorType, string $context = '', string $language = 'english'): array
+    {
+        if ($language === 'filipino') {
+            $responses = [
+                'database_error' => [
+                    'response' => "Nagkakaroon ako ng problema sa pag-access ng system data ngayon. Maaaring temporary issue ito.",
+                    'suggestions' => [
+                        'Subukan i-refresh ang page',
+                        'Maghintay ng ilang sandali at subukan ulit',
+                        'Makipag-ugnayan sa support kung magpatuloy ang problema',
+                    ],
+                    'next_steps' => 'Kung kailangan niyo ng immediate assistance, makipag-ugnayan po direkta sa support team namin.',
+                ],
+                'authentication_error' => [
+                    'response' => "Mukhang may problema sa session niyo. Maaaring kailangan niyong mag-log in ulit.",
+                    'suggestions' => [
+                        'Subukan mag-logout at mag-login ulit',
+                        'I-clear ang browser cache niyo',
+                        'Gamitin ang login page para mag-authenticate ulit',
+                    ],
+                    'next_steps' => 'Pagkatapos mag-login, magkakaroon kayo ng full access sa account features niyo.',
+                ],
+                'general' => [
+                    'response' => "May nangyaring problema habang prinoprocess ang request niyo.",
+                    'suggestions' => [
+                        'Subukan ulit sa ilang sandali',
+                        'I-rephrase ang tanong niyo',
+                        'Makipag-ugnayan sa support para sa tulong',
+                    ],
+                    'next_steps' => 'Nandito ako para tumulong - sabihin niyo kung paano ko kayo matutulungan.',
+                ],
+            ];
+        } else {
+            $responses = [
+                'database_error' => [
+                    'response' => "I'm having trouble accessing the system data right now. This could be a temporary issue.",
+                    'suggestions' => [
+                        'Try refreshing the page',
+                        'Wait a moment and try again',
+                        'Contact support if the issue persists',
+                    ],
+                    'next_steps' => 'If you need immediate assistance, please contact our support team directly.',
+                ],
+                'authentication_error' => [
+                    'response' => "There seems to be an issue with your session. You may need to log in again.",
+                    'suggestions' => [
+                        'Try logging out and back in',
+                        'Clear your browser cache',
+                        'Use the login page to re-authenticate',
+                    ],
+                    'next_steps' => 'After logging in, you\'ll have full access to your account features.',
+                ],
+                'permission_error' => [
+                    'response' => "You don't have permission to access this feature with your current account type.",
+                    'suggestions' => [
+                        'Check if you\'re logged into the correct account',
+                        'Contact an administrator for access',
+                        'Review the feature requirements',
+                    ],
+                    'next_steps' => 'I can help you with features available to your account type.',
+                ],
+                'validation_error' => [
+                    'response' => "The information provided doesn't seem to be in the correct format.",
+                    'suggestions' => [
+                        'Double-check the information you entered',
+                        'Make sure all required fields are filled',
+                        'Try using a different format (e.g., date format)',
+                    ],
+                    'next_steps' => 'Let me know what you\'re trying to do, and I\'ll guide you through it.',
+                ],
+                'not_found' => [
+                    'response' => "I couldn't find what you're looking for in the system.",
+                    'suggestions' => [
+                        'Verify the ID or reference number',
+                        'Check if the item exists in your account',
+                        'Try searching with different criteria',
+                    ],
+                    'next_steps' => 'Would you like me to help you search for something else?',
+                ],
+                'general' => [
+                    'response' => "Something went wrong while processing your request.",
+                    'suggestions' => [
+                        'Try again in a moment',
+                        'Rephrase your question',
+                        'Contact support for assistance',
+                    ],
+                    'next_steps' => 'I\'m here to help - let me know if there\'s another way I can assist you.',
+                ],
+            ];
+        }
+
+        $error = $responses[$errorType] ?? $responses['general'];
+        
+        $formattedResponse = $error['response'] . "\n\n";
+        if (!empty($error['suggestions'])) {
+            $formattedResponse .= "**Suggestions:**\n";
+            foreach ($error['suggestions'] as $suggestion) {
+                $formattedResponse .= "• {$suggestion}\n";
+            }
+        }
+        if (!empty($error['next_steps'])) {
+            $formattedResponse .= "\n" . $error['next_steps'];
+        }
+
+        return [
+            'response' => $formattedResponse,
+            'error_type' => $errorType,
+            'suggestions' => $error['suggestions'] ?? [],
             'has_data' => false,
         ];
     }

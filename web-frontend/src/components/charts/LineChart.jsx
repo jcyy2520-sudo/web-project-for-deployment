@@ -1,7 +1,7 @@
 import { useMemo, useState, useRef } from 'react';
 import { ChartBarIcon } from '@heroicons/react/24/outline';
 
-const LineChart = ({ data = [], title, color = 'amber', height = 144, embedded = false, variant = 'line', responsive = false, maxHeight = null }) => {
+const LineChart = ({ data = [], title, color = 'amber', height = 144, embedded = false, variant = 'line', responsive = false, maxHeight = null, isDarkMode = true }) => {
   const containerRef = useRef(null);
   const [tooltip, setTooltip] = useState(null); // {xPx, yPx, index}
 
@@ -127,8 +127,8 @@ const LineChart = ({ data = [], title, color = 'amber', height = 144, embedded =
     : { height: `${height + 48}px` };
  
   return (
-      <div ref={containerRef} className="bg-gray-900 border border-amber-500/20 rounded-lg shadow p-4 hover:border-amber-500/40 transition-all duration-300 relative flex flex-col" style={wrapperStyle}>
-      <h3 className="text-sm font-semibold text-amber-50 mb-3 flex items-center">
+      <div ref={containerRef} className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20 hover:border-amber-500/40' : 'bg-white border-amber-300/30 hover:border-amber-400/50'} border rounded-lg shadow p-4 transition-all duration-300 relative flex flex-col`} style={wrapperStyle}>
+      <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-3 flex items-center`}>
         <ChartBarIcon className="h-4 w-4 mr-2" />
         {title}
       </h3>

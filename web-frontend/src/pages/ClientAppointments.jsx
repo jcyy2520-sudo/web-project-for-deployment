@@ -80,6 +80,84 @@ const ClientAppointments = () => {
   const [showRefundDetailsModal, setShowRefundDetailsModal] = useState(false);
   const [selectedAppointmentForDetails, setSelectedAppointmentForDetails] = useState(null);
 
+  // Define callback functions BEFORE they're used in useEffect
+  const loadAppointments = useCallback(async () => {
+    console.log('[loadAppointments] Starting...');
+    const result = await callApi((signal) =>
+      axios.get('/api/appointments', { signal })
+    , { skipCache: true }); // Skip cache to ensure fresh data
+    
+    console.log('[ClientAppointments] API result:', result);
+    
+    if (result.success) {
+      const appointmentsData = result.data?.data || result.data || [];
+      console.log('[ClientAppointments] Appointments data:', appointmentsData);
+      setAppointments(Array.isArray(appointmentsData) ? appointmentsData : []);
+      setCurrentPage(1);
+      console.log('[loadAppointments] Done');
+    } else {
+      console.error('[ClientAppointments] Failed to load:', result.error);
+      setAppointments([]);
+    }
+  }, [callApi]);
+
+  const loadUnavailableDates = useCallback(async () => {
+    console.log('[loadUnavailableDates] Starting...');
+    const result = await callApi((signal) =>
+      axios.get('/api/unavailable-dates', { signal })
+    , { skipCache: true, cache: false });
+    if (result.success) {
+      const dates = result.data.data || result.data;
+      console.log('[loadUnavailableDates] Loaded dates:', dates);
+      setUnavailableDates(dates);
+    } else {
+      console.error('[loadUnavailableDates] Failed:', result);
+    }
+  }, [callApi]);
+
+  const checkDailyLimit = useCallback(async (dateToCheck = null) => {
+    try {
+      // Guard: user must be loaded
+      if (!user?.id) {
+        console.log('[checkDailyLimit] User not loaded yet, skipping');
+        return;
+      }
+      
+      const checkDate = dateToCheck || selectedDate || new Date().toISOString().split('T')[0];
+      console.log('[checkDailyLimit] Fetching limit for user', user.id, 'date', checkDate);
+      
+      const res = await callApi((signal) =>
+        axios.get(`/api/appointment-settings/user-limit/${user.id}/${checkDate}`, { signal })
+      );
+
+      console.log('[checkDailyLimit] API Response:', res);
+
+      if (res.success && res.data && res.data.data) {
+        const data = res.data.data;
+        console.log('[checkDailyLimit] Setting daily limit info:', {
+          limit: data.limit,
+          used: data.used,
+          remaining: data.remaining,
+          hasReachedLimit: data.has_reached_limit
+        });
+        setDailyLimitInfo({
+          limit: data.limit,
+          used: data.used || 0,
+          remaining: data.remaining,
+          hasReachedLimit: data.has_reached_limit || false,
+          message: data.message || null,
+          bookingsToday: data.bookings_today || [],
+          date: data.date || checkDate,
+          next_available_time: data.next_available_time || null
+        });
+      } else {
+        console.error('[checkDailyLimit] API failed or no data:', res);
+      }
+    } catch (err) {
+      console.error('[checkDailyLimit] Error:', err);
+    }
+  }, [user?.id, selectedDate, callApi]);
+
   useEffect(() => {
     if (!user?.id) {
       console.log('[ClientAppointments] User not loaded yet, waiting...');
@@ -131,32 +209,6 @@ const ClientAppointments = () => {
     window.addEventListener('appointmentSettingsChanged', handler);
     return () => window.removeEventListener('appointmentSettingsChanged', handler);
   }, [selectedDate]);
-
-  const loadAppointments = useCallback(async () => {
-    console.log('[loadAppointments] Starting...');
-    const result = await callApi((signal) =>
-      axios.get('/api/appointments', { signal })
-    );
-    if (result.success) {
-      setAppointments(result.data.data || result.data);
-      setCurrentPage(1);
-      console.log('[loadAppointments] Done');
-    }
-  }, [callApi]);
-
-  const loadUnavailableDates = useCallback(async () => {
-    console.log('[loadUnavailableDates] Starting...');
-    const result = await callApi((signal) =>
-      axios.get('/api/unavailable-dates', { signal })
-    , { skipCache: true, cache: false });
-    if (result.success) {
-      const dates = result.data.data || result.data;
-      console.log('[loadUnavailableDates] Loaded dates:', dates);
-      setUnavailableDates(dates);
-    } else {
-      console.error('[loadUnavailableDates] Failed:', result);
-    }
-  }, [callApi]);
 
   const isDateUnavailable = (date) => {
     const year = date.getFullYear();
@@ -281,49 +333,6 @@ const ClientAppointments = () => {
       setAvailableSlots(result.data.available_slots || result.data.data || []);
     }
   };
-
-  const checkDailyLimit = useCallback(async (dateToCheck = null) => {
-    try {
-      // Guard: user must be loaded
-      if (!user?.id) {
-        console.log('[checkDailyLimit] User not loaded yet, skipping');
-        return;
-      }
-      
-      const checkDate = dateToCheck || selectedDate || new Date().toISOString().split('T')[0];
-      console.log('[checkDailyLimit] Fetching limit for user', user.id, 'date', checkDate);
-      
-      const res = await callApi((signal) =>
-        axios.get(`/api/appointment-settings/user-limit/${user.id}/${checkDate}`, { signal })
-      );
-
-      console.log('[checkDailyLimit] API Response:', res);
-
-      if (res.success && res.data && res.data.data) {
-        const data = res.data.data;
-        console.log('[checkDailyLimit] Setting daily limit info:', {
-          limit: data.limit,
-          used: data.used,
-          remaining: data.remaining,
-          hasReachedLimit: data.has_reached_limit
-        });
-        setDailyLimitInfo({
-          limit: data.limit,
-          used: data.used || 0,
-          remaining: data.remaining,
-          hasReachedLimit: data.has_reached_limit || false,
-          message: data.message || null,
-          bookingsToday: data.bookings_today || [],
-          date: data.date || checkDate,
-          next_available_time: data.next_available_time || null
-        });
-      } else {
-        console.error('[checkDailyLimit] API failed or no data:', res);
-      }
-    } catch (err) {
-      console.error('[checkDailyLimit] Error:', err);
-    }
-  }, [user?.id, selectedDate, callApi]);
 
   const handleDateChange = (date) => {
     console.log('[handleDateChange] Date selected:', date);

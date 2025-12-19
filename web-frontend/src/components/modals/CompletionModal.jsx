@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { XMarkIcon } from '@heroicons/react/24/outline';
 import { CheckCircleIcon } from '@heroicons/react/24/solid';
 
-const CompletionModal = ({ isOpen, onClose, appointment, onConfirm, loading }) => {
+const CompletionModal = ({ isOpen, onClose, appointment, onConfirm, loading, isDarkMode = true }) => {
   const [completionNotes, setCompletionNotes] = useState('');
   const [error, setError] = useState('');
 
@@ -38,18 +38,18 @@ const CompletionModal = ({ isOpen, onClose, appointment, onConfirm, loading }) =
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-gray-900 rounded-lg shadow-2xl max-w-md w-full max-h-[90vh] overflow-hidden flex flex-col border border-gray-700">
+      <div className={`${isDarkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'} border rounded-lg shadow-2xl max-w-md w-full max-h-[90vh] overflow-hidden flex flex-col`}>
         {/* Header */}
-        <div className="bg-gradient-to-r from-blue-900 to-blue-800 px-6 py-4 flex items-center justify-between">
+        <div className={`${isDarkMode ? 'bg-gradient-to-r from-blue-900 to-blue-800' : 'bg-gradient-to-r from-blue-600 to-blue-500'} px-6 py-4 flex items-center justify-between`}>
           <div className="flex items-center">
-            <CheckCircleIcon className="h-5 w-5 text-blue-300 mr-2" />
-            <h3 className="text-sm font-semibold text-blue-50">
+            <CheckCircleIcon className={`h-5 w-5 ${isDarkMode ? 'text-blue-300' : 'text-blue-100'} mr-2`} />
+            <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-blue-50' : 'text-white'}`}>
               Mark as Completed
             </h3>
           </div>
           <button 
             onClick={handleClose} 
-            className="text-gray-400 hover:text-blue-300 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 rounded p-1"
+            className={`${isDarkMode ? 'text-gray-400 hover:text-blue-300' : 'text-blue-200 hover:text-white'} transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 rounded p-1`}
             disabled={loading}
           >
             <XMarkIcon className="h-4 w-4" />
@@ -59,28 +59,28 @@ const CompletionModal = ({ isOpen, onClose, appointment, onConfirm, loading }) =
         {/* Content */}
         <div className="flex-1 min-h-0 overflow-y-auto p-4">
           {/* Appointment Info */}
-          <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3 mb-4">
-            <p className="text-xs text-blue-200 mb-2">
+          <div className={`${isDarkMode ? 'bg-blue-500/10 border-blue-500/30' : 'bg-blue-50 border-blue-200'} border rounded-lg p-3 mb-4`}>
+            <p className={`text-xs ${isDarkMode ? 'text-blue-200' : 'text-blue-700'} mb-2`}>
               <strong>Client:</strong> {appointment.user?.first_name} {appointment.user?.last_name}
             </p>
-            <p className="text-xs text-blue-200 mb-2">
+            <p className={`text-xs ${isDarkMode ? 'text-blue-200' : 'text-blue-700'} mb-2`}>
               <strong>Email:</strong> {appointment.user?.email}
             </p>
-            <p className="text-xs text-blue-200 mb-2">
+            <p className={`text-xs ${isDarkMode ? 'text-blue-200' : 'text-blue-700'} mb-2`}>
               <strong>Service:</strong> {appointment.service_type || appointment.type}
             </p>
-            <p className="text-xs text-blue-200 mb-2">
+            <p className={`text-xs ${isDarkMode ? 'text-blue-200' : 'text-blue-700'} mb-2`}>
               <strong>Date:</strong> {formattedDate}
             </p>
-            <p className="text-xs text-blue-200">
+            <p className={`text-xs ${isDarkMode ? 'text-blue-200' : 'text-blue-700'}`}>
               <strong>Time:</strong> {formattedTime}
             </p>
           </div>
 
           {/* Notes Section */}
           <div className="mb-4">
-            <label className="block text-xs font-semibold text-gray-300 mb-2">
-              Completion Notes <span className="text-gray-500 font-normal">(Optional)</span>
+            <label className={`block text-xs font-semibold ${isDarkMode ? 'text-gray-300' : 'text-gray-700'} mb-2`}>
+              Completion Notes <span className={`${isDarkMode ? 'text-gray-500' : 'text-gray-400'} font-normal`}>(Optional)</span>
             </label>
             <textarea
               value={completionNotes}
@@ -90,12 +90,12 @@ const CompletionModal = ({ isOpen, onClose, appointment, onConfirm, loading }) =
               }}
               maxLength={1000}
               placeholder="Add any notes about the appointment completion..."
-              className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-gray-100 placeholder-gray-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none text-sm resize-none"
+              className={`w-full px-3 py-2 ${isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-100 placeholder-gray-500 focus:border-blue-500' : 'bg-gray-50 border-gray-300 text-gray-900 placeholder-gray-400 focus:border-blue-500'} border rounded-lg focus:ring-1 focus:ring-blue-500 outline-none text-sm resize-none`}
               rows={4}
               disabled={loading}
             />
             <div className="flex items-center justify-between mt-1">
-              <p className="text-xs text-gray-500">
+              <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
                 {completionNotes.length}/1000 characters
               </p>
               {error && <p className="text-xs text-red-400">{error}</p>}

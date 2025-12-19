@@ -45,3 +45,29 @@ curl -X POST http://localhost:8000/api/admin/alerts/rules \
 # View alerts dashboard
 curl http://localhost:8000/api/admin/alerts/dashboard \
   -H "Authorization: Bearer TOKEN"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Improve my AI chatbot Smart Understanding. 
+
+Improve NLU, intent recognition, and fuzzy matching so it can understand incomplete messages, spelling mistakes, shortcuts, or informal text. 
+
+Interpret user questions even if phrased differently. 
+
+Provide the closest correct action or answer based on system context.

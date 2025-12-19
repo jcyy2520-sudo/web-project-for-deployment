@@ -16,7 +16,9 @@ return [
     |
     */
 
-    'default' => env('DB_CONNECTION', 'sqlite'),
+    // IMPORTANT: Default to MySQL to prevent accidental SQLite usage in production
+    // The env('DB_CONNECTION', 'mysql') ensures MySQL is used if .env is not loaded
+    'default' => env('DB_CONNECTION', 'mysql'),
 
     /*
     |--------------------------------------------------------------------------
