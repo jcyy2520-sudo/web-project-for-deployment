@@ -63,9 +63,9 @@ class AdvancedLLMService
             'style' => 'Use clear, formal language. Be thorough but concise.',
         ],
         'friendly' => [
-            'traits' => ['warm', 'approachable', 'empathetic'],
-            'tone' => 'friendly and conversational',
-            'style' => 'Use warm language, occasional emojis. Be supportive and understanding.',
+            'traits' => ['professional', 'approachable', 'helpful'],
+            'tone' => 'professional and courteous',
+            'style' => 'Use clear, professional language. Be supportive but maintain a neutral tone. NO EMOJIS.',
         ],
         'expert' => [
             'traits' => ['knowledgeable', 'detailed', 'authoritative'],

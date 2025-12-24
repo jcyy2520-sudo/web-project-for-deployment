@@ -11,7 +11,7 @@ use App\Services\AdvancedLLMService;
 use App\Services\ChatbotMemoryService;
 use App\Services\ChatbotNLUService;
 use App\Services\ChatbotRoleAwarenessService;
-use App\Services\EmbeddingService;
+use App\Services\SemanticEmbeddingsService;
 use App\Services\SmartActionSuggestionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -33,26 +33,22 @@ class ChatbotStreamController extends Controller
     private ChatbotNLUService $nluService;
     private ChatbotRoleAwarenessService $roleService;
     private SmartActionSuggestionService $actionService;
-    private ?EmbeddingService $embeddingService = null;
+    private SemanticEmbeddingsService $embeddingsService;
 
     public function __construct(
         AdvancedLLMService $llmService,
         ChatbotMemoryService $memoryService,
         ChatbotNLUService $nluService,
         ChatbotRoleAwarenessService $roleService,
-        SmartActionSuggestionService $actionService
+        SmartActionSuggestionService $actionService,
+        SemanticEmbeddingsService $embeddingsService
     ) {
         $this->llmService = $llmService;
         $this->memoryService = $memoryService;
         $this->nluService = $nluService;
         $this->roleService = $roleService;
         $this->actionService = $actionService;
-
-        try {
-            $this->embeddingService = app(EmbeddingService::class);
-        } catch (\Exception $e) {
-            Log::debug('EmbeddingService not available');
-        }
+        $this->embeddingsService = $embeddingsService;
     }
 
     /**
@@ -115,8 +111,10 @@ class ChatbotStreamController extends Controller
 
                 // Step 3: Get RAG context if available
                 $ragContext = '';
-                if ($this->embeddingService && $this->embeddingService->isAvailable()) {
-                    $ragContext = $this->embeddingService->getRAGContext($userMessage, $userId);
+                try {
+                    $ragContext = $this->embeddingsService->getRAGContext($userMessage);
+                } catch (\Exception $e) {
+                    Log::debug('RAG context retrieval failed: ' . $e->getMessage());
                 }
 
                 // Step 4: Build LLM context
@@ -127,7 +125,7 @@ class ChatbotStreamController extends Controller
                     'system_data' => $this->gatherSystemData($userRole),
                     'user_info' => $this->gatherUserData($userId),
                     'knowledge_context' => $ragContext,
-                    'memory_context' => $this->memoryService->formatContextForPrompt($conversationContext),
+                    'memory_context' => $this->memoryService->getConversationContext($userId, $conversationId),
                 ];
 
                 // Prepare conversation history

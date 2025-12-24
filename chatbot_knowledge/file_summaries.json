@@ -1,0 +1,338 @@
+[
+    {
+        "path": "C:\\laragon\\www\\web\\chatbot_knowledge/docs/NLU_SYSTEM_DOCUMENTATION.md",
+        "concise_summary": "# Advanced NLU System Documentation ## Overview Your chatbot now includes a **real-time, intelligent Natural Language Understanding (NLU) system** with: - **Multilingual Support** (English, Filipino/Tagalog, Taglish) - **Robust NLP** (fuzzy matching, typo tolerance, slang expansion) - **Content Safety** (real-time filtering, hate speech detection) - **Smart Intent Recogni",
+        "sha1": "8d24fce3ec7c1f43ea1129eaebaed0e12ffd45cd",
+        "kind": "doc"
+    },
+    {
+        "path": "C:\\laragon\\www\\web\\chatbot_knowledge/docs/QUICK_NLU_INTEGRATION.md",
+        "concise_summary": "php use App\\Services\\AdvancedNLPService; use App\\Services\\[REDACTED]; use App\\Services\\Sm",
+        "sha1": "aa96948b1b60c5493d2923c850b2f43a632f7369",
+        "kind": "doc"
+    },
+    {
+        "path": "C:\\laragon\\www\\web\\chatbot_knowledge/docs/QUICK_START.md",
+        "concise_summary": "# \ud83d\ude80 Phase 2 Quick Start Guide ## What You Just Got Complete System Administration & Maintenance features for your web application: - \u2705 Real-time health monitoring - \u2705 Slack alerts and notifications - \u2705 Database backup & restore - \u2705 Frontend error tracking - \u2705 Background job monitoring - \u2705 Admin monitoring dashboard --- ## \u26a1 5-Minute Setup ### Ste",
+        "sha1": "0f7442d11ad6ae776ded7f4313d28e8305f40f36",
+        "kind": "doc"
+    },
+    {
+        "path": "C:\\laragon\\www\\web\\chatbot_knowledge/docs/START_HERE.md",
+        "concise_summary": "```markdown Feature Status Impact Advanced Monitoring \u274c Can't track system performance, CPU, memory, disk Error Tracking \u274c Silent failures, no alerts to you Database Backups \u274c Data loss risk Frontend Error Tracking \u274c Client-side bugs go unnoticed Automated Alerts \u274c You won't know when things break Log Aggregation \u26a0\ufe0f Partial Logs only in files, no centralized view Performance",
+        "sha1": "fc4060dd5d60994645ec746ca0ff99f510693bfa",
+        "kind": "doc"
+    },
+    {
+        "path": "C:\\laragon\\www\\web\\chatbot_knowledge/routes/api.php",
+        "concise_summary": "",
+        "sha1": "48542b47126a24f569ff932c5f5e846330931327",
+        "kind": "routes_doc"
+    },
+    {
+        "path": "web-backend/app/Services/AdvancedLLMService.php",
+        "concise_summary": "AdvancedLLMService - Production-Grade AI Backend Features: - Multiple provider support (Claude, OpenAI, Mistral, Ollama) - Streaming responses for real-time token generation - Extended context window (8K-128K tokens) - Personality/character system - Conversation memory with semantic context - Automatic fallback chain - Rate limiting & cost tracking",
+        "sha1": "148cacb3293af0782933d8d97edd93d3dbc2f220",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/AdvancedContentModerationService.php",
+        "concise_summary": "[REDACTED] - Multi-Layer Real-Time Content Safety Intelligent, real-time content moderation featuring: - Pattern-based detection (regex + fuzzy matching) - Contextual analysis (sentence-level understanding) - Hate speech and offensive language detection - Harmful intent recognition - Real-time learning from flagged content - Confidence scoring - API integration for advanced",
+        "sha1": "7fae6d4b8a614f62c355895e57287ac15d2b1638",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/AdvancedNLPService.php",
+        "concise_summary": "AdvancedNLPService - Multilingual NLP with Fuzzy Matching & Smart Normalization Real-time, intelligent Natural Language Processing featuring: - Fuzzy matching for typos, misspellings, and variations - Levenshtein distance-based spell correction - Soundex/Phonetic matching for pronunciation variations - Taglish (Tagalog-English mix) parsing and normalization - Slang and informal language expansio",
+        "sha1": "7a987fb4daa957b0b38737be338ef85a2b248e78",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/ActionPermissionService.php",
+        "concise_summary": "[REDACTED] - Granular role-based access control Provides per-action permission checking with dynamic capabilities Replaces broad \"admin\", \"cashier\" with granular permissions",
+        "sha1": "31a92c6f0b6f75d21afc7dd8ceb51dc0bbc7be71",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/ActionIntelligenceService.php",
+        "concise_summary": "[REDACTED] - Smart action execution and recommendations Features: - Intent-based action ranking - Predictive action suggestions - Context-aware recommendations - Action confidence scoring",
+        "sha1": "5fda2feb6c120cc5a986370668cd3c2bd53c728c",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/AppointmentService.php",
+        "concise_summary": "AppointmentService: Handles all appointment-related business logic Responsibilities: Appointment management, status updates, scheduling",
+        "sha1": "ed00ca1180c13633898724b79b52c3c1bbb2d7b3",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/AnalyticsService.php",
+        "concise_summary": "Get smart slot utilization analysis Shows underbooked days, overbooked days, and time slot demand",
+        "sha1": "b2ed6526d2727d2f5200c97e728cd249594f0654",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/AlertService.php",
+        "concise_summary": "Check if alert should be triggered based on error",
+        "sha1": "278f881c5cbc169568f805dd1fe25b0f5a817a2f",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/AdvancedNLUPipelineService.php",
+        "concise_summary": "[REDACTED] - Unified NLU Processing Pipeline Orchestrates the complete NLU pipeline by integrating: - AdvancedNLPService (text normalization, fuzzy matching) - [REDACTED] (safety filtering) - [REDACTED] (intent classification) Features: - Real-time, intelligent text processing - Multi-layer safety enforcement - Smart intent classification",
+        "sha1": "9976cecab28226c25ca38401aca71077f1cef75e",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/LLMService.php",
+        "concise_summary": "LLMService - Intelligent AI Backend Service Primary: Claude 3 (Anthropic) - Best for legal/complex reasoning Fallback: Mistral via Ollama (self-hosted option) Features: - Multi-turn conversation with full context - Semantic understanding (not pattern matching) - Role-aware responses - Automatic provider failover - Streaming support - Rate limiting",
+        "sha1": "a22bdbd710a0a66b17eaa0cfdeff3033f5c05211",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/LoggingService.php",
+        "concise_summary": "LoggingService: Handles all logging-related business logic Responsibilities: Action logging, audit trails",
+        "sha1": "56539eefd4a5ea19825717e4730ef41eb85a3f7f",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/LanguageDetectionService.php",
+        "concise_summary": "[REDACTED] Detects the language of user messages and provides multilingual response capabilities. Supports: English, Filipino/Tagalog, Taglish (mixed), Spanish, and common Asian languages.",
+        "sha1": "de46749acdf5a8ea85c0ccb537b08260ef37e6b4",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/ErrorHandlingService.php",
+        "concise_summary": "[REDACTED] - Advanced error handling and recovery Provides: - Graceful degradation - Intelligent retry logic - Smart error messages - Fallback strategies - Error tracking and analytics",
+        "sha1": "35e12e7458164961261d7cbeb88b8d071ebfcc8b",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/EmbeddingService.php",
+        "concise_summary": "EmbeddingService - Vector Embeddings for Semantic Search & RAG Features: - Generate embeddings via OpenAI, Voyage, or local models - Store embeddings in database (SQLite with json, or pgvector) - Semantic similarity search - Knowledge base indexing - Conversation embedding for long-term memory",
+        "sha1": "f294f7af58bb0fee35d3ba27523267bc4f9fc179",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/DecisionSupportService.php",
+        "concise_summary": "Get staff recommendations for an appointment Recommends the best staff member to assign based on multiple factors",
+        "sha1": "b14cc4c26c37cdd4d35c6e49847064ca5784f04d",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/DDoSProtectionService.php",
+        "concise_summary": "Check if request should be allowed",
+        "sha1": "145cad07903ccaae79935691d2404b2d3b467809",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/ConversationThreadService.php",
+        "concise_summary": "[REDACTED] - Multi-threaded conversations Handles: - Multiple parallel conversations per user - Smart context switching - Conversation suggestions - Proactive notifications - Thread organization and tagging",
+        "sha1": "53a3b860fa833d8b6f08723a92559c3f165ea969",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/ContextWindowManager.php",
+        "concise_summary": "[REDACTED] - Manages conversation history for LLM context Features: - Expanded context window (8K tokens) - Intelligent message compression for old messages - Semantic importance ranking - Token counting and optimization",
+        "sha1": "ca5465a6462c6e54c361160f402f464c1d7fda4b",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/CleanupService.php",
+        "concise_summary": "Perform all cleanup tasks",
+        "sha1": "c38c9afe261d0e18cf1093506782d440eb8059d0",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/ChatbotSmartResponseBuilder.php",
+        "concise_summary": "[REDACTED] Builds contextual, role-aware, intelligent responses based on: - Detected intent and entities - User role and capabilities - Real-time system data - Action results - User sentiment and urgency Features: - Personalized responses for each role - Data-driven content (no guessing) - Contextual follow-up questions - Clear call-to-action - Professional but friendly tone",
+        "sha1": "2d3d3513a120da3b88cdd86c5bc7ec14f08e401c",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/ChatbotServiceEnhancements.php",
+        "concise_summary": "Enhanced ChatbotService - Advanced NLU with Role-Based Intelligence \u2705 Natural Language Understanding (NLU) - Handles messy, misspelled, slang, Taglish \u2705 Fuzzy Intent Recognition - Detects intent even with unclear messages \u2705 Role-Based Response System - Different responses for User, Admin, Cashier \u2705 Action-Based Capabilities - Execute system actions through chat \u2705 Real-Time Data Integra",
+        "sha1": "d951d3d017a9a241425e716fa69103c2d3f21205",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/ChatbotServiceEnhanced.php",
+        "concise_summary": "Enhanced ChatbotService - Advanced NLU with Fuzzy Intent Recognition \u2705 Natural Language Understanding (NLU) - Handles messy, misspelled, slang, Taglish \u2705 Fuzzy Intent Recognition - Detects intent even with unclear messages \u2705 Contextual Understanding - Real-time system data integration \u2705 Dynamic Interpretation - No hardcoded phrases, semantic understanding This file contains additional h",
+        "sha1": "c8d96c437c5f8ac034e1876ce39da7a53aa9812f",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/ChatbotService.php",
+        "concise_summary": "ChatbotService - Advanced AI assistant with fuzzy understanding Provides dynamic, real-time system data with intelligent message interpretation Supports natural language understanding including misspellings, slang, Taglish, and broken grammar \u2705 Role-Aware Responses - Different handling for Client, Admin, Cashier \u2705 Real-Time Data Integration - Always uses current database values \u2705 Action-Ba",
+        "sha1": "a11aa1b912b45616d436f123d6c75ca690d6f17a",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/ChatbotRoleAwarenessService.php",
+        "concise_summary": "[REDACTED] Detects and manages user roles with detailed capabilities and permissions. Supports: User (Client), Admin, Cashier, Staff, and Guest roles Features: - Accurate role detection from authentication - Role capability management - Permission checking for actions - Role-specific context building - [REDACTED] mapping - Dynamic capability checking - Role-based resp",
+        "sha1": "c73e4355ddafeffbda33194d32591707410f37bf",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/ChatbotRealTimeDataService.php",
+        "concise_summary": "[REDACTED] Fetches real-time system data without fabrication Uses intelligent caching to balance freshness and performance Always bases responses on actual system state Features: - Real-time appointment data - Current payment status and history - Active refund requests - System availability and settings - User information - Service availability - Business hours and schedules",
+        "sha1": "a687d5aee78e17dee445d3e9a738dc3cf8ceeae1",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/ChatbotNLUService.php",
+        "concise_summary": "ChatbotNLUService - Enhanced Natural Language Understanding Advanced Natural Language Understanding with: - Fuzzy matching for typos and variations - Intent recognition from user input - Entity extraction (IDs, dates, amounts, names) - Contextual understanding with conversation memory - Support for multiple languages (English, Filipino/Taglish) - Smart spell correction and slang normalization -",
+        "sha1": "8df3026bc2f1f912500876e8f33af8eb4a0b71bc",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/ChatbotMetricsService.php",
+        "concise_summary": "[REDACTED] - Monitoring and analytics Tracks: - Conversation quality metrics - User satisfaction - Performance bottlenecks - Response times - Engagement metrics - Error rates",
+        "sha1": "c7b8fbc678d9b79c6e2c0931c5c7fb57cb4d5114",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/ChatbotMemoryService.php",
+        "concise_summary": "[REDACTED] - Persistent Memory & Context Management Features: - Extended context window (last 50 messages, not 10) - Cross-session memory persistence - User preference learning - Conversation summarization - Topic continuity tracking - Semantic context retrieval",
+        "sha1": "cf78065d0c978ff7a8cbaf5c4ac88a98857f45e4",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/ChatbotLLMIntegration.php",
+        "concise_summary": "[REDACTED] - Bridge between ChatbotController and LLMService Handles: - Context preparation from conversation history - Intent-based LLM fallback (use LLM for unclear intents) - Conversation enrichment with real-time data - Response validation and sanitization",
+        "sha1": "ab30891947b5b5a20533f2eb95950a81baa8a366",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/ChatbotGuardService.php",
+        "concise_summary": "ChatbotGuardService - Safety, Content Filtering, and Scope Enforcement This service ensures the chatbot operates within safe boundaries: - Content filtering (profanity, offensive language, harmful content) - Scope enforcement (system-only questions) - Role-based access restrictions - Safety checks before response generation - Transparency enforcement The chatbot's role is strictly to ASSIST, IN",
+        "sha1": "45e916e1c03cd6f702b75437ef72c061dd78b81e",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/ChatbotAnalyticsService.php",
+        "concise_summary": "[REDACTED] Handles logging, tracking, and analytics for the chatbot system. Tracks: usage patterns, failed requests, sentiment, performance metrics.",
+        "sha1": "90fb799416620458b2c01117849b6522c4f80603",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/ChatbotActionService.php",
+        "concise_summary": "[REDACTED] - Execute actions through chatbot commands This service handles action-based capabilities allowing users to perform system operations through natural language commands via the chatbot. Features: - Role-based action permissions - Transaction-safe operations - Comprehensive error handling - Action logging and audit trail - Confirmation workflow for destructive actions Securi",
+        "sha1": "ffefdc712e1ff99674378f6459c6e3211e25beef",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/ChatbotActionHandler.php",
+        "concise_summary": "[REDACTED] - Execute system actions through the chatbot This handler processes action-based requests from the chatbot, enforcing role-based security and ensuring all actions follow business rules. \u2705 Action Execution - Actually perform operations (approve, cancel, process, etc.) \u2705 Role-Based Security - Verify permissions before executing actions \u2705 Audit Trail - Log all chatbot-in",
+        "sha1": "ff1d1d47b0896741456a045563963ea4a6528ae0",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/CacheInvalidationService.php",
+        "concise_summary": "[REDACTED] Manages smart cache invalidation to ensure data is fresh when needed but cached aggressively for performance",
+        "sha1": "0e3079f79e14c2c39a702fff038746e580c40e17",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/BackupService.php",
+        "concise_summary": "Create a database backup",
+        "sha1": "2d90dcebcd0f2e999b81786e892340e2c8607b2c",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/NotificationService.php",
+        "concise_summary": "Create a notification for a user",
+        "sha1": "c8b40ed77ea13ce4a847c9c7cd062ac9da0213fb",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/WorkflowService.php",
+        "concise_summary": "WorkflowService - Multi-step action orchestration Handles: - Chaining of multiple actions - Conditional execution based on results - Auto-confirmation for safe actions - Rollback on failure - Workflow history and logging",
+        "sha1": "8f5d42c64786dbc3fe6f609ddf8ce0c9fa911f73",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/WebSocketService.php",
+        "concise_summary": "WebSocketService - Real-time bidirectional communication Handles WebSocket connections, subscriptions, and broadcasting Replaces SSE with true bidirectional real-time communication",
+        "sha1": "6863dc9ba56d55ccbc695c3bd4c9cb4852362172",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/UserService.php",
+        "concise_summary": "UserService: Handles all user-related business logic Responsibilities: User creation, updates, deletions, status management",
+        "sha1": "80d1b54e5cd80a9d2e306857b62ffd861dc88e19",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/TwoFactorAuthService.php",
+        "concise_summary": "Two-Factor Authentication Service Provides infrastructure for implementing 2FA including: - TOTP (Time-based One-Time Password) support - Recovery codes management - 2FA verification attempt tracking",
+        "sha1": "7161dcc34507daa4fe7793cb0007bcfd4115c9dc",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/TokenService.php",
+        "concise_summary": "Generate a tokenized URL for sensitive operations",
+        "sha1": "553068750084ac9cf5d735dd35a90ff19fb8aab9",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/SystemMetricsService.php",
+        "concise_summary": "Collect current system metrics",
+        "sha1": "7f447fc66c59e6c9b03191a7cc6f0554b38e1733",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/StreamingLLMService.php",
+        "concise_summary": "StreamingLLMService - Streaming AI Response Generator Provides streaming responses for real-time token-by-token generation Supports both Claude and Ollama with streaming Features: - Token-by-token streaming - Server-Sent Events (SSE) support - Graceful error handling - Progress tracking",
+        "sha1": "c89245375c8e3d32650fbd4e22cf2097f603121c",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/StatsService.php",
+        "concise_summary": "StatsService: Handles dashboard statistics and analytics Responsibilities: Aggregating and calculating dashboard metrics",
+        "sha1": "17905de1822f2e66f00fd35b3a189f32612d59fd",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/SmartIntentRecognitionService.php",
+        "concise_summary": "[REDACTED] - Advanced Intent Classification & Disambiguation Intelligent intent recognition with: - Multi-level intent classification (primary, secondary, context) - Confidence scoring and uncertainty handling - Disambiguation when user intent is ambiguous - Contextual memory for coherent conversations - Fuzzy command matching - Incomplete sentence handling - Intent correction",
+        "sha1": "f429d556ad6a3d7fbef37bdf4adad77e153c4a77",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/SmartActionSuggestionService.php",
+        "concise_summary": "[REDACTED] - Predictive Action Recommendations Features: - Context-aware action suggestions - ML-based action ranking (using historical data) - Proactive notifications - Intent-based action mapping - Role-specific action filtering",
+        "sha1": "73e97d7d13d0013b9e372f2b9d37c505fe3d7026",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/SlackAlertService.php",
+        "concise_summary": "Send alert to Slack",
+        "sha1": "03b501acaa7544dd37a3a6d79be3df3d36955c63",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/ServiceService.php",
+        "concise_summary": "ServiceService: Handles all service-related business logic Responsibilities: Service management, CRUD operations",
+        "sha1": "5d8fa3d06af2ee417f4a6d899a88dfdcd60332f3",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/SemanticEmbeddingsService.php",
+        "concise_summary": "[REDACTED] - Provides semantic understanding and RAG Features: - Document embeddings for semantic search - Retrieval-Augmented Generation (RAG) - Vector similarity search - Knowledge base indexing Uses: Ollama embeddings or [REDACTED]",
+        "sha1": "5edbbc84e80f2837c3a8c1c4a16a4e5a1259a5c7",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/QueryOptimizationService.php",
+        "concise_summary": "Query Optimization Service Helps prevent N+1 query problems and optimize queries",
+        "sha1": "ba4092569876720f22c3fe99ef38964bd47edfdd",
+        "kind": "service"
+    },
+    {
+        "path": "web-backend/app/Services/PersonalityService.php",
+        "concise_summary": "PersonalityService - Role-based and sentiment-adaptive responses Features: - Role-specific personality traits - Tone adaptation based on user sentiment - Response personality injection - Conversation style customization",
+        "sha1": "42444331f05ecb7c9629c00883ab612bd65f871a",
+        "kind": "service"
+    }
+]

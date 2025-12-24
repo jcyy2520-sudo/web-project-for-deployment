@@ -18,7 +18,7 @@ use Illuminate\Support\Facades\Log;
  * 
  * ✅ Role-Aware Responses - Different handling for Client, Admin, Cashier
  * ✅ Real-Time Data Integration - Always uses current database values
- * ✅ Action-Based Capabilities - Execute system operations through chat
+ * ✅ Strictly Assistive - Provides guidance and information only
  * ✅ NLU with Fuzzy Matching - Handles typos, slang, Taglish
  * ✅ Security Enforcement - Role-based permission checks
  */
@@ -1203,7 +1203,7 @@ class ChatbotService
     {
         $tone = $analysis['sentiment']['label'] ?? 'neutral';
         if (in_array($tone, ['angry', 'frustrated'], true)) {
-            return "I can help with that. Let's sort this out: " . $reply;
+            return "I understand your concern. " . $reply;
         }
         return $reply;
     }
@@ -1253,10 +1253,10 @@ class ChatbotService
         $actualRole = $context['user_role'] ?? 'guest';
         
         // ==================== ACTION-BASED COMMAND DETECTION ====================
-        // Check if this is an action command that should execute a system operation
-        $actionResult = $this->detectAndExecuteAction($normalized, $userId, $actualRole, $entities, $context);
+        // Check if this is an action command that should provide guidance
+        $actionResult = $this->detectAndGuideAction($normalized, $userId, $actualRole, $entities, $context);
         if ($actionResult !== null) {
-            // Action was detected and processed
+            // Action was detected and guidance provided
             $actionResult['nlu'] = [
                 'normalized' => $analysis['normalized'],
                 'cleaned' => $analysis['cleaned'],
@@ -1267,13 +1267,8 @@ class ChatbotService
             ];
             $actionResult['entities'] = $entities;
             $actionResult['role_source'] = ['actual' => $actualRole, 'detected' => 'action'];
-            $actionResult['meta_source'] = 'action_handler';
+            $actionResult['meta_source'] = 'action_guidance';
             $actionResult['reply'] = $this->applyToneToReply($actionResult['reply'], $analysis);
-            
-            // Add contextual suggestions based on the action result
-            if (empty($actionResult['suggestions'])) {
-                $actionResult['suggestions'] = $this->getActionFollowUpSuggestions($actionResult, $actualRole);
-            }
             
             return $actionResult;
         }
@@ -1413,16 +1408,11 @@ class ChatbotService
     }
 
     /**
-     * Detect and execute action-based commands
-     * Returns null if no action detected, or the action result if executed
+     * Detect action-based commands and provide guidance instead of execution
+     * Returns null if no action detected, or a guidance response
      */
-    private function detectAndExecuteAction(string $normalized, ?int $userId, string $role, array $entities, ?array $context): ?array
+    private function detectAndGuideAction(string $normalized, ?int $userId, string $role, array $entities, ?array $context): ?array
     {
-        // Check if ChatbotActionHandler exists
-        if (!class_exists(\App\Services\ChatbotActionHandler::class)) {
-            return null;
-        }
-
         // Detect action intent
         $actionIntent = $this->detectActionIntent($normalized, $role);
         
@@ -1430,55 +1420,58 @@ class ChatbotService
             return null;
         }
 
-        Log::info('chatbot_action_detected', [
+        Log::info('chatbot_action_guidance_triggered', [
             'user_id' => $userId,
             'role' => $role,
             'action_intent' => $actionIntent,
-            'normalized' => $normalized,
         ]);
 
-        // Extract resource ID from message
-        $resourceId = $this->extractResourceId($normalized, $entities);
+        // Instead of executing, we provide guidance based on the intent
+        $guidance = $this->getActionGuidance($actionIntent, $role);
 
-        // Map action intent to action handler parameters
-        $actionParams = $this->mapActionIntentToParams($actionIntent, $resourceId, $userId, $role, $normalized, $entities);
+        return [
+            'success' => true,
+            'reply' => $guidance,
+            'action_intent' => $actionIntent,
+            'meta_source' => 'action_guidance',
+            'suggestions' => $this->getGuidanceSuggestions($actionIntent, $role),
+        ];
+    }
 
-        if (!$actionParams) {
-            return null;
+    /**
+     * Get guidance message for a specific action intent
+     */
+    private function getActionGuidance(string $intent, string $role): string
+    {
+        $guidanceMessages = [
+            'approve_appointment' => 'I cannot approve appointments directly. As an Administrator, you can approve appointments by navigating to the Appointments dashboard, selecting the pending appointment, and clicking the "Approve" button.',
+            'decline_appointment' => 'I cannot decline appointments. Administrators can decline appointments through the Appointments management section in the dashboard.',
+            'cancel_appointment' => 'I am not authorized to cancel appointments. To cancel an appointment, please go to your Appointments list and select the "Cancel" option for the specific booking.',
+            'complete_appointment' => 'I cannot mark appointments as complete. This action must be performed manually in the system by an Administrator or Staff member.',
+            'process_payment' => 'I do not have the capability to process payments. Cashiers can process payments by selecting the "Collect Payment" option on the relevant appointment record.',
+            'approve_refund' => 'I cannot approve refund requests. This must be handled by an Administrator or Cashier through the Refunds management interface.',
+            'process_refund' => 'I cannot process refunds. Please use the Refunds section in your dashboard to complete this transaction.',
+            'request_refund' => 'I cannot submit refund requests for you. You can request a refund by viewing your completed appointments and selecting "Request Refund" for eligible transactions.',
+            'view_pending_appointments' => 'I can provide information about pending appointments, but I cannot open the management view for you. You can find all pending requests in the "Pending" tab of your Appointments dashboard.',
+            'view_pending_payments' => 'I can list pending payments for you, but processing must be done in the Payments section of the system.',
+            'view_pending_refunds' => 'Pending refunds are managed in the Refunds dashboard. I can provide details about them if you ask for specific information.',
+            'shift_report' => 'I cannot generate or print shift reports. You can access your daily shift summary and reports in the Reports section of your dashboard.',
+        ];
+
+        return $guidanceMessages[$intent] ?? "I cannot perform that action directly. Please use the appropriate section in the system dashboard to complete this task.";
+    }
+
+    /**
+     * Get follow-up suggestions for guidance
+     */
+    private function getGuidanceSuggestions(string $intent, string $role): array
+    {
+        if ($role === 'admin') {
+            return ['Go to Appointments', 'View Analytics', 'System Settings'];
+        } elseif ($role === 'cashier') {
+            return ['Go to Payments', 'View Refunds', 'Daily Report'];
         }
-
-        // Check if action requires ID but none provided
-        $intentConfig = $this->actionIntentPatterns[$actionIntent] ?? [];
-        if (($intentConfig['requires_id'] ?? false) && !$resourceId) {
-            return $this->buildMissingIdResponse($actionIntent, $role, $context);
-        }
-
-        // Execute the action
-        try {
-            $result = ChatbotActionHandler::executeAction($actionParams);
-            
-            // Build response
-            return [
-                'success' => $result['success'] ?? false,
-                'reply' => $result['message'] ?? 'Action processed.',
-                'action_intent' => $actionIntent,
-                'action_result' => $result,
-                'data' => $result['data'] ?? null,
-                'suggestions' => $this->getActionFollowUpSuggestions($result, $role),
-            ];
-        } catch (\Exception $e) {
-            Log::error('chatbot_action_error', [
-                'action_intent' => $actionIntent,
-                'error' => $e->getMessage(),
-            ]);
-            
-            return [
-                'success' => false,
-                'reply' => 'I encountered an error while processing that action. Please try again or contact support.',
-                'action_intent' => $actionIntent,
-                'error' => $e->getMessage(),
-            ];
-        }
+        return ['My Appointments', 'Book New Appointment', 'View Services'];
     }
 
     /**
@@ -1559,178 +1552,6 @@ class ChatbotService
         }
 
         return null;
-    }
-
-    /**
-     * Map action intent to ChatbotActionHandler parameters
-     */
-    private function mapActionIntentToParams(string $actionIntent, ?int $resourceId, ?int $userId, string $role, string $normalized, array $entities): ?array
-    {
-        $baseParams = [
-            'user_id' => $userId,
-            'role' => $role,
-            'resource_id' => $resourceId,
-            'data' => [],
-        ];
-
-        // Extract reason if present
-        $reason = $this->extractReason($normalized);
-        if ($reason) {
-            $baseParams['data']['reason'] = $reason;
-        }
-
-        // Extract date/time for reschedule
-        if (!empty($entities['dates'])) {
-            $baseParams['data']['new_date'] = $entities['dates'][0]['date'];
-        }
-        if (!empty($entities['times'])) {
-            $baseParams['data']['new_time'] = $entities['times'][0];
-        }
-
-        return match($actionIntent) {
-            'approve_appointment' => array_merge($baseParams, ['action' => 'approve', 'resource' => 'appointment']),
-            'decline_appointment' => array_merge($baseParams, ['action' => 'decline', 'resource' => 'appointment']),
-            'cancel_appointment' => array_merge($baseParams, ['action' => 'cancel', 'resource' => 'appointment']),
-            'complete_appointment' => array_merge($baseParams, ['action' => 'complete', 'resource' => 'appointment']),
-            'reschedule_appointment' => array_merge($baseParams, ['action' => 'reschedule', 'resource' => 'appointment']),
-            'process_payment' => array_merge($baseParams, ['action' => 'process', 'resource' => 'payment', 'data' => array_merge($baseParams['data'], ['appointment_id' => $resourceId])]),
-            'approve_refund' => array_merge($baseParams, ['action' => 'approve', 'resource' => 'refund']),
-            'process_refund' => array_merge($baseParams, ['action' => 'process', 'resource' => 'refund']),
-            'request_refund' => array_merge($baseParams, ['action' => 'request', 'resource' => 'refund', 'data' => array_merge($baseParams['data'], ['appointment_id' => $resourceId])]),
-            'view_pending_appointments' => array_merge($baseParams, ['action' => 'view', 'resource' => 'appointment', 'resource_id' => null, 'data' => ['status' => 'pending']]),
-            'view_pending_payments' => array_merge($baseParams, ['action' => 'view', 'resource' => 'payment', 'resource_id' => null, 'data' => ['status' => 'pending']]),
-            'view_pending_refunds' => array_merge($baseParams, ['action' => 'view', 'resource' => 'refund', 'resource_id' => null, 'data' => ['status' => 'pending']]),
-            'shift_report' => array_merge($baseParams, ['action' => 'view', 'resource' => 'system', 'data' => ['report_type' => 'shift']]),
-            'system_health' => array_merge($baseParams, ['action' => 'view', 'resource' => 'system']),
-            default => null,
-        };
-    }
-
-    /**
-     * Extract reason from message for declines/cancellations
-     */
-    private function extractReason(string $normalized): ?string
-    {
-        $patterns = [
-            '/(?:because|reason|due to|kasi|dahil)\s*:?\s*(.+)/i',
-            '/(?:reason)\s*:?\s*(.+)/i',
-        ];
-
-        foreach ($patterns as $pattern) {
-            if (preg_match($pattern, $normalized, $matches)) {
-                return trim($matches[1]);
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * Build response when action requires ID but none provided
-     */
-    private function buildMissingIdResponse(string $actionIntent, string $role, ?array $context): array
-    {
-        $actionNames = [
-            'approve_appointment' => 'approve an appointment',
-            'decline_appointment' => 'decline an appointment',
-            'cancel_appointment' => 'cancel an appointment',
-            'complete_appointment' => 'complete an appointment',
-            'process_payment' => 'process a payment',
-            'approve_refund' => 'approve a refund',
-            'process_refund' => 'process a refund',
-            'request_refund' => 'request a refund',
-        ];
-
-        $actionName = $actionNames[$actionIntent] ?? 'perform this action';
-
-        // Get relevant pending items to suggest
-        $suggestions = [];
-        $dataHints = [];
-
-        if (in_array($actionIntent, ['approve_appointment', 'decline_appointment']) && in_array($role, ['admin', 'staff'])) {
-            $pending = Appointment::where('status', 'pending')
-                ->with(['user:id,first_name,last_name', 'service:id,name'])
-                ->orderBy('created_at', 'desc')
-                ->limit(5)
-                ->get();
-
-            if ($pending->count() > 0) {
-                $dataHints = $pending->map(fn($a) => [
-                    'id' => $a->id,
-                    'client' => trim(($a->user->first_name ?? '') . ' ' . ($a->user->last_name ?? '')),
-                    'service' => $a->service->name ?? 'N/A',
-                    'date' => $a->appointment_date->format('M d'),
-                ])->toArray();
-                
-                $suggestions = array_map(fn($a) => "Approve appointment #{$a['id']}", array_slice($dataHints, 0, 3));
-            }
-        }
-
-        if ($actionIntent === 'cancel_appointment' && $role === 'client' && !empty($context['client_data']['upcoming_appointments'])) {
-            $upcoming = $context['client_data']['upcoming_appointments'];
-            $dataHints = array_slice($upcoming, 0, 3);
-            $suggestions = array_map(fn($a) => "Cancel appointment #{$a['id']}", $dataHints);
-        }
-
-        if (in_array($actionIntent, ['process_payment', 'approve_refund', 'process_refund']) && in_array($role, ['cashier', 'admin'])) {
-            if ($actionIntent === 'process_payment') {
-                $pending = Payment::where('payment_status', '!=', 'paid')
-                    ->with(['appointment.user:id,first_name,last_name'])
-                    ->limit(5)
-                    ->get();
-                $suggestions = $pending->map(fn($p) => "Process payment #{$p->id}")->toArray();
-            } else {
-                $pending = Refund::where('status', 'pending')
-                    ->limit(5)
-                    ->get();
-                $actionVerb = $actionIntent === 'approve_refund' ? 'Approve' : 'Process';
-                $suggestions = $pending->map(fn($r) => "{$actionVerb} refund #{$r->id}")->toArray();
-            }
-        }
-
-        return [
-            'success' => false,
-            'reply' => "To {$actionName}, please specify the ID. For example: '{$actionName} #123'" . 
-                       ($dataHints ? "\n\nHere are some items that need attention:" : ''),
-            'action_intent' => $actionIntent,
-            'action_required' => 'provide_id',
-            'data' => $dataHints ? ['pending_items' => $dataHints] : null,
-            'suggestions' => $suggestions ?: ["Show pending appointments", "Show my appointments"],
-        ];
-    }
-
-    /**
-     * Get follow-up suggestions after an action
-     */
-    private function getActionFollowUpSuggestions(array $result, string $role): array
-    {
-        $action = $result['action_intent'] ?? '';
-        $success = $result['success'] ?? false;
-
-        if (!$success) {
-            return match($role) {
-                'admin', 'staff' => ['Show pending appointments', 'Show system status'],
-                'cashier' => ['Show pending payments', 'Show pending refunds'],
-                default => ['Show my appointments', 'How do I book?'],
-            };
-        }
-
-        return match($action) {
-            'approve_appointment', 'decline_appointment' => ['Show more pending', 'How many appointments today?'],
-            'cancel_appointment' => ['Book a new appointment', 'Show my appointments'],
-            'complete_appointment' => ['Show next appointment', 'Today\'s summary'],
-            'process_payment' => ['Show pending payments', 'Shift report'],
-            'approve_refund', 'process_refund' => ['Show pending refunds', 'Today\'s transactions'],
-            'request_refund' => ['Check refund status', 'Contact support'],
-            'view_pending_appointments' => ['Approve all pending', 'Show details'],
-            'view_pending_payments' => ['Process next payment', 'Show shift report'],
-            'view_pending_refunds' => ['Approve first refund', 'Show refund policy'],
-            default => match($role) {
-                'admin', 'staff' => ['Show analytics', 'System health'],
-                'cashier' => ['Shift report', 'Pending tasks'],
-                default => ['My appointments', 'Available services'],
-            },
-        };
     }
 
     /**

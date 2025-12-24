@@ -300,7 +300,7 @@ class ChatbotRealTimeDataService
                 return $cached;
             }
 
-            $query = Refund::where('user_id', $userId)
+            $query = Refund::where('requested_by', $userId)
                 ->orderBy('created_at', 'desc')
                 ->limit($limit);
 
@@ -312,12 +312,12 @@ class ChatbotRealTimeDataService
                 return [
                     'id' => $refund->id,
                     'appointment_id' => $refund->appointment_id,
-                    'amount' => $refund->amount,
+                    'amount' => $refund->refund_amount,
                     'reason' => $refund->reason,
                     'status' => $refund->status,
                     'created_at' => $refund->created_at?->toDateTimeString(),
                     'approved_at' => $refund->approved_at?->toDateTimeString(),
-                    'processed_at' => $refund->processed_at?->toDateTimeString(),
+                    'processed_at' => $refund->completed_at?->toDateTimeString(),
                 ];
             })->toArray();
 
@@ -841,6 +841,44 @@ class ChatbotRealTimeDataService
     }
 
     /**
+     * Get comprehensive system statistics for admin
+     * 
+     * @return array
+     */
+    public function getSystemStats(): array
+    {
+        try {
+            $cacheKey = 'chatbot_system_stats';
+
+            $cached = Cache::get($cacheKey);
+            if ($cached !== null) {
+                return $cached;
+            }
+
+            $stats = [
+                'total_users' => User::count(),
+                'active_users' => User::where('is_active', true)->count(),
+                'total_appointments' => Appointment::count(),
+                'pending_appointments' => Appointment::where('status', 'pending')->count(),
+                'approved_appointments' => Appointment::where('status', 'approved')->count(),
+                'completed_appointments' => Appointment::where('status', 'completed')->count(),
+                'cancelled_appointments' => Appointment::where('status', 'cancelled')->count(),
+                'appointments_today' => Appointment::whereDate('appointment_date', now())->count(),
+                'pending_payments' => Appointment::whereIn('payment_status', ['pending', 'partial'])->count(),
+                'pending_refunds' => Refund::where('status', 'pending')->count(),
+                'total_revenue' => Payment::where('status', 'paid')->sum('amount'),
+            ];
+
+            Cache::put($cacheKey, $stats, self::CACHE_TTL);
+
+            return $stats;
+        } catch (\Exception $e) {
+            Log::error('Error fetching system stats', ['error' => $e->getMessage()]);
+            return [];
+        }
+    }
+
+    /**
      * Get today's appointments summary
      * 
      * @return array
@@ -848,21 +886,33 @@ class ChatbotRealTimeDataService
     public function getTodaysSummary(): array
     {
         try {
+            $cacheKey = 'chatbot_todays_summary';
+
+            $cached = Cache::get($cacheKey);
+            if ($cached !== null) {
+                return $cached;
+            }
+
             $today = now()->format('Y-m-d');
-
             $appointments = Appointment::whereDate('appointment_date', $today)->get();
-
-            return [
+            
+            $summary = [
                 'date' => $today,
                 'total' => $appointments->count(),
                 'pending' => $appointments->where('status', 'pending')->count(),
                 'approved' => $appointments->where('status', 'approved')->count(),
                 'completed' => $appointments->where('status', 'completed')->count(),
                 'cancelled' => $appointments->where('status', 'cancelled')->count(),
-                'upcoming' => $appointments->filter(function ($apt) {
-                    return $apt->appointment_time && now()->format('H:i') < $apt->appointment_time;
-                })->count(),
+                'collections' => Payment::whereDate('created_at', $today)->where('status', 'paid')->sum('amount'),
+                'refunds' => Refund::whereDate('updated_at', $today)->where('status', 'completed')->sum('amount'),
+                'appointments_for_payment' => Appointment::whereDate('appointment_date', $today)
+                    ->whereIn('payment_status', ['pending', 'partial'])
+                    ->count(),
             ];
+
+            Cache::put($cacheKey, $summary, self::CACHE_TTL);
+
+            return $summary;
         } catch (\Exception $e) {
             Log::error('Error fetching today summary', ['error' => $e->getMessage()]);
             return [
@@ -872,7 +922,9 @@ class ChatbotRealTimeDataService
                 'approved' => 0,
                 'completed' => 0,
                 'cancelled' => 0,
-                'upcoming' => 0,
+                'collections' => 0,
+                'refunds' => 0,
+                'appointments_for_payment' => 0,
             ];
         }
     }

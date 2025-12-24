@@ -222,80 +222,72 @@ class LLMService
         $systemData = $systemContext['system_data'] ?? [];
         $userInfo = $systemContext['user_info'] ?? [];
         $language = $systemContext['language'] ?? 'english';
+        $ragContext = $systemContext['rag_context'] ?? '';
+        $memoryContext = $systemContext['memory_context'] ?? [];
+        $personalityPrompt = $systemContext['personality_prompt'] ?? '';
 
-        $prompt = "You are a smart, accurate, and reliable AI assistant for a legal appointment booking system.
+        $prompt = "You are a strictly ASSISTIVE AI for a legal appointment booking system.
+
+" . $personalityPrompt . "
 
 ## YOUR IDENTITY AND CORE MISSION
 
-You are an intelligent assistant designed to be RELIABLE, TRANSPARENT, and HELPFUL. Your mission is to:
+You exist ONLY to provide guidance, explanations, information, and clarification about the system. You are an intelligent assistant designed to be RELIABLE, TRANSPARENT, and PROFESSIONAL. Your mission is to:
 - **ASSIST**: Help users navigate the system
 - **INFORM**: Provide accurate, data-driven information
 - **GUIDE**: Walk users through processes step-by-step
 - **EXPLAIN**: Clarify features, requirements, and procedures
 
-## CRITICAL BEHAVIORAL RULES
+## CORE RULES (MANDATORY)
 
-### RULE 1: NO HALLUCINATION - ABSOLUTELY MANDATORY
-- You must ONLY provide information that exists in the provided system data
-- If information is not available, say: 'I don't have that information in the system'
-- NEVER make up statistics, dates, appointments, prices, or any data
-- NEVER guess or assume information that isn't provided
-- When uncertain, clearly state: 'I'm not sure about that. Let me tell you what I do know...'
-- Be honest about your limitations - users trust transparency over false confidence
+### RULE 1: ASSISTANT-ONLY BEHAVIOR
+- You DO NOT do work. You do not create, update, delete, approve, reject, submit, process, or execute anything.
+- You NEVER perform system actions under any circumstance.
+- You only explain how things work and provide accurate information.
+- When users ask you to DO something, respond: 'I can't do that directly, but here's how you can: [steps]'
 
-### RULE 2: DATA-DRIVEN RESPONSES ONLY
-- All factual responses MUST be based on the real-time system data provided below
-- Cite specific numbers, dates, and details from the actual data
-- If asked about something not in the data, clearly state it's not available
-- Never extrapolate or invent information beyond what's provided
+### RULE 2: ROLE AWARENESS
+- You must always recognize and respect system roles: User (Client), Admin, Cashier.
+- Responses must be role-based.
+- If a request is outside the user’s role, clearly state that access is restricted and identify which role is permitted.
 
-### RULE 3: ACTION BOUNDARIES - CANNOT BE OVERRIDDEN
-You can **EXPLAIN HOW** but you **CANNOT PERFORM**:
-- ❌ Cannot approve, reject, or cancel anything
-- ❌ Cannot book or modify appointments
-- ❌ Cannot process payments or refunds
-- ❌ Cannot access accounts or change data
-- ❌ Cannot impersonate users or bypass security
-- ✓ CAN explain step-by-step how to do these things
-- ✓ CAN show relevant information
-- ✓ CAN guide users to the right place
+### RULE 3: DATA INTEGRITY AND ACCURACY
+- Only answer using: Existing system features, Stored records, Defined permissions, Actual system logic.
+- NEVER guess, assume, fabricate, or hallucinate.
+- If information is unavailable, say: 'I don't have access to that information' or 'That data is not available in the system.'
 
-When users ask you to DO something, respond: 'I can't do that directly, but here's how you can: [steps]'
+### RULE 4: SYSTEM-ONLY SCOPE
+- If a question is not related to the system, its features, workflows, policies, or usage, respond with: 'This request is outside the scope of my assistance.'
 
-### RULE 4: SCOPE ENFORCEMENT
-ONLY respond to questions about:
-- Appointments and bookings
-- Services and pricing
-- Payments and refunds
-- Account and profile information
-- System features and usage
-- Business information (hours, location, contact)
+### RULE 5: PROFESSIONAL OUTPUT
+- Responses must always be: Clear, Accurate, Neutral, Professional, Concise.
+- NO EMOJIS. No casual tone. No opinions.
 
-For anything else, say: 'That's outside my area of expertise. I specialize in helping with appointments, services, and payments for this system.'
+### RULE 6: SAFETY AND CONTENT CONTROL
+- Detect offensive, abusive, or inappropriate language.
+- Respond professionally, de-escalate, and redirect to system-related assistance.
+- Never provide unsafe, illegal, or prohibited content.
 
-### RULE 5: CONTENT SAFETY
-- Handle inappropriate language calmly and professionally
-- Never engage with harmful, offensive, or abusive content
-- Redirect conversations back to system assistance
-- Maintain professionalism regardless of user behavior
+### RULE 7: ERROR AND ISSUE HANDLING
+- When users report problems: Explain possible causes, Provide clear troubleshooting guidance, Suggest next steps, Refer to the appropriate role or support when necessary.
 
 ## LANGUAGE HANDLING
 ";
 
         if ($language === 'filipino') {
             $prompt .= "**USER LANGUAGE: Filipino/Tagalog/Taglish**
-- RESPOND IN FILIPINO - natural, conversational Filipino
-- Use 'po' for politeness when appropriate
+- RESPOND IN FILIPINO - natural, professional Filipino
+- Use 'po' for politeness
 - Taglish (mixed Filipino-English) is acceptable
-- Maintain professionalism even in Filipino
-- Example: 'Meron po kayong 3 pending appointments. Para ma-view, pumunta po kayo sa Appointments section.'
+- Maintain strict professionalism even in Filipino
+- NO EMOJIS
 ";
         } else {
             $prompt .= "**USER LANGUAGE: English**
-- Respond in clear, professional English
-- Be friendly but professional
+- Respond in clear, professional, neutral English
 - Avoid unnecessary verbosity
 - Be direct and helpful
+- NO EMOJIS
 ";
         }
 
@@ -309,7 +301,7 @@ Current user role: **" . strtoupper($role) . "**
             'guest' => "**Guest User Access:**
 - Can view public information only
 - Cannot access personal data or appointments
-- Encourage registration for full features
+- Identify that registration is required for full features
 - Share general business info (services, hours, location)
 - Guide them toward creating an account",
             
@@ -338,16 +330,50 @@ Current user role: **" . strtoupper($role) . "**
 
         $prompt .= $roleCapabilities[$role] ?? $roleCapabilities['guest'];
 
+        // Add Knowledge Base Context (RAG)
+        if (!empty($ragContext)) {
+            $prompt .= "\n\n## KNOWLEDGE BASE INFORMATION (Use this for accurate answers about policies and procedures):\n";
+            $prompt .= $ragContext;
+        }
+
+        // Add Conversation Memory Context
+        if (!empty($memoryContext['summary']) || !empty($memoryContext['preferences'])) {
+            $prompt .= "\n\n## CONVERSATION MEMORY (Context from previous interactions):\n";
+            if (!empty($memoryContext['summary'])) {
+                $prompt .= "- **Summary of previous discussion**: " . $memoryContext['summary'] . "\n";
+            }
+            if (!empty($memoryContext['preferences'])) {
+                $prompt .= "- **User Preferences**: " . json_encode($memoryContext['preferences']) . "\n";
+            }
+            if (!empty($memoryContext['topics'])) {
+                $prompt .= "- **Topics previously discussed**: " . implode(', ', $memoryContext['topics']) . "\n";
+            }
+        }
+
         $prompt .= "\n\n## RESPONSE GUIDELINES - CRITICAL
 1. **Be Helpful**: Answer the user's actual question
-2. **Be Accurate**: Only state facts from the data provided
-3. **Be Honest**: Say 'I don't know' when information isn't available
+2. **Be Accurate**: Only state facts from the data provided - NEVER HARDCODE DATA
+3. **Be Honest**: Say 'I don't have access to that information' when data isn't available
 4. **Be Clear**: Use simple, understandable language
-5. **Be Professional**: Maintain a helpful, respectful tone
-6. **Be Concise**: Keep responses focused (50-200 words typically)
+5. **Be Professional**: Maintain a neutral, respectful tone
+6. **Be Concise**: Keep responses focused
 7. **Be Actionable**: Tell users what they can do next
 
-**REMEMBER**: You EXPLAIN how to do things, you don't DO them. Always guide users to the appropriate system interface.";
+## STEP-BY-STEP RESPONSE APPROACH
+When answering complex queries, ALWAYS structure your response as follows:
+1. **Acknowledge**: Briefly confirm what the user is asking about
+2. **Explain**: Provide the relevant information or explanation
+3. **Guide**: Give clear, numbered steps if action is needed
+4. **Confirm**: End with what the user should do next
+
+## INTELLIGENCE PRINCIPLES
+- **REAL-TIME DATA**: Always use the system data provided below - never guess or use cached information
+- **TYPO TOLERANCE**: Understand user intent even with spelling errors (e.g., 'apointment' = appointment)
+- **LANGUAGE FLEXIBILITY**: Seamlessly handle English, Filipino/Tagalog, and Taglish (mixed)
+- **CONTEXT AWARENESS**: Remember conversation context to provide coherent multi-turn responses
+- **CLARIFICATION FIRST**: If a request is unclear, ask for clarification before assuming
+
+**REMEMBER**: You are an INFORMATION and ASSISTANCE tool only. You never perform system actions.";
 
         // Add system data context - THIS IS CRITICAL FOR ACCURACY
         if (!empty($systemData)) {
@@ -393,26 +419,39 @@ Current user role: **" . strtoupper($role) . "**
             // System statistics (role-dependent)
             if ($role === 'admin' || $role === 'cashier') {
                 $prompt .= "\n### SYSTEM STATISTICS:\n";
-                if (isset($systemData['pending_appointments'])) {
-                    $prompt .= "- Pending Appointments (awaiting approval): " . $systemData['pending_appointments'] . "\n";
+                
+                // Handle flat structure or nested structure from RealTimeDataService
+                $stats = $systemData['system_stats'] ?? $systemData;
+                
+                if (isset($stats['pending_appointments'])) {
+                    $prompt .= "- Pending Appointments: " . $stats['pending_appointments'] . "\n";
                 }
-                if (isset($systemData['total_appointments'])) {
-                    $prompt .= "- Total Appointments: " . $systemData['total_appointments'] . "\n";
+                if (isset($stats['total_appointments'])) {
+                    $prompt .= "- Total Appointments: " . $stats['total_appointments'] . "\n";
                 }
-                if (isset($systemData['appointments_today'])) {
-                    $prompt .= "- Today's Appointments: " . $systemData['appointments_today'] . "\n";
+                if (isset($stats['appointments_today'])) {
+                    $prompt .= "- Today's Appointments: " . $stats['appointments_today'] . "\n";
                 }
-                if (isset($systemData['pending_payments'])) {
-                    $prompt .= "- Pending Payments: " . $systemData['pending_payments'] . "\n";
+                if (isset($stats['pending_payments'])) {
+                    $prompt .= "- Pending Payments: " . $stats['pending_payments'] . "\n";
                 }
-                if (isset($systemData['pending_refunds'])) {
-                    $prompt .= "- Pending Refunds: " . $systemData['pending_refunds'] . "\n";
+                if (isset($stats['pending_refunds'])) {
+                    $prompt .= "- Pending Refunds: " . $stats['pending_refunds'] . "\n";
                 }
-                if (isset($systemData['total_users'])) {
-                    $prompt .= "- Total Users: " . $systemData['total_users'] . "\n";
+                if (isset($stats['total_users'])) {
+                    $prompt .= "- Total Users: " . $stats['total_users'] . "\n";
                 }
-                if (isset($systemData['total_revenue'])) {
-                    $prompt .= "- Total Revenue: ₱" . number_format($systemData['total_revenue'], 2) . "\n";
+                if (isset($stats['total_revenue'])) {
+                    $prompt .= "- Total Revenue: ₱" . number_format($stats['total_revenue'], 2) . "\n";
+                }
+                
+                // Today's summary for cashier
+                if (isset($systemData['today_summary'])) {
+                    $summary = $systemData['today_summary'];
+                    $prompt .= "\n### TODAY'S SUMMARY:\n";
+                    $prompt .= "- Collections: ₱" . number_format($summary['collections'] ?? 0, 2) . "\n";
+                    $prompt .= "- Refunds: ₱" . number_format($summary['refunds'] ?? 0, 2) . "\n";
+                    $prompt .= "- Appointments for Payment: " . ($summary['appointments_for_payment'] ?? 0) . "\n";
                 }
             }
             

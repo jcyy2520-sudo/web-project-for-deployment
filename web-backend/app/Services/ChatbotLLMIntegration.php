@@ -19,15 +19,27 @@ class ChatbotLLMIntegration
     private LLMService $llmService;
     private ChatbotRoleAwarenessService $roleService;
     private ChatbotRealTimeDataService $dataService;
+    private SemanticEmbeddingsService $embeddingsService;
+    private ChatbotMemoryService $memoryService;
+    private LanguageDetectionService $languageService;
+    private PersonalityService $personalityService;
 
     public function __construct(
         LLMService $llmService,
         ChatbotRoleAwarenessService $roleService,
-        ChatbotRealTimeDataService $dataService
+        ChatbotRealTimeDataService $dataService,
+        SemanticEmbeddingsService $embeddingsService,
+        ChatbotMemoryService $memoryService,
+        LanguageDetectionService $languageService,
+        PersonalityService $personalityService
     ) {
         $this->llmService = $llmService;
         $this->roleService = $roleService;
         $this->dataService = $dataService;
+        $this->embeddingsService = $embeddingsService;
+        $this->memoryService = $memoryService;
+        $this->languageService = $languageService;
+        $this->personalityService = $personalityService;
     }
 
     /**
@@ -92,35 +104,46 @@ class ChatbotLLMIntegration
             $roleInfo = $this->roleService->detectUserRole($userId);
             $role = $roleInfo['primary_role'] ?? 'guest';
 
-            // Get conversation history for context (last 5 messages)
-            $conversationHistory = $this->getConversationContext(
-                $userId,
-                $conversationId,
-                5
-            );
+            // 1. ENHANCED MEMORY: Get comprehensive conversation context
+            $memoryContext = $this->memoryService->getConversationContext($userId, $conversationId);
+            $conversationHistory = $memoryContext['recent_messages'] ?? [];
 
-            // Detect language if not provided
+            // 2. ENHANCED LANGUAGE DETECTION
             if (!$language) {
-                $language = $this->detectLanguageFromMessage($userMessage);
+                $langResult = $this->languageService->detect($userMessage);
+                $language = $langResult['language'] === 'tl' ? 'filipino' : 'english';
             }
+
+            // 3. ENHANCED RAG: Get relevant knowledge base information
+            $ragContext = $this->embeddingsService->getRAGContext($userMessage);
+
+            // 4. ENHANCED PERSONALITY: Get personalized system prompt
+            $sentiment = $intentData['sentiment'] ?? 'neutral';
+            $personalityPrompt = $this->personalityService->getPersonalizedSystemPrompt($role, $sentiment);
 
             // Build system context with comprehensive real-time data
             // CRITICAL: This is what makes the LLM accurate - it has real system data
             $systemContext = [
                 'role' => $role,
                 'language' => $language,
+                'personality_prompt' => $personalityPrompt,
                 'system_data' => $this->gatherSystemData($role),
                 'user_info' => $userId ? $this->gatherUserData($userId, $role) : [],
+                'rag_context' => $ragContext,
+                'memory_context' => [
+                    'summary' => $memoryContext['conversation_summary'],
+                    'preferences' => $memoryContext['user_preferences'],
+                    'topics' => $memoryContext['topics_discussed'],
+                ],
             ];
 
             // Log what we're sending to LLM for debugging
-            Log::debug('LLM Context Prepared', [
+            Log::debug('LLM Context Prepared with RAG and Memory', [
                 'role' => $role,
                 'language' => $language,
                 'user_id' => $userId,
-                'has_system_data' => !empty($systemContext['system_data']),
-                'has_user_info' => !empty($systemContext['user_info']),
-                'system_data_keys' => !empty($systemContext['system_data']) ? array_keys($systemContext['system_data']) : [],
+                'has_rag' => !empty($ragContext),
+                'has_memory' => !empty($memoryContext['conversation_summary']),
             ]);
 
             // Verify LLM is available before calling
@@ -165,6 +188,7 @@ class ChatbotLLMIntegration
                     'role_detected' => $role,
                     'has_system_context' => !empty($systemContext['system_data']),
                     'has_user_context' => !empty($systemContext['user_info']),
+                    'has_rag_context' => !empty($ragContext),
                 ],
             ];
         } catch (\Exception $e) {
@@ -179,28 +203,12 @@ class ChatbotLLMIntegration
     
     /**
      * Detect language from message (simple detection for LLM context)
+     * @deprecated Use LanguageDetectionService instead
      */
     private function detectLanguageFromMessage(string $message): string
     {
-        $lower = mb_strtolower($message);
-        
-        // Filipino/Tagalog indicators
-        $filipinoWords = [
-            'ako', 'ikaw', 'siya', 'po', 'opo', 'naman', 'mga', 'ang', 'ng', 'sa',
-            'ano', 'sino', 'saan', 'kailan', 'kelan', 'bakit', 'paano', 'pano', 'magkano',
-            'pwede', 'gusto', 'kailangan', 'hindi', 'wala', 'may', 'meron',
-            'salamat', 'kamusta', 'kumusta', 'musta', 'sige', 'oo',
-            'bayad', 'ibalik', 'tulong', 'tingnan', 'tignan'
-        ];
-        
-        $count = 0;
-        foreach ($filipinoWords as $word) {
-            if (preg_match('/\b' . preg_quote($word, '/') . '\b/iu', $lower)) {
-                $count++;
-            }
-        }
-        
-        return $count >= 2 ? 'filipino' : 'english';
+        $langResult = $this->languageService->detect($message);
+        return $langResult['language'] === 'tl' ? 'filipino' : 'english';
     }
 
     /**
@@ -263,112 +271,25 @@ class ChatbotLLMIntegration
                 ]
             ];
 
-            // === SYSTEM-WIDE DATA - Available to all users ===
+            // Use the RealTimeDataService for consistent, cached, real-time data
+            $data['services_available'] = $this->dataService->getAvailableServices();
+            $data['business_hours'] = $this->dataService->getBusinessHours();
             
-            // Services and pricing information (used to answer "what services do you offer")
-            $services = \App\Models\Service::where('is_active', true)
-                ->select(['id', 'name', 'description', 'price', 'duration'])
-                ->get();
-            if ($services->count() > 0) {
-                $data['services_available'] = $services->map(fn($s) => [
-                    'name' => $s->name,
-                    'price' => $s->price ? '₱' . number_format($s->price, 2) : 'Price on inquiry',
-                    'duration' => $s->duration ? $s->duration . ' min' : 'N/A',
-                ])->toArray();
-                $data['services_count'] = $services->count();
-            }
-
-            // Business settings - critical for answering system questions
-            $settings = \App\Models\AppointmentSettings::first();
-            if ($settings) {
-                $data['business_hours'] = $settings->business_hours ?? 'Check appointment booking page';
-                $data['holidays'] = $settings->holidays ?? 'None specified';
-                $data['max_appointments_per_day'] = $settings->max_appointments_per_day ?? 'Unlimited';
-                $data['appointment_buffer_time'] = $settings->appointment_buffer_time ?? '0 minutes';
-                $data['auto_confirm_enabled'] = $settings->auto_confirm_appointments ?? false;
-                $data['allow_same_day_booking'] = $settings->allow_same_day_booking ?? false;
-            }
-
-            // === ADMIN-LEVEL SYSTEM DATA ===
             if ($role === 'admin') {
-                // System overview
-                $data['total_users'] = \App\Models\User::count();
-                $data['active_users'] = \App\Models\User::where('is_active', true)->count();
-                
-                // Appointment metrics
-                $data['total_appointments'] = \App\Models\Appointment::count();
-                $data['pending_appointments'] = \App\Models\Appointment::where('status', 'pending')->count();
-                $data['approved_appointments'] = \App\Models\Appointment::where('status', 'approved')->count();
-                $data['completed_appointments'] = \App\Models\Appointment::where('status', 'completed')->count();
-                $data['cancelled_appointments'] = \App\Models\Appointment::where('status', 'cancelled')->count();
-                $data['appointments_today'] = \App\Models\Appointment::whereDate('appointment_date', now())->count();
-                $data['appointments_this_week'] = \App\Models\Appointment::whereBetween('appointment_date', [now()->startOfWeek(), now()->endOfWeek()])->count();
-                
-                // Pending items requiring action
-                $data['appointments_pending_approval'] = \App\Models\Appointment::where('status', 'pending')->count();
-                $data['refunds_pending_approval'] = \App\Models\Refund::where('status', 'pending')->count();
-                
-                // Revenue overview
-                $data['total_revenue'] = \App\Models\Payment::where('payment_status', 'paid')->sum('amount');
-                $data['pending_revenue'] = \App\Models\Appointment::where('status', 'approved')
-                    ->where(function($q) {
-                        $q->whereNull('payment_status')
-                          ->orWhere('payment_status', 'pending');
-                    })->sum('payment_amount');
-                
-                // Pending refunds details
-                $pendingRefunds = \App\Models\Refund::where('status', 'pending')
-                    ->with(['payment.appointment.user'])
-                    ->limit(10)
-                    ->get();
-                if ($pendingRefunds->count() > 0) {
-                    $data['pending_refund_details'] = $pendingRefunds->map(fn($r) => [
-                        'id' => $r->id,
-                        'amount' => '₱' . number_format($r->amount, 2),
-                        'reason' => $r->reason ?? 'No reason provided',
-                        'requested_date' => $r->created_at?->format('M d, Y'),
-                    ])->toArray();
-                }
+                $data['system_stats'] = $this->dataService->getSystemStats();
+                $data['pending_items'] = $this->dataService->getPendingAppointments(10);
             }
-
-            // === CASHIER-LEVEL SYSTEM DATA ===
-            if ($role === 'cashier') {
-                $data['pending_payments'] = \App\Models\Appointment::where('status', 'approved')
-                    ->where(function($q) {
-                        $q->whereNull('payment_status')
-                          ->orWhere('payment_status', 'pending')
-                          ->orWhere('payment_status', 'unpaid');
-                    })->count();
-                
-                $data['pending_refunds'] = \App\Models\Refund::where('status', 'pending')->count();
-                $data['approved_refunds'] = \App\Models\Refund::where('status', 'approved')->count();
-                
-                // Today's transactions
-                $data['today_collections'] = \App\Models\Payment::whereDate('created_at', now()->toDateString())
-                    ->where('payment_status', 'paid')
-                    ->sum('amount');
-                
-                $data['today_refunds_processed'] = \App\Models\Refund::where('status', 'completed')
-                    ->whereDate('updated_at', now()->toDateString())
-                    ->sum('amount');
-                
-                $data['appointments_for_payment_today'] = \App\Models\Appointment::where('status', 'approved')
-                    ->whereDate('appointment_date', now())
-                    ->where(function($q) {
-                        $q->whereNull('payment_status')
-                          ->orWhere('payment_status', 'pending');
-                    })->count();
-            }
-
-            // === CLIENT/USER-SPECIFIC SYSTEM DATA ===
-            // Available to all users but might be filtered per-user context
             
+            if ($role === 'cashier') {
+                $data['today_summary'] = $this->dataService->getTodaysSummary();
+                $data['pending_payments'] = $this->dataService->getPendingPayments(10);
+            }
+
             // Today's status
             $data['current_date'] = now()->format('F j, Y');
             $data['current_day'] = now()->format('l');
             $data['current_time'] = now()->format('H:i:s');
             
-            // System status
             $data['system_status'] = 'operational';
 
             return $data;
@@ -387,112 +308,17 @@ class ChatbotLLMIntegration
     private function gatherUserData(int $userId, string $role = 'client'): array
     {
         try {
-            $user = \App\Models\User::find($userId);
-            if (!$user) {
-                return [];
-            }
-
-            $data = [
-                'name' => trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? '')) ?: $user->name,
-                'email' => $user->email,
-                'role' => $role,
-                'member_since' => $user->created_at?->format('M d, Y') ?? 'Unknown',
-            ];
-
-            // === CLIENT-SPECIFIC USER DATA ===
-            if ($role === 'client') {
-                // Appointment history and status
-                $allAppointments = \App\Models\Appointment::where('user_id', $userId)->get();
-                $data['total_appointments'] = $allAppointments->count();
-                
-                // Status breakdown
-                $data['pending_appointments'] = $allAppointments->where('status', 'pending')->count();
-                $data['approved_appointments'] = $allAppointments->where('status', 'approved')->count();
-                $data['completed_appointments'] = $allAppointments->where('status', 'completed')->count();
-                $data['cancelled_appointments'] = $allAppointments->where('status', 'cancelled')->count();
-                
-                // Upcoming appointments with FULL details for answering specific questions
-                $upcomingApts = \App\Models\Appointment::where('user_id', $userId)
-                    ->whereIn('status', ['pending', 'approved'])
-                    ->where('appointment_date', '>=', now()->toDateString())
-                    ->orderBy('appointment_date', 'asc')
-                    ->limit(10)
-                    ->get();
-                    
-                if ($upcomingApts->count() > 0) {
-                    $data['upcoming_appointments'] = $upcomingApts->map(fn($apt) => [
-                        'id' => $apt->id,
-                        'date' => $apt->appointment_date?->format('M d, Y'),
-                        'time' => $apt->appointment_time ?? 'TBD',
-                        'service' => $apt->service_type ?? 'General Service',
-                        'status' => $apt->status,
-                        'payment_status' => $apt->payment_status ?? 'Pending',
-                        'payment_amount' => $apt->payment_amount ? '₱' . number_format($apt->payment_amount, 2) : 'TBD',
-                    ])->toArray();
-                }
-                
-                // Payment history and status
-                $payments = \App\Models\Payment::whereHas('appointment', fn($q) => $q->where('user_id', $userId))->get();
-                $data['total_payments_made'] = $payments->where('payment_status', 'paid')->count();
-                $data['total_amount_paid'] = $payments->where('payment_status', 'paid')->sum('amount');
-                $data['pending_payments'] = \App\Models\Appointment::where('user_id', $userId)
-                    ->where('status', 'approved')
-                    ->where(function($q) {
-                        $q->whereNull('payment_status')
-                          ->orWhere('payment_status', 'pending');
-                    })->count();
-                
-                // Refund history
-                $refunds = \App\Models\Refund::whereHas('payment.appointment', fn($q) => $q->where('user_id', $userId))->get();
-                if ($refunds->count() > 0) {
-                    $data['refund_count'] = $refunds->count();
-                    $data['pending_refunds'] = $refunds->whereIn('status', ['pending', 'approved'])->count();
-                    $data['completed_refunds'] = $refunds->where('status', 'completed')->count();
-                    $data['total_refunded'] = $refunds->where('status', 'completed')->sum('amount');
-                }
-                
-                // Last appointment info for context
-                $lastApt = \App\Models\Appointment::where('user_id', $userId)
-                    ->orderBy('appointment_date', 'desc')
-                    ->first();
-                if ($lastApt) {
-                    $data['last_appointment'] = [
-                        'date' => $lastApt->appointment_date?->format('M d, Y'),
-                        'service' => $lastApt->service_type,
-                        'status' => $lastApt->status,
-                    ];
-                }
-            }
+            $data = [];
             
-            // === ADMIN-SPECIFIC USER DATA ===
-            if ($role === 'admin') {
-                $data['system_pending_items'] = \App\Models\Appointment::where('status', 'pending')->count()
-                    + \App\Models\Refund::where('status', 'pending')->count();
-                $data['pending_appointments'] = \App\Models\Appointment::where('status', 'pending')->count();
-                $data['pending_refunds'] = \App\Models\Refund::where('status', 'pending')->count();
-                $data['unassigned_appointments'] = \App\Models\Appointment::whereNull('staff_id')->where('status', 'approved')->count();
-            }
+            // Fetch real-time user data from the dedicated service
+            $data['appointments'] = $this->dataService->getUserAppointments($userId);
+            $data['payments'] = $this->dataService->getUserPayments($userId);
+            $data['refunds'] = $this->dataService->getUserRefunds($userId);
             
-            // === CASHIER-SPECIFIC USER DATA ===
-            if ($role === 'cashier') {
-                $data['pending_items'] = \App\Models\Appointment::where('status', 'approved')
-                    ->where(function($q) {
-                        $q->whereNull('payment_status')
-                          ->orWhere('payment_status', 'pending');
-                    })->count() 
-                    + \App\Models\Refund::where('status', 'pending')->count();
-                
-                $data['pending_payments'] = \App\Models\Appointment::where('status', 'approved')
-                    ->where(function($q) {
-                        $q->whereNull('payment_status')
-                          ->orWhere('payment_status', 'pending');
-                    })->count();
-                    
-                $data['pending_refunds'] = \App\Models\Refund::where('status', 'pending')->count();
-                $data['today_transactions'] = \App\Models\Payment::whereDate('created_at', now())
-                    ->count();
-            }
-
+            // Add summary metrics
+            $data['total_appointments'] = count($data['appointments']);
+            $data['pending_appointments'] = count(array_filter($data['appointments'], fn($a) => $a['status'] === 'pending'));
+            
             return $data;
         } catch (\Exception $e) {
             Log::debug('Failed to gather user data: ' . $e->getMessage());

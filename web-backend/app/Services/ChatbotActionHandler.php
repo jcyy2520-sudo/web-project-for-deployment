@@ -654,6 +654,17 @@ class ChatbotActionHandler
         $payment->amount_paid = $data['amount'] ?? $payment->total_amount;
         $payment->save();
 
+        // Sync with appointment table for consistency
+        if ($payment->appointment) {
+            $payment->appointment->update([
+                'payment_status' => 'paid',
+                'payment_amount' => $payment->amount_paid,
+                'payment_type' => $payment->payment_method,
+                'processed_by' => $processedBy,
+                'payment_date' => $payment->payment_date
+            ]);
+        }
+
         // Notify client
         self::createNotification(
             $payment->appointment->user_id,
@@ -706,6 +717,15 @@ class ChatbotActionHandler
                 'payment_date' => now(),
                 'payment_method' => $data['method'] ?? 'cash',
                 'processed_by' => $processedBy,
+            ]);
+
+            // Sync with appointment table for consistency
+            $appointment->update([
+                'payment_status' => 'paid',
+                'payment_amount' => $payment->amount_paid,
+                'payment_type' => $payment->payment_method,
+                'processed_by' => $processedBy,
+                'payment_date' => $payment->payment_date
             ]);
         } else {
             return self::processPayment($payment, $processedBy, $data);
@@ -989,6 +1009,19 @@ class ChatbotActionHandler
         $refund->completed_by = $processedBy;
         $refund->completed_at = now();
         $refund->save();
+
+        // Update appointment payment status
+        if ($refund->appointment) {
+            if (!$refund->is_partial) {
+                $refund->appointment->update([
+                    'payment_status' => 'refunded'
+                ]);
+            } else {
+                $refund->appointment->update([
+                    'payment_status' => 'partially_refunded'
+                ]);
+            }
+        }
 
         // Notify client
         self::createNotification(

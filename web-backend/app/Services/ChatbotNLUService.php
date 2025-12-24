@@ -508,168 +508,418 @@ class ChatbotNLUService
     /**
      * Common misspellings and their corrections - Extended
      * Includes informal typing, SMS speak, and common typos
+     * 
+     * COMPREHENSIVE LIST: Covers English, Tagalog, Taglish, SMS speak, 
+     * keyboard proximity errors, and phonetic misspellings
      */
     private array $commonMisspellings = [
-        // Appointment
-        'appintment' => 'appointment',
-        'apointment' => 'appointment',
-        'appointmnt' => 'appointment',
-        'appoitment' => 'appointment',
-        'appointmen' => 'appointment',
-        'appoinment' => 'appointment',
-        'apptment' => 'appointment',
-        'apptmnt' => 'appointment',
-        'apt' => 'appointment',
-        'apts' => 'appointments',
-        'appt' => 'appointment',
-        'appts' => 'appointments',
-        // Booking
-        'beuking' => 'booking',
-        'bokking' => 'booking',
-        'bookng' => 'booking',
-        'bookin' => 'booking',
-        'bok' => 'book',
-        'buking' => 'booking',
-        // Schedule
-        'reshcedule' => 'reschedule',
-        'reschdule' => 'reschedule',
-        'reshedule' => 'reschedule',
-        'schdule' => 'schedule',
-        'sched' => 'schedule',
-        'resched' => 'reschedule',
-        'skejul' => 'schedule',
-        // Payment
-        'pament' => 'payment',
-        'paymnet' => 'payment',
-        'paymet' => 'payment',
-        'paymnt' => 'payment',
-        'pymnt' => 'payment',
-        'bayad' => 'payment',
-        // Refund
-        'refnd' => 'refund',
-        'refun' => 'refund',
-        'refnd' => 'refund',
-        // General
-        'recieve' => 'receive',
-        'verificaion' => 'verification',
-        'complte' => 'complete',
-        'complet' => 'complete',
-        'approv' => 'approve',
-        'aprove' => 'approve',
-        'cancl' => 'cancel',
-        'cansel' => 'cancel',
-        'servise' => 'service',
-        'servis' => 'service',
-        'serbisyo' => 'service',
-        'availble' => 'available',
-        'avalable' => 'available',
-        'pendin' => 'pending',
-        'pendng' => 'pending',
-        'pls' => 'please',
-        'plz' => 'please',
-        'plss' => 'please',
-        'thx' => 'thanks',
-        'tnx' => 'thanks',
-        'ty' => 'thank you',
-        'thnks' => 'thanks',
-        'thankss' => 'thanks',
-        'hlp' => 'help',
-        'hw' => 'how',
-        'wht' => 'what',
-        'wer' => 'where',
-        'wen' => 'when',
-        'tmrw' => 'tomorrow',
-        'tday' => 'today',
-        'ystrdy' => 'yesterday',
-        '2day' => 'today',
-        '2mrw' => 'tomorrow',
-        // Taglish/Tagalog shortcuts
-        'mag' => 'mag',  // Keep as is (prefix)
-        'po' => 'po',    // Keep as is (polite marker)
-        'naman' => 'naman', // Keep as is
-        'pde' => 'pwede',
-        'pwd' => 'pwede',
-        'pano' => 'paano',
-        'kelan' => 'when',
-        'saan' => 'where',
-        'ano' => 'what',
-        'sino' => 'who',
-        'mgkano' => 'magkano',
-        'gsto' => 'gusto',
-        'klangan' => 'kailangan',
+        // ==================== APPOINTMENT VARIATIONS ====================
+        'appintment' => 'appointment', 'apointment' => 'appointment',
+        'appointmnt' => 'appointment', 'appoitment' => 'appointment',
+        'appointmen' => 'appointment', 'appoinment' => 'appointment',
+        'apptment' => 'appointment', 'apptmnt' => 'appointment',
+        'apt' => 'appointment', 'apts' => 'appointments',
+        'appt' => 'appointment', 'appts' => 'appointments',
+        'appointmwnt' => 'appointment', 'appoinrment' => 'appointment',
+        'appoitnment' => 'appointment', 'appointmnet' => 'appointment',
+        'appountment' => 'appointment', 'appointement' => 'appointment',
+        
+        // ==================== BOOKING VARIATIONS ====================
+        'beuking' => 'booking', 'bokking' => 'booking',
+        'bookng' => 'booking', 'bookin' => 'booking',
+        'bok' => 'book', 'buking' => 'booking',
+        'bookinh' => 'booking', 'bokng' => 'booking',
+        'bookign' => 'booking', 'boking' => 'booking',
+        
+        // ==================== SCHEDULE VARIATIONS ====================
+        'reshcedule' => 'reschedule', 'reschdule' => 'reschedule',
+        'reshedule' => 'reschedule', 'schdule' => 'schedule',
+        'sched' => 'schedule', 'resched' => 'reschedule',
+        'skejul' => 'schedule', 'skedul' => 'schedule',
+        'scheduel' => 'schedule', 'shcedule' => 'schedule',
+        'schedulle' => 'schedule', 'scedule' => 'schedule',
+        'reschd' => 'reschedule', 'risched' => 'reschedule',
+        
+        // ==================== PAYMENT VARIATIONS ====================
+        'pament' => 'payment', 'paymnet' => 'payment',
+        'paymet' => 'payment', 'paymnt' => 'payment',
+        'pymnt' => 'payment', 'paymment' => 'payment',
+        'payemnt' => 'payment', 'paiment' => 'payment',
+        'paymente' => 'payment', 'paymenta' => 'payment',
+        
+        // ==================== REFUND VARIATIONS ====================
+        'refnd' => 'refund', 'refun' => 'refund',
+        'refunf' => 'refund', 'refunde' => 'refund',
+        'refundd' => 'refund', 'reefund' => 'refund',
+        'rerfund' => 'refund', 'refudn' => 'refund',
+        
+        // ==================== SERVICE VARIATIONS ====================
+        'servise' => 'service', 'servis' => 'service',
+        'servic' => 'service', 'servce' => 'service',
+        'serbice' => 'service', 'servicee' => 'service',
+        'serivce' => 'service', 'srvc' => 'service',
+        
+        // ==================== STATUS VARIATIONS ====================
+        'satuts' => 'status', 'staus' => 'status',
+        'sttaus' => 'status', 'stautus' => 'status',
+        'statsu' => 'status', 'stauts' => 'status',
+        
+        // ==================== GENERAL ENGLISH CORRECTIONS ====================
+        'recieve' => 'receive', 'verificaion' => 'verification',
+        'complte' => 'complete', 'complet' => 'complete',
+        'approv' => 'approve', 'aprove' => 'approve',
+        'cancl' => 'cancel', 'cansel' => 'cancel',
+        'cancle' => 'cancel', 'canecl' => 'cancel',
+        'availble' => 'available', 'avalable' => 'available',
+        'avaiable' => 'available', 'availabe' => 'available',
+        'pendin' => 'pending', 'pendng' => 'pending',
+        'pendign' => 'pending', 'pnding' => 'pending',
+        'comfirm' => 'confirm', 'confrim' => 'confirm',
+        'confirme' => 'confirm', 'conferm' => 'confirm',
+        'checl' => 'check', 'chck' => 'check',
+        'requst' => 'request', 'rquest' => 'request',
+        'reqest' => 'request', 'requet' => 'request',
+        'porcess' => 'process', 'proccess' => 'process',
+        'proces' => 'process', 'proess' => 'process',
+        
+        // ==================== SMS/TEXT SPEAK ====================
+        'pls' => 'please', 'plz' => 'please', 'plss' => 'please',
+        'plez' => 'please', 'plzzz' => 'please', 'plsss' => 'please',
+        'thx' => 'thanks', 'tnx' => 'thanks', 'ty' => 'thank you',
+        'thnks' => 'thanks', 'thankss' => 'thanks', 'thnx' => 'thanks',
+        'tysm' => 'thank you so much', 'tyvm' => 'thank you very much',
+        'hlp' => 'help', 'hw' => 'how', 'wht' => 'what',
+        'wer' => 'where', 'wen' => 'when', 'wat' => 'what',
+        'wut' => 'what', 'hwo' => 'how', 'howw' => 'how',
+        'tmrw' => 'tomorrow', 'tday' => 'today', 'ystrdy' => 'yesterday',
+        '2day' => 'today', '2mrw' => 'tomorrow', '2morrow' => 'tomorrow',
+        'bcoz' => 'because', 'bcuz' => 'because', 'coz' => 'because',
+        'cuz' => 'because', 'bcos' => 'because', 'cos' => 'because',
+        'asap' => 'as soon as possible', 'btw' => 'by the way',
+        'imo' => 'in my opinion', 'fyi' => 'for your information',
+        'idk' => 'i do not know', 'nvm' => 'never mind',
+        'msg' => 'message', 'ppl' => 'people', 'rn' => 'right now',
+        'ur' => 'your', 'u' => 'you', 'r' => 'are',
+        'b4' => 'before', 'l8r' => 'later', 'gr8' => 'great',
+        
+        // ==================== TAGALOG/TAGLISH CORRECTIONS ====================
+        // Common Tagalog words kept as-is or normalized
+        'po' => 'po', 'opo' => 'opo', 'naman' => 'naman',
+        'lang' => 'lang', 'din' => 'din', 'rin' => 'rin',
+        'kasi' => 'kasi', 'daw' => 'daw', 'raw' => 'raw',
+        'nga' => 'nga', 'sana' => 'sana', 'talaga' => 'talaga',
+        'muna' => 'muna', 'palagi' => 'palagi', 'pala' => 'pala',
+        
+        // Tagalog typo corrections
+        'pano' => 'paano', 'paanoo' => 'paano', 'paanu' => 'paano',
+        'panu' => 'paano', 'pno' => 'paano', 'paaano' => 'paano',
+        'pde' => 'pwede', 'pwd' => 'pwede', 'pwde' => 'pwede',
+        'pwedee' => 'pwede', 'pwdi' => 'pwede', 'puwede' => 'pwede',
+        'mgkano' => 'magkano', 'magknu' => 'magkano', 'mkano' => 'magkano',
+        'magkaano' => 'magkano', 'magkno' => 'magkano', 'mgkno' => 'magkano',
+        'gsto' => 'gusto', 'guato' => 'gusto', 'gusot' => 'gusto',
+        'gustoo' => 'gusto', 'gst' => 'gusto', 'guato' => 'gusto',
+        'klangan' => 'kailangan', 'kailngan' => 'kailangan', 'kelangan' => 'kailangan',
+        'kelngan' => 'kailangan', 'kailanagn' => 'kailangan', 'kaylangan' => 'kailangan',
+        'kaylngan' => 'kailangan', 'kylanagan' => 'kailangan', 'kailangn' => 'kailangan',
+        'salamaat' => 'salamat', 'salamta' => 'salamat', 'slmat' => 'salamat',
+        'salamt' => 'salamat', 'slamat' => 'salamat', 'salamet' => 'salamat',
+        'kelan' => 'kailan', 'klan' => 'kailan', 'kaylan' => 'kailan',
+        'kailan' => 'kailan', 'kilan' => 'kailan', 'kailn' => 'kailan',
+        'san' => 'saan', 'saan' => 'saan', 'ssan' => 'saan', 'sna' => 'saan',
+        'snoo' => 'sino', 'snio' => 'sino', 'sno' => 'sino', 'sinoo' => 'sino',
+        'anoo' => 'ano', 'anio' => 'ano', 'annoo' => 'ano',
+        'baket' => 'bakit', 'bkit' => 'bakit', 'bakt' => 'bakit',
+        'sge' => 'sige', 'sgee' => 'sige', 'sigee' => 'sige', 'sigue' => 'sige',
+        'ayaw' => 'ayaw', 'ayws' => 'ayaw', 'ayew' => 'ayaw',
+        'mron' => 'meron', 'mrn' => 'meron', 'meorn' => 'meron',
+        'wla' => 'wala', 'walaa' => 'wala', 'walang' => 'walang',
+        'nandto' => 'nandito', 'nndito' => 'nandito', 'ndito' => 'nandito',
+        'andyan' => 'andiyan', 'ndyan' => 'andiyan', 'nandyan' => 'andiyan',
+        'yng' => 'yung', 'yun' => 'yun', 'ung' => 'yung',
+        'ito' => 'ito', 'etoo' => 'ito', 'itoo' => 'ito',
+        'yan' => 'iyan', 'iyn' => 'iyan', 'eyan' => 'iyan',
+        'yon' => 'iyon', 'iyn' => 'iyon', 'eyun' => 'iyon',
+        
+        // Common Taglish expressions
+        'nman' => 'naman', 'nmn' => 'naman', 'nmaan' => 'naman',
+        'kc' => 'kasi', 'kse' => 'kasi', 'kci' => 'kasi',
+        'lnag' => 'lang', 'lng' => 'lang', 'lnng' => 'lang',
+        'dn' => 'din', 'dinn' => 'din', 'diin' => 'din',
+        'rn' => 'rin', 'riin' => 'rin', 'riiin' => 'rin',
+        
+        // Common mixed language mistakes
+        'serbisyo' => 'service', 'serbisyoo' => 'service',
+        'bayad' => 'payment', 'byad' => 'payment', 'bayd' => 'payment',
+        'presyo' => 'price', 'preso' => 'price', 'presio' => 'price',
+        'opisina' => 'office', 'opsina' => 'office', 'opissina' => 'office',
+        'abugado' => 'lawyer', 'abogado' => 'lawyer', 'abgado' => 'lawyer',
+        'notaryo' => 'notary', 'notario' => 'notary', 'nutaryo' => 'notary',
+        'dokumento' => 'document', 'dcumento' => 'document', 'dokumeto' => 'document',
+        'kontrata' => 'contract', 'kontrata' => 'contract', 'kuntrata' => 'contract',
+        
+        // Time expressions  
+        'ngaun' => 'ngayon', 'ngyon' => 'ngayon', 'ngyn' => 'ngayon',
+        'buaks' => 'bukas', 'bkas' => 'bukas', 'bukass' => 'bukas',
+        'kahaon' => 'kahapon', 'khapon' => 'kahapon', 'kahaopn' => 'kahapon',
+        'mamya' => 'mamaya', 'mamay' => 'mamaya', 'mmaya' => 'mamaya',
+        'kaagad' => 'agad', 'agadd' => 'agad', 'agaad' => 'agad',
+        
+        // Numbers in text  
+        'isa' => 'isa', 'dalwa' => 'dalawa', 'dalwa' => 'dalawa',
+        'tatlo' => 'tatlo', 'tatloo' => 'tatlo', 'tatlok' => 'tatlo',
+        'apat' => 'apat', 'apatt' => 'apat', 'apaat' => 'apat',
+        'lima' => 'lima', 'limaa' => 'lima', 'liima' => 'lima',
     ];
 
     /**
      * Taglish/slang normalization mapping
-     * Enhanced with more Filipino expressions and internet slang
+     * Enhanced with comprehensive Filipino expressions, internet slang, 
+     * and contextual understanding for natural language processing
+     * 
+     * DESIGN: Maps informal/slang terms to normalized forms for better intent matching
      */
     private array $slangNormalization = [
-        // Filipino question words
-        'paki' => 'please',
+        // ==================== FILIPINO QUESTION WORDS ====================
+        'paki' => 'please',           // Polite request marker
+        'pakisabi' => 'please tell',
+        'pakibigay' => 'please give',
+        'pakitulong' => 'please help',
         'sana' => 'hope',
         'gusto' => 'want',
+        'gustong' => 'want to',
         'kailangan' => 'need',
+        'kailangang' => 'need to',
         'pwede' => 'can',
+        'pwedeng' => 'can',
+        'puwede' => 'can',
         'paano' => 'how',
-        'pano' => 'how',
+        'paanong' => 'how',
         'ano' => 'what',
+        'anong' => 'what',
+        'anung' => 'what',
+        'kailan' => 'when',
         'kelan' => 'when',
         'saan' => 'where',
+        'nasaan' => 'where is',
         'sino' => 'who',
+        'sinong' => 'who',
         'bakit' => 'why',
+        'bat' => 'why',
         'magkano' => 'how much',
-        // Filipino nouns/verbs
+        'gaano' => 'how much',
+        'ilan' => 'how many',
+        'ilang' => 'how many',
+        
+        // ==================== FILIPINO VERBS (Actions) ====================
         'bayad' => 'payment',
+        'bayaran' => 'pay',
+        'magbayad' => 'pay',
+        'nagbayad' => 'paid',
+        'babayaran' => 'will pay',
         'singil' => 'charge',
+        'singilin' => 'collect payment',
         'ibalik' => 'return',
+        'ibabalik' => 'will return',
+        'kumuha' => 'get',
+        'kunin' => 'get',
+        'makuha' => 'get',
+        'tingnan' => 'check',
+        'tignan' => 'check',
+        'tiningnan' => 'checked',
+        'tanungin' => 'ask',
+        'magtanong' => 'ask',
+        'itanong' => 'ask',
+        'pakitawag' => 'please call',
+        'tawagan' => 'call',
+        'tumawag' => 'call',
+        'magbook' => 'book',
+        'magpareserve' => 'reserve',
+        'icancel' => 'cancel',
+        'ikansela' => 'cancel',
+        'ikansel' => 'cancel',
+        'kanselahin' => 'cancel',
+        'baguhin' => 'change',
+        'palitan' => 'replace',
+        'ipakita' => 'show',
+        'pakita' => 'show',
+        'ipakitang' => 'show',
+        
+        // ==================== FILIPINO NOUNS ====================
         'salamat' => 'thank you',
+        'maraming salamat' => 'thank you very much',
         'tulong' => 'help',
         'problema' => 'problem',
         'isyu' => 'issue',
         'serbisyo' => 'service',
+        'mga serbisyo' => 'services',
         'opisina' => 'office',
         'oras' => 'time',
+        'petsa' => 'date',
         'bukas' => 'tomorrow',
         'ngayon' => 'today',
         'kahapon' => 'yesterday',
         'mamaya' => 'later',
-        // Common expressions
+        'agad' => 'immediately',
+        'kaagad' => 'immediately',
+        'abugado' => 'lawyer',
+        'abogado' => 'lawyer',
+        'notaryo' => 'notary',
+        'dokumento' => 'document',
+        'papeles' => 'documents',
+        'kasulatan' => 'document',
+        'kontrata' => 'contract',
+        'kasunduan' => 'agreement',
+        'resibo' => 'receipt',
+        'presyo' => 'price',
+        'halaga' => 'amount',
+        'pera' => 'money',
+        'kwarta' => 'money',
+        'balanse' => 'balance',
+        'listahan' => 'list',
+        'schedule' => 'schedule',
+        'iskedyul' => 'schedule',
+        
+        // ==================== COMMON EXPRESSIONS ====================
         'eto' => 'here',
+        'ito' => 'this',
         'dito' => 'here',
         'doon' => 'there',
         'oo' => 'yes',
+        'opo' => 'yes',
         'hindi' => 'no',
-        'opo' => 'yes (polite)',
+        'hindi po' => 'no',
+        'wala' => 'none',
+        'walang' => 'no',
+        'meron' => 'there is',
+        'mayroon' => 'there is',
         'sige' => 'okay',
+        'sge' => 'okay',
         'ayos' => 'okay',
+        'ok' => 'okay',
         'okey' => 'okay',
         'okei' => 'okay',
         'oki' => 'okay',
-        // Internet slang (Tagalog/English mix)
+        'ge' => 'okay',
+        'g' => 'okay',
+        'sure' => 'sure',
+        'syur' => 'sure',
+        'syempre' => 'of course',
+        'oo naman' => 'yes of course',
+        'siyempre' => 'of course',
+        'siguro' => 'maybe',
+        'marahil' => 'perhaps',
+        'baka' => 'maybe',
+        'parang' => 'like',
+        'tulad' => 'like',
+        'katulad' => 'like',
+        
+        // ==================== POLITE MARKERS ====================
+        'po' => '',              // Polite marker (skip in normalization)
+        'ho' => '',              // Less formal polite marker
+        'nga' => '',             // Emphasis marker
+        'naman' => '',           // Softener
+        'pala' => '',            // Discovery marker
+        'na' => '',              // Already/now marker
+        'pa' => '',              // Still/more marker
+        'ba' => '',              // Question marker
+        'kaya' => '',            // Ability/wonder marker
+        'daw' => '',             // Hearsay marker
+        'raw' => '',             // Hearsay marker (formal)
+        
+        // ==================== INTERNET SLANG (TAGALOG) ====================
+        'haha' => '',            // Skip
+        'hehe' => '',            // Skip
+        'hihi' => '',            // Skip
+        'char' => '',            // "Just kidding"
+        'charot' => '',          // "Just kidding"
+        'chos' => '',            // "Just kidding"
+        'eme' => '',             // Filler word
+        'emz' => '',             // Filler word
+        'lodi' => 'idol',        // Reversed "idol"
+        'petmalu' => 'amazing',  // "Malupet" reversed
+        'werpa' => 'power',      // "Power" reversed
+        'awit' => 'sad',         // Expression of sadness
+        'sana all' => 'wish everyone had that',
+        'skl' => 'just sharing', // "Share ko lang"
+        'ctto' => '',            // "Credits to the owner"
+        
+        // ==================== INTERNET SLANG (ENGLISH) ====================
         'asap' => 'as soon as possible',
         'pls' => 'please',
         'plsss' => 'please',
         'ty' => 'thank you',
         'tysm' => 'thank you so much',
+        'tyvm' => 'thank you very much',
         'np' => 'no problem',
-        'nvm' => 'nevermind',
-        'idk' => 'I dont know',
+        'nvm' => 'never mind',
+        'idk' => 'i do not know',
         'btw' => 'by the way',
         'rn' => 'right now',
         'irl' => 'in real life',
-        'lol' => '', // Skip
-        'lmao' => '', // Skip
-        'haha' => '', // Skip
-        'hehe' => '', // Skip
-        // Abbreviations
+        'lol' => '',             // Skip
+        'lmao' => '',            // Skip
+        'omg' => '',             // Skip
+        'wtf' => '',             // Skip (filter)
+        'brb' => 'be right back',
+        'ttyl' => 'talk to you later',
+        'fyi' => 'for your information',
+        'imo' => 'in my opinion',
+        'tbh' => 'to be honest',
+        'tho' => 'though',
+        'tfw' => '',             // Skip
+        'mfw' => '',             // Skip
+        
+        // ==================== ABBREVIATIONS ====================
         'appt' => 'appointment',
+        'apt' => 'appointment',
         'svc' => 'service',
+        'svcs' => 'services',
         'amt' => 'amount',
         'bal' => 'balance',
         'acct' => 'account',
         'info' => 'information',
         'mins' => 'minutes',
         'hrs' => 'hours',
+        'wk' => 'week',
+        'wks' => 'weeks',
+        'mo' => 'month',
+        'mos' => 'months',
+        'yr' => 'year',
+        'yrs' => 'years',
+        'no' => 'number',
+        'num' => 'number',
+        'ref' => 'reference',
+        'id' => 'identification',
+        'approx' => 'approximately',
+        'est' => 'estimated',
+        
+        // ==================== GREETING VARIATIONS ====================
+        'kamusta' => 'hello',
+        'kumusta' => 'hello',
+        'musta' => 'hello',
+        'uy' => 'hi',
+        'hoy' => 'hi',
+        'oi' => 'hi',
+        'pre' => 'friend',       // "Pare"
+        'par' => 'friend',       // "Pare"
+        'bro' => 'friend',
+        'sis' => 'friend',
+        'besh' => 'friend',      // "Best friend"
+        'beshie' => 'friend',
+        'mare' => 'friend',      // "Kumare"
+        'teh' => 'friend',       // "Ate"
+        'tsong' => 'friend',     // "Katotohanan"
+        
+        // ==================== FAREWELL VARIATIONS ====================
+        'paalam' => 'goodbye',
+        'bye' => 'goodbye',
+        'babay' => 'goodbye',
+        'ingat' => 'take care',
+        'mag-ingat' => 'take care',
+        'kita' => 'see you',
+        'see you' => 'goodbye',
+        'hanggang sa muli' => 'until next time',
     ];
 
     /**
@@ -1430,12 +1680,7 @@ class ChatbotNLUService
      */
     private function getInappropriateResponse(): string
     {
-        $responses = [
-            "I'm here to help with system-related questions. Let's keep our conversation respectful and professional. How can I assist you with appointments, services, or payments?",
-            "I understand you may be frustrated, but I'm unable to respond to inappropriate language. I'm happy to help if you have questions about our services, appointments, or your account.",
-            "Let's maintain a professional conversation. I'm here to assist you with booking appointments, checking statuses, understanding services, and answering your questions about the system.",
-        ];
-        return $responses[array_rand($responses)];
+        return "I am here to provide professional assistance with system-related inquiries. Please maintain a professional tone so I can better assist you with appointments, services, or payments.";
     }
 
     /**
@@ -1452,13 +1697,7 @@ class ChatbotNLUService
      */
     private function getOutOfScopeResponse(): string
     {
-        $responses = [
-            "I appreciate your question, but that's outside the scope of what I'm designed to help with. I'm your assistant for this appointment booking system. Is there anything I can help you with regarding appointments or services?",
-            "I'm sorry, but I can only assist with matters related to this appointment system. If you have questions about booking, services, or your account, I'd be happy to help!",
-            "That's not something I'm able to help with, as my expertise is limited to this booking system. Feel free to ask me about appointments, services, or payments instead!",
-        ];
-
-        return $responses[array_rand($responses)];
+        return "This request is outside the scope of my assistance.";
     }
 
     /**

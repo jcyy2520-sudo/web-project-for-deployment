@@ -294,10 +294,50 @@ class SemanticEmbeddingsService
 
             $this->indexBusinessServices();
             $this->indexDefaultFAQs();
+            $this->indexFromBundle();
 
             return true;
         } catch (\Exception $e) {
             Log::error('Knowledge base rebuild failed: ' . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Index knowledge from the generated bundle file
+     */
+    public function indexFromBundle(): bool
+    {
+        try {
+            $bundlePath = base_path('../chatbot_knowledge/chatbot_knowledge_bundle.json');
+            if (!file_exists($bundlePath)) {
+                Log::warning('Chatbot knowledge bundle not found at ' . $bundlePath);
+                return false;
+            }
+
+            $bundle = json_decode(file_get_contents($bundlePath), true);
+            if (!$bundle || empty($bundle['files'])) {
+                return false;
+            }
+
+            foreach ($bundle['files'] as $file) {
+                if (empty($file['content'])) continue;
+
+                $this->indexDocument(
+                    $file['path'],
+                    $file['content'],
+                    $file['kind'],
+                    $file['kind'],
+                    [
+                        'sha1' => $file['sha1'] ?? null,
+                        'summary' => $file['summary'] ?? null,
+                    ]
+                );
+            }
+
+            return true;
+        } catch (\Exception $e) {
+            Log::error('Indexing from bundle failed: ' . $e->getMessage());
             return false;
         }
     }

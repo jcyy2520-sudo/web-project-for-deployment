@@ -330,7 +330,7 @@ class ChatbotRoleAwarenessService
                             ->whereIn('status', ['pending', 'approved'])
                             ->where('appointment_date', '>=', now()->toDateString())
                             ->count(),
-                        'pending_refunds' => Refund::whereHas('payment.appointment', fn($q) => $q->where('user_id', $userId))
+                        'pending_refunds' => Refund::whereHas('appointment', fn($q) => $q->where('user_id', $userId))
                             ->whereIn('status', ['pending', 'approved'])
                             ->count(),
                     ];

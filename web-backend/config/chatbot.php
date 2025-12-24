@@ -53,15 +53,17 @@ return [
             'create',           // Create records directly
             'impersonate',      // Pretend to be a user or role
             'access_external',  // Access external systems
+            'submit',           // Submit forms or requests
+            'process',          // Process payments or refunds
         ],
 
         // Response characteristics
         'response_style' => [
-            'tone' => 'professional',       // Professional but friendly
-            'verbosity' => 'concise',       // Clear and to the point
-            'emoji_usage' => 'minimal',     // Use sparingly for section headers
-            'max_length' => 5000,           // Maximum response length in characters
-            'target_length' => [50, 150],   // Target response length (words)
+            'tone' => 'professional_neutral', // Strictly professional and neutral
+            'verbosity' => 'concise',          // Clear and to the point
+            'emoji_usage' => 'none',           // NO EMOJIS
+            'max_length' => 5000,              // Maximum response length in characters
+            'target_length' => [50, 150],      // Target response length (words)
         ],
     ],
 
@@ -369,10 +371,10 @@ return [
         
         'tone' => [
             'professional' => true,
-            'friendly' => true,
+            'friendly' => false,
             'neutral' => true,
             'respectful' => true,
-            'empathetic_when_needed' => true,
+            'empathetic_when_needed' => false,
         ],
     ],
     

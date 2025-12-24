@@ -16,6 +16,10 @@ use App\Services\ChatbotActionService;
 use App\Services\ChatbotLLMIntegration;
 use App\Services\ChatbotGuardService;
 use App\Services\LLMService;
+use App\Services\SmartActionSuggestionService;
+use App\Services\LanguageDetectionService;
+use App\Services\AdvancedIntelligenceService;
+use App\Services\ClarificationEngineService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
@@ -31,6 +35,10 @@ class ChatbotController extends Controller
     private ChatbotSmartResponseBuilder $responseBuilder;
     private ChatbotLLMIntegration $llmIntegration;
     private ChatbotGuardService $guardService;
+    private SmartActionSuggestionService $suggestionService;
+    private LanguageDetectionService $languageService;
+    private AdvancedIntelligenceService $intelligenceService;
+    private ClarificationEngineService $clarificationEngine;
     private ?ChatbotAnalyticsService $analyticsService = null;
 
     private const MAX_HISTORY = 10;
@@ -42,7 +50,11 @@ class ChatbotController extends Controller
         ChatbotRealTimeDataService $dataService,
         ChatbotSmartResponseBuilder $responseBuilder,
         ChatbotLLMIntegration $llmIntegration,
-        ChatbotGuardService $guardService
+        ChatbotGuardService $guardService,
+        SmartActionSuggestionService $suggestionService,
+        LanguageDetectionService $languageService,
+        AdvancedIntelligenceService $intelligenceService,
+        ClarificationEngineService $clarificationEngine
     ) {
         $this->chatbotService = $chatbotService;
         $this->roleService = $roleService;
@@ -51,6 +63,10 @@ class ChatbotController extends Controller
         $this->responseBuilder = $responseBuilder;
         $this->llmIntegration = $llmIntegration;
         $this->guardService = $guardService;
+        $this->suggestionService = $suggestionService;
+        $this->languageService = $languageService;
+        $this->intelligenceService = $intelligenceService;
+        $this->clarificationEngine = $clarificationEngine;
         
         try {
             $this->analyticsService = app(ChatbotAnalyticsService::class);
@@ -105,81 +121,34 @@ class ChatbotController extends Controller
             $request->validate([
                 'action' => 'required|string',
                 'params' => 'nullable|array',
-                'confirmed' => 'nullable|boolean',
-                'confirmation_key' => 'nullable|string',
             ]);
-            
+
             $userId = auth('sanctum')->id() ?? auth()->id();
-            
             if (!$userId) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Authentication required to execute actions.',
+                    'message' => 'Authentication required to perform actions.',
                 ], 401);
             }
-            
+
             $roleInfo = $this->roleService->detectUserRole($userId);
-            $role = $roleInfo['primary_role'];
+            $role = $roleInfo['primary_role'] ?? 'client';
+
             $action = $request->input('action');
-            $params = $request->input('params', []);
-            $confirmed = $request->input('confirmed', false);
-            $confirmationKey = $request->input('confirmation_key');
-            
-            // Handle confirmation for pending action
-            if ($confirmationKey && $confirmed) {
-                $pendingAction = ChatbotActionService::getPendingAction($userId, $confirmationKey);
-                if ($pendingAction) {
-                    $action = $pendingAction['action'];
-                    $params = $pendingAction['params'];
-                    $confirmed = true;
-                }
-            }
-            
-            // Check permission
-            $permissionCheck = $this->roleService->canPerformIntent($userId, $action);
-            if (!$permissionCheck['allowed']) {
-                return response()->json([
-                    'success' => false,
-                    'message' => $this->roleService->getPermissionDeniedMessage($action, $userId),
-                    'permission_denied' => true,
-                ], 403);
-            }
-            
-            // Execute the action
-            $result = ChatbotActionService::executeAction($userId, $role, $action, $params, $confirmed);
-            
-            // Log the action
-            Log::info('Chatbot action executed', [
-                'user_id' => $userId,
-                'role' => $role,
-                'action' => $action,
-                'success' => $result['success'],
-            ]);
-            
-            return response()->json([
-                'success' => $result['success'],
-                'message' => $result['message'],
-                'data' => $result['data'] ?? null,
-                'requires_confirmation' => $result['requires_confirmation'] ?? false,
-                'confirmation_key' => $result['confirmation_key'] ?? null,
-            ]);
-            
-        } catch (\Illuminate\Validation\ValidationException $e) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Validation error',
-                'errors' => $e->errors(),
-            ], 422);
+            $params = $request->input('params') ?? [];
+
+            $result = ChatbotActionService::executeAction($userId, $role, $action, $params);
+
+            return response()->json($result);
         } catch (\Exception $e) {
-            Log::error('Execute action error: ' . $e->getMessage());
+            Log::error('Chatbot executeAction error: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to execute action',
-                'error' => config('app.debug') ? $e->getMessage() : null,
+                'message' => 'Failed to execute action: ' . $e->getMessage(),
             ], 500);
         }
     }
-    
+            
     /**
      * Confirm a pending action
      */
@@ -188,63 +157,46 @@ class ChatbotController extends Controller
         try {
             $request->validate([
                 'confirmation_key' => 'required|string',
-                'confirm' => 'required|boolean',
             ]);
-            
+
             $userId = auth('sanctum')->id() ?? auth()->id();
-            
             if (!$userId) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Authentication required.',
+                    'message' => 'Authentication required to confirm actions.',
                 ], 401);
             }
-            
+
             $confirmationKey = $request->input('confirmation_key');
-            $confirm = $request->input('confirm');
-            
-            if (!$confirm) {
-                // User cancelled
-                return response()->json([
-                    'success' => true,
-                    'message' => 'Action cancelled.',
-                    'cancelled' => true,
-                ]);
-            }
-            
-            $pendingAction = ChatbotActionService::getPendingAction($userId, $confirmationKey);
-            
-            if (!$pendingAction) {
+            $pending = ChatbotActionService::getPendingAction($userId, $confirmationKey);
+
+            if (!$pending) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Confirmation expired or invalid. Please try again.',
+                    'message' => 'Confirmation expired or invalid. Please try the action again.',
                 ], 400);
             }
-            
+
             $roleInfo = $this->roleService->detectUserRole($userId);
+            $role = $roleInfo['primary_role'] ?? 'client';
+
             $result = ChatbotActionService::executeAction(
-                $userId,
-                $roleInfo['primary_role'],
-                $pendingAction['action'],
-                $pendingAction['params'],
-                true // confirmed
+                $userId, 
+                $role, 
+                $pending['action'], 
+                $pending['params'], 
+                true
             );
-            
-            return response()->json([
-                'success' => $result['success'],
-                'message' => $result['message'],
-                'data' => $result['data'] ?? null,
-            ]);
-            
+
+            return response()->json($result);
         } catch (\Exception $e) {
-            Log::error('Confirm action error: ' . $e->getMessage());
+            Log::error('Chatbot confirmAction error: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to confirm action',
+                'message' => 'Failed to confirm action: ' . $e->getMessage(),
             ], 500);
         }
     }
-
     /**
      * Get chat history for the current user
      * Protected endpoint - authenticated users only
@@ -418,27 +370,36 @@ class ChatbotController extends Controller
                 $roleInfo = ['primary_role' => $userRole, 'is_authenticated' => !$isGuest];
             }
 
-            // Step 2: Analyze User Input (NLU)
+            // Step 2: Analyze User Input (NLU) with Enhanced Intelligence
             $intentData = [];
             $entities = [];
             $sentiment = 'neutral';
             $sentimentScore = 3;
             $isFollowUp = false;
+            $detectedLanguage = 'english';
             
             try {
-                // Detect language for bilingual support (Filipino/English)
-                $detectedLanguage = $this->detectLanguage($userMessage);
+                // Detect language for bilingual support (Filipino/English/Taglish)
+                $langResult = $this->languageService->detect($userMessage);
+                $detectedLanguage = $langResult['language'] === 'tl' ? 'filipino' : 'english';
                 
-                // Pass role and user context to NLU for better intent detection
+                // ENHANCED: Pre-process message for typos and normalize input
+                $enhancedMessage = $this->intelligenceService->enhanceMessage($userMessage);
+                $normalizedMessage = $enhancedMessage['normalized'];
+                $messageLanguage = $enhancedMessage['detected_language'];
+                
+                // Use normalized message for better intent detection
                 $nluContext = [
                     'role' => $userRole,
                     'user_id' => $userId,
                     'conversation_id' => $conversationId,
                     'language' => $detectedLanguage,
+                    'original_message' => $userMessage,
+                    'normalized_message' => $normalizedMessage,
                 ];
                 
-                $intentData = $this->nluService->detectIntent($userMessage, $nluContext);
-                $entities = $this->nluService->extractEntities($userMessage);
+                $intentData = $this->nluService->detectIntent($normalizedMessage, $nluContext);
+                $entities = $this->nluService->extractEntities($normalizedMessage);
                 $sentimentData = $this->nluService->analyzeSentiment($userMessage);
                 $sentiment = $sentimentData['sentiment'];
                 $sentimentScore = $sentimentData['score'];
@@ -465,6 +426,66 @@ class ChatbotController extends Controller
                 $entities = [];
                 $sentiment = 'neutral';
                 $sentimentScore = 3;
+            }
+            
+            // === CLARIFICATION-FIRST LOGIC ===
+            // Check if user's request is ambiguous and needs clarification BEFORE processing
+            try {
+                $clarificationContext = [
+                    'user_id' => $userId,
+                    'role' => $userRole,
+                    'conversation_id' => $conversationId,
+                    'language' => $detectedLanguage,
+                    'intent' => $intentData['intent'] ?? 'unknown',
+                    'entities' => $entities,
+                    'confidence' => $intentData['confidence'] ?? 0.5,
+                    'is_follow_up' => $isFollowUp,
+                ];
+                
+                $clarificationResult = $this->clarificationEngine->analyze(
+                    $normalizedMessage ?? $userMessage,
+                    $clarificationContext
+                );
+                
+                if ($clarificationResult['needs_clarification'] && !$isFollowUp) {
+                    Log::info('Chatbot: Clarification needed', [
+                        'user_id' => $userId,
+                        'reason' => $clarificationResult['clarification_type'] ?? 'ambiguous',
+                        'confidence' => $intentData['confidence'] ?? 0,
+                    ]);
+                    
+                    // Format clarification response in user's preferred language
+                    $clarificationResponse = $this->clarificationEngine->formatClarificationResponse(
+                        $clarificationResult,
+                        $detectedLanguage
+                    );
+                    
+                    // Save the pending clarification to context for follow-up handling
+                    $this->intelligenceService->storeContext($conversationId, [
+                        'pending_clarification' => $clarificationResult,
+                        'original_message' => $userMessage,
+                        'detected_intent' => $intentData['intent'] ?? 'unknown',
+                    ]);
+                    
+                    return response()->json([
+                        'success' => true,
+                        'conversation_id' => $conversationId,
+                        'user_message' => $userMessage,
+                        'ai_response' => $clarificationResponse,
+                        'meta' => [
+                            'source' => 'clarification_engine',
+                            'intent' => $intentData['intent'] ?? 'unknown',
+                            'role' => $userRole,
+                            'needs_clarification' => true,
+                            'clarification_type' => $clarificationResult['clarification_type'] ?? 'general',
+                            'suggestions' => $clarificationResult['suggestions'] ?? [],
+                        ],
+                        'timestamp' => now()->toIso8601String(),
+                    ]);
+                }
+            } catch (\Exception $clarEx) {
+                Log::warning('Clarification analysis failed: ' . $clarEx->getMessage());
+                // Continue without clarification if engine fails
             }
             
             // Step 2B: Check if user is trying to request bot to perform actions
@@ -652,7 +673,8 @@ class ChatbotController extends Controller
             $isPriority = ($sentimentScore >= 4 || in_array($sentiment, ['angry', 'frustrated']));
 
             // Detect user's language for bilingual response
-            $detectedLanguage = $this->detectLanguage($userMessage);
+            $langResult = $this->languageService->detect($userMessage);
+            $detectedLanguage = $langResult['language'] === 'tl' ? 'filipino' : 'english';
             
             // Build response using all available services
             // IMPORTANT: Pass both 'message' and 'user_message' for compatibility
@@ -830,11 +852,25 @@ class ChatbotController extends Controller
                 Log::debug('Failed to increment rate limit: ' . $e->getMessage());
             }
 
+            // Get smart suggestions for next steps
+            $suggestions = [];
+            try {
+                $suggestions = $this->suggestionService->getSuggestions(
+                    $userId,
+                    $userRole,
+                    $userMessage,
+                    $intentData
+                );
+            } catch (\Exception $e) {
+                Log::debug('Failed to get suggestions: ' . $e->getMessage());
+            }
+
             return response()->json([
                 'success' => true,
                 'conversation_id' => $conversationId,
                 'user_message' => $userMessage,
                 'ai_response' => $aiResponse,
+                'suggestions' => $suggestions,
                 'meta' => $finalMeta,
                 'timestamp' => now()->toIso8601String()
             ]);
@@ -1152,56 +1188,30 @@ class ChatbotController extends Controller
      */
     private function getFallbackResponse($userMessage)
     {
-        $lower = mb_strtolower(trim($userMessage));
-        
+        // Use AdvancedIntelligenceService to generate a dynamic response based on live data
         try {
-            // Try to fetch real data for responses
-            if (preg_match('/(book|appointment|schedule|reserve)/i', $lower)) {
-                $appointmentCount = \App\Models\Appointment::count();
-                return "You can book an appointment through your dashboard. We have received $appointmentCount appointments so far. Select your preferred date, time, and service. Your appointment will be pending approval.";
+            $analysis = $this->intelligenceService->analyzeForAmbiguity($userMessage, []);
+            $topics = $analysis['detected_topics'] ?? [];
+            $topic = $topics[0] ?? 'general';
+
+            $data = [];
+            // Pass lightweight context where possible (counts etc.)
+            if ($topic === 'services') {
+                $data['services_count'] = \App\Models\Service::where('is_active', true)->count();
             }
-            
-            if (preg_match('/(service|what.*offer|available)/i', $lower)) {
-                $services = \App\Models\Service::where('is_active', true)->get();
-                if ($services->count() > 0) {
-                    $serviceList = $services->pluck('name')->implode(', ');
-                    return "We offer the following services: $serviceList. Log in to view detailed descriptions, pricing, and availability.";
-                }
-                return "We offer professional services. Log in to view our complete service catalog with detailed descriptions and pricing.";
+
+            if ($topic === 'appointment' || $topic === 'appointments') {
+                $data['appointments_count'] = \App\Models\Appointment::count();
             }
-            
-            if (preg_match('/(hour|time|when|open|business)/i', $lower)) {
-                $settings = \App\Models\AppointmentSettings::first();
-                if ($settings && $settings->business_hours) {
-                    return "Our business hours are: " . $settings->business_hours . ". You can book appointments during these times.";
-                }
-                return "Our services are available during business hours. For specific hours, please log in to your account or contact us.";
-            }
-            
-            if (preg_match('/(price|cost|fee|how much|charge)/i', $lower)) {
-                $priceRange = \App\Models\Service::where('is_active', true)
-                    ->selectRaw('MIN(price) as min_price, MAX(price) as max_price')
-                    ->first();
-                if ($priceRange && $priceRange->min_price) {
-                    return "Service pricing ranges from \$" . number_format($priceRange->min_price, 2) . " to \$" . number_format($priceRange->max_price, 2) . ". Log in to view prices for specific services.";
-                }
-                return "Service pricing varies based on the type. Please log in to view current rates.";
-            }
-            
-            if (preg_match('/(cancel|reschedule|change|modify)/i', $lower)) {
-                return "You can manage your appointments from your dashboard. To cancel or reschedule, visit the Appointments section and select the appointment you want to modify.";
-            }
-            
-            if (preg_match('/(status|pending|approved|completed)/i', $lower)) {
-                return "Check your appointment status in your dashboard. Pending appointments are awaiting approval, approved ones are confirmed, and completed ones are in your history.";
-            }
+
+            $structured = $this->intelligenceService->buildStructuredResponse($topic, $data, [], 'en');
+            $nl = $this->intelligenceService->structuredToNaturalLanguage($structured);
+            return $nl;
         } catch (\Exception $e) {
-            Log::debug('Error fetching real data for fallback response: ' . $e->getMessage());
-            // Continue to hardcoded fallback
+            Log::debug('Fallback dynamic generation failed: ' . $e->getMessage());
         }
-        
-        // Fallback for queries we couldn't match
-        return "I can help you with appointments, services, pricing, and more. Please feel free to ask specific questions, and I'll provide detailed assistance.";
+
+        return "I can help you with appointments, services, pricing, and more. Please ask a specific question and I'll fetch the latest information.";
     }
 
     /**
@@ -1210,43 +1220,26 @@ class ChatbotController extends Controller
      */
     private function getGuestResponse($userMessage)
     {
-        $lowerMessage = strtolower(trim($userMessage));
-        
         try {
-            // Pattern matching with dynamic data fallback
-            if (preg_match('/(book|appointment|schedule|reserve)/i', $lowerMessage)) {
-                return "To book an appointment, please register or log in to your account. You'll be able to view available time slots and choose a convenient appointment time.";
+            $analysis = $this->intelligenceService->analyzeForAmbiguity($userMessage, []);
+            $topics = $analysis['detected_topics'] ?? [];
+            $topic = $topics[0] ?? 'general';
+
+            $data = [];
+            if ($topic === 'services') {
+                $data['services_count'] = \App\Models\Service::where('is_active', true)->count();
             }
-            
-            if (preg_match('/(service|offer|what do you)/i', $lowerMessage)) {
-                $serviceCount = \App\Models\Service::where('is_active', true)->count();
-                if ($serviceCount > 0) {
-                    return "We offer $serviceCount professional services. Please register or log in to view our complete service catalog with detailed descriptions and pricing.";
-                }
-                return "We offer various professional services. Please register or log in to view our complete service catalog.";
-            }
-            
-            if (preg_match('/(hour|time|when|open)/i', $lowerMessage)) {
-                return "Our business hours and availability can be viewed after you register or log in. This ensures you get the most up-to-date information.";
-            }
-            
-            if (preg_match('/(price|cost|fee|how much)/i', $lowerMessage)) {
-                return "For pricing information, please register or log in to access our full service catalog with current rates.";
-            }
-            
-            if (preg_match('/(register|sign up|create account)/i', $lowerMessage)) {
-                return "You can register by clicking the 'Register' button. Registration is quick and easy - just provide your email and create a password to get started!";
-            }
-            
-            if (preg_match('/(login|log in|sign in)/i', $lowerMessage)) {
-                return "Please click the 'Login' button at the top right to access your account. If you don't have an account yet, you can register for free!";
-            }
+
+            $structured = $this->intelligenceService->buildStructuredResponse($topic, $data, [], 'en');
+            $nl = $this->intelligenceService->structuredToNaturalLanguage($structured);
+
+            // For guests, include prompt to register but keep content dynamic
+            $nl .= "\n\nTo perform account-specific actions, please register or log in so I can fetch your personal data.";
+            return $nl;
         } catch (\Exception $e) {
-            Log::debug('Error building guest response: ' . $e->getMessage());
+            Log::debug('Guest dynamic response failed: ' . $e->getMessage());
+            return "Thanks for your question! To get personalized assistance and access all features, please register or log in.";
         }
-        
-        // Default guest response
-        return "Thanks for your question! To get personalized assistance and access all features, please register or log in. Our full chatbot capabilities are available to registered users.";
     }
 
     /**
@@ -1484,12 +1477,12 @@ class ChatbotController extends Controller
 
             // Try to find a user with admin role
             try {
-                $adminUser = User::role('admin')->first();
+                $adminUser = User::where('role', 'admin')->first();
                 if ($adminUser) {
                     return $adminUser->id;
                 }
             } catch (\Exception $roleError) {
-                Log::debug('Admin role not found, trying alternative methods: ' . $roleError->getMessage());
+                Log::debug('Admin user not found, trying alternative methods: ' . $roleError->getMessage());
             }
 
             // Fallback: Try to find an existing chatbot admin system user (created in previous requests)
