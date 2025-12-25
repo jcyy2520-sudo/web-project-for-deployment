@@ -41,7 +41,7 @@ const PieChart = ({ data, title, isDarkMode = true }) => {
                   key={index}
                   d={pathData}
                   fill={item.color}
-                  stroke="#1f2937"
+                  stroke={isDarkMode ? "#1f2937" : "var(--borders)"}
                   strokeWidth="2"
                   className="transition-all duration-300 hover:opacity-80 cursor-pointer"
                 />

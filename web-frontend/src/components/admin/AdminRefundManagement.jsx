@@ -3,7 +3,7 @@ import axios from 'axios';
 import { CheckCircleIcon, XCircleIcon, ClockIcon, ExclamationTriangleIcon, ChevronLeftIcon, ChevronRightIcon, XMarkIcon, ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline';
 import LoadingSpinner from '../LoadingSpinner';
 
-const AdminRefundManagement = () => {
+const AdminRefundManagement = ({ isUserLight: isUserLightProp } = {}) => {
   const [refunds, setRefunds] = useState([]);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
@@ -31,6 +31,42 @@ const AdminRefundManagement = () => {
     refundDetails: true,
     actions: true
   });
+
+  // Detect whether the admin has switched to the user-light (light) theme
+  const [isUserLight, setIsUserLight] = useState(() => {
+    if (typeof isUserLightProp !== 'undefined') return !!isUserLightProp;
+    try {
+      return typeof document !== 'undefined' && document.documentElement.classList.contains('user-light');
+    } catch (e) {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    if (typeof isUserLightProp !== 'undefined') {
+      setIsUserLight(!!isUserLightProp);
+      return;
+    }
+    if (typeof document === 'undefined') return;
+    const root = document.documentElement;
+    const mo = new MutationObserver(() => {
+      setIsUserLight(root.classList.contains('user-light'));
+    });
+    mo.observe(root, { attributes: true, attributeFilter: ['class'] });
+    return () => mo.disconnect();
+  }, [isUserLightProp]);
+
+  // Theme-aware helper classes
+  const textPrimary = isUserLight ? 'text-gray-900' : 'text-amber-50';
+  const textSecondary = isUserLight ? 'text-gray-700' : 'text-gray-400';
+  const mutedText = isUserLight ? 'text-gray-600' : 'text-gray-400';
+  const containerBg = isUserLight ? 'bg-white' : 'bg-gray-900';
+  const panelBg = isUserLight ? 'bg-white' : 'bg-gray-800';
+  const inputBg = isUserLight ? 'bg-gray-50' : 'bg-gray-800';
+  const inputText = isUserLight ? 'text-gray-900' : 'text-white';
+  const borderColor = isUserLight ? 'border-gray-200' : 'border-amber-500/20';
+  const headBg = isUserLight ? 'bg-gray-50' : 'bg-gray-800';
+  const rowHoverClass = isUserLight ? 'hover:bg-gray-100' : 'hover:bg-gray-700';
 
   const presetDeclineReasons = [
     { value: 'duplicate_refund', label: 'Duplicate Refund Request' },
@@ -215,6 +251,16 @@ const AdminRefundManagement = () => {
   };
 
   const getStatusColor = (status) => {
+    if (isUserLight) {
+      switch (status) {
+        case 'pending': return 'bg-gray-100 border-amber-200 text-amber-600';
+        case 'approved': return 'bg-gray-100 border-blue-200 text-blue-600';
+        case 'completed': return 'bg-gray-100 border-green-200 text-green-600';
+        case 'rejected': return 'bg-gray-100 border-red-200 text-red-600';
+        default: return 'bg-gray-100 border-gray-200 text-gray-700';
+      }
+    }
+
     switch (status) {
       case 'pending': return 'bg-gray-800 border-amber-500/30 text-amber-400';
       case 'approved': return 'bg-gray-800 border-blue-500/30 text-blue-400';
@@ -225,25 +271,19 @@ const AdminRefundManagement = () => {
   };
 
   const getTableRowHoverColor = (status) => {
-    switch (status) {
-      case 'pending': return 'hover:bg-gray-700';
-      case 'approved': return 'hover:bg-gray-700';
-      case 'completed': return 'hover:bg-gray-700';
-      case 'rejected': return 'hover:bg-gray-700';
-      default: return 'hover:bg-gray-700';
-    }
+    return rowHoverClass;
   };
 
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="bg-gradient-to-r from-gray-900 to-gray-800 border border-amber-500/20 rounded-lg p-4">
-        <h2 className="text-xl font-bold text-amber-50 transition-colors duration-300">💰 Refund Management Dashboard</h2>
-        <p className="text-sm text-amber-400/70 mt-1 transition-colors duration-300">Manage and process refund requests from all users</p>
+      <div className={`bg-gradient-to-r ${isUserLight ? 'from-white to-white' : 'from-gray-900 to-gray-800'} ${borderColor} rounded-lg p-4`}>
+        <h2 className={`text-xl font-bold ${textPrimary} transition-colors duration-300`}>💰 Refund Management Dashboard</h2>
+        <p className={`text-sm ${isUserLight ? 'text-gray-600' : 'text-amber-400/70'} mt-1 transition-colors duration-300`}>Manage and process refund requests from all users</p>
       </div>
 
       {/* Filters */}
-      <div className="bg-gray-900 border border-amber-500/20 rounded-lg shadow p-4 space-y-3 transition-colors duration-300">
+      <div className={`${panelBg} ${borderColor} rounded-lg shadow p-4 space-y-3 transition-colors duration-300`}>
         <h3 className="font-semibold text-amber-400 flex items-center gap-2 transition-colors duration-300">
           🔍 Filters & Search
         </h3>
@@ -253,12 +293,12 @@ const AdminRefundManagement = () => {
             placeholder="Search by customer..."
             value={filters.search}
             onChange={(e) => setFilters(f => ({ ...f, search: e.target.value }))}
-            className="px-3 py-2 bg-gray-800 border border-gray-600 text-white placeholder-gray-400 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-amber-500 transition-all duration-200"
+            className={`px-3 py-2 ${inputBg} border border-gray-200 ${inputText} placeholder-gray-400 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-amber-500 transition-all duration-200`}
           />
           <select
             value={filters.status}
             onChange={(e) => setFilters(f => ({ ...f, status: e.target.value }))}
-            className="px-3 py-2 bg-gray-800 border border-gray-600 text-white rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-amber-500 transition-all duration-200"
+            className={`px-3 py-2 ${inputBg} border border-gray-200 ${inputText} rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-amber-500 transition-all duration-200`}
           >
             <option value="all">All Status</option>
             <option value="pending">Pending</option>
@@ -269,7 +309,7 @@ const AdminRefundManagement = () => {
           <select
             value={filters.reason}
             onChange={(e) => setFilters(f => ({ ...f, reason: e.target.value }))}
-            className="px-3 py-2 bg-gray-800 border border-gray-600 text-white rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-amber-500 transition-all duration-200"
+            className={`px-3 py-2 ${inputBg} border border-gray-200 ${inputText} rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-amber-500 transition-all duration-200`}
           >
             <option value="all">All Reasons</option>
             <option value="customer_request">Customer Request</option>
@@ -283,29 +323,29 @@ const AdminRefundManagement = () => {
             type="date"
             value={filters.date_from}
             onChange={(e) => setFilters(f => ({ ...f, date_from: e.target.value }))}
-            className="px-3 py-2 bg-gray-800 border border-gray-600 text-white rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-amber-500 transition-all duration-200"
+            className={`px-3 py-2 ${inputBg} border border-gray-200 ${inputText} rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-amber-500 transition-all duration-200`}
           />
           <input
             type="date"
             value={filters.date_to}
             onChange={(e) => setFilters(f => ({ ...f, date_to: e.target.value }))}
-            className="px-3 py-2 bg-gray-800 border border-gray-600 text-white rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-amber-500 transition-all duration-200"
+            className={`px-3 py-2 ${inputBg} border border-gray-200 ${inputText} rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-amber-500 transition-all duration-200`}
           />
         </div>
       </div>
 
       {/* Refunds Table */}
-      <div className="border border-amber-500/20 rounded-lg shadow overflow-hidden bg-gray-900 transition-colors duration-300">
+      <div className={`${borderColor} rounded-lg shadow overflow-hidden ${containerBg} transition-colors duration-300`}>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-gray-800 border-b border-amber-500/20">
+            <thead className={`${headBg} border-b ${borderColor}`}>
               <tr>
-                <th className="px-4 py-3 text-left font-semibold text-amber-400 transition-colors duration-300">Date</th>
-                <th className="px-4 py-3 text-left font-semibold text-amber-400 transition-colors duration-300">Customer</th>
-                <th className="px-4 py-3 text-left font-semibold text-amber-400 transition-colors duration-300">Amount</th>
-                <th className="px-4 py-3 text-left font-semibold text-amber-400 transition-colors duration-300">Reason</th>
-                <th className="px-4 py-3 text-left font-semibold text-amber-400 transition-colors duration-300">Status</th>
-                <th className="px-4 py-3 text-left font-semibold text-amber-400 transition-colors duration-300">Actions</th>
+                <th className={`px-4 py-3 text-left font-semibold ${isUserLight ? 'text-gray-700' : 'text-amber-400'} transition-colors duration-300`}>Date</th>
+                <th className={`px-4 py-3 text-left font-semibold ${isUserLight ? 'text-gray-700' : 'text-amber-400'} transition-colors duration-300`}>Customer</th>
+                <th className={`px-4 py-3 text-left font-semibold ${isUserLight ? 'text-gray-700' : 'text-amber-400'} transition-colors duration-300`}>Amount</th>
+                <th className={`px-4 py-3 text-left font-semibold ${isUserLight ? 'text-gray-700' : 'text-amber-400'} transition-colors duration-300`}>Reason</th>
+                <th className={`px-4 py-3 text-left font-semibold ${isUserLight ? 'text-gray-700' : 'text-amber-400'} transition-colors duration-300`}>Status</th>
+                <th className={`px-4 py-3 text-left font-semibold ${isUserLight ? 'text-gray-700' : 'text-amber-400'} transition-colors duration-300`}>Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-700">
@@ -324,28 +364,28 @@ const AdminRefundManagement = () => {
               ) : (
                 refunds.map(refund => (
                   <tr key={refund.id} className={`${getTableRowHoverColor(refund.status)} transition-colors duration-200 cursor-pointer`}>
-                    <td className="px-4 py-3 text-gray-400">
+                    <td className={`px-4 py-3 ${mutedText}`}>
                       {new Date(refund.created_at).toLocaleDateString()}
                     </td>
                     <td className="px-4 py-3">
-                      <div className="font-medium text-amber-50">
+                      <div className={`font-medium ${textPrimary}`}>
                         {refund.appointment?.user?.first_name} {refund.appointment?.user?.last_name}
                       </div>
-                      <div className="text-xs text-gray-400">
+                      <div className={`text-xs ${mutedText}`}>
                         {refund.appointment?.user?.email}
                       </div>
                     </td>
-                    <td className="px-4 py-3 font-semibold text-amber-400">
+                    <td className={`px-4 py-3 font-semibold ${isUserLight ? 'text-gray-800' : 'text-amber-400'}`}>
                       ₱{parseFloat(refund.refund_amount).toFixed(2)}
-                      {refund.is_partial && <div className="text-xs text-gray-400">(Partial)</div>}
+                      {refund.is_partial && <div className={`${mutedText} text-xs`}>(Partial)</div>}
                     </td>
-                    <td className="px-4 py-3 text-gray-300 text-xs">
+                    <td className={`px-4 py-3 ${isUserLight ? 'text-gray-700 text-xs' : 'text-gray-300 text-xs'}`}>
                       {refund.reason.replace(/_/g, ' ')}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         {getStatusIcon(refund.status)}
-                        <span className="text-xs font-medium text-amber-50">
+                        <span className={`text-xs font-medium ${textPrimary}`}>
                           {getStatusLabel(refund.status)}
                         </span>
                       </div>
@@ -353,7 +393,7 @@ const AdminRefundManagement = () => {
                     <td className="px-4 py-3">
                       <button
                         onClick={() => setSelectedRefund(refund)}
-                        className="text-amber-400 hover:text-amber-300 text-xs font-medium px-2 py-1 rounded hover:bg-amber-500/10 transition-colors duration-200"
+                        className={`${isUserLight ? 'text-amber-600 hover:text-amber-500' : 'text-amber-400 hover:text-amber-300'} text-xs font-medium px-2 py-1 rounded hover:bg-amber-500/10 transition-colors duration-200`}
                       >
                         View Details
                       </button>
@@ -367,25 +407,25 @@ const AdminRefundManagement = () => {
 
         {/* Pagination */}
         {totalPages > 1 && (
-          <div className="px-4 py-3 border-t border-gray-700 bg-gray-800/50 flex items-center justify-between">
-            <div className="text-sm text-gray-400">
+          <div className={`px-4 py-3 border-t ${isUserLight ? 'border-gray-200' : 'border-gray-700'} ${isUserLight ? 'bg-white' : 'bg-gray-800/50'} flex items-center justify-between`}>
+            <div className={`text-sm ${mutedText}`}>
               Showing {((page - 1) * perPage) + 1}-{Math.min(page * perPage, total)} of {total}
             </div>
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setPage(Math.max(1, page - 1))}
                 disabled={page === 1}
-                className="p-1 border border-gray-600 text-gray-300 hover:border-amber-500/40 rounded hover:bg-gray-700 disabled:opacity-50 transition-all duration-200"
+                className={`p-1 border ${isUserLight ? 'border-gray-300 text-gray-700' : 'border-gray-600 text-gray-300'} hover:border-amber-500/40 rounded ${isUserLight ? 'hover:bg-gray-100' : 'hover:bg-gray-700'} disabled:opacity-50 transition-all duration-200`}
               >
                 <ChevronLeftIcon className="h-4 w-4" />
               </button>
-              <span className="text-sm text-gray-400">
+              <span className={`text-sm ${mutedText}`}>
                 Page {page} / {totalPages}
               </span>
               <button
                 onClick={() => setPage(Math.min(totalPages, page + 1))}
                 disabled={page >= totalPages}
-                className="p-1 border border-gray-600 text-gray-300 hover:border-amber-500/40 rounded hover:bg-gray-700 disabled:opacity-50 transition-all duration-200"
+                className={`p-1 border ${isUserLight ? 'border-gray-300 text-gray-700' : 'border-gray-600 text-gray-300'} hover:border-amber-500/40 rounded ${isUserLight ? 'hover:bg-gray-100' : 'hover:bg-gray-700'} disabled:opacity-50 transition-all duration-200`}
               >
                 <ChevronRightIcon className="h-4 w-4" />
               </button>

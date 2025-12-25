@@ -140,7 +140,7 @@ const PieChart = ({ data, title, isDarkMode = true }) => {
                   key={index}
                   d={pathData}
                   fill={item.color}
-                  stroke={isDarkMode ? "#1f2937" : "#e5e7eb"}
+                  stroke={'var(--borders)'}
                   strokeWidth="2"
                   className="transition-all duration-300 hover:opacity-80 cursor-pointer"
                 />
@@ -201,7 +201,7 @@ const LineChart = ({ data, title, color = 'amber', isDarkMode = true }) => {
               y1={y}
               x2="100"
               y2={y}
-              stroke="#374151"
+              stroke="var(--borders)"
               strokeWidth="0.5"
             />
           ))}
@@ -221,15 +221,15 @@ const LineChart = ({ data, title, color = 'amber', isDarkMode = true }) => {
                 cx={x}
                 cy={y}
                 r="1.5"
-                fill="#f59e0b"
+                fill="var(--accent)"
                 className="hover:r-2 transition-all duration-200 cursor-pointer"
               />
             );
           })}
           <defs>
             <linearGradient id="gradient-amber" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.7" />
-              <stop offset="100%" stopColor="#f59e0b" stopOpacity="0.3" />
+              <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.7" />
+              <stop offset="100%" stopColor="var(--accent)" stopOpacity="0.3" />
             </linearGradient>
           </defs>
         </svg>
@@ -1119,40 +1119,40 @@ const UnavailableDateModal = ({ isOpen, onClose, onSave, loading }) => {
 
 const StatusBadge = ({ status }) => {
   const statusConfig = {
-    pending: { 
-      color: 'bg-amber-500/20 text-amber-300 border border-amber-500/30', 
+    pending: {
+      color: 'bg-amber-100 text-amber-800 border border-amber-200 dark:bg-amber-500/20 dark:text-amber-300 dark:border-amber-500/30',
       icon: ClockIcon,
-      glow: 'shadow-amber-500/20'
+      glow: 'shadow-amber-100'
     },
-    approved: { 
-      color: 'bg-blue-500/20 text-blue-300 border border-blue-500/30', 
+    approved: {
+      color: 'bg-blue-100 text-blue-800 border border-blue-200 dark:bg-blue-500/20 dark:text-blue-300 dark:border-blue-500/30',
       icon: CheckCircleIcon,
-      glow: 'shadow-blue-500/20'
+      glow: 'shadow-blue-100'
     },
-    completed: { 
-      color: 'bg-green-500/20 text-green-300 border border-green-500/30', 
+    completed: {
+      color: 'bg-green-100 text-green-800 border border-green-200 dark:bg-green-500/20 dark:text-green-300 dark:border-green-500/30',
       icon: CheckCircleIcon,
-      glow: 'shadow-green-500/20'
+      glow: 'shadow-green-100'
     },
-    cancelled: { 
-      color: 'bg-red-500/20 text-red-300 border border-red-500/30', 
+    cancelled: {
+      color: 'bg-red-100 text-red-800 border border-red-200 dark:bg-red-500/20 dark:text-red-300 dark:border-red-500/30',
       icon: XCircleIcon,
-      glow: 'shadow-red-500/20'
+      glow: 'shadow-red-100'
     },
-    declined: { 
-      color: 'bg-red-500/20 text-red-300 border border-red-500/30', 
+    declined: {
+      color: 'bg-red-100 text-red-800 border border-red-200 dark:bg-red-500/20 dark:text-red-300 dark:border-red-500/30',
       icon: XCircleIcon,
-      glow: 'shadow-red-500/20'
+      glow: 'shadow-red-100'
     },
-    active: { 
-      color: 'bg-green-500/20 text-green-300 border border-green-500/30', 
+    active: {
+      color: 'bg-green-100 text-green-800 border border-green-200 dark:bg-green-500/20 dark:text-green-300 dark:border-green-500/30',
       icon: CheckCircleIcon,
-      glow: 'shadow-green-500/20'
+      glow: 'shadow-green-100'
     },
-    inactive: { 
-      color: 'bg-red-500/20 text-red-300 border border-red-500/30', 
+    inactive: {
+      color: 'bg-red-100 text-red-800 border border-red-200 dark:bg-red-500/20 dark:text-red-300 dark:border-red-500/30',
       icon: XCircleIcon,
-      glow: 'shadow-red-500/20'
+      glow: 'shadow-red-100'
     }
   };
   
@@ -1616,6 +1616,93 @@ const AdminDashboard = () => {
     theme: 'dark',
     showLogo: true,
   });
+
+  // Apply theme to document root and copy user theme when switching to light
+  useEffect(() => {
+    const root = document.documentElement;
+    if (!isDarkMode) {
+      // Attempt to copy user theme variables if available
+      const savedUserSettings = localStorage.getItem('userSettings');
+      if (savedUserSettings) {
+        try {
+          const parsed = JSON.parse(savedUserSettings);
+          if (parsed.theme === 'light') {
+            root.classList.remove('dark');
+            root.classList.add('user-light');
+            // Use same variables as user light mode defaults (fallbacks included)
+            root.style.setProperty('--primary', parsed.primary || '#1E3A8A');
+            root.style.setProperty('--secondary', parsed.secondary || '#2563EB');
+            root.style.setProperty('--accent', parsed.accent || '#F59E0B');
+            root.style.setProperty('--background', parsed.background || '#F9FAFB');
+            root.style.setProperty('--surface', parsed.surface || '#FFFFFF');
+            root.style.setProperty('--text-primary', parsed.textPrimary || '#111827');
+            root.style.setProperty('--text-secondary', parsed.textSecondary || '#6B7280');
+            root.style.setProperty('--borders', parsed.borders || '#E5E7EB');
+            root.style.setProperty('--success', parsed.success || '#16A34A');
+            root.style.setProperty('--error', parsed.error || '#DC2626');
+            root.style.backgroundColor = parsed.background || '#F9FAFB';
+            root.style.color = parsed.textPrimary || '#111827';
+          } else {
+            // If user preference isn't light, apply sensible light defaults
+            root.classList.remove('dark');
+            root.classList.add('user-light');
+            root.style.setProperty('--primary', '#1E3A8A');
+            root.style.setProperty('--secondary', '#2563EB');
+            root.style.setProperty('--accent', '#F59E0B');
+            root.style.setProperty('--background', '#F9FAFB');
+            root.style.setProperty('--surface', '#FFFFFF');
+            root.style.setProperty('--text-primary', '#111827');
+            root.style.setProperty('--text-secondary', '#6B7280');
+            root.style.setProperty('--borders', '#E5E7EB');
+            root.style.setProperty('--success', '#16A34A');
+            root.style.setProperty('--error', '#DC2626');
+            root.style.backgroundColor = '#F9FAFB';
+            root.style.color = '#111827';
+          }
+        } catch (e) {
+          // fallback light palette
+          root.classList.remove('dark');
+          root.classList.add('user-light');
+          root.style.setProperty('--primary', '#1E3A8A');
+          root.style.setProperty('--secondary', '#2563EB');
+          root.style.setProperty('--accent', '#F59E0B');
+          root.style.setProperty('--background', '#F9FAFB');
+          root.style.setProperty('--surface', '#FFFFFF');
+          root.style.setProperty('--text-primary', '#111827');
+          root.style.setProperty('--text-secondary', '#6B7280');
+          root.style.setProperty('--borders', '#E5E7EB');
+          root.style.setProperty('--success', '#16A34A');
+          root.style.setProperty('--error', '#DC2626');
+          root.style.backgroundColor = '#F9FAFB';
+          root.style.color = '#111827';
+        }
+      } else {
+        // No user settings; apply defaults for light mode
+        root.classList.remove('dark');
+        root.classList.add('user-light');
+        root.style.setProperty('--primary', '#1E3A8A');
+        root.style.setProperty('--secondary', '#2563EB');
+        root.style.setProperty('--accent', '#F59E0B');
+        root.style.setProperty('--background', '#F9FAFB');
+        root.style.setProperty('--surface', '#FFFFFF');
+        root.style.setProperty('--text-primary', '#111827');
+        root.style.setProperty('--text-secondary', '#6B7280');
+        root.style.setProperty('--borders', '#E5E7EB');
+        root.style.setProperty('--success', '#16A34A');
+        root.style.setProperty('--error', '#DC2626');
+        root.style.backgroundColor = '#F9FAFB';
+        root.style.color = '#111827';
+      }
+    } else {
+      // Dark mode: clear user-light and apply dark root class
+      root.classList.add('dark');
+      root.classList.remove('user-light');
+      root.style.backgroundColor = 'rgb(11, 11, 11)';
+      root.style.color = 'rgb(250, 245, 235)';
+    }
+
+    localStorage.setItem('adminTheme', isDarkMode ? 'dark' : 'light');
+  }, [isDarkMode]);
 
   // Navigation
   const navigation = useMemo(() => [
@@ -3047,11 +3134,11 @@ const AdminDashboard = () => {
 
   // Chart data
   const appointmentStatusData = useMemo(() => [
-    { label: 'Pending', value: (appointments || []).filter(a => a.status === 'pending').length, color: '#f59e0b' },
-    { label: 'Approved', value: (appointments || []).filter(a => a.status === 'approved').length, color: '#3b82f6' },
-    { label: 'Completed', value: (appointments || []).filter(a => a.status === 'completed').length, color: '#10b981' },
-    { label: 'Cancelled', value: (appointments || []).filter(a => a.status === 'cancelled').length, color: '#ef4444' },
-    { label: 'Declined', value: (appointments || []).filter(a => a.status === 'declined').length, color: '#dc2626' }
+    { label: 'Pending', value: (appointments || []).filter(a => a.status === 'pending').length, color: 'var(--accent)' },
+    { label: 'Approved', value: (appointments || []).filter(a => a.status === 'approved').length, color: 'var(--secondary)' },
+    { label: 'Completed', value: (appointments || []).filter(a => a.status === 'completed').length, color: 'var(--success)' },
+    { label: 'Cancelled', value: (appointments || []).filter(a => a.status === 'cancelled').length, color: 'var(--error)' },
+    { label: 'Declined', value: (appointments || []).filter(a => a.status === 'declined').length, color: 'var(--error)' }
   ], [appointments]);
 
   const userRoleData = useMemo(() => [
@@ -3328,6 +3415,20 @@ const AdminDashboard = () => {
               Theme & Appearance
             </h3>
             <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-600'} text-xs mt-1 transition-colors duration-300`}>Choose your preferred color theme</p>
+          </div>
+
+          {/* Toggle switch to quickly flip between dark and light for admin */}
+          <div className="flex items-center gap-3">
+            <span className={`text-xs ${isDarkMode ? 'text-amber-300' : 'text-gray-700'}`}>{isDarkMode ? 'Dark' : 'Light'}</span>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={!isDarkMode}
+                onChange={() => setIsDarkMode(prev => !prev)}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-gray-600 rounded-full peer-focus:ring-2 peer-focus:ring-amber-500 peer-checked:bg-amber-600 relative after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:border-gray-300 after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:after:translate-x-full"></div>
+            </label>
           </div>
         </div>
 
@@ -4760,7 +4861,7 @@ const AdminDashboard = () => {
       case 'deactivated': return renderDeactivatedAccounts();
       case 'messages': return renderMessages();
       case 'action-logs': return <AdminActionLogs isDarkMode={isDarkMode} />;
-      case 'refunds': return <AdminRefundManagement />;
+      case 'refunds': return <AdminRefundManagement isUserLight={!isDarkMode} />;
       case 'settings': return renderSettings();
       default: return renderDashboard();
     }
@@ -4856,10 +4957,10 @@ const AdminDashboard = () => {
                                 setActiveTab(subItem.key);
                                 setShowMobileSidebar(false);
                               }}
-                              className={`w-full flex items-center justify-center lg:justify-start px-2 lg:px-2.5 py-1.5 text-xs font-medium rounded-lg transition-all duration-200 border group ${
+                              className={`w-full flex items-center justify-center lg:justify-start px-2 lg:px-2.5 py-1.5 text-xs font-medium rounded transition-all duration-200 border-l-0 group ${
                                 activeTab === subItem.key
-                                  ? 'bg-amber-500/10 text-amber-400 border-amber-500/40 shadow shadow-amber-500/10'
-                                  : 'text-gray-400 border-transparent hover:bg-amber-500/5 hover:text-amber-300 hover:border-amber-500/20'
+                                  ? 'text-amber-400 border-l-4 border-amber-500/40 bg-transparent'
+                                  : 'text-gray-400 border-transparent hover:text-amber-300'
                               } ${isCollapsedDesktop ? 'lg:justify-center lg:px-2' : ''}`}
                               title={isCollapsedDesktop ? subItem.name : ''}
                             >
@@ -4884,10 +4985,10 @@ const AdminDashboard = () => {
                       setActiveTab(item.key);
                       setShowMobileSidebar(false);
                     }}
-                    className={`w-full flex items-center justify-center lg:justify-start px-2 lg:px-2.5 py-1.5 text-xs font-medium rounded-lg transition-all duration-200 border group ${
+                    className={`w-full flex items-center justify-center lg:justify-start px-2 lg:px-2.5 py-1.5 text-xs font-medium rounded transition-all duration-200 border-l-0 group ${
                       activeTab === item.key
-                        ? 'bg-amber-500/10 text-amber-400 border-amber-500/40 shadow shadow-amber-500/10'
-                        : 'text-gray-400 border-transparent hover:bg-amber-500/5 hover:text-amber-300 hover:border-amber-500/20'
+                        ? 'text-amber-400 border-l-4 border-amber-500/40 bg-transparent'
+                        : 'text-gray-400 border-transparent hover:text-amber-300'
                     } ${isCollapsedDesktop ? 'lg:justify-center lg:px-2' : ''}`}
                     title={isCollapsedDesktop ? item.name : ''}
                   >

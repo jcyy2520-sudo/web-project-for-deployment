@@ -8,6 +8,17 @@ export default {
   theme: {
     extend: {
       colors: {
+        primary: '#1E3A8A',
+        secondary: '#2563EB',
+        surface: '#FFFFFF',
+        background: '#F9FAFB',
+        text: {
+          primary: '#111827',
+          secondary: '#6B7280',
+        },
+        borders: '#E5E7EB',
+        success: '#16A34A',
+        error: '#DC2626',
         amber: {
           50: '#fffbeb',
           100: '#fef3c7',

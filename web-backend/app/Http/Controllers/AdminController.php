@@ -317,9 +317,8 @@ class AdminController extends Controller
                 $typeBreakdown[$label] = Appointment::where('type', $key)->count();
             }
 
-            // Revenue calculation (based on completed appointments)
-            $completedAppointments = $appointmentStats['completed'];
-            $revenue = $completedAppointments * 100; // $100 per completed appointment
+            // Revenue calculation (based on paid appointments)
+            $revenue = Appointment::where('payment_status', 'paid')->sum('payment_amount');
 
             // Monthly trends (last 6 months)
             $monthlyTrends = $this->getMonthlyTrends();
@@ -371,11 +370,11 @@ class AdminController extends Controller
             $userCounts[] = User::whereBetween('created_at', [$startOfMonth, $endOfMonth])->count();
             $appointmentCounts[] = Appointment::whereBetween('created_at', [$startOfMonth, $endOfMonth])->count();
             
-            // Revenue based on completed appointments that month
-            $completedCount = Appointment::where('status', 'completed')
-                ->whereBetween('appointment_date', [$startOfMonth, $endOfMonth])
-                ->count();
-            $revenueData[] = $completedCount * 100;
+            // Revenue based on paid appointments that month
+            $monthlyRevenue = Appointment::where('payment_status', 'paid')
+                ->whereBetween('payment_date', [$startOfMonth, $endOfMonth])
+                ->sum('payment_amount');
+            $revenueData[] = (float) $monthlyRevenue;
         }
 
         return [

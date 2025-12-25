@@ -6,11 +6,34 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Light mode color variables (used across user pages) */
+:root {
+  /* Modern Blue light palette (user-side) */
+  --background: #F8FAFC;            /* Background */
+  --sidebar-bg: #FFFFFF;            /* Sidebar / surface */
+  --surface: #FFFFFF;               /* Card / Surface */
+  --primary: #1F3A5F;               /* Primary (buttons/links) */
+  --primary-hover: #162C47;         /* Primary hover */
+  --secondary: #3B82F6;             /* Secondary (icons, subtle) */
+  --accent: #2563EB;                /* Accent / CTA */
+  --accent-hover: #1D4ED8;          /* Accent hover */
+  --text-primary: #0F172A;          /* Text primary */
+  --text-secondary: #475569;        /* Text secondary */
+  --borders: #E6EDF7;               /* Borders / Dividers */
+  --secondary-10: rgba(59,130,246,0.08);
+  --secondary-20: rgba(59,130,246,0.16);
+  --success: #16A34A;
+  --warning: #F59E0B;
+  --error: #DC2626;
+}
+
 /* Theme-aware utility classes using Tailwind layers */
 @layer components {
   /* Card/Container theme classes */
   .theme-card {
-    @apply bg-white border-amber-300/40 transition-colors duration-300;
+    background-color: var(--surface);
+    border: 1px solid var(--borders);
+    transition: color 0.3s ease, background-color 0.3s ease, border-color 0.3s ease;
   }
   .dark .theme-card {
     @apply bg-gray-900 border-amber-500/20;
@@ -18,7 +41,9 @@
   
   /* Table header theme classes */
   .theme-table-header {
-    @apply bg-gray-50 border-gray-200 transition-colors duration-300;
+    background-color: var(--surface);
+    border-bottom: 1px solid var(--borders);
+    transition: background-color 0.3s ease, border-color 0.3s ease;
   }
   .dark .theme-table-header {
     @apply bg-gray-800 border-gray-700;
@@ -26,7 +51,8 @@
   
   /* Table header text */
   .theme-table-header-text {
-    @apply text-amber-600 transition-colors duration-300;
+    color: var(--secondary);
+    transition: color 0.3s ease;
   }
   .dark .theme-table-header-text {
     @apply text-amber-400;
@@ -34,7 +60,10 @@
   
   /* Table row hover */
   .theme-table-row {
-    @apply hover:bg-gray-50 transition-colors duration-200;
+    transition: background-color 0.2s ease;
+  }
+  .theme-table-row:hover {
+    background-color: var(--secondary-10);
   }
   .dark .theme-table-row {
     @apply hover:bg-gray-800;
@@ -42,7 +71,8 @@
   
   /* Table divider */
   .theme-table-divider {
-    @apply divide-gray-200;
+    --tw-divide-opacity: 1;
+    border-color: var(--borders);
   }
   .dark .theme-table-divider {
     @apply divide-gray-700;
@@ -50,7 +80,8 @@
   
   /* Primary text */
   .theme-text-primary {
-    @apply text-amber-900 transition-colors duration-300;
+    color: var(--text-primary);
+    transition: color 0.3s ease;
   }
   .dark .theme-text-primary {
     @apply text-amber-50;
@@ -58,7 +89,9 @@
   
   /* Secondary text */
   .theme-text-secondary {
-    @apply text-amber-700/70 transition-colors duration-300;
+    color: var(--text-secondary);
+    opacity: 0.95;
+    transition: color 0.3s ease, opacity 0.2s ease;
   }
   .dark .theme-text-secondary {
     @apply text-amber-400/70;
@@ -66,7 +99,8 @@
   
   /* Muted text */
   .theme-text-muted {
-    @apply text-gray-600 transition-colors duration-300;
+    color: var(--text-secondary);
+    transition: color 0.3s ease;
   }
   .dark .theme-text-muted {
     @apply text-gray-400;
@@ -74,15 +108,19 @@
   
   /* Input fields */
   .theme-input {
-    @apply bg-white border-gray-300 text-gray-900 placeholder-gray-500 transition-colors duration-200;
+    background-color: var(--surface);
+    border: 1px solid var(--borders);
+    color: var(--text-primary);
   }
+  .theme-input::placeholder { color: var(--text-secondary); }
   .dark .theme-input {
     @apply bg-gray-800 border-gray-600 text-white placeholder-gray-400;
   }
   
   /* Icon colors */
   .theme-icon {
-    @apply text-amber-600 transition-colors duration-200;
+    color: var(--secondary);
+    transition: color 0.2s ease;
   }
   .dark .theme-icon {
     @apply text-amber-400;
@@ -90,7 +128,8 @@
   
   /* Border colors */
   .theme-border {
-    @apply border-gray-300 transition-colors duration-200;
+    border-color: var(--borders);
+    transition: border-color 0.2s ease;
   }
   .dark .theme-border {
     @apply border-gray-600;
@@ -130,8 +169,8 @@ body {
 
 /* Light mode styles (default) */
 body {
-  background-color: #f3f4f6;
-  color: #1f2937;
+  background-color: var(--background);
+  color: var(--text-primary);
 }
 
 /* Dark mode styles */
@@ -153,7 +192,7 @@ html.dark body {
 }
 
 ::-webkit-scrollbar-track {
-  background: #e5e7eb;
+  background: var(--borders);
 }
 
 ::-webkit-scrollbar-thumb {
@@ -189,7 +228,7 @@ html.dark ::-webkit-scrollbar-thumb:hover {
 
 /* Selection styling */
 ::selection {
-  background-color: #3b82f6;
+  background-color: var(--primary);
   color: white;
 }
 
@@ -251,5 +290,242 @@ html.dark ::-webkit-scrollbar-thumb:hover {
   }
   to {
     transform: scaleX(1);
+  }
+}
+
+/* Light Mode Theme Classes */
+@layer components {
+  .light-mode {
+    background-color: var(--background);
+    color: var(--text-primary);
+  }
+
+  .light-mode .theme-text-primary { color: var(--text-primary); }
+  .light-mode .theme-text-secondary { color: var(--text-secondary); }
+  .light-mode .theme-text-muted { color: var(--text-secondary); }
+
+  .light-mode .theme-bg-card { background-color: var(--surface); border-color: var(--borders); }
+  .light-mode .theme-border { border-color: var(--borders); }
+  .light-mode .theme-bg-hover:hover { background-color: var(--secondary-10); }
+  .light-mode .theme-text-link { color: var(--secondary); }
+  .light-mode .theme-text-link:hover { color: color-mix(in srgb, var(--secondary) 80%, black 20%); }
+}
+
+/* User-side overrides: remap amber utilities to the user light palette when `.user-light` is present on root.
+   This keeps changes scoped to user pages that add the `user-light` class (Dashboard). */
+.user-light [class*="text-amber-"] {
+  /* Map any amber utilities to primary blue for a unified white/blue palette */
+  color: var(--primary) !important;
+}
+.user-light [class*="bg-amber-"] {
+  background-color: var(--secondary-10) !important;
+}
+.user-light [class*="border-amber-"] {
+  border-color: var(--borders) !important;
+}
+.user-light [class*="shadow-amber-"] {
+  box-shadow: 0 8px 20px rgba(31,58,95,0.04) !important;
+}
+.user-light [class*="hover:text-amber-"] {
+  color: var(--primary-hover) !important;
+}
+
+/* Blue utilities map to primary/secondary blues */
+.user-light [class*="text-blue-"] {
+  color: var(--primary) !important;
+}
+.user-light [class*="bg-blue-"] {
+  background-color: var(--secondary-10) !important;
+}
+.user-light [class*="border-blue-"] {
+  border-color: var(--borders) !important;
+}
+.user-light [class*="shadow-blue-"] {
+  box-shadow: 0 8px 20px rgba(59,130,246,0.06) !important;
+}
+.user-light [class*="hover:text-blue-"] {
+  color: var(--primary-hover) !important;
+}
+.user-light [class*="hover:bg-blue-"] {
+  background-color: color-mix(in srgb, var(--secondary) 85%, white 15%) !important;
+}
+.user-light [class*="peer-checked:bg-blue-"] {
+  background-color: var(--secondary) !important;
+}
+
+/* Status-specific mappings (where components use these utility colors) */
+.user-light .status-pending,
+.user-light [class*="bg-yellow-"] {
+  background-color: var(--pending) !important;
+  color: white !important;
+}
+.user-light .status-completed,
+.user-light [class*="bg-green-"] {
+  background-color: var(--completed) !important;
+  color: white !important;
+}
+.user-light .status-approved,
+.user-light [class*="bg-blue-"][data-status="approved"] {
+  background-color: var(--approved) !important;
+  color: white !important;
+}
+.user-light [class*="text-red-"] ,
+.user-light [class*="bg-red-"] ,
+.user-light [class*="border-red-"] {
+  color: var(--error) !important;
+  border-color: var(--error) !important;
+  background-color: transparent !important;
+}
+
+/* Additional user-side overrides: remap Tailwind blue utilities to the user palette
+   when `.user-light` is present on the root. This covers common `text-`, `bg-`,
+   `border-` and shadow utilities so the user pages consistently use the
+   configured `--primary` / `--secondary` / `--background` variables. */
+.user-light [class*="text-blue-50"],
+.user-light [class*="text-blue-100"],
+.user-light [class*="text-blue-200"] {
+  color: var(--text-secondary) !important;
+}
+.user-light [class*="text-blue-300"],
+.user-light [class*="text-blue-400"],
+.user-light [class*="text-blue-500"] {
+  color: var(--secondary) !important;
+}
+.user-light [class*="text-blue-600"],
+.user-light [class*="text-blue-700"],
+.user-light [class*="text-blue-800"],
+.user-light [class*="text-blue-900"] {
+  color: var(--primary) !important;
+}
+
+/* Remap common dark-gray utilities to light surface equivalents when user chooses the
+   'user-light' scoped light theme. This helps components that still use Tailwind
+   gray utilities to display correctly in the customized user light mode. */
+.user-light .bg-gray-900,
+.user-light .bg-gray-800,
+.user-light .bg-gray-700 {
+  background-color: var(--surface) !important;
+}
+.user-light .border-gray-700,
+.user-light .border-gray-800,
+.user-light .border-gray-900 {
+  border-color: var(--borders) !important;
+}
+.user-light .text-amber-50,
+.user-light .text-amber-100,
+.user-light .text-amber-200 {
+  color: var(--text-primary) !important;
+}
+.user-light .bg-gray-700\/50,
+.user-light .bg-gray-800\/50,
+.user-light .bg-gray-900\/50 {
+  background-color: color-mix(in srgb, var(--borders) 90%, white 10%) !important;
+}
+
+.user-light [class*="bg-blue-50"] {
+  background-color: var(--background) !important;
+}
+.user-light [class*="bg-blue-100"] {
+  background-color: var(--surface) !important;
+}
+.user-light [class*="bg-blue-200"],
+.user-light [class*="bg-blue-300"] {
+  background-color: var(--secondary-10) !important;
+}
+.user-light [class*="bg-blue-500"] {
+  background-color: var(--secondary-20) !important;
+}
+
+.user-light [class*="border-blue-50"],
+.user-light [class*="border-blue-100"],
+.user-light [class*="border-blue-200"],
+.user-light [class*="border-blue-300"] {
+  border-color: var(--borders) !important;
+}
+.user-light [class*="border-blue-400"],
+.user-light [class*="border-blue-500"] {
+  border-color: var(--secondary) !important;
+}
+
+.user-light [class*="shadow-blue"],
+.user-light [class*="shadow-blue-500"],
+.user-light [class*="shadow-blue-500\\/20"] {
+  box-shadow: 0 10px 25px rgba(37,99,235,0.08) !important;
+}
+
+.user-light [class*="hover:text-blue"],
+.user-light [class*="hover:bg-blue"],
+.user-light [class*="hover:border-blue"] {
+  /* Force hover rules to map to the user palette as well */
+  color: var(--secondary) !important;
+  background-color: var(--secondary-10) !important;
+  border-color: var(--secondary) !important;
+}
+
+
+/* Theme normalization: keep layout identical across themes
+   Only color-related utilities should differ between light/dark.
+   Enforce consistent spacing, sizes, borders, shadows, and typography. */
+@layer base {
+  /* Ensure headings and body text keep same weights/sizes */
+  h1,h2,h3,h4,h5,h6 {
+    font-family: inherit;
+    font-weight: 600;
+    line-height: 1.25;
+    margin: 0;
+  }
+
+  /* Buttons: same padding, radius, font-size, and shadow across themes */
+  button, .btn {
+    padding-top: 0.5rem; /* 8px */
+    padding-bottom: 0.5rem;
+    padding-left: 0.75rem; /* 12px */
+    padding-right: 0.75rem;
+    border-radius: 0.5rem; /* 8px */
+    font-size: 0.875rem; /* text-sm */
+    line-height: 1.25;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+    transition: box-shadow 0.15s ease, transform 0.12s ease;
+  }
+
+  /* Inputs and selects: same sizing and border-radius */
+  input, textarea, select, .theme-input {
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.5rem;
+    font-size: 0.875rem;
+    line-height: 1.25;
+    box-shadow: none;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
+  /* Cards and containers: consistent border width and radius */
+  .theme-card, .card, .panel {
+    border-width: 1px;
+    border-radius: 0.75rem;
+  }
+
+  /* Keep dividers spacing consistent */
+  hr, .divider {
+    height: 1px;
+    margin: 0.75rem 0;
+  }
+
+  /* Ensure icon sizes consistent */
+  svg, .icon {
+    width: 1rem;
+    height: 1rem;
+    vertical-align: middle;
+  }
+
+  /* Ensure focus outlines are same across themes (only color may vary via theme-text-focus) */
+  :focus-visible {
+    outline-width: 2px;
+    outline-style: solid;
+    outline-offset: 2px;
   }
 }

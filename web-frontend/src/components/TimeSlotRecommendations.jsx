@@ -86,7 +86,7 @@ const TimeSlotRecommendations = ({ appointmentDate, isDarkMode = true, onSelectS
   return (
     <div className={`p-4 rounded-lg border ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
       {/* Header */}
-      <div className="flex items-center gap-2 pb-3 border-b" style={{borderColor: isDarkMode ? '#374151' : '#e5e7eb'}}>
+      <div className="flex items-center gap-2 pb-3 border-b" style={{borderColor: isDarkMode ? '#374151' : 'var(--borders)'}}>
         <ClockIcon className="h-5 w-5 text-amber-500" />
         <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>
           Recommended Time Slots

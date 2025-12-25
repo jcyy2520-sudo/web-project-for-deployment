@@ -221,23 +221,6 @@ const AppContent = () => {
       />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
-      <button 
-        onClick={() => setShowTest(true)}
-        style={{
-          position: 'fixed',
-          bottom: '20px',
-          right: '20px',
-          padding: '8px 16px',
-          background: '#2196F3',
-          color: 'white',
-          border: 'none',
-          borderRadius: '4px',
-          cursor: 'pointer',
-          fontSize: '12px'
-        }}
-      >
-        Show Connection Test
-      </button>
     </>
   );
 };

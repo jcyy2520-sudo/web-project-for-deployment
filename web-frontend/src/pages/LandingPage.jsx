@@ -6,6 +6,14 @@ import ChatbotButton from '../components/chatbot/ChatbotButton';
 import axios from 'axios';
 
 const LandingPage = () => {
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    try {
+      const saved = localStorage.getItem('isDarkMode');
+      return saved === null ? true : saved === 'true';
+    } catch (e) {
+      return true;
+    }
+  });
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
   const [feedbackEmail, setFeedbackEmail] = useState('');
@@ -29,6 +37,28 @@ const LandingPage = () => {
   });
   const [testimonials, setTestimonials] = useState([]);
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
+
+  // Theme colors are provided via CSS variables in `src/index.css`.
+
+  // Persist theme selection
+  useEffect(() => {
+    try {
+      localStorage.setItem('isDarkMode', isDarkMode ? 'true' : 'false');
+    } catch (e) {}
+  }, [isDarkMode]);
+
+  // Apply global theme attribute/class so other pages/components can read it
+  useEffect(() => {
+    try {
+      document.documentElement.setAttribute('data-theme', isDarkMode ? 'dark' : 'light');
+      if (isDarkMode) document.documentElement.classList.add('dark');
+      else document.documentElement.classList.remove('dark');
+    } catch (e) {}
+  }, [isDarkMode]);
+
+  const lightGradient = () => `linear-gradient(90deg, var(--primary), var(--secondary))`;
+  const darkGradient = () => `linear-gradient(90deg,var(--accent),#D97706)`;
+  const lightBgGradient = `linear-gradient(to bottom, var(--background), var(--surface))`;
 
   // Track mouse for parallax
   useEffect(() => {
@@ -82,11 +112,6 @@ const LandingPage = () => {
       },
       { threshold: 0.3 }
     );
-
-    ['home', 'services', 'howitworks', 'reviews'].forEach((id) => {
-      const element = document.getElementById(id);
-      if (element) observer.observe(element);
-    });
 
     return () => observer.disconnect();
   }, []);
@@ -251,18 +276,22 @@ const LandingPage = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-950 via-gray-900 to-gray-950 overflow-hidden">
+    <div className={`min-h-screen overflow-hidden transition-colors duration-500 ${
+      isDarkMode 
+        ? 'bg-gradient-to-b from-gray-950 via-gray-900 to-gray-950' 
+        : ''
+    }`} style={!isDarkMode ? { background: lightBgGradient } : {}}>
       {/* Animated Background Elements */}
       <div className="fixed inset-0 pointer-events-none">
         <div 
-          className="absolute top-1/4 left-1/4 w-64 h-64 bg-amber-500/5 rounded-full blur-3xl animate-pulse"
+          className={`absolute top-1/4 left-1/4 w-64 h-64 ${isDarkMode ? 'bg-amber-500/5' : 'bg-blue-500/5'} rounded-full blur-3xl animate-pulse`}
           style={{ 
             transform: `translate(${mousePosition.x}px, ${mousePosition.y}px)`,
             animationDelay: '0.5s'
           }}
         />
         <div 
-          className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-amber-600/3 rounded-full blur-3xl animate-pulse"
+          className={`absolute bottom-1/4 right-1/4 w-96 h-96 ${isDarkMode ? 'bg-amber-600/3' : 'bg-blue-600/3'} rounded-full blur-3xl animate-pulse`}
           style={{ 
             transform: `translate(${-mousePosition.x * 2}px, ${-mousePosition.y * 2}px)`,
             animationDelay: '1s'
@@ -271,21 +300,26 @@ const LandingPage = () => {
       </div>
 
       {/* Scroll Progress Bar */}
-      <div className="fixed top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-amber-500 to-amber-600 z-50 origin-left scale-x-0" 
-           style={{ animation: 'progress linear forwards', animationTimeline: 'scroll(root)' }} />
+       <div className="fixed top-0 left-0 right-0 h-0.5 z-50 origin-left scale-x-0" 
+         style={{ animation: 'progress linear forwards', animationTimeline: 'scroll(root)', background: isDarkMode ? darkGradient() : lightGradient() }} />
 
       {/* Floating CTA Button (Mobile) - positioned to avoid chatbot button */}
-      <button
-        onClick={() => setIsRegisterModalOpen(true)}
-        className="md:hidden fixed bottom-20 left-4 bg-gradient-to-r from-amber-500 to-amber-600 text-white px-4 py-3 rounded-full shadow-lg hover:shadow-xl hover:shadow-amber-500/40 transition-all duration-300 animate-bounce hover:animate-none z-40"
-      >
-        <span className="text-sm font-semibold">Get Started</span>
-      </button>
+              <button
+                onClick={() => setIsRegisterModalOpen(true)}
+                className={`md:hidden fixed bottom-20 left-4 px-4 py-3 rounded-full shadow-lg transition-all duration-300 animate-bounce hover:animate-none z-40 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
+                style={{ background: isDarkMode ? darkGradient() : lightGradient(), boxShadow: isDarkMode ? '0 10px 25px rgba(245,158,11,0.12)' : '0 10px 25px rgba(37,99,235,0.12)' }}
+              >
+                <span className="text-sm font-semibold">Get Started</span>
+              </button>
 
       {/* Navigation */}
-      <nav className="fixed w-full bg-gray-900/95 backdrop-blur-md z-50 border-b border-gray-800/50 shadow-sm transition-all duration-300">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          <div className="flex justify-between items-center h-14">
+      <nav className={`fixed w-full backdrop-blur-md z-50 shadow-sm transition-all duration-300 ${
+        isDarkMode
+          ? 'bg-gray-900/40 border-b border-gray-800/20'
+          : 'bg-white/60 border-b border-blue-100'
+      }`}>
+        <div className="max-w-5xl mx-auto px-4 sm:px-6">
+          <div className="flex justify-between items-center h-20">
             {/* Logo with hover animation */}
             <div 
               className="flex items-center space-x-2.5 group cursor-pointer"
@@ -296,8 +330,10 @@ const LandingPage = () => {
                 alt="Logo" 
                 className="h-8 w-auto rounded shadow transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3" 
               />
-              <span className="text-lg font-bold text-white tracking-tight group-hover:text-amber-400 transition-colors duration-300">
-                LegalEase
+              <span className="text-lg font-bold tracking-tight transition-colors duration-300" style={{ color: isDarkMode ? undefined : 'var(--secondary)' }}>
+                <span className="text-2xl font-bold tracking-tight transition-colors duration-300" style={{ color: isDarkMode ? 'rgba(255,255,255,0.95)' : 'var(--secondary)', textTransform: !isDarkMode ? 'uppercase' : undefined, opacity: 0.95, letterSpacing: '1px' }}>
+                  LegalEase
+                </span>
               </span>
             </div>
 
@@ -311,15 +347,17 @@ const LandingPage = () => {
                     onClick={() => scrollToSection(sectionId)}
                     className={`relative text-sm transition-all duration-300 group ${
                       activeSection === sectionId 
-                        ? 'text-amber-400 font-semibold' 
-                        : 'text-gray-400 hover:text-amber-300'
-                    }`}
+                        ? (isDarkMode ? 'text-amber-300 font-semibold' : 'font-semibold') 
+                        : isDarkMode ? 'text-gray-400 hover:text-amber-300' : 'text-slate-600 hover:text-blue-600'
+                    }`} style={!isDarkMode && activeSection === sectionId ? { color: 'var(--primary)' } : {}}
                   >
                     <span className="relative z-10">{item}</span>
                     {activeSection === sectionId && (
-                      <span className="absolute -bottom-1 left-0 w-full h-0.5 bg-gradient-to-r from-amber-500 to-amber-600 animate-pulse" />
+                      <span className="absolute -bottom-1 left-0 w-full h-0.5 animate-pulse" style={{ background: isDarkMode ? undefined : lightGradient() }} />
                     )}
-                    <span className="absolute inset-0 bg-amber-500/10 scale-0 group-hover:scale-100 rounded transition-transform duration-300" />
+                    <span className={`absolute inset-0 scale-0 group-hover:scale-100 rounded transition-transform duration-300 ${
+                      isDarkMode ? 'bg-amber-500/10' : 'bg-blue-200'
+                    }`} />
                   </button>
                 );
               })}
@@ -329,16 +367,17 @@ const LandingPage = () => {
             <div className="hidden md:flex items-center space-x-3">
               <button
                 onClick={() => setIsLoginModalOpen(true)}
-                className="text-gray-400 hover:text-amber-400 font-medium text-sm transition-all duration-300 hover:scale-105"
+                className={`text-gray-400 font-medium text-sm transition-all duration-300 hover:scale-105 ${isDarkMode ? 'hover:text-amber-300' : 'hover:text-blue-600'}`}
               >
                 Sign In
               </button>
               <button
                 onClick={() => setIsRegisterModalOpen(true)}
-                className="bg-gradient-to-r from-amber-500 to-amber-600 text-white px-5 py-2 rounded-lg font-semibold hover:shadow-lg hover:shadow-amber-500/40 transition-all duration-300 hover:scale-105 active:scale-95 relative overflow-hidden group"
+                className={`px-5 py-2 rounded-lg font-semibold hover:scale-105 active:scale-95 relative overflow-hidden group transition-all duration-300`}
+                style={{ background: isDarkMode ? darkGradient() : lightGradient(), color: isDarkMode ? '#fff' : 'var(--text-primary)' }}
               >
                 <span className="relative z-10">Get Started</span>
-                <span className="absolute inset-0 bg-gradient-to-r from-amber-600 to-amber-700 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
+                <span className="absolute inset-0 translate-y-full group-hover:translate-y-0 transition-transform duration-300" style={{ background: isDarkMode ? 'linear-gradient(90deg,#C2410C,#92400E)' : lightGradient() }} />
               </button>
             </div>
 
@@ -361,7 +400,7 @@ const LandingPage = () => {
 
         {/* Mobile Menu with animation */}
         <div 
-          className={`md:hidden bg-gray-800/95 backdrop-blur-sm border-t border-gray-800 overflow-hidden transition-all duration-300 ${
+          className={`md:hidden ${isDarkMode ? 'bg-gray-800/85 border-t border-gray-800/20' : 'bg-white/80 border-t border-blue-100'} backdrop-blur-sm overflow-hidden transition-all duration-300 ${
             isMobileMenuOpen ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'
           }`}
         >
@@ -372,8 +411,8 @@ const LandingPage = () => {
                 <button
                   key={item}
                   onClick={() => scrollToSection(sectionId)}
-                  className={`block w-full text-left text-gray-300 hover:text-amber-400 font-medium text-sm py-2 transition-all duration-300 transform hover:translate-x-2 ${
-                    activeSection === sectionId ? 'text-amber-400' : ''
+                  className={`block w-full text-left ${isDarkMode ? 'text-gray-300' : 'text-slate-700'} font-medium text-sm py-2 transition-all duration-300 transform hover:translate-x-2 ${isDarkMode ? 'hover:text-amber-300' : 'hover:text-blue-400'} ${
+                    activeSection === sectionId ? (isDarkMode ? 'text-amber-300' : 'text-blue-400') : ''
                   }`}
                   style={{ animationDelay: `${index * 50}ms` }}
                 >
@@ -384,13 +423,14 @@ const LandingPage = () => {
             <div className="pt-3 space-y-2 border-t border-gray-800">
               <button
                 onClick={() => setIsLoginModalOpen(true)}
-                className="block w-full text-left text-gray-300 hover:text-amber-400 font-medium text-sm py-2 transition-colors duration-300"
+                className={`block w-full text-left ${isDarkMode ? 'text-gray-300' : 'text-slate-700'} font-medium text-sm py-2 transition-colors duration-300 ${isDarkMode ? 'hover:text-amber-300' : 'hover:text-blue-400'}`}
               >
                 Sign In
               </button>
               <button
                 onClick={() => setIsRegisterModalOpen(true)}
-                className="w-full bg-gradient-to-r from-amber-500 to-amber-600 text-white py-2.5 rounded-lg font-semibold text-sm hover:shadow-md hover:shadow-amber-500/40 transition-all duration-300 hover:scale-105"
+                className={`w-full py-2.5 rounded-lg font-semibold text-sm transition-all duration-300 hover:scale-105`}
+                style={{ background: isDarkMode ? darkGradient() : lightGradient(), color: isDarkMode ? '#fff' : 'var(--text-primary)' }}
               >
                 Get Started
               </button>
@@ -400,74 +440,100 @@ const LandingPage = () => {
       </nav>
 
       {/* Hero Section */}
-      <section id="home" className="pt-20 pb-16 md:pt-28 md:pb-20 relative">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6">
+      <section id="home" className="pt-16 pb-12 md:pt-20 md:pb-16 relative">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6">
           <div className="grid lg:grid-cols-2 gap-10 items-center">
             {/* Hero Content */}
             <div className="text-center lg:text-left" style={{ animation: 'fadeInUp 0.6s ease-out forwards' }}>
-              <div className="inline-block mb-5 px-3 py-1.5 bg-amber-500/10 border border-amber-500/20 rounded-full animate-pulse">
-                <span className="text-amber-300 text-xs font-semibold tracking-wide">✨ Trusted Legal Notary Service</span>
+              <div className={`inline-block mb-5 px-3 py-1.5 rounded-full animate-pulse ${isDarkMode ? 'bg-amber-500/10 border border-amber-500/20' : ''}`} style={!isDarkMode ? { backgroundColor: 'var(--secondary-10)', border: '1px solid var(--secondary-20)' } : {}}>
+                <span className="text-xs font-semibold tracking-wide" style={!isDarkMode ? { color: 'var(--secondary)', textTransform: 'uppercase', letterSpacing: '0.6px' } : {}}>{'✨ Trusted Legal Notary Service'}</span>
               </div>
-              <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-white leading-snug mb-5">
+              <h1 className={`text-4xl md:text-5xl lg:text-6xl font-bold leading-snug mb-5 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
                 Professional Notary
-                <span 
-                  className="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-amber-500 block"
-                  style={{ backgroundSize: '200% 200%', animation: 'gradient 3s ease infinite' }}
-                >
+                <span style={isDarkMode ? { background: 'linear-gradient(90deg,#FCD34D,var(--accent))', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent', display: 'inline-block', fontWeight: 700 } : { color: 'var(--primary)' }}>
                   Services Made Easy
                 </span>
               </h1>
-              <p className="text-base md:text-lg text-gray-400 mb-7 leading-relaxed max-w-xl">
+              <p className={`text-base md:text-lg mb-7 leading-relaxed max-w-xl ${
+                isDarkMode ? 'text-gray-400' : 'text-slate-600'
+              }`}>
                 Get your documents notarized online in minutes. Secure, convenient, and professional. No hidden fees, no complicated process.
               </p>
-              <div className="flex flex-col sm:flex-row gap-3 justify-center lg:justify-start">
+              <div className="flex flex-col sm:flex-row gap-3 justify-center lg:justify-start items-center">
                 <button
                   onClick={() => setIsRegisterModalOpen(true)}
-                  className="bg-gradient-to-r from-amber-500 to-amber-600 text-white px-6 py-3 rounded-xl font-semibold hover:shadow-lg hover:shadow-amber-500/40 transition-all duration-300 hover:scale-105 active:scale-95 group relative overflow-hidden"
+                  className={`px-6 py-3 rounded-xl font-semibold hover:scale-105 active:scale-95 group relative overflow-hidden transition-all duration-300 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
+                  style={{ background: isDarkMode ? darkGradient() : lightGradient(), color: isDarkMode ? '#fff' : 'var(--text-primary)' }}
                 >
                   <span className="relative z-10">Book Appointment</span>
-                  <span className="absolute inset-0 bg-gradient-to-r from-amber-600 to-amber-700 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
+                  <span className="absolute inset-0 translate-y-full group-hover:translate-y-0 transition-transform duration-300" style={{ background: isDarkMode ? 'linear-gradient(90deg,#C2410C,#92400E)' : lightGradient() }} />
                 </button>
                 <button
                   onClick={() => scrollToSection('howitworks')}
-                  className="border border-amber-500/30 text-amber-300 px-6 py-3 rounded-xl font-semibold hover:bg-amber-500/10 hover:border-amber-400/50 transition-all duration-300 hover:scale-105 active:scale-95"
+                  className="border px-6 py-3 rounded-xl font-semibold transition-all duration-300 hover:scale-105 active:scale-95"
+                  style={!isDarkMode ? { borderColor: 'var(--borders)', color: 'var(--secondary)', backgroundColor: 'transparent' } : {}}
                 >
                   Learn More
+                </button>
+                
+                {/* Theme Toggle */}
+                <button
+                  onClick={() => setIsDarkMode(!isDarkMode)}
+                  className={`p-2.5 rounded-lg transition-all duration-300 border`}
+                  style={!isDarkMode ? { backgroundColor: 'var(--surface)', borderColor: 'var(--borders)', color: 'var(--secondary)' } : {}}
+                  title={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+                  aria-label="Toggle theme"
+                >
+                  {isDarkMode ? (
+                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                      <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" />
+                    </svg>
+                  ) : (
+                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 2a1 1 0 011 1v2a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l-2.12-2.12a1 1 0 11-1.414 1.414l2.12 2.12a1 1 0 111.414-1.414zM2.05 6.464l2.12 2.12a1 1 0 01-1.414 1.414L.636 7.878a1 1 0 111.414-1.414zM17.5 2a1 1 0 011 1v2a1 1 0 11-2 0V3a1 1 0 011-1zM1 10a1 1 0 011-1h2a1 1 0 110 2H2a1 1 0 01-1-1zm14.5 7a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1zM4.464 16.95l2.12-2.12a1 1 0 011.414 1.414l-2.12 2.12a1 1 0 01-1.414-1.414z" clipRule="evenodd" />
+                    </svg>
+                  )}
                 </button>
               </div>
 
               {/* Trust Indicators */}
-              <div className="mt-10 flex flex-wrap gap-6 pt-6 border-t border-gray-800" style={{ animation: 'fadeInUp 0.6s ease-out 300ms forwards' }}>
+              <div className={`mt-10 flex flex-wrap gap-6 pt-6 border-t ${isDarkMode ? 'border-gray-800' : 'border-blue-300'}`} style={{ animation: 'fadeInUp 0.6s ease-out 300ms forwards' }}>
                 <div className="group">
-                  <p className="text-xl font-bold text-amber-400 transition-all duration-300 group-hover:scale-110">
+                  <p className={`text-xl font-bold transition-all duration-300 group-hover:scale-110 ${isDarkMode ? 'text-amber-400' : ''}`} style={!isDarkMode ? { color: 'var(--primary)' } : {}}>
                     {stats.totalAppointments || '500+'}
                   </p>
-                  <p className="text-gray-500 text-xs group-hover:text-gray-400 transition-colors">Documents Notarized</p>
+                  <p className={`text-xs group-hover transition-colors ${
+                    isDarkMode ? 'text-gray-500 group-hover:text-gray-400' : 'text-slate-500 group-hover:text-slate-600'
+                  }`}>Documents Notarized</p>
                 </div>
                 <div className="group">
-                  <p className="text-xl font-bold text-amber-400 transition-all duration-300 group-hover:scale-110">
+                  <p className={`text-xl font-bold transition-all duration-300 group-hover:scale-110 ${isDarkMode ? 'text-amber-400' : ''}`} style={!isDarkMode ? { color: 'var(--primary)' } : {}}>
                     {stats.totalUsers || '1000+'}
                   </p>
-                  <p className="text-gray-500 text-xs group-hover:text-gray-400 transition-colors">Satisfied Clients</p>
+                  <p className={`text-xs group-hover transition-colors ${
+                    isDarkMode ? 'text-gray-500 group-hover:text-gray-400' : 'text-slate-500 group-hover:text-slate-600'
+                  }`}>Satisfied Clients</p>
                 </div>
                 <div className="group">
-                  <p className="text-xl font-bold text-amber-400 transition-all duration-300 group-hover:scale-110">8/5</p>
-                  <p className="text-gray-500 text-xs group-hover:text-gray-400 transition-colors">Available Anytime</p>
+                  <p className={`text-xl font-bold transition-all duration-300 group-hover:scale-110 ${isDarkMode ? 'text-amber-400' : ''}`} style={!isDarkMode ? { color: 'var(--primary)' } : {}}>8/5</p>
+                  <p className={`text-xs group-hover transition-colors ${
+                    isDarkMode ? 'text-gray-500 group-hover:text-gray-400' : 'text-slate-500 group-hover:text-slate-600'
+                  }`}>Available Anytime</p>
                 </div>
               </div>
             </div>
 
             {/* Hero Visual with hover effect */}
             <div className="relative hidden lg:block" style={{ animation: 'float 6s ease-in-out infinite' }}>
-              <div className="bg-gradient-to-br from-gray-800 to-gray-700/90 border border-gray-700 rounded-2xl shadow-lg p-6 overflow-hidden group hover:border-amber-500/30 transition-all duration-500">
-                <div className="aspect-square bg-gradient-to-br from-amber-500/10 to-amber-600/10 border border-amber-500/10 rounded-xl flex items-center justify-center overflow-hidden group-hover:scale-105 transition-transform duration-700">
+              <div className={`rounded-2xl p-6 overflow-hidden group transition-all duration-500 ${isDarkMode ? 'bg-gradient-to-br from-gray-800 to-gray-700/90 border border-gray-700 shadow-lg hover:border-amber-500/30' : 'bg-white border border-blue-100 shadow-sm hover:border-blue-500/30'}`}>
+                <div className={`aspect-square rounded-xl flex items-center justify-center overflow-hidden transition-transform duration-700 group-hover:scale-105 ${isDarkMode ? 'bg-gradient-to-br from-amber-500/10 to-amber-600/10 border border-amber-500/10' : 'bg-white/50 border border-blue-50'}`}>
                   <img 
                     src="/hero.webp" 
                     alt="Legal Notary Services" 
                     className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" 
                   />
                 </div>
-                <div className="absolute inset-0 bg-gradient-to-t from-amber-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                <div className={`absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 ${isDarkMode ? 'bg-gradient-to-t from-amber-500/5 to-transparent' : 'bg-gradient-to-t from-blue-500/5 to-transparent'}`} />
               </div>
             </div>
           </div>
@@ -475,8 +541,12 @@ const LandingPage = () => {
       </section>
 
       {/* Stats Section with animated counters */}
-      <section className="py-12 bg-gray-900/50 border-y border-gray-800/50">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6">
+      <section className={`py-12 transition-colors duration-500 ${
+        isDarkMode
+          ? 'bg-gray-900/50 border-y border-gray-800/50'
+          : 'bg-gray-50 border-y border-gray-200'
+      }`}>
+        <div className="max-w-5xl mx-auto px-4 sm:px-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
             {displayStats.map((stat, index) => (
               <div 
@@ -484,10 +554,10 @@ const LandingPage = () => {
                 className="text-center group"
                 style={{ animation: `fadeInUp 0.6s ease-out ${index * 100}ms forwards` }}
               >
-                <div className="text-2xl md:text-3xl font-bold text-white mb-1 transition-all duration-300 group-hover:text-amber-400 group-hover:scale-110">
+                <div className={`text-2xl md:text-3xl font-bold mb-1 transition-all duration-300 group-hover:scale-110`} style={isDarkMode ? { color: '#ffffff' } : { color: 'var(--primary)' }}>
                   {stat.number}
                 </div>
-                <div className="text-gray-500 text-sm group-hover:text-gray-400 transition-colors">
+                <div className="text-sm transition-colors" style={isDarkMode ? { color: '#9CA3AF' } : { color: 'var(--text-secondary)' }}>
                   {stat.label}
                 </div>
               </div>
@@ -498,12 +568,12 @@ const LandingPage = () => {
 
       {/* Services Section */}
       <section id="services" className="py-16">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6">
           <div className="text-center mb-12" style={{ animation: 'fadeInUp 0.6s ease-out forwards' }}>
-            <div className="inline-block mb-3 px-3 py-1 bg-amber-500/10 border border-amber-500/20 rounded-full animate-pulse">
-              <span className="text-amber-300 text-xs font-semibold">Our Services</span>
+            <div className="inline-block mb-3 px-3 py-1 bg-blue-500/10 border border-blue-500/20 rounded-full animate-pulse">
+              <span className="text-blue-400 text-xs font-semibold">Our Services</span>
             </div>
-            <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">
+            <h2 className="text-3xl md:text-4xl font-bold mb-4" style={isDarkMode ? { color: '#ffffff' } : { color: 'var(--primary)' }}>
               Complete Notary Solutions
             </h2>
             <p className="text-gray-400 max-w-2xl mx-auto">
@@ -512,24 +582,24 @@ const LandingPage = () => {
           </div>
 
           <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {features.map((feature, index) => (
+              {features.map((feature, index) => (
               <div 
                 key={index} 
-                className="group bg-gray-900/50 border border-gray-800 rounded-xl p-6 hover:border-amber-500/30 transition-all duration-500 hover:scale-105 relative overflow-hidden"
+                className={`group rounded-xl p-6 hover:scale-105 relative overflow-hidden transition-all duration-500 ${isDarkMode ? 'bg-gray-900/50 border border-gray-800 hover:border-blue-500/30' : 'bg-white border border-blue-100 hover:border-blue-200'}`}
                 style={{ animation: `fadeInUp 0.6s ease-out ${index * 150}ms forwards` }}
               >
                 <div className="relative z-10">
                   <div className="text-4xl mb-4 transition-transform duration-500 group-hover:scale-125 group-hover:rotate-3">
                     {feature.icon}
                   </div>
-                  <h3 className="text-lg font-bold text-white mb-2 group-hover:text-amber-300 transition-colors">
-                    {feature.title}
-                  </h3>
-                  <p className="text-gray-400 text-sm leading-relaxed group-hover:text-gray-300 transition-colors">
-                    {feature.description}
-                  </p>
+                      <h3 className={`text-lg font-bold mb-2 transition-colors ${isDarkMode ? 'text-white group-hover:text-blue-300' : 'text-slate-900 group-hover:text-blue-600'}`}>
+                        {feature.title}
+                      </h3>
+                      <p className={`text-sm leading-relaxed transition-colors ${isDarkMode ? 'text-gray-400 group-hover:text-gray-300' : 'text-gray-700 group-hover:text-gray-900'}`}>
+                        {feature.description}
+                      </p>
                 </div>
-                <div className="absolute inset-0 bg-gradient-to-br from-amber-500/0 to-amber-500/0 group-hover:from-amber-500/5 group-hover:to-amber-500/10 transition-all duration-500 rounded-xl" />
+                <div className="absolute inset-0 bg-gradient-to-br from-blue-500/0 to-blue-500/0 group-hover:from-blue-500/5 group-hover:to-blue-500/10 transition-all duration-500 rounded-xl" />
               </div>
             ))}
           </div>
@@ -537,13 +607,17 @@ const LandingPage = () => {
       </section>
 
       {/* How It Works Section */}
-      <section id="howitworks" className="py-16 bg-gray-900/50 border-y border-gray-800/50">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6">
+      <section id="howitworks" className={`py-16 transition-colors duration-500 ${
+        isDarkMode
+          ? 'bg-gray-900/50 border-y border-gray-800/50'
+          : 'bg-gray-50 border-y border-gray-200'
+      }`}>
+        <div className="max-w-5xl mx-auto px-4 sm:px-6">
           <div className="text-center mb-12" style={{ animation: 'fadeInUp 0.6s ease-out forwards' }}>
-            <div className="inline-block mb-3 px-3 py-1 bg-amber-500/10 border border-amber-500/20 rounded-full animate-pulse">
-              <span className="text-amber-300 text-xs font-semibold">How It Works</span>
+            <div className="inline-block mb-3 px-3 py-1 bg-blue-500/10 border border-blue-500/20 rounded-full animate-pulse">
+              <span className="text-blue-400 text-xs font-semibold">How It Works</span>
             </div>
-            <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">
+            <h2 className="text-3xl md:text-4xl font-bold mb-4" style={isDarkMode ? { color: '#ffffff' } : { color: 'var(--primary)' }}>
               Simple 4-Step Process
             </h2>
             <p className="text-gray-400 max-w-2xl mx-auto">
@@ -561,18 +635,18 @@ const LandingPage = () => {
                   style={{ animation: `fadeInRight 0.6s ease-out ${index * 200}ms forwards` }}
                 >
                   <div className="flex-shrink-0 relative">
-                    <div className="flex items-center justify-center h-14 w-14 rounded-full bg-gradient-to-br from-amber-500 to-amber-600 text-white shadow border border-amber-400/30 transition-all duration-300 group-hover:scale-110 group-hover:shadow-lg group-hover:shadow-amber-500/30">
+                    <div className={`flex items-center justify-center h-14 w-14 rounded-full text-white shadow transition-all duration-300 group-hover:scale-110 ${isDarkMode ? 'bg-gradient-to-br from-amber-500 to-amber-600 border border-amber-400/30 group-hover:shadow-lg group-hover:shadow-amber-500/30' : 'bg-gradient-to-br from-blue-500 to-blue-600 border border-blue-400/30 group-hover:shadow-lg group-hover:shadow-blue-500/30'}`}>
                       <span className="text-lg font-bold">{step.step}</span>
                     </div>
                     {index < processSteps.length - 1 && (
-                      <div className="absolute top-full left-1/2 w-0.5 h-6 bg-gradient-to-b from-amber-500 to-amber-600/50 animate-pulse" />
+                      <div className={`${isDarkMode ? 'absolute top-full left-1/2 w-0.5 h-6 bg-gradient-to-b from-amber-500 to-amber-600/50 animate-pulse' : 'absolute top-full left-1/2 w-0.5 h-6 bg-gradient-to-b from-blue-500 to-blue-600/50 animate-pulse'}`} />
                     )}
                   </div>
                   <div className="group-hover:translate-x-2 transition-transform duration-300">
-                    <h3 className="text-xl font-bold text-white mb-1 group-hover:text-amber-300 transition-colors">
+                    <h3 className={`text-xl font-bold mb-1 transition-colors ${isDarkMode ? 'text-white group-hover:text-amber-300' : 'text-slate-900 group-hover:text-blue-300'}`}>
                       {step.title}
                     </h3>
-                    <p className="text-gray-400 text-sm group-hover:text-gray-300 transition-colors">
+                    <p className={`text-sm transition-colors ${isDarkMode ? 'text-gray-400 group-hover:text-gray-300' : 'text-gray-700 group-hover:text-gray-900'}`}>
                       {step.description}
                     </p>
                   </div>
@@ -582,14 +656,14 @@ const LandingPage = () => {
 
             {/* Process Visual */}
             <div className="relative hidden lg:block" style={{ animation: 'fadeInLeft 0.6s ease-out forwards' }}>
-              <div className="bg-gradient-to-br from-gray-800 to-gray-700/90 border border-gray-700 rounded-2xl shadow p-6 group hover:border-amber-500/30 transition-all duration-500">
-                <div className="aspect-square bg-gradient-to-br from-gray-800 to-gray-700 border border-amber-500/10 rounded-xl flex items-center justify-center group-hover:scale-105 transition-transform duration-700">
+              <div className={`bg-gradient-to-br from-gray-800 to-gray-700/90 border border-gray-700 rounded-2xl shadow p-6 group transition-all duration-500 ${isDarkMode ? 'hover:border-amber-500/30' : 'hover:border-blue-500/30'}`}>
+                <div className="aspect-square bg-gradient-to-br from-gray-800 to-gray-700 border border-blue-500/10 rounded-xl flex items-center justify-center group-hover:scale-105 transition-transform duration-700">
                   <div className="text-center p-4">
                     <div className="text-5xl mb-3 animate-bounce">📋</div>
                     <p className="text-gray-300 font-semibold text-sm">Secure Document Processing</p>
                   </div>
                 </div>
-                <div className="absolute -inset-2 bg-gradient-to-r from-amber-500/0 to-amber-600/0 group-hover:from-amber-500/10 group-hover:to-amber-600/10 rounded-2xl blur-xl transition-all duration-500 opacity-0 group-hover:opacity-100" />
+                <div className={`${isDarkMode ? 'absolute -inset-2 bg-gradient-to-r from-amber-500/0 to-amber-600/0 group-hover:from-amber-500/10 group-hover:to-amber-600/10' : 'absolute -inset-2 bg-gradient-to-r from-blue-500/0 to-blue-600/0 group-hover:from-blue-500/10 group-hover:to-blue-600/10'} rounded-2xl blur-xl transition-all duration-500 opacity-0 group-hover:opacity-100`} />
               </div>
             </div>
           </div>
@@ -598,15 +672,15 @@ const LandingPage = () => {
 
       {/* Reviews/Testimonials Section */}
       <section id="reviews" className="py-16">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6">
           <div className="text-center mb-12" style={{ animation: 'fadeInUp 0.6s ease-out forwards' }}>
-            <div className="inline-block mb-3 px-3 py-1 bg-amber-500/10 border border-amber-500/20 rounded-full animate-pulse">
-              <span className="text-amber-300 text-xs font-semibold">Testimonials</span>
-            </div>
-            <h2 className="text-3xl md:text-4xl font-bold text-white mb-4">
+              <div className={`inline-block mb-3 px-3 py-1 rounded-full animate-pulse ${isDarkMode ? 'bg-amber-500/10 border border-amber-500/20' : ''}`} style={!isDarkMode ? { backgroundColor: 'var(--secondary-10)', border: '1px solid var(--secondary-20)' } : {}}>
+                <span className="text-xs font-semibold" style={!isDarkMode ? { color: 'var(--secondary)' } : {}}>Testimonials</span>
+              </div>
+            <h2 className={`text-3xl md:text-4xl font-bold mb-4 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
               Trusted by Hundreds
             </h2>
-            <p className="text-gray-400 max-w-2xl mx-auto">
+            <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-900'} max-w-2xl mx-auto` }>
               Real feedback from clients who have experienced our professional notary service
             </p>
           </div>
@@ -617,26 +691,26 @@ const LandingPage = () => {
               testimonials.map((item, index) => (
                 <div 
                   key={item.id} 
-                  className="bg-gray-900/50 border border-gray-800 rounded-xl p-6 hover:border-amber-500/30 transition-all duration-500 hover:scale-105 group"
+                  className={`rounded-xl p-6 transition-all duration-500 hover:scale-105 group ${isDarkMode ? 'bg-gray-900/50 border border-gray-800 hover:border-amber-500/30' : 'bg-white border border-blue-100 hover:border-blue-200'}`}
                   style={{ animation: `fadeInUp 0.6s ease-out ${index * 150}ms forwards` }}
                 >
                   <div className="flex items-center mb-4">
-                    <div className="w-12 h-12 bg-gradient-to-br from-amber-500 to-amber-600 rounded-full flex items-center justify-center text-white font-bold text-sm shadow border border-amber-400/30 transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3">
+                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-sm shadow transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3`} style={!isDarkMode ? { background: lightGradient(), border: '1px solid var(--secondary-20)', color: 'var(--text-primary)' } : {}}>
                       {item.clientName.charAt(0).toUpperCase()}
                     </div>
                     <div className="ml-3">
-                      <div className="font-bold text-white text-sm group-hover:text-amber-300 transition-colors">
+                      <div className="font-bold text-white text-sm transition-colors" style={!isDarkMode ? { color: 'var(--primary)' } : {}}>
                         {item.clientName}
                       </div>
-                      <div className="text-amber-400 text-xs animate-pulse">
+                      <div className="text-xs animate-pulse" style={!isDarkMode ? { color: 'var(--secondary)' } : {}}>
                         {'★'.repeat(item.rating)}
                       </div>
                     </div>
                   </div>
-                  <p className="text-gray-400 text-sm mb-3 leading-relaxed group-hover:text-gray-300 transition-colors">
+                  <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-900'} text-sm mb-3 leading-relaxed transition-colors` }>
                     "{item.message || `Successfully completed ${item.serviceType}`}"
                   </p>
-                  <span className="inline-block text-xs font-semibold text-amber-300 bg-amber-500/10 px-2 py-1 rounded border border-amber-500/20 group-hover:bg-amber-500/20 transition-colors">
+                  <span className="inline-block text-xs font-semibold px-2 py-1 rounded border transition-colors" style={!isDarkMode ? { color: 'var(--secondary)', backgroundColor: 'var(--secondary-10)', borderColor: 'var(--secondary-20)' } : {}}>
                     {item.serviceType}
                   </span>
                 </div>
@@ -646,21 +720,21 @@ const LandingPage = () => {
               [1, 2, 3].map((item, index) => (
                 <div 
                   key={item} 
-                  className="bg-gray-900/50 border border-gray-800 rounded-xl p-6 hover:border-amber-500/30 transition-all duration-500 hover:scale-105 group"
+                  className={`rounded-xl p-6 transition-all duration-500 hover:scale-105 group ${isDarkMode ? 'bg-gray-900/50 border border-gray-800 hover:border-blue-500/30' : 'bg-white border border-blue-100 hover:border-blue-200'}`}
                   style={{ animation: `fadeInUp 0.6s ease-out ${index * 150}ms forwards` }}
                 >
                   <div className="flex items-center mb-4">
-                    <div className="w-12 h-12 bg-gradient-to-br from-amber-500 to-amber-600 rounded-full flex items-center justify-center text-white font-bold text-sm border border-amber-400/30 transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3">
+                    <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-sm border transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3`} style={!isDarkMode ? { background: lightGradient(), borderColor: 'var(--secondary-20)' } : {}}>
                       C{item}
                     </div>
                     <div className="ml-3">
-                      <div className="font-bold text-white text-sm group-hover:text-amber-300 transition-colors">
+                      <div className="font-bold text-white text-sm transition-colors" style={!isDarkMode ? { color: 'var(--primary)' } : {}}>
                         Client {item}
                       </div>
-                      <div className="text-amber-400 text-xs">★★★★★</div>
+                      <div className="text-xs" style={!isDarkMode ? { color: 'var(--secondary)' } : {}}>★★★★★</div>
                     </div>
                   </div>
-                  <p className="text-gray-400 text-sm leading-relaxed group-hover:text-gray-300 transition-colors">
+                  <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-900'} text-sm leading-relaxed transition-colors` }>
                     "Professional and reliable notary service. Made my document process so much easier!"
                   </p>
                 </div>
@@ -671,7 +745,7 @@ const LandingPage = () => {
       </section>
 
       {/* CTA Section */}
-      <section className="py-16 bg-gradient-to-r from-amber-600 to-amber-700 text-white relative overflow-hidden">
+      <section className="py-16 relative overflow-hidden" style={{ background: isDarkMode ? darkGradient() : lightGradient(), color: isDarkMode ? '#fff' : 'var(--text-primary)' }}>
         {/* Fixed background pattern */}
         <div className="absolute inset-0 opacity-10">
           <div className="absolute inset-0" style={{
@@ -690,14 +764,15 @@ const LandingPage = () => {
           <div className="flex flex-col sm:flex-row gap-3 justify-center" style={{ animation: 'fadeInUp 0.6s ease-out 200ms forwards' }}>
             <button
               onClick={() => setIsRegisterModalOpen(true)}
-              className="bg-white text-amber-700 px-6 py-3 rounded-xl font-bold hover:bg-gray-50 transition-all duration-300 hover:scale-105 active:scale-95 shadow-lg hover:shadow-xl relative overflow-hidden group"
+              className="px-6 py-3 rounded-xl font-bold hover:bg-gray-50 transition-all duration-300 hover:scale-105 active:scale-95 shadow-lg hover:shadow-xl relative overflow-hidden group"
+              style={isDarkMode ? { background: darkGradient(), color: '#fff' } : { backgroundColor: 'var(--surface)', color: 'var(--primary)' }}
             >
               <span className="relative z-10">Start Now</span>
               <span className="absolute inset-0 bg-gray-100 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
             </button>
             <button
               onClick={() => scrollToSection('howitworks')}
-              className="border border-white text-white px-6 py-3 rounded-xl font-bold hover:bg-white/10 transition-all duration-300 hover:scale-105 active:scale-95"
+              className={`px-6 py-3 rounded-xl font-bold hover:bg-white/10 transition-all duration-300 hover:scale-105 active:scale-95 ${isDarkMode ? 'border-white text-white' : 'border border-slate-300 text-slate-700'}`}
             >
               Learn More
             </button>
@@ -706,8 +781,12 @@ const LandingPage = () => {
       </section>
 
       {/* Footer */}
-      <footer className="bg-gray-950 text-gray-400 pt-12 pb-6 border-t border-gray-800">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6">
+      <footer className={`pt-12 pb-6 transition-colors duration-500 ${
+        isDarkMode
+          ? 'bg-gray-950 text-gray-400 border-t border-gray-800'
+          : 'bg-gray-100 text-slate-600 border-t border-gray-300'
+      }`}>
+        <div className="max-w-5xl mx-auto px-4 sm:px-6">
           <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8 mb-10">
             {/* Company Info */}
             <div style={{ animation: 'fadeInUp 0.6s ease-out forwards' }}>
@@ -717,7 +796,7 @@ const LandingPage = () => {
                   alt="Logo" 
                   className="h-8 w-auto rounded transition-transform duration-300 group-hover:scale-110" 
                 />
-                <span className="text-lg font-bold text-white group-hover:text-amber-400 transition-colors">
+                <span className="text-xl font-bold group-hover:text-amber-400 transition-colors" style={isDarkMode ? { color: '#ffffff' } : { color: '#7DD3FC', textTransform: 'uppercase', letterSpacing: '1px' }}>
                   LegalEase
                 </span>
               </div>
@@ -728,12 +807,12 @@ const LandingPage = () => {
 
             {/* Quick Links */}
             <div style={{ animation: 'fadeInUp 0.6s ease-out 100ms forwards' }}>
-              <h4 className="font-semibold text-white mb-3 text-sm">Services</h4>
+              <h4 className="font-semibold mb-3 text-sm" style={isDarkMode ? { color: '#ffffff' } : { color: 'var(--primary)' }}>Services</h4>
               <ul className="space-y-1.5 text-xs text-gray-500">
-                {['Notarization', 'Verification', 'Certification', 'Signing'].map((item, index) => (
+                {['Services', 'Notarization', 'Verification', 'Certification', 'Signing'].map((item, index) => (
                   <li key={item}>
                     <button 
-                      className="hover:text-amber-400 transition-colors duration-300 hover:translate-x-1 block"
+                      className="hover:text-blue-400 transition-colors duration-300 hover:translate-x-1 block"
                       style={{ animationDelay: `${index * 50}ms` }}
                     >
                       {item}
@@ -745,12 +824,12 @@ const LandingPage = () => {
 
             {/* Support */}
             <div style={{ animation: 'fadeInUp 0.6s ease-out 200ms forwards' }}>
-              <h4 className="font-semibold text-white mb-3 text-sm">Support</h4>
+              <h4 className="font-semibold mb-3 text-sm" style={isDarkMode ? { color: '#ffffff' } : { color: 'var(--primary)' }}>Support</h4>
               <ul className="space-y-1.5 text-xs text-gray-500">
                 {['Help Center', 'Contact Us', 'FAQ'].map((item, index) => (
                   <li key={item}>
                     <button 
-                      className="hover:text-amber-400 transition-colors duration-300 hover:translate-x-1 block"
+                      className="hover:text-blue-400 transition-colors duration-300 hover:translate-x-1 block"
                       style={{ animationDelay: `${index * 50}ms` }}
                     >
                       {item}
@@ -762,22 +841,78 @@ const LandingPage = () => {
 
             {/* Contact */}
             <div style={{ animation: 'fadeInUp 0.6s ease-out 300ms forwards' }}>
-              <h4 className="font-semibold text-white mb-3 text-sm">Get Started</h4>
+              <h4 className="font-semibold mb-3 text-sm" style={isDarkMode ? { color: '#ffffff' } : { color: 'var(--primary)' }}>Get Started</h4>
               <p className="text-gray-500 text-xs mb-3 hover:text-gray-400 transition-colors">
                 Have questions? Our team is here to help.
               </p>
               <button
                 onClick={() => setIsRegisterModalOpen(true)}
-                className="w-full bg-gradient-to-r from-amber-500 to-amber-600 text-white py-2 rounded-lg font-semibold text-sm hover:shadow-md hover:shadow-amber-500/30 transition-all duration-300 hover:scale-105 active:scale-95 relative overflow-hidden group"
+                className="w-full py-2 rounded-lg font-semibold text-sm hover:shadow-md transition-all duration-300 hover:scale-105 active:scale-95 relative overflow-hidden group"
+                style={isDarkMode ? { background: darkGradient(), color: '#fff' } : { backgroundColor: 'var(--surface)', color: 'var(--secondary)' }}
               >
                 <span className="relative z-10">Get Started</span>
-                <span className="absolute inset-0 bg-gradient-to-r from-amber-600 to-amber-700 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
+                <span className="absolute inset-0 translate-y-full group-hover:translate-y-0 transition-transform duration-300" style={isDarkMode ? { background: 'linear-gradient(90deg,#C2410C,#92400E)' } : { backgroundColor: 'var(--surface)' }} />
               </button>
             </div>
           </div>
 
-          <div className="border-t border-gray-800 pt-6 text-center" style={{ animation: 'fadeInUp 0.6s ease-out forwards' }}>
-            <p className="text-gray-600 text-xs">
+          {/* Feedback Form */}
+          <div className={`backdrop-blur-sm border rounded-lg p-6 mb-8 transition-colors duration-300 ${
+            isDarkMode 
+              ? 'bg-gray-900/50 border-gray-800' 
+              : 'bg-blue-50/80 border-blue-300'
+          }`} style={{ animation: 'fadeInUp 0.6s ease-out forwards' }}>
+            <h3 className={`font-semibold mb-4 text-sm transition-colors duration-300 ${
+              isDarkMode ? 'text-white' : 'text-gray-800'
+            }`}>Share Your Feedback</h3>
+            <form className="space-y-3" onSubmit={handleSendFeedback}>
+              <div>
+                <input
+                  type="email"
+                  placeholder="Your email"
+                  value={feedbackEmail}
+                  onChange={(e) => setFeedbackEmail(e.target.value)}
+                  className={`w-full text-sm rounded-lg px-3 py-2 border focus:outline-none transition-colors duration-300 ${
+                    isDarkMode
+                      ? 'bg-gray-800 text-white border-gray-700 focus:border-blue-500 placeholder-gray-500'
+                      : 'bg-white text-gray-800 border-blue-300 focus:border-blue-500 placeholder-gray-500'
+                  }`}
+                  required
+                />
+              </div>
+              <div>
+                <textarea
+                  placeholder="Your feedback or suggestions..."
+                  value={feedbackMessage}
+                  onChange={(e) => setFeedbackMessage(e.target.value)}
+                  rows="3"
+                  className={`w-full text-sm rounded-lg px-3 py-2 border focus:outline-none transition-colors duration-300 resize-none ${
+                    isDarkMode
+                      ? 'bg-gray-800 text-white border-gray-700 focus:border-blue-500 placeholder-gray-500'
+                      : 'bg-white text-gray-800 border-blue-300 focus:border-blue-500 placeholder-gray-500'
+                  }`}
+                  required
+                />
+              </div>
+              <button
+                type="submit"
+                className={`w-full py-2 rounded-lg font-semibold text-sm transition-all duration-300 hover:scale-105 active:scale-95 ${
+                  isDarkMode
+                    ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-white hover:shadow-md hover:shadow-amber-500/30'
+                    : 'bg-gradient-to-r from-blue-600 to-blue-700 text-white hover:shadow-md hover:shadow-blue-600/40'
+                }`}
+              >
+                Send Feedback
+              </button>
+            </form>
+          </div>
+
+          <div className={`border-t pt-6 text-center transition-colors duration-300 ${
+            isDarkMode ? 'border-gray-800' : 'border-gray-300'
+          }`} style={{ animation: 'fadeInUp 0.6s ease-out forwards' }}>
+            <p className={`text-xs transition-colors duration-300 ${
+              isDarkMode ? 'text-gray-600' : 'text-gray-600'
+            }`}>
               &copy; 2024 LegalEase System. All rights reserved. | Privacy | Terms
             </p>
           </div>
@@ -788,6 +923,7 @@ const LandingPage = () => {
       <LoginModal
         isOpen={isLoginModalOpen}
         onClose={() => setIsLoginModalOpen(false)}
+        isDarkMode={isDarkMode}
         onSwitchToRegister={() => {
           setIsLoginModalOpen(false);
           setIsRegisterModalOpen(true);
@@ -797,6 +933,7 @@ const LandingPage = () => {
       <RegisterModal
         isOpen={isRegisterModalOpen}
         onClose={() => setIsRegisterModalOpen(false)}
+        isDarkMode={isDarkMode}
         onSwitchToLogin={() => {
           setIsRegisterModalOpen(false);
           setIsLoginModalOpen(true);

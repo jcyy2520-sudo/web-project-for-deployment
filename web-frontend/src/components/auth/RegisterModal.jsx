@@ -16,7 +16,8 @@ import {
   ClockIcon
 } from '@heroicons/react/24/outline';
 
-const RegisterModal = ({ isOpen, onClose, onSwitchToLogin }) => {
+const RegisterModal = ({ isOpen, onClose, onSwitchToLogin, isDarkMode = true }) => {
+  // Light-mode palette is provided via CSS variables (see index.css :root)
   const [step, setStep] = useState(1);
   const [timeLeft, setTimeLeft] = useState(30);
   const [showPassword, setShowPassword] = useState(false);
@@ -272,20 +273,16 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin }) => {
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={handleClose} title={getStepTitle()} size={step === 2 ? 'sm' : 'md'}>
+    <Modal isOpen={isOpen} onClose={handleClose} title={getStepTitle()} size={step === 2 ? 'sm' : 'md'} isDarkMode={isDarkMode}>
       {/* Notification */}
       {notification.show && (
-        <div className={`mb-4 p-3 rounded-lg border flex items-center space-x-2 animate-fadeIn ${
-          notification.type === 'success' 
-            ? 'bg-green-500/10 border-green-500/30 text-green-300' 
-            : 'bg-red-500/10 border-red-500/30 text-red-300'
-        }`}>
+        <div className={`mb-4 p-3 rounded-lg border flex items-center space-x-2 animate-fadeIn ${notification.type === 'success' ? (isDarkMode ? 'bg-green-500/10 border-green-500/30 text-green-300' : 'bg-green-50 border-green-100 text-green-700') : (isDarkMode ? 'bg-red-500/10 border-red-500/30 text-red-300' : 'bg-red-50 border-red-100 text-red-700')}`}>
           {notification.type === 'success' ? (
             <CheckCircleIcon className="h-4 w-4 flex-shrink-0" />
           ) : (
             <XCircleIcon className="h-4 w-4 flex-shrink-0" />
           )}
-          <span className="text-sm">{notification.message}</span>
+          <span className={`text-sm ${isDarkMode ? '' : 'text-gray-800'}`}>{notification.message}</span>
         </div>
       )}
 
@@ -295,15 +292,11 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin }) => {
           {[1, 2, 3].map((stepNum) => (
             <div key={stepNum} className="flex flex-col items-center">
               <div
-                className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold transition-all duration-300 border ${
-                  step >= stepNum
-                    ? 'bg-gradient-to-br from-amber-500 to-amber-600 text-gray-900 shadow border-amber-500/30'
-                    : 'bg-gray-800 text-gray-400 border-amber-500/20'
-                }`}
+                className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold transition-all duration-300 border ${step >= stepNum ? (isDarkMode ? 'bg-gradient-to-br from-amber-500 to-amber-600 text-gray-900 shadow border-amber-500/30' : 'bg-gradient-to-br text-white shadow border border-gray-200') : (isDarkMode ? 'bg-gray-800 text-gray-400 border-amber-500/20' : 'bg-white text-gray-500 border border-gray-200')}`}
               >
                 {stepNum}
               </div>
-              <div className="text-xs text-amber-100/70 mt-1">
+              <div className={`text-xs mt-1 ${isDarkMode ? 'text-amber-100/70' : 'text-gray-600'}`}>
                 {stepNum === 1 && 'Account'}
                 {stepNum === 2 && 'Verify'}
                 {stepNum === 3 && 'Profile'}
@@ -311,10 +304,10 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin }) => {
             </div>
           ))}
         </div>
-        <div className="relative bg-gray-800 rounded-full h-1.5 mb-2 border border-amber-500/20">
+        <div className={`${isDarkMode ? 'relative bg-gray-800 rounded-full h-1.5 mb-2 border border-amber-500/20' : 'relative bg-gray-200 rounded-full h-1.5 mb-2 border border-gray-200'}`}>
           <div 
-            className="absolute top-0 left-0 h-full bg-gradient-to-r from-amber-500 to-amber-600 rounded-full transition-all duration-500 ease-out"
-            style={{ width: `${(step / 3) * 100}%` }}
+            className={`absolute top-0 left-0 h-full rounded-full transition-all duration-500 ease-out ${isDarkMode ? 'bg-gradient-to-r from-amber-500 to-amber-600' : ''}`}
+            style={isDarkMode ? { width: `${(step / 3) * 100}%` } : { width: `${(step / 3) * 100}%`, backgroundImage: 'linear-gradient(90deg, var(--primary) 0%, var(--secondary) 100%)' }}
           ></div>
         </div>
       </div>
@@ -323,12 +316,12 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin }) => {
         {step === 1 && (
           <div className="space-y-4">
             <div>
-              <label htmlFor="username" className="block text-xs font-medium text-amber-50 mb-1">
+              <label htmlFor="username" className={`block text-xs font-medium mb-1 ${isDarkMode ? 'text-amber-50' : 'text-gray-800'}`}>
                 Username *
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <UserIcon className="h-4 w-4 text-amber-400/70" />
+                  <UserIcon className={`h-4 w-4 ${isDarkMode ? 'text-amber-400/70' : 'text-gray-400'}`} />
                 </div>
                 <input
                   type="text"
@@ -336,7 +329,7 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin }) => {
                   name="username"
                   value={formData.username}
                   onChange={handleChange}
-                  className="w-full pl-10 pr-3 py-2 bg-gray-800 border border-amber-500/20 rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-transparent transition-all duration-200 text-sm text-white placeholder-gray-400"
+                  className={`w-full pl-10 pr-3 py-2 rounded-lg focus:outline-none focus:border-transparent transition-all duration-200 text-sm placeholder-gray-400 ${isDarkMode ? 'bg-gray-800 border border-amber-500/20 text-white focus:ring-1 focus:ring-amber-500' : 'bg-white border border-gray-200 text-gray-900 focus:ring-1 focus:ring-blue-500'}`}
                   required
                   placeholder="Enter username"
                   pattern="[a-zA-Z0-9_]+"
@@ -346,12 +339,12 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin }) => {
             </div>
 
             <div>
-              <label htmlFor="reg-email" className="block text-xs font-medium text-amber-50 mb-1">
+              <label htmlFor="reg-email" className={`block text-xs font-medium mb-1 ${isDarkMode ? 'text-amber-50' : 'text-gray-800'}`}>
                 Email Address *
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <EnvelopeIcon className="h-4 w-4 text-amber-400/70" />
+                  <EnvelopeIcon className={`h-4 w-4 ${isDarkMode ? 'text-amber-400/70' : 'text-gray-400'}`} />
                 </div>
                 <input
                   type="email"
@@ -359,7 +352,7 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin }) => {
                   name="email"
                   value={formData.email}
                   onChange={handleChange}
-                  className="w-full pl-10 pr-3 py-2 bg-gray-800 border border-amber-500/20 rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-transparent transition-all duration-200 text-sm text-white placeholder-gray-400"
+                  className={`w-full pl-10 pr-3 py-2 rounded-lg focus:outline-none focus:border-transparent transition-all duration-200 text-sm placeholder-gray-400 ${isDarkMode ? 'bg-gray-800 border border-amber-500/20 text-white focus:ring-1 focus:ring-amber-500' : 'bg-white border border-gray-200 text-gray-900 focus:ring-1 focus:ring-blue-500'}`}
                   required
                   placeholder="your@email.com"
                 />
@@ -367,12 +360,12 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin }) => {
             </div>
 
             <div>
-              <label htmlFor="reg-password" className="block text-xs font-medium text-amber-50 mb-1">
+              <label htmlFor="reg-password" className={`block text-xs font-medium mb-1 ${isDarkMode ? 'text-amber-50' : 'text-gray-800'}`}>
                 Password *
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <LockClosedIcon className="h-4 w-4 text-amber-400/70" />
+                  <LockClosedIcon className={`h-4 w-4 ${isDarkMode ? 'text-amber-400/70' : 'text-gray-400'}`} />
                 </div>
                 <input
                   type={showPassword ? "text" : "password"}
@@ -380,7 +373,7 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin }) => {
                   name="password"
                   value={formData.password}
                   onChange={handleChange}
-                  className="w-full pl-10 pr-10 py-2 bg-gray-800 border border-amber-500/20 rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-transparent transition-all duration-200 text-sm text-white placeholder-gray-400"
+                  className={`w-full pl-10 pr-10 py-2 rounded-lg focus:outline-none focus:border-transparent transition-all duration-200 text-sm placeholder-gray-400 ${isDarkMode ? 'bg-gray-800 border border-amber-500/20 text-white focus:ring-1 focus:ring-amber-500' : 'bg-white border border-gray-200 text-gray-900 focus:ring-1 focus:ring-blue-500'}`}
                   required
                   minLength="8"
                   placeholder="Enter password"
@@ -388,22 +381,22 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin }) => {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-amber-400/70 hover:text-amber-300 transition-colors"
+                  className={`absolute inset-y-0 right-0 pr-3 flex items-center ${isDarkMode ? 'text-amber-400/70 hover:text-amber-300' : 'text-gray-500 hover:text-gray-700'} transition-colors`}
                 >
                   {showPassword ? <EyeSlashIcon className="h-4 w-4" /> : <EyeIcon className="h-4 w-4" />}
                 </button>
               </div>
               {/* UPDATED: Simplified password requirements message */}
-              <p className="text-xs text-amber-100/50 mt-1">Minimum 8 characters</p>
+              <p className={`text-xs mt-1 ${isDarkMode ? 'text-amber-100/50' : 'text-gray-600'}`}>Minimum 8 characters</p>
             </div>
 
             <div>
-              <label htmlFor="reg-confirmPassword" className="block text-xs font-medium text-amber-50 mb-1">
+              <label htmlFor="reg-confirmPassword" className={`block text-xs font-medium mb-1 ${isDarkMode ? 'text-amber-50' : 'text-gray-800'}`}>
                 Confirm Password *
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <LockClosedIcon className="h-4 w-4 text-amber-400/70" />
+                  <LockClosedIcon className={`h-4 w-4 ${isDarkMode ? 'text-amber-400/70' : 'text-gray-400'}`} />
                 </div>
                 <input
                   type={showConfirmPassword ? "text" : "password"}
@@ -411,14 +404,14 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin }) => {
                   name="confirmPassword"
                   value={formData.confirmPassword}
                   onChange={handleChange}
-                  className="w-full pl-10 pr-10 py-2 bg-gray-800 border border-amber-500/20 rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-transparent transition-all duration-200 text-sm text-white placeholder-gray-400"
+                  className={`w-full pl-10 pr-10 py-2 rounded-lg focus:outline-none focus:border-transparent transition-all duration-200 text-sm placeholder-gray-400 ${isDarkMode ? 'bg-gray-800 border border-amber-500/20 text-white focus:ring-1 focus:ring-amber-500' : 'bg-white border border-gray-200 text-gray-900 focus:ring-1 focus:ring-blue-500'}`}
                   required
                   placeholder="Confirm password"
                 />
                 <button
                   type="button"
                   onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-amber-400/70 hover:text-amber-300 transition-colors"
+                  className={`absolute inset-y-0 right-0 pr-3 flex items-center ${isDarkMode ? 'text-amber-400/70 hover:text-amber-300' : 'text-gray-500 hover:text-gray-700'} transition-colors`}
                 >
                   {showConfirmPassword ? <EyeSlashIcon className="h-4 w-4" /> : <EyeIcon className="h-4 w-4" />}
                 </button>
@@ -429,19 +422,19 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin }) => {
 
         {step === 2 && (
           <div className="space-y-4">
-            <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4">
-              <p className="text-sm text-amber-200 font-medium">
+            <div className={isDarkMode ? 'bg-amber-500/10 border border-amber-500/30 rounded-lg p-4' : 'bg-white border border-gray-200 rounded-lg p-4'}>
+              <p className={`text-sm font-medium ${isDarkMode ? 'text-amber-200' : 'text-gray-800'}`}>
                 Verification code sent to:
               </p>
-              <p className="text-sm text-amber-50 mt-1 font-semibold">{formData.email}</p>
-              <div className="flex items-center mt-2 text-xs text-amber-200/80">
+              <p className={`text-sm mt-1 font-semibold ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>{formData.email}</p>
+              <div className={`flex items-center mt-2 text-xs ${isDarkMode ? 'text-amber-200/80' : 'text-gray-600'}`}>
                 <ClockIcon className="h-3 w-3 mr-1" />
-                <span>Expires in: <span className="text-red-400 font-bold">{timeLeft} minutes</span></span>
+                <span>Expires in: <span className={`font-bold ${isDarkMode ? 'text-red-400' : 'text-red-600'}`}>{timeLeft} minutes</span></span>
               </div>
             </div>
               
             <div>
-              <label htmlFor="verificationCode" className="block text-xs font-medium text-amber-50 mb-1">
+              <label htmlFor="verificationCode" className={`block text-xs font-medium mb-1 ${isDarkMode ? 'text-amber-50' : 'text-gray-800'}`}>
                 Verification Code *
               </label>
               <input
@@ -450,21 +443,21 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin }) => {
                 name="verificationCode"
                 value={formData.verificationCode}
                 onChange={(e) => autoFormatVerificationCode(e.target.value)}
-                className="w-full px-4 py-3 bg-gray-800 border border-amber-500/20 rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-transparent transition-all duration-200 text-white text-center text-base tracking-widest font-mono font-bold placeholder-gray-400"
+                className={`w-full px-4 py-3 rounded-lg focus:outline-none focus:border-transparent transition-all duration-200 text-center text-base tracking-widest font-mono font-bold placeholder-gray-400 ${isDarkMode ? 'bg-gray-800 border border-amber-500/20 text-white focus:ring-1 focus:ring-amber-500' : 'bg-white border border-gray-200 text-gray-900'}`}
                 maxLength="6"
                 required
                 placeholder="000000"
                 pattern="[0-9]{6}"
                 inputMode="numeric"
               />
-              <p className="text-xs text-amber-100/50 mt-1 text-center">Enter the 6-digit code from your email</p>
+              <p className={`text-xs mt-1 text-center ${isDarkMode ? 'text-amber-100/50' : 'text-gray-600'}`}>Enter the 6-digit code from your email</p>
             </div>
 
             <div className="text-center">
               <button
                 type="button"
                 onClick={handleResendCode}
-                className="text-xs font-medium text-amber-400 hover:text-amber-300 underline transition-colors"
+                className={`text-xs font-medium underline transition-colors ${isDarkMode ? 'text-amber-400 hover:text-amber-300' : 'text-[#1E3A8A] hover:opacity-90'}`}
                 disabled={loading}
               >
                 Didn't receive code? Resend
@@ -477,7 +470,7 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin }) => {
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label htmlFor="firstName" className="block text-xs font-medium text-amber-50 mb-1">
+                <label htmlFor="firstName" className={`block text-xs font-medium mb-1 ${isDarkMode ? 'text-amber-50' : 'text-gray-800'}`}>
                   First Name *
                 </label>
                 <input
@@ -486,14 +479,14 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin }) => {
                   name="firstName"
                   value={formData.firstName}
                   onChange={handleChange}
-                  className="w-full px-3 py-2 bg-gray-800 border border-amber-500/20 rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-transparent transition-all duration-200 text-sm text-white placeholder-gray-400"
+                  className={`w-full px-3 py-2 rounded-lg focus:outline-none focus:border-transparent transition-all duration-200 text-sm placeholder-gray-400 ${isDarkMode ? 'bg-gray-800 border border-amber-500/20 text-white focus:ring-1 focus:ring-amber-500' : 'bg-white border border-gray-200 text-gray-900 focus:ring-1 focus:ring-blue-500'}`}
                   required
                   placeholder="First name"
                 />
               </div>
 
               <div>
-                <label htmlFor="lastName" className="block text-xs font-medium text-amber-50 mb-1">
+                <label htmlFor="lastName" className={`block text-xs font-medium mb-1 ${isDarkMode ? 'text-amber-50' : 'text-gray-800'}`}>
                   Last Name *
                 </label>
                 <input
@@ -502,7 +495,7 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin }) => {
                   name="lastName"
                   value={formData.lastName}
                   onChange={handleChange}
-                  className="w-full px-3 py-2 bg-gray-800 border border-amber-500/20 rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-transparent transition-all duration-200 text-sm text-white placeholder-gray-400"
+                  className={`w-full px-3 py-2 rounded-lg focus:outline-none focus:border-transparent transition-all duration-200 text-sm placeholder-gray-400 ${isDarkMode ? 'bg-gray-800 border border-amber-500/20 text-white focus:ring-1 focus:ring-amber-500' : 'bg-white border border-gray-200 text-gray-900 focus:ring-1 focus:ring-blue-500'}`}
                   required
                   placeholder="Last name"
                 />
@@ -515,7 +508,7 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin }) => {
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <PhoneIcon className="h-4 w-4 text-amber-400/70" />
+                  <PhoneIcon className={`h-4 w-4 ${isDarkMode ? 'text-amber-400/70' : 'text-gray-400'}`} />
                 </div>
                 <input
                   type="tel"
@@ -523,7 +516,7 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin }) => {
                   name="phone"
                   value={formData.phone}
                   onChange={handleChange}
-                  className="w-full pl-10 pr-3 py-2 bg-gray-800 border border-amber-500/20 rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-transparent transition-all duration-200 text-sm text-white placeholder-gray-400"
+                  className={`w-full pl-10 pr-3 py-2 rounded-lg focus:outline-none focus:border-transparent transition-all duration-200 text-sm placeholder-gray-400 ${isDarkMode ? 'bg-gray-800 border border-amber-500/20 text-white focus:ring-1 focus:ring-amber-500' : 'bg-white border border-gray-200 text-gray-900 focus:ring-1 focus:ring-blue-500'}`}
                   required
                   placeholder="Phone number"
                 />
@@ -531,19 +524,19 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin }) => {
             </div>
 
             <div>
-              <label htmlFor="address" className="block text-xs font-medium text-amber-50 mb-1">
+              <label htmlFor="address" className={`block text-xs font-medium mb-1 ${isDarkMode ? 'text-amber-50' : 'text-gray-800'}`}>
                 Address *
               </label>
               <div className="relative">
                 <div className="absolute top-3 left-3 flex items-start pointer-events-none">
-                  <MapPinIcon className="h-4 w-4 text-amber-400/70 mt-0.5" />
+                  <MapPinIcon className={`h-4 w-4 ${isDarkMode ? 'text-amber-400/70' : 'text-gray-400'} mt-0.5`} />
                 </div>
                 <textarea
                   id="address"
                   name="address"
                   value={formData.address}
                   onChange={handleChange}
-                  className="w-full pl-10 pr-3 py-2 bg-gray-800 border border-amber-500/20 rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500 focus:border-transparent transition-all duration-200 text-sm text-white placeholder-gray-400 resize-none"
+                  className={`w-full pl-10 pr-3 py-2 rounded-lg focus:outline-none focus:border-transparent transition-all duration-200 text-sm placeholder-gray-400 resize-none ${isDarkMode ? 'bg-gray-800 border border-amber-500/20 text-white focus:ring-1 focus:ring-amber-500' : 'bg-white border border-gray-200 text-gray-900 focus:ring-1 focus:ring-blue-500'}`}
                   rows="2"
                   required
                   placeholder="Complete address"
@@ -551,9 +544,9 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin }) => {
               </div>
             </div>
 
-            <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
-              <h4 className="text-xs font-semibold text-amber-50 mb-2">Account Summary:</h4>
-              <div className="text-xs text-amber-100/70 space-y-1">
+            <div className={isDarkMode ? 'bg-amber-500/10 border border-amber-500/30 rounded-lg p-3' : 'bg-white border border-gray-200 rounded-lg p-3'}>
+              <h4 className={`text-xs font-semibold mb-2 ${isDarkMode ? 'text-amber-50' : 'text-gray-800'}`}>Account Summary:</h4>
+              <div className={`text-xs space-y-1 ${isDarkMode ? 'text-amber-100/70' : 'text-gray-700'}`}>
                 <p><strong>Username:</strong> {formData.username}</p>
                 <p><strong>Email:</strong> {formData.email}</p>
                 <p><strong>Name:</strong> {formData.firstName} {formData.lastName}</p>
@@ -567,7 +560,7 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin }) => {
             <button
               type="button"
               onClick={() => setStep(step - 1)}
-              className="px-4 py-2 border border-amber-500/30 text-amber-100 rounded-lg hover:bg-amber-500/10 transition-all duration-200 font-medium text-sm"
+              className={`px-4 py-2 border ${isDarkMode ? 'border-amber-500/30 text-amber-100 hover:bg-amber-500/10' : 'border border-gray-200 text-gray-700 hover:bg-gray-50'} rounded-lg transition-all duration-200 font-medium text-sm`}
               disabled={loading}
             >
               Back
@@ -577,7 +570,8 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin }) => {
           <button
             type="submit"
             disabled={loading}
-            className={`${step === 1 ? 'w-full' : ''} px-4 py-2 bg-gradient-to-r from-amber-500 to-amber-600 text-gray-900 rounded-lg hover:from-amber-600 hover:to-amber-700 focus:outline-none focus:ring-1 focus:ring-amber-500 transition-all duration-200 font-medium text-sm flex items-center justify-center min-w-[120px] border border-amber-500/30 disabled:opacity-50 disabled:cursor-not-allowed`}
+            className={`${step === 1 ? 'w-full' : ''} px-4 py-2 rounded-lg focus:outline-none transition-all duration-200 font-medium text-sm flex items-center justify-center min-w-[120px] disabled:opacity-50 disabled:cursor-not-allowed ${isDarkMode ? 'text-gray-900 border border-amber-500/30 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 focus:ring-1 focus:ring-amber-500' : 'text-white border border-gray-200'}`}
+            style={isDarkMode ? {} : { backgroundImage: 'linear-gradient(90deg, var(--primary) 0%, var(--secondary) 100%)' }}
           >
             {loading ? (
               <LoadingSpinner size="sm" />
@@ -590,7 +584,7 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin }) => {
         </div>
 
         {step === 1 && (
-          <div className="text-center text-xs text-amber-100/70 mt-4">
+          <div className={`text-center text-xs mt-4 ${isDarkMode ? 'text-amber-100/70' : 'text-gray-700'}`}>
             Already have an account?{' '}
             <button
               type="button"
@@ -598,7 +592,7 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin }) => {
                 handleClose();
                 onSwitchToLogin();
               }}
-              className="font-medium text-amber-400 hover:text-amber-300 transition-colors"
+              className={`font-medium transition-colors ${isDarkMode ? 'text-amber-400 hover:text-amber-300' : 'text-[#1E3A8A] hover:opacity-90'}`}
             >
               Sign in
             </button>

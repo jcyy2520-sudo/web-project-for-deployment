@@ -118,7 +118,7 @@ const PieChart = ({ data, title, isDarkMode = true }) => {
                   key={index}
                   d={pathData}
                   fill={item.color}
-                  stroke={isDarkMode ? "#1f2937" : "#e5e7eb"}
+                  stroke={isDarkMode ? "#1f2937" : "var(--borders)"}
                   strokeWidth="2"
                   title={`${item.label}: ${item.value}`}
                   className="transition-all duration-300 hover:opacity-80 cursor-pointer"
@@ -156,7 +156,7 @@ const PieChart = ({ data, title, isDarkMode = true }) => {
 };
 
 // Small sparkline for KPI cards — supports multiple mini chart types
-const Sparkline = ({ data = [], width = 120, height = 28, stroke = '#f59e0b', type = 'line' }) => {
+const Sparkline = ({ data = [], width = 120, height = 28, stroke = 'var(--accent)', type = 'line' }) => {
   const safe = data.map(d => Number(d.value) || 0);
   const max = Math.max(...safe, 1);
   if (safe.length === 0) return <div className="h-7" />;

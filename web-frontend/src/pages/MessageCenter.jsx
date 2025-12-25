@@ -56,13 +56,13 @@ const MessageDetailsModal = ({ isOpen, onClose, message, isDarkMode }) => {
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} border rounded-lg shadow-xl w-full max-w-md max-h-[80vh] overflow-auto`}>
         <div className={`p-4 border-b ${isDarkMode ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-gray-50'} sticky top-0`}>
-          <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>Message Details</h3>
+          <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'theme-text-primary'}`}>Message Details</h3>
         </div>
         <div className={`p-6 space-y-4 text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
           {/* From Section */}
-          <div className={`p-3 rounded-lg ${isDarkMode ? 'bg-gray-700/50' : 'bg-amber-50'}`}>
+          <div className={`p-3 rounded-lg ${isDarkMode ? 'bg-gray-700/50' : ''}`} style={!isDarkMode ? { backgroundColor: 'var(--secondary-10)' } : {}}>
             <p className={`text-xs font-semibold uppercase tracking-wide mb-2 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>From:</p>
-            <p className={`text-base font-semibold ${isDarkMode ? 'text-amber-200' : 'text-amber-900'}`}>{senderName}</p>
+            <p className={`text-base font-semibold ${isDarkMode ? 'text-amber-200' : 'theme-text-primary'}`}>{senderName}</p>
             {message.sender?.email && (
               <p className={`text-xs mt-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>{message.sender.email}</p>
             )}
@@ -89,11 +89,8 @@ const MessageDetailsModal = ({ isOpen, onClose, message, isDarkMode }) => {
         <div className={`p-4 border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-200'} flex justify-end sticky bottom-0 ${isDarkMode ? 'bg-gray-900' : 'bg-white'}`}>
           <button
             onClick={onClose}
-            className={`px-4 py-2 text-sm font-medium rounded ${
-              isDarkMode
-                ? 'bg-amber-600 text-white hover:bg-amber-700'
-                : 'bg-amber-50 text-amber-900 hover:bg-amber-100'
-            }`}
+            className={`px-4 py-2 text-sm font-medium rounded ${isDarkMode ? 'bg-amber-600 text-white hover:bg-amber-700' : ''}`}
+            style={!isDarkMode ? { backgroundColor: 'var(--secondary)', color: '#fff' } : {}}
           >
             Close
           </button>
@@ -141,20 +138,20 @@ const MessageThread = ({ messages, currentUserId, isDarkMode }) => {
                 <div
                   className={`max-w-xs md:max-w-md px-4 py-2 rounded-lg relative ${
                     isOwn
-                      ? 'bg-amber-500 text-white rounded-br-none'
+                      ? 'bg-amber-500 text-black rounded-br-none'
                       : isDarkMode
                       ? 'bg-gray-700 text-gray-100 rounded-bl-none'
                       : 'bg-gray-200 text-gray-900 rounded-bl-none'
                   }`}
                 >
                   {msg.subject && (
-                    <p className={`text-xs font-semibold mb-1 ${isOwn ? 'text-amber-100' : isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                    <p className={`text-xs font-semibold mb-1 ${isOwn ? 'text-black' : isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
                       {msg.subject}
                     </p>
                   )}
                   <p className="text-sm break-words">{msg.message}</p>
-                  <div className={`flex items-center justify-between mt-1 ${isOwn ? 'text-amber-100' : isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                    <p className={`text-xs ${isOwn ? 'text-amber-100/80' : isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                  <div className={`flex items-center justify-between mt-1 ${isOwn ? 'text-black' : isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                    <p className={`text-xs ${isOwn ? 'text-black/80' : isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                       {formatMessageTime(msg.created_at)}
                     </p>
                   </div>
@@ -164,7 +161,7 @@ const MessageThread = ({ messages, currentUserId, isDarkMode }) => {
                     onClick={() => setSelectedMessage(msg)}
                     className={`flex-shrink-0 p-1 rounded opacity-0 group-hover:opacity-100 ${
                       isOwn
-                        ? 'text-amber-100 hover:bg-amber-600/30'
+                        ? 'text-black hover:bg-amber-200/30'
                         : isDarkMode
                         ? 'text-gray-400 hover:bg-gray-600/30'
                         : 'text-gray-600 hover:bg-gray-300/30'
@@ -455,7 +452,7 @@ const MessageCenter = ({ isDarkMode = true, compact = false }) => {
 
             {/* Messages Area */}
             {selectedConversation ? (
-              <div className="flex-1 flex flex-col min-w-0 border rounded-lg overflow-hidden" style={{backgroundColor: isDarkMode ? '#1f2937' : '#ffffff'}}>
+              <div className="flex-1 flex flex-col min-w-0 border rounded-lg overflow-hidden bg-surface-var border-var">
                 {/* Header */}
                 <div className={`p-2 border-b ${isDarkMode ? 'border-gray-600 bg-gray-800' : 'border-gray-200 bg-gray-50'}`}>
                   <div className="flex items-center justify-between">

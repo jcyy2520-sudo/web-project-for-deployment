@@ -12,6 +12,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 )
 
 // Poll for unavailable-dates changes and dispatch in-page event for components to react
+// DISABLED: This polling was causing unnecessary API requests every 15 seconds
+// Uncomment below to re-enable if needed
+/*
 ;(function setupUnavailableDatesPoller() {
   const POLL_INTERVAL_MS = 15000; // 15s
   let last = null;
@@ -38,6 +41,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   check();
   setInterval(check, POLL_INTERVAL_MS);
 })();
+*/
 
 // Laravel Echo (real-time) initialization (optional)
 // - To enable: install `pusher-js` and `laravel-echo` then set Vite env vars

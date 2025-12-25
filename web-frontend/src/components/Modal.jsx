@@ -2,7 +2,7 @@ import { Fragment } from 'react';
 import { Dialog, Transition } from '@headlessui/react';
 import { XMarkIcon } from '@heroicons/react/24/outline';
 
-const Modal = ({ isOpen, onClose, title, children, size = 'md' }) => {
+const Modal = ({ isOpen, onClose, title, children, size = 'md', isDarkMode = true }) => {
   const sizeClasses = {
     sm: 'max-w-sm',
     md: 'max-w-md',
@@ -25,7 +25,7 @@ const Modal = ({ isOpen, onClose, title, children, size = 'md' }) => {
           leaveFrom="opacity-100"
           leaveTo="opacity-0"
         >
-          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" />
+          <div className={`fixed inset-0 ${isDarkMode ? 'bg-black/70' : 'bg-black/20'} backdrop-blur-sm`} />
         </Transition.Child>
 
         <div className="fixed inset-0 overflow-y-auto">
@@ -39,14 +39,15 @@ const Modal = ({ isOpen, onClose, title, children, size = 'md' }) => {
               leaveFrom="opacity-100 scale-100"
               leaveTo="opacity-0 scale-95"
             >
-              <Dialog.Panel className={`w-full ${sizeClasses[size]} transform overflow-hidden rounded-2xl bg-gray-900 border border-amber-500/30 p-6 text-left align-middle shadow-2xl shadow-amber-500/10 transition-all`}>
+              <Dialog.Panel className={`w-full ${sizeClasses[size]} transform overflow-hidden rounded-2xl p-6 text-left align-middle transition-all`} style={isDarkMode ? { backgroundColor: undefined, border: '1px solid rgba(245,158,11,0.18)', boxShadow: '0 20px 60px rgba(245,158,11,0.06)' } : { backgroundColor: 'var(--surface)', border: '1px solid var(--borders)', boxShadow: '0 20px 60px rgba(0,0,0,0.06)' }}>
                 <div className="flex items-center justify-between mb-4">
-                  <Dialog.Title as="h3" className="text-lg font-semibold text-amber-50">
+                  <Dialog.Title as="h3" className="text-lg font-semibold" style={isDarkMode ? { color: '#FDE68A' } : { color: 'var(--text-primary)' }}>
                     {title}
                   </Dialog.Title>
                   <button
                     onClick={onClose}
-                    className="text-amber-100/70 hover:text-amber-400 hover:bg-amber-500/10 p-1 rounded-lg transition-all duration-200"
+                    className="p-1 rounded-lg transition-all duration-200"
+                    style={isDarkMode ? { color: 'rgba(245,158,11,0.7)', backgroundColor: 'transparent' } : { color: 'var(--text-secondary)', backgroundColor: 'transparent' }}
                   >
                     <XMarkIcon className="h-6 w-6" />
                   </button>

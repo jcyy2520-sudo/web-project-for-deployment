@@ -44,30 +44,30 @@ import {
 // Enhanced Status Badge Component
 const StatusBadge = ({ status }) => {
   const statusConfig = {
-    pending: { 
-      color: 'bg-amber-500/20 text-amber-300 border border-amber-500/30', 
+    pending: {
+      color: 'bg-amber-100 text-amber-800 border border-amber-200 dark:bg-amber-500/20 dark:text-amber-300 dark:border-amber-500/30',
       icon: ClockIcon,
-      glow: 'shadow-amber-500/20'
+      glow: 'shadow-amber-100'
     },
-    approved: { 
-      color: 'bg-blue-500/20 text-blue-300 border border-blue-500/30', 
+    approved: {
+      color: 'bg-blue-100 text-blue-800 border border-blue-200 dark:bg-blue-500/20 dark:text-blue-300 dark:border-blue-500/30',
       icon: CheckCircleIcon,
-      glow: 'shadow-blue-500/20'
+      glow: 'shadow-blue-100'
     },
-    completed: { 
-      color: 'bg-green-500/20 text-green-300 border border-green-500/30', 
+    completed: {
+      color: 'bg-green-100 text-green-800 border border-green-200 dark:bg-green-500/20 dark:text-green-300 dark:border-green-500/30',
       icon: CheckCircleIcon,
-      glow: 'shadow-green-500/20'
+      glow: 'shadow-green-100'
     },
-    cancelled: { 
-      color: 'bg-red-500/20 text-red-300 border border-red-500/30', 
+    cancelled: {
+      color: 'bg-red-100 text-red-800 border border-red-200 dark:bg-red-500/20 dark:text-red-300 dark:border-red-500/30',
       icon: XCircleIcon,
-      glow: 'shadow-red-500/20'
+      glow: 'shadow-red-100'
     },
-    declined: { 
-      color: 'bg-red-500/20 text-red-300 border border-red-500/30', 
+    declined: {
+      color: 'bg-red-100 text-red-800 border border-red-200 dark:bg-red-500/20 dark:text-red-300 dark:border-red-500/30',
       icon: XCircleIcon,
-      glow: 'shadow-red-500/20'
+      glow: 'shadow-red-100'
     }
   };
   
@@ -79,7 +79,7 @@ const StatusBadge = ({ status }) => {
       <IconComponent className="w-3 h-3 mr-1" />
       {status.charAt(0).toUpperCase() + status.slice(1)}
     </span>
-  );
+    );
 };
 
 // Enhanced Service Type Dropdown with Search
@@ -229,7 +229,7 @@ const ServiceTypeDropdown = ({
 };
 
 // Enhanced Calendar Component
-const EnhancedCalendar = ({ value, onChange, error, disabled = false }) => {
+const EnhancedCalendar = ({ value, onChange, error, disabled = false, dailyLimitInfo = {} }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(value ? new Date(value) : null);
@@ -421,66 +421,78 @@ const EnhancedCalendar = ({ value, onChange, error, disabled = false }) => {
 
       {isOpen && !disabled && (
         <div className="absolute z-50 w-full mt-1 bg-gray-800 border border-amber-500/30 rounded-lg shadow-lg shadow-amber-500/10 p-3">
-          {/* Calendar Header */}
-          <div className="flex items-center justify-between mb-3">
-            <button
-              type="button"
-              onClick={() => navigateMonth(-1)}
-              className="p-1 text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 rounded border border-amber-500/30"
-            >
-              <ChevronDownIcon className="h-3 w-3 rotate-90" />
-            </button>
-            
-            <div className="text-amber-50 font-medium text-sm">
-              {currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+          {/* Daily Limit Status */}
+          {dailyLimitInfo.limit && (
+            <div className={`rounded-lg border p-4 flex items-start gap-3 ${
+              dailyLimitInfo.hasReachedLimit
+                ? 'bg-red-900/20 border-red-500/30'
+                : 'bg-blue-900/20 border-blue-500/30'
+            }`}>
+              {dailyLimitInfo.hasReachedLimit ? (
+                <>
+                  <InformationCircleIcon className="h-5 w-5 flex-shrink-0 text-blue-400 mt-0.5" />
+                  <div>
+                    <h3 className="font-semibold text-blue-400">📅 Daily Booking Limit Reached</h3>
+                    <p className="text-sm text-blue-300/80 mt-1">
+                      {dailyLimitInfo.message || `You have reached your daily booking limit of ${dailyLimitInfo.limit} appointments. You can book again tomorrow.`}
+                    </p>
+                    {dailyLimitInfo.bookingsToday?.length > 0 && (
+                      <div className="mt-3 text-xs text-blue-300/70">
+                        <p className="font-medium mb-2">Your appointments today:</p>
+                        <ul className="space-y-1 ml-2">
+                          {dailyLimitInfo.bookingsToday.map((booking, idx) => (
+                            <li key={idx} className="flex items-center gap-2">
+                              <span>•</span>
+                              <span>{formatTime12Hour(booking.time)} - {booking.service}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <CheckCircleIcon className="h-5 w-5 flex-shrink-0 text-blue-400 mt-0.5" />
+                  <div>
+                    <h3 className="font-semibold text-blue-400">Appointment Slots Available</h3>
+                    <p className="text-sm text-blue-300/80 mt-1">
+                      You have {dailyLimitInfo.remaining} of {dailyLimitInfo.limit} daily appointment slots available.
+                    </p>
+                  </div>
+                </>
+              )}
             </div>
-            
-            <button
-              type="button"
-              onClick={() => navigateMonth(1)}
-              className="p-1 text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 rounded border border-amber-500/30"
-            >
-              <ChevronDownIcon className="h-3 w-3 -rotate-90" />
-            </button>
-          </div>
+              )}
 
-          {/* Week Days */}
-          <div className="grid grid-cols-7 gap-1 mb-2">
-            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
-              <div key={day} className="text-center text-xs font-medium text-amber-400/70 p-1">
-                {day}
+              {/* Calendar Grid */}
+              <div className="mt-3">
+                <div className="grid grid-cols-7 gap-1">{renderCalendarGrid()}</div>
+
+                {/* Quick-select buttons */}
+                <div className="mt-3 flex gap-2 justify-end">
+                  <button
+                    type="button"
+                    onClick={() => handleDateSelect(today)}
+                    className="text-xs text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 px-2 py-1 rounded border border-amber-500/30"
+                  >
+                    Today
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const tomorrow = new Date(today);
+                      tomorrow.setDate(tomorrow.getDate() + 1);
+                      handleDateSelect(tomorrow);
+                    }}
+                    className="text-xs text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 px-2 py-1 rounded border border-amber-500/30"
+                  >
+                    Tomorrow
+                  </button>
+                </div>
               </div>
-            ))}
-          </div>
-
-          {/* Calendar Grid */}
-          <div className="grid grid-cols-7 gap-1">
-            {renderCalendarGrid()}
-          </div>
-
-          {/* Quick Actions */}
-          <div className="flex justify-between mt-3 pt-3 border-t border-gray-600">
-            <button
-              type="button"
-              onClick={() => handleDateSelect(today)}
-              className="text-xs text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 px-2 py-1 rounded border border-amber-500/30"
-            >
-              Today
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                const tomorrow = new Date(today);
-                tomorrow.setDate(tomorrow.getDate() + 1);
-                handleDateSelect(tomorrow);
-              }}
-              className="text-xs text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 px-2 py-1 rounded border border-amber-500/30"
-            >
-              Tomorrow
-            </button>
-          </div>
-        </div>
-      )}
+            </div>
+          )}
 
       {error && (
         <p className="text-red-400 text-xs mt-1 flex items-center">
@@ -706,15 +718,27 @@ const SettingsModal = ({ isOpen, onClose, settings, onSettingsChange }) => {
                   <p className="text-xs text-amber-400/70">Choose your preferred theme</p>
                 </div>
               </div>
-              <select
-                value={settings.theme}
-                onChange={(e) => onSettingsChange('theme', e.target.value)}
-                className="bg-gray-800 border border-gray-600 rounded-lg px-2 py-1 text-amber-50 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-              >
-                <option value="light">Light</option>
-                <option value="dark">Dark</option>
-                <option value="system">System</option>
-              </select>
+              <div className="flex items-center space-x-2">
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={settings.theme === 'light'}
+                    onChange={(e) => onSettingsChange('theme', e.target.checked ? 'light' : 'dark')}
+                    className="sr-only peer"
+                  />
+                  <div className="w-10 h-5 bg-gray-600 rounded-full peer-focus:ring-2 peer-focus:ring-amber-500 peer-checked:bg-amber-600 relative after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:border-gray-300 after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full"></div>
+                </label>
+
+                <select
+                  value={settings.theme}
+                  onChange={(e) => onSettingsChange('theme', e.target.value)}
+                  className="bg-gray-800 border border-gray-600 rounded-lg px-2 py-1 text-amber-50 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                >
+                  <option value="light">Light</option>
+                  <option value="dark">Dark</option>
+                  <option value="system">System</option>
+                </select>
+              </div>
             </div>
           </div>
 
@@ -1044,11 +1068,27 @@ const Dashboard = () => {
       root.classList.add('dark');
       root.style.backgroundColor = 'rgb(11, 11, 11)'; // black
       root.style.color = 'rgb(250, 245, 235)'; // amber-50
+      // Ensure user-light marker removed in dark mode
+      root.classList.remove('user-light');
     } else {
       // Light mode - using gray instead of stone for better appearance
       root.classList.remove('dark');
-      root.style.backgroundColor = 'rgb(243, 244, 246)'; // gray-100
-      root.style.color = 'rgb(31, 41, 55)'; // gray-800
+      // Apply user-side light palette via CSS variables so only user pages are affected
+      root.style.setProperty('--primary', '#1E3A8A');
+      root.style.setProperty('--secondary', '#2563EB');
+      root.style.setProperty('--accent', '#F59E0B');
+      root.style.setProperty('--background', '#F9FAFB');
+      root.style.setProperty('--surface', '#FFFFFF');
+      root.style.setProperty('--text-primary', '#111827');
+      root.style.setProperty('--text-secondary', '#6B7280');
+      root.style.setProperty('--borders', '#E5E7EB');
+      root.style.setProperty('--success', '#16A34A');
+      root.style.setProperty('--error', '#DC2626');
+      // Apply user-light marker so CSS remaps Tailwind amber utilities to user palette
+      root.classList.add('user-light');
+      // Ensure page background/text use the new variables
+      root.style.backgroundColor = 'var(--background)';
+      root.style.color = 'var(--text-primary)';
     }
     
     // Save preference to localStorage
@@ -1967,14 +2007,14 @@ const Dashboard = () => {
         }`}>
           {dailyLimitInfo.hasReachedLimit ? (
             <>
-              <InformationCircleIcon className="h-5 w-5 flex-shrink-0 text-blue-400 mt-0.5" />
+              <ExclamationTriangleIcon className="h-5 w-5 flex-shrink-0 text-red-400 mt-0.5" />
               <div>
-                <h3 className="font-semibold text-blue-400">📅 Daily Booking Limit Reached</h3>
-                <p className="text-sm text-blue-300/80 mt-1">
+                <h3 className="font-semibold text-red-400">📅 Daily Booking Limit Reached</h3>
+                <p className="text-sm text-red-300/80 mt-1">
                   {dailyLimitInfo.message || `You have reached your daily booking limit of ${dailyLimitInfo.limit} appointments. You can book again tomorrow.`}
                 </p>
                 {dailyLimitInfo.bookingsToday?.length > 0 && (
-                  <div className="mt-3 text-xs text-blue-300/70">
+                  <div className="mt-3 text-xs text-red-300/70">
                     <p className="font-medium mb-2">Your appointments today:</p>
                     <ul className="space-y-1 ml-2">
                       {dailyLimitInfo.bookingsToday.map((booking, idx) => (
@@ -2032,6 +2072,7 @@ const Dashboard = () => {
               onChange={(value) => handleAppointmentChange({ target: { name: 'appointment_date', value } })}
               error={formErrors.appointment_date}
               disabled={dailyLimitInfo.hasReachedLimit}
+              dailyLimitInfo={dailyLimitInfo}
             />
 
             {/* Time Input using TimePicker Component */}
@@ -2160,7 +2201,7 @@ const Dashboard = () => {
       setAppointmentsPagination(prev => ({
         ...prev,
         currentPage: page
-      }));
+      }))
     };
 
     return (
@@ -2901,10 +2942,10 @@ const Dashboard = () => {
                         handleNavClick(tabName);
                         setShowMobileSidebar(false);
                       }}
-                      className={`w-full flex items-center justify-between px-2.5 py-1.5 text-xs lg:text-xs font-medium rounded-lg transition-all duration-200 border group relative overflow-hidden ${
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 text-xs lg:text-xs font-medium rounded-none transition-all duration-200 border group relative overflow-hidden ${
                         item.current
-                          ? `${isDarkMode ? 'bg-gradient-to-r from-amber-500/15 to-amber-600/10' : 'bg-gradient-to-r from-amber-200/30 to-amber-100/20'} text-amber-400 border-amber-500/50 shadow-lg shadow-amber-500/10`
-                          : `text-gray-400 border-transparent hover:${isDarkMode ? 'bg-amber-500/8' : 'bg-amber-300/10'} hover:text-amber-300 hover:border-amber-500/20`
+                          ? (isDarkMode ? 'text-amber-400 border-amber-500/30' : 'text-amber-700 border-amber-300/30')
+                          : (isDarkMode ? 'text-gray-400 border-transparent hover:text-amber-300' : 'text-gray-600 border-transparent hover:text-amber-700')
                       }`}
                     >
                       <div className="flex items-center flex-1 min-w-0">

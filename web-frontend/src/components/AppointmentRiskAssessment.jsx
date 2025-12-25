@@ -94,7 +94,7 @@ const AppointmentRiskAssessment = ({ appointmentId, isDarkMode = true }) => {
   return (
     <div className={`p-4 rounded-lg border ${getRiskBgColor(risk_level)} ${getRiskBorderColor(risk_level)}`}>
       {/* Header */}
-      <div className="flex items-start justify-between pb-3 border-b" style={{borderColor: isDarkMode ? '#374151' : '#e5e7eb'}}>
+      <div className="flex items-start justify-between pb-3 border-b" style={{borderColor: isDarkMode ? '#374151' : 'var(--borders)'}}>
         <div className="flex items-center gap-2">
           {risk_level === 'high' && <ExclamationTriangleIcon className="h-5 w-5 text-red-500" />}
           {risk_level === 'medium' && <ExclamationTriangleIcon className="h-5 w-5 text-yellow-500" />}
@@ -121,7 +121,7 @@ const AppointmentRiskAssessment = ({ appointmentId, isDarkMode = true }) => {
 
       {/* Recommendations */}
       {recommendations && recommendations.length > 0 && (
-        <div className="mt-3 pt-3 border-t" style={{borderColor: isDarkMode ? '#374151' : '#e5e7eb'}}>
+        <div className="mt-3 pt-3 border-t" style={{borderColor: isDarkMode ? '#374151' : 'var(--borders)'}}>
           <p className={`text-xs font-semibold ${isDarkMode ? 'text-gray-300' : 'text-gray-700'} mb-2`}>Recommended Actions:</p>
           <div className="space-y-1">
             {recommendations.map((rec, idx) => (
