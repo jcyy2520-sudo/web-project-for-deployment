@@ -1,9 +1,14 @@
 {
-  "buildCommand": "npm run build",
-  "outputDirectory": "dist",
-  "build": {
-    "env": {
-      "VITE_API_URL": "https://web-project-backend-lzzf.onrender.com/api"
+  "version": 2,
+  "builds": [
+    {
+      "src": "package.json",
+      "use": "@vercel/static-build",
+      "config": { "distDir": "dist" }
     }
+  ],
+  "routes": [],
+  "env": {
+    "VITE_API_URL": "https://legaleaase.site/api"
   }
 }
