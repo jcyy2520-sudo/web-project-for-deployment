@@ -4,7 +4,7 @@ import useChatbot from '../../hooks/useChatbot';
 import ChatbotMessage from './ChatbotMessage';
 import ChatbotInput from './ChatbotInput';
 
-const ChatbotModal = ({ onClose }) => {
+const ChatbotModal = ({ onClose, isDarkMode = true }) => {
   const {
     messages,
     loading,
@@ -209,10 +209,10 @@ const ChatbotModal = ({ onClose }) => {
         onClick={onClose}
       />
 
-      {/* Modal - Responsive: full screen on mobile, positioned on desktop */}
-      <div className="fixed inset-4 sm:inset-auto sm:bottom-24 sm:right-6 sm:w-[400px] sm:max-w-[calc(100vw-3rem)] bg-gray-900 rounded-xl shadow-2xl flex flex-col sm:h-[600px] sm:max-h-[calc(100vh-8rem)] max-h-[calc(100vh-2rem)] z-50 border border-amber-500/30 overflow-hidden">
+      {/* Modal - Responsive: smaller on mobile, positioned on desktop */}
+      <div className={`fixed bottom-20 right-4 w-[calc(100vw-2rem)] sm:inset-auto sm:bottom-24 sm:right-6 sm:w-[400px] sm:max-w-[calc(100vw-3rem)] rounded-xl shadow-2xl flex flex-col h-[60vh] sm:h-[600px] sm:max-h-[calc(100vh-8rem)] z-50 overflow-hidden border ${isDarkMode ? 'bg-gray-900 border-amber-500/30' : 'bg-white border-blue-100'}`}>
         {/* Header */}
-        <div className="bg-gray-900 border-b border-amber-500/20 px-5 py-4 flex justify-between items-center flex-shrink-0">
+        <div className={`px-5 py-4 flex justify-between items-center flex-shrink-0 ${isDarkMode ? 'bg-gray-900 border-b border-amber-500/20 text-gray-100' : 'bg-white border-b border-blue-100 text-slate-900'}`}>
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center">
               <svg className="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -220,15 +220,15 @@ const ChatbotModal = ({ onClose }) => {
               </svg>
             </div>
             <div>
-              <h2 className="font-semibold text-base text-gray-100">Chat Assistant</h2>
-              <p className="text-xs text-gray-400">AI-powered support</p>
+              <h2 className="font-semibold text-base" style={{ color: isDarkMode ? undefined : 'var(--primary)' }}>Chat Assistant</h2>
+              <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>AI-powered support</p>
             </div>
           </div>
           <div className="flex gap-1">
             {/* New Chat Button */}
             <button
               onClick={handleNewConversation}
-              className="p-2 hover:bg-amber-500/10 hover:text-amber-500 text-gray-400 rounded-lg transition-all"
+              className={`p-2 rounded-lg transition-all ${isDarkMode ? 'hover:bg-amber-500/10 hover:text-amber-500 text-gray-400' : 'hover:bg-blue-50 hover:text-blue-600 text-slate-600'}`}
               title="New conversation"
               aria-label="Start new conversation"
             >
@@ -239,7 +239,7 @@ const ChatbotModal = ({ onClose }) => {
             {/* History Button */}
             <button
               onClick={toggleHistory}
-              className={`p-2 hover:bg-amber-500/10 hover:text-amber-500 rounded-lg transition-all ${showHistory ? 'bg-amber-500/20 text-amber-500' : 'text-gray-400'}`}
+              className={`p-2 rounded-lg transition-all ${isDarkMode ? (showHistory ? 'bg-amber-500/20 text-amber-500' : 'text-gray-400 hover:bg-amber-500/10 hover:text-amber-500') : (showHistory ? 'bg-blue-100 text-blue-600' : 'text-slate-600 hover:bg-blue-50 hover:text-blue-600')}`}
               title="Chat history"
               aria-label="View chat history"
             >
@@ -249,7 +249,7 @@ const ChatbotModal = ({ onClose }) => {
             </button>
             <button
               onClick={() => setShowClearConfirm(true)}
-              className="p-2 hover:bg-amber-500/10 hover:text-amber-500 text-gray-400 rounded-lg transition-all"
+              className={`p-2 rounded-lg transition-all ${isDarkMode ? 'hover:bg-amber-500/10 hover:text-amber-500 text-gray-400' : 'hover:bg-blue-50 hover:text-blue-600 text-slate-600'}`}
               title="Clear history"
               aria-label="Clear chat history"
             >
@@ -259,7 +259,7 @@ const ChatbotModal = ({ onClose }) => {
             </button>
             <button
               onClick={onClose}
-              className="p-2 hover:bg-amber-500/10 hover:text-amber-500 text-gray-400 rounded-lg transition-all"
+              className={`p-2 rounded-lg transition-all ${isDarkMode ? 'hover:bg-amber-500/10 hover:text-amber-500 text-gray-400' : 'hover:bg-blue-50 hover:text-blue-600 text-slate-600'}`}
               title="Close chat"
               aria-label="Close chat"
             >
@@ -272,20 +272,20 @@ const ChatbotModal = ({ onClose }) => {
 
         {/* Rate Limit Warning Banner */}
         {isRateLimited && rateLimitInfo.mustStartNew && (
-          <div className="px-4 py-3 bg-amber-500/20 border-b border-amber-500/30 flex-shrink-0">
+          <div className={`${isDarkMode ? 'px-4 py-3 bg-amber-500/20 border-b border-amber-500/30 flex-shrink-0' : 'px-4 py-3 bg-blue-50 border-b border-blue-100 flex-shrink-0'}`}>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <svg className="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
                 <div>
-                  <p className="text-sm font-medium text-amber-300">Message Limit Reached</p>
-                  <p className="text-xs text-amber-400/80">{rateLimitMessage || 'Start a new conversation to continue chatting.'}</p>
+                  <p className={`text-sm font-medium ${isDarkMode ? 'text-amber-300' : 'text-blue-700'}`}>Message Limit Reached</p>
+                  <p className={`text-xs ${isDarkMode ? 'text-amber-400/80' : 'text-blue-600'}`}>{rateLimitMessage || 'Start a new conversation to continue chatting.'}</p>
                 </div>
               </div>
               <button
                 onClick={handleNewConversation}
-                className="px-3 py-1.5 bg-amber-500 text-gray-900 text-sm font-medium rounded-lg hover:bg-amber-400 transition-all"
+                className={`px-3 py-1.5 text-sm font-medium rounded-lg hover:opacity-95 transition-all ${isDarkMode ? 'bg-amber-500 text-gray-900 hover:bg-amber-400' : 'bg-blue-600 text-white hover:bg-blue-500'}`}
               >
                 New Chat
               </button>
@@ -295,14 +295,14 @@ const ChatbotModal = ({ onClose }) => {
 
         {/* Message Counter (shows remaining messages) */}
         {!isRateLimited && rateLimitInfo.remaining <= 5 && rateLimitInfo.remaining > 0 && (
-          <div className="px-4 py-2 bg-gray-800/50 border-b border-amber-500/10 flex-shrink-0">
+          <div className={`${isDarkMode ? 'px-4 py-2 bg-gray-800/50 border-b border-amber-500/10 flex-shrink-0' : 'px-4 py-2 bg-white/80 border-b border-blue-100 flex-shrink-0'}`}>
             <div className="flex items-center justify-between">
               <span className="text-xs text-gray-400">
                 {rateLimitInfo.remaining} message{rateLimitInfo.remaining !== 1 ? 's' : ''} remaining in this conversation
               </span>
               <button
                 onClick={handleNewConversation}
-                className="text-xs text-amber-400 hover:text-amber-300 transition-colors"
+                className={`text-xs transition-colors ${isDarkMode ? 'text-amber-400 hover:text-amber-300' : 'text-blue-600 hover:text-blue-500'}`}
               >
                 Start new
               </button>
@@ -312,13 +312,13 @@ const ChatbotModal = ({ onClose }) => {
 
         {/* Conversation History Panel (Slide-in sidebar) */}
         {showHistory && (
-          <div className="absolute inset-0 top-[73px] bg-gray-900 z-10 flex flex-col border-t border-amber-500/20">
+          <div className={`absolute inset-0 top-[73px] z-10 flex flex-col border-t ${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-blue-100'}`}>
             {/* History Header */}
-            <div className="px-4 py-3 border-b border-amber-500/20 flex items-center justify-between">
-              <h3 className="font-medium text-gray-200">Conversation History</h3>
+            <div className={`px-4 py-3 border-b ${isDarkMode ? 'border-amber-500/20' : 'border-blue-100'} flex items-center justify-between`}>
+              <h3 className={`font-medium ${isDarkMode ? 'text-gray-200' : 'text-slate-900'}`}>Conversation History</h3>
               <button
                 onClick={() => setShowHistory(false)}
-                className="p-1 hover:bg-amber-500/10 hover:text-amber-500 text-gray-400 rounded transition-all"
+                className={`p-1 hover:bg-amber-500/10 hover:text-amber-500 ${isDarkMode ? 'text-gray-400' : 'text-slate-600'} rounded transition-all`}
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -327,10 +327,10 @@ const ChatbotModal = ({ onClose }) => {
             </div>
             
             {/* New Conversation Button */}
-            <div className="px-4 py-2 border-b border-amber-500/10">
+            <div className={`px-4 py-2 border-b ${isDarkMode ? 'border-amber-500/10' : 'border-blue-100'}`}>
               <button
                 onClick={handleNewConversation}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-amber-500/10 border border-amber-500/30 text-amber-400 rounded-lg hover:bg-amber-500/20 hover:border-amber-500/50 transition-all"
+                className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg transition-all ${isDarkMode ? 'bg-amber-500/10 border border-amber-500/30 text-amber-400 hover:bg-amber-500/20 hover:border-amber-500/50' : 'bg-blue-50 border border-blue-100 text-blue-600 hover:bg-blue-100 hover:border-blue-200'}`}
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -344,25 +344,25 @@ const ChatbotModal = ({ onClose }) => {
               {conversationsLoading ? (
                 <div className="flex items-center justify-center py-8">
                   <div className="flex space-x-1">
-                    <div className="w-2 h-2 bg-amber-500 rounded-full animate-bounce" />
-                    <div className="w-2 h-2 bg-amber-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />
-                    <div className="w-2 h-2 bg-amber-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
+                    <div className={`w-2 h-2 rounded-full animate-bounce ${isDarkMode ? 'bg-amber-500' : 'bg-blue-500'}`} />
+                    <div className={`w-2 h-2 rounded-full animate-bounce ${isDarkMode ? 'bg-amber-500' : 'bg-blue-500'}`} style={{ animationDelay: '0.1s' }} />
+                    <div className={`w-2 h-2 rounded-full animate-bounce ${isDarkMode ? 'bg-amber-500' : 'bg-blue-500'}`} style={{ animationDelay: '0.2s' }} />
                   </div>
                 </div>
               ) : conversations.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
-                  <svg className="w-12 h-12 text-gray-600 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className={`w-12 h-12 mb-3 ${isDarkMode ? 'text-gray-600' : 'text-blue-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                   </svg>
-                  <p className="text-gray-500 text-sm">No conversation history yet</p>
-                  <p className="text-gray-600 text-xs mt-1">Start a new conversation to begin</p>
+                  <p className={`${isDarkMode ? 'text-gray-500' : 'text-slate-600'} text-sm`}>No conversation history yet</p>
+                  <p className={`${isDarkMode ? 'text-gray-600' : 'text-slate-500'} text-xs mt-1`}>Start a new conversation to begin</p>
                 </div>
               ) : (
-                <div className="divide-y divide-gray-800">
+                <div className={`divide-y ${isDarkMode ? 'divide-gray-800' : 'divide-gray-100'}`}>
                   {conversations.map((conv) => (
                     <div
                       key={conv.conversation_id}
-                      className={`relative group ${conversationId === conv.conversation_id ? 'bg-amber-500/10' : 'hover:bg-gray-800/50'}`}
+                      className={`relative group ${conversationId === conv.conversation_id ? (isDarkMode ? 'bg-amber-500/10' : 'bg-blue-50') : (isDarkMode ? 'hover:bg-gray-800/50' : 'hover:bg-gray-50')}`}
                     >
                       <button
                         onClick={() => handleSwitchConversation(conv.conversation_id)}
@@ -370,26 +370,26 @@ const ChatbotModal = ({ onClose }) => {
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex-1 min-w-0">
-                            <p className={`text-sm font-medium truncate ${conversationId === conv.conversation_id ? 'text-amber-400' : 'text-gray-300'}`}>
+                            <p className={`text-sm font-medium truncate ${conversationId === conv.conversation_id ? (isDarkMode ? 'text-amber-400' : 'text-blue-600') : (isDarkMode ? 'text-gray-300' : 'text-slate-700')}`}>
                               {conv.title}
                             </p>
                             {conv.last_message && (
-                              <p className="text-xs text-gray-500 truncate mt-0.5">
+                              <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-slate-600'} truncate mt-0.5`}>
                                 {conv.last_message_role === 'assistant' ? 'AI: ' : 'You: '}{conv.last_message}
                               </p>
                             )}
                             <div className="flex items-center gap-2 mt-1">
-                              <span className="text-xs text-gray-600">
+                              <span className={`text-xs ${isDarkMode ? 'text-gray-600' : 'text-slate-500'}`}>
                                 {formatConversationDate(conv.updated_at)}
                               </span>
-                              <span className="text-xs text-gray-600">•</span>
-                              <span className="text-xs text-gray-600">
+                              <span className={`text-xs ${isDarkMode ? 'text-gray-600' : 'text-slate-500'}`}>•</span>
+                              <span className={`text-xs ${isDarkMode ? 'text-gray-600' : 'text-slate-500'}`}>
                                 {conv.message_count} messages
                               </span>
                             </div>
                           </div>
-                          {conversationId === conv.conversation_id && (
-                            <div className="w-2 h-2 bg-amber-500 rounded-full flex-shrink-0 mt-1.5" />
+                            {conversationId === conv.conversation_id && (
+                            <div className={`w-2 h-2 rounded-full flex-shrink-0 mt-1.5 ${isDarkMode ? 'bg-amber-500' : 'bg-blue-600'}`} />
                           )}
                         </div>
                       </button>
@@ -400,7 +400,7 @@ const ChatbotModal = ({ onClose }) => {
                           e.stopPropagation();
                           setDeleteConfirmId(conv.conversation_id);
                         }}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 opacity-0 group-hover:opacity-100 hover:bg-red-500/20 hover:text-red-400 text-gray-500 rounded transition-all"
+                        className={`absolute right-2 top-1/2 -translate-y-1/2 p-1.5 opacity-0 group-hover:opacity-100 hover:bg-red-500/20 hover:text-red-400 ${isDarkMode ? 'text-gray-500' : 'text-slate-600'} rounded transition-all`}
                         title="Delete conversation"
                       >
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -416,7 +416,7 @@ const ChatbotModal = ({ onClose }) => {
         )}
 
         {/* Messages Container */}
-        <div className="flex-1 overflow-y-auto px-5 py-4 bg-gray-800/30 space-y-4">
+        <div className={`flex-1 overflow-y-auto px-5 py-4 space-y-4 ${isDarkMode ? 'bg-gray-800/30' : 'bg-gray-50'}`}>
           {messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-center">
               <div className="w-16 h-16 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center mb-4">
@@ -424,8 +424,8 @@ const ChatbotModal = ({ onClose }) => {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                 </svg>
               </div>
-              <h3 className="text-base font-medium text-gray-200 mb-2">Start a conversation</h3>
-              <p className="text-sm text-gray-400 mb-6">Ask me anything about your appointments</p>
+              <h3 className={`text-base font-medium ${isDarkMode ? 'text-gray-200' : 'text-slate-900'} mb-2`}>Start a conversation</h3>
+              <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-slate-700'} mb-6`}>Ask me anything about your appointments</p>
 
               {/* Suggested Questions (dynamic from assistant or default suggestions) */}
               {lastSuggestions && Array.isArray(lastSuggestions) && lastSuggestions.length > 0 ? (
@@ -434,7 +434,7 @@ const ChatbotModal = ({ onClose }) => {
                     <button
                       key={`dyn-${idx}`}
                       onClick={() => handleSuggestedQuestion(question)}
-                      className="w-full text-left px-4 py-3 rounded-lg bg-gray-900/50 border border-amber-500/20 hover:bg-gray-900 hover:border-amber-500/40 transition-all text-sm text-gray-300 hover:text-amber-400 group"
+                      className={`w-full text-left px-4 py-3 rounded-lg transition-all text-sm ${isDarkMode ? 'bg-gray-900/50 border border-amber-500/20 text-gray-300 hover:bg-gray-900 hover:border-amber-500/40 hover:text-amber-400' : 'bg-gray-50 border border-slate-100 text-slate-800 hover:bg-white'}`}
                     >
                       <span className="flex items-center gap-2">
                         <svg className="w-4 h-4 text-amber-500/50 group-hover:text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -446,11 +446,11 @@ const ChatbotModal = ({ onClose }) => {
                   ))}
                 </div>
               ) : loadingSuggestions ? (
-                <div className="w-full">
-                  <div className="flex items-center justify-center gap-2 text-gray-400">
-                    <div className="w-2 h-2 bg-amber-500 rounded-full animate-bounce" />
-                    <div className="w-2 h-2 bg-amber-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />
-                    <div className="w-2 h-2 bg-amber-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
+                  <div className="w-full">
+                  <div className={`flex items-center justify-center gap-2 ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>
+                    <div className={`w-2 h-2 rounded-full animate-bounce ${isDarkMode ? 'bg-amber-500' : 'bg-blue-500'}`} />
+                    <div className={`w-2 h-2 rounded-full animate-bounce ${isDarkMode ? 'bg-amber-500' : 'bg-blue-500'}`} style={{ animationDelay: '0.1s' }} />
+                    <div className={`w-2 h-2 rounded-full animate-bounce ${isDarkMode ? 'bg-amber-500' : 'bg-blue-500'}`} style={{ animationDelay: '0.2s' }} />
                   </div>
                 </div>
               ) : (
@@ -459,29 +459,26 @@ const ChatbotModal = ({ onClose }) => {
                   {dynamicUpdates && dynamicUpdates.length > 0 && (
                     <div className="space-y-2">
                       <p className="text-xs text-amber-400 font-medium uppercase tracking-wide mb-2">📋 Updates</p>
-                      {dynamicUpdates.slice(0, 3).map((update, index) => (
+                          {dynamicUpdates.slice(0, 3).map((update, index) => (
                         <button
                           key={`update-${index}`}
                           onClick={() => handleDynamicUpdateClick(update)}
                           className={`w-full text-left px-4 py-3 rounded-lg border transition-all text-sm group ${
-                            update.priority === 'high'
-                              ? 'bg-red-500/10 border-red-500/30 hover:bg-red-500/20 hover:border-red-500/50'
-                              : update.priority === 'medium'
-                              ? 'bg-amber-500/10 border-amber-500/30 hover:bg-amber-500/20 hover:border-amber-500/50'
-                              : 'bg-gray-900/50 border-gray-700 hover:bg-gray-900 hover:border-gray-600'
-                          }`}
+                                update.priority === 'high'
+                                  ? (isDarkMode ? 'bg-red-500/10 border-red-500/30 hover:bg-red-500/20 hover:border-red-500/50' : 'bg-red-50 border-red-100 hover:bg-red-100')
+                                  : update.priority === 'medium'
+                                  ? (isDarkMode ? 'bg-amber-500/10 border-amber-500/30 hover:bg-amber-500/20 hover:border-amber-500/50' : 'bg-blue-50 border-blue-100 hover:bg-blue-100')
+                                  : (isDarkMode ? 'bg-gray-900/50 border-gray-700 hover:bg-gray-900 hover:border-gray-600' : 'bg-white border-blue-100 hover:bg-gray-50')
+                              }`}
                         >
                           <span className="flex items-center justify-between gap-2">
-                            <span className={`${
-                              update.priority === 'high' ? 'text-red-300' : 
-                              update.priority === 'medium' ? 'text-amber-300' : 'text-gray-300'
-                            }`}>
+                              <span className={`${update.priority === 'high' ? (isDarkMode ? 'text-red-300' : 'text-red-700') : update.priority === 'medium' ? (isDarkMode ? 'text-amber-300' : 'text-amber-600') : (isDarkMode ? 'text-gray-300' : 'text-slate-700')}`}>
                               {update.priority === 'high' && '⚠️ '}
                               {update.priority === 'medium' && '📌 '}
                               {update.text}
                             </span>
                             {update.route && (
-                              <svg className="w-4 h-4 text-gray-500 group-hover:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <svg className={`w-4 h-4 ${isDarkMode ? 'text-gray-500 group-hover:text-gray-300' : 'text-slate-500 group-hover:text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                               </svg>
                             )}
@@ -501,7 +498,7 @@ const ChatbotModal = ({ onClose }) => {
                         <button
                           key={index}
                           onClick={() => handleSuggestedQuestion(question)}
-                          className="w-full text-left px-4 py-3 rounded-lg bg-gray-900/50 border border-amber-500/20 hover:bg-gray-900 hover:border-amber-500/40 transition-all text-sm text-gray-300 hover:text-amber-400 group"
+                          className={`w-full text-left px-4 py-3 rounded-lg transition-all text-sm ${isDarkMode ? 'bg-gray-900/50 border border-amber-500/20 text-gray-300 hover:bg-gray-900 hover:border-amber-500/40 hover:text-amber-400' : 'bg-gray-50 border border-slate-100 text-slate-800 hover:bg-white'}`}
                         >
                           <span className="flex items-center gap-2">
                             <svg className="w-4 h-4 text-amber-500/50 group-hover:text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -515,7 +512,7 @@ const ChatbotModal = ({ onClose }) => {
                   )}
 
                   {(!suggestedQuestions || suggestedQuestions.length === 0) && (!dynamicUpdates || dynamicUpdates.length === 0) && (
-                    <p className="text-sm text-gray-500">Feel free to ask me anything!</p>
+                    <p className={`${isDarkMode ? 'text-gray-500' : 'text-slate-600'} text-sm`}>Feel free to ask me anything!</p>
                   )}
                 </div>
               )}
@@ -523,7 +520,7 @@ const ChatbotModal = ({ onClose }) => {
           ) : (
             <>
               {messages.map((message) => (
-                <ChatbotMessage key={message.id} message={message} />
+                <ChatbotMessage key={message.id} message={message} isDarkMode={isDarkMode} />
               ))}
               {loading && (
                 <div className="flex justify-start">
@@ -571,6 +568,7 @@ const ChatbotModal = ({ onClose }) => {
           onSend={handleSendMessage}
           onKeyPress={handleKeyPress}
           isLoading={loading}
+          isDarkMode={isDarkMode}
         />
       </div>
 

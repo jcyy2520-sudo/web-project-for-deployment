@@ -3,6 +3,40 @@ import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
 import './index.css'
 
+// ============================================================================
+// CRITICAL: Initialize theme BEFORE React renders to prevent flashing
+// ============================================================================
+(() => {
+  try {
+    // Get stored theme preference or system preference
+    let isDarkMode = true; // Default to dark mode
+    const saved = localStorage.getItem('isDarkMode');
+    
+    if (saved !== null) {
+      isDarkMode = saved === 'true';
+    } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+      isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    }
+    
+    // Apply theme class to HTML element IMMEDIATELY
+    const html = document.documentElement;
+    if (isDarkMode) {
+      html.classList.add('dark');
+      html.setAttribute('data-theme', 'dark');
+    } else {
+      html.classList.remove('dark');
+      html.setAttribute('data-theme', 'light');
+    }
+    
+    // Set data attribute for CSS variable selection
+    document.documentElement.style.colorScheme = isDarkMode ? 'dark' : 'light';
+  } catch (e) {
+    console.error('Failed to initialize theme:', e);
+    // Fallback: ensure dark mode
+    document.documentElement.classList.add('dark');
+  }
+})();
+
 // Set API URL from environment
 const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api';
 

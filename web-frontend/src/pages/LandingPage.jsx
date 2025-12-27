@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useTheme } from '../context/ThemeContext';
 import logger from '../utils/logger';
 import LoginModal from '../components/auth/LoginModal';
 import RegisterModal from '../components/auth/RegisterModal';
@@ -6,14 +7,7 @@ import ChatbotButton from '../components/chatbot/ChatbotButton';
 import axios from 'axios';
 
 const LandingPage = () => {
-  const [isDarkMode, setIsDarkMode] = useState(() => {
-    try {
-      const saved = localStorage.getItem('isDarkMode');
-      return saved === null ? true : saved === 'true';
-    } catch (e) {
-      return true;
-    }
-  });
+  const { isDarkMode, setIsDarkMode } = useTheme();
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
   const [feedbackEmail, setFeedbackEmail] = useState('');
@@ -39,22 +33,7 @@ const LandingPage = () => {
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
 
   // Theme colors are provided via CSS variables in `src/index.css`.
-
-  // Persist theme selection
-  useEffect(() => {
-    try {
-      localStorage.setItem('isDarkMode', isDarkMode ? 'true' : 'false');
-    } catch (e) {}
-  }, [isDarkMode]);
-
-  // Apply global theme attribute/class so other pages/components can read it
-  useEffect(() => {
-    try {
-      document.documentElement.setAttribute('data-theme', isDarkMode ? 'dark' : 'light');
-      if (isDarkMode) document.documentElement.classList.add('dark');
-      else document.documentElement.classList.remove('dark');
-    } catch (e) {}
-  }, [isDarkMode]);
+  // Note: Theme is now managed by ThemeContext and initialized in main.jsx
 
   const lightGradient = () => `linear-gradient(90deg, var(--primary), var(--secondary))`;
   const darkGradient = () => `linear-gradient(90deg,var(--accent),#D97706)`;
@@ -332,7 +311,7 @@ const LandingPage = () => {
               />
               <span className="text-lg font-bold tracking-tight transition-colors duration-300" style={{ color: isDarkMode ? undefined : 'var(--secondary)' }}>
                 <span className="text-2xl font-bold tracking-tight transition-colors duration-300" style={{ color: isDarkMode ? 'rgba(255,255,255,0.95)' : 'var(--secondary)', textTransform: !isDarkMode ? 'uppercase' : undefined, opacity: 0.95, letterSpacing: '1px' }}>
-                  LegalEase
+                  LEGALEASE
                 </span>
               </span>
             </div>
@@ -941,7 +920,7 @@ const LandingPage = () => {
       />
 
       {/* Guest Chatbot - Available to all visitors */}
-      <ChatbotButton />
+      <ChatbotButton isDarkMode={isDarkMode} />
     </div>
   );
 };

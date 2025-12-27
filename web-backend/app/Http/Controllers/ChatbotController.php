@@ -39,6 +39,7 @@ class ChatbotController extends Controller
     private LanguageDetectionService $languageService;
     private AdvancedIntelligenceService $intelligenceService;
     private ClarificationEngineService $clarificationEngine;
+    private ChatbotContextResolutionService $contextResolver;
     private ?ChatbotAnalyticsService $analyticsService = null;
 
     private const MAX_HISTORY = 10;
@@ -54,7 +55,8 @@ class ChatbotController extends Controller
         SmartActionSuggestionService $suggestionService,
         LanguageDetectionService $languageService,
         AdvancedIntelligenceService $intelligenceService,
-        ClarificationEngineService $clarificationEngine
+        ClarificationEngineService $clarificationEngine,
+        ChatbotContextResolutionService $contextResolver
     ) {
         $this->chatbotService = $chatbotService;
         $this->roleService = $roleService;
@@ -67,6 +69,7 @@ class ChatbotController extends Controller
         $this->languageService = $languageService;
         $this->intelligenceService = $intelligenceService;
         $this->clarificationEngine = $clarificationEngine;
+        $this->contextResolver = $contextResolver;
         
         try {
             $this->analyticsService = app(ChatbotAnalyticsService::class);

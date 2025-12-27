@@ -5,10 +5,11 @@ const ChatbotInput = ({
   setInputValue,
   onSend,
   onKeyPress,
-  isLoading
+  isLoading,
+  isDarkMode = true
 }) => {
   return (
-    <div className="border-t border-amber-500/20 p-4 bg-gray-900 flex-shrink-0">
+    <div className={`border-t p-4 flex-shrink-0 ${isDarkMode ? 'border-amber-500/20 bg-gray-900' : 'border-slate-100 bg-gray-50'}`}>
       <div className="flex gap-2">
         <textarea
           value={inputValue}
@@ -16,13 +17,13 @@ const ChatbotInput = ({
           onKeyPress={onKeyPress}
           placeholder="Type your message..."
           disabled={isLoading}
-          className="flex-1 resize-none px-4 py-3 bg-gray-800 border border-amber-500/20 rounded-lg text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+          className={`flex-1 resize-none px-4 py-3 rounded-lg text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed ${isDarkMode ? 'bg-gray-800 border border-amber-500/20 text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50' : 'bg-white border border-slate-100 text-slate-900 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-200'}`}
           rows={2}
         />
         <button
           onClick={onSend}
           disabled={isLoading || !inputValue.trim()}
-          className="px-4 py-3 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center shadow-lg shadow-amber-500/20 hover:shadow-amber-500/30"
+          className={`px-4 py-3 rounded-lg flex items-center justify-center shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed ${isDarkMode ? 'bg-amber-500 text-white hover:bg-amber-600 shadow-amber-500/20 hover:shadow-amber-500/30' : 'bg-blue-600 text-white hover:bg-blue-500 shadow-blue-600/20'}`}
           title="Send message"
           aria-label="Send message"
         >
@@ -41,7 +42,7 @@ const ChatbotInput = ({
           </svg>
         </button>
       </div>
-      <p className="text-xs text-gray-500 mt-2">Press Enter to send • Shift+Enter for new line</p>
+      <p className={`${isDarkMode ? 'text-gray-500' : 'text-slate-600'} text-xs mt-2`}>Press Enter to send • Shift+Enter for new line</p>
     </div>
   );
 };

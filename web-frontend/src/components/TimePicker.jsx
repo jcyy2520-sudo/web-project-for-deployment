@@ -64,7 +64,7 @@ const TimePicker = ({ value, onChange, error, disabled = false }) => {
 
   return (
     <div className="relative">
-      <label className="block text-xs font-medium text-amber-50 mb-1">
+      <label className="block text-xs font-medium text-gray-700 mb-1">
         Preferred Time *
       </label>
       
@@ -72,61 +72,85 @@ const TimePicker = ({ value, onChange, error, disabled = false }) => {
         type="button"
         disabled={disabled}
         onClick={() => !disabled && setIsOpen(!isOpen)}
-        className={`w-full px-3 py-2 bg-gray-800 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 transition-all duration-200 text-sm text-white text-left flex justify-between items-center ${
-          disabled ? 'opacity-50 cursor-not-allowed bg-gray-900' : ''
+        className={`w-full px-3 py-2 bg-white border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 transition-all duration-200 text-sm text-black text-left flex justify-between items-center ${
+          disabled ? 'opacity-50 cursor-not-allowed bg-gray-100' : ''
         } ${
-          error ? 'border-red-500' : 'border-gray-600 focus:border-amber-500'
+          error ? 'border-red-500' : 'border-gray-300 focus:border-amber-500'
         }`}
       >
-        <span className={!value ? 'text-gray-400' : 'text-white'}>
+        <span className={!value ? 'text-gray-500' : 'text-black'}>
           {displayValue}
         </span>
         <ChevronDownIcon className={`h-4 w-4 text-amber-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
       {isOpen && !disabled && (
-        <div className="absolute z-50 w-full mt-1 bg-gray-800 border border-amber-500/30 rounded-lg shadow-lg shadow-amber-500/10 p-4">
+        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg shadow-gray-300/20 p-4">
           <div className="grid grid-cols-3 gap-2 mb-4">
             {/* Hours */}
             <div>
-              <label className="text-xs font-medium text-amber-50 mb-1 block">Hour</label>
+              <label className="text-xs font-medium text-gray-700 mb-1 block">Hour</label>
               <select
                 value={selectedHour}
                 onChange={(e) => setSelectedHour(e.target.value)}
-                className="w-full px-2 py-1 bg-gray-700 border border-gray-600 rounded text-white text-xs focus:outline-none focus:ring-1 focus:ring-amber-500"
+                className="w-full px-2 py-1 bg-white border border-gray-300 rounded text-black text-xs focus:outline-none focus:ring-1 focus:ring-amber-500 appearance-none cursor-pointer"
+                style={{
+                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23f59e0b' d='M6 9L1 4h10z'/%3E%3C/svg%3E")`,
+                  backgroundRepeat: 'no-repeat',
+                  backgroundPosition: 'right 0.5rem center',
+                  backgroundSize: '1.5em 1.5em',
+                  paddingRight: '2rem',
+                  colorScheme: 'light'
+                }}
               >
                 <option value="">--</option>
                 {hours.map(hour => (
-                  <option key={hour} value={hour}>{hour}</option>
+                  <option key={hour} value={hour} style={{ backgroundColor: '#ffffff', color: '#000000' }}>{hour}</option>
                 ))}
               </select>
             </div>
 
             {/* Minutes */}
             <div>
-              <label className="text-xs font-medium text-amber-50 mb-1 block">Minute</label>
+              <label className="text-xs font-medium text-gray-700 mb-1 block">Minute</label>
               <select
                 value={selectedMinute}
                 onChange={(e) => setSelectedMinute(e.target.value)}
-                className="w-full px-2 py-1 bg-gray-700 border border-gray-600 rounded text-white text-xs focus:outline-none focus:ring-1 focus:ring-amber-500"
+                className="w-full px-2 py-1 bg-white border border-gray-300 rounded text-black text-xs focus:outline-none focus:ring-1 focus:ring-amber-500 appearance-none cursor-pointer"
+                style={{
+                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23f59e0b' d='M6 9L1 4h10z'/%3E%3C/svg%3E")`,
+                  backgroundRepeat: 'no-repeat',
+                  backgroundPosition: 'right 0.5rem center',
+                  backgroundSize: '1.5em 1.5em',
+                  paddingRight: '2rem',
+                  colorScheme: 'light'
+                }}
               >
                 <option value="">--</option>
                 {minutes.map(minute => (
-                  <option key={minute} value={minute}>{minute}</option>
+                  <option key={minute} value={minute} style={{ backgroundColor: '#ffffff', color: '#000000' }}>{minute}</option>
                 ))}
               </select>
             </div>
 
             {/* Period */}
             <div>
-              <label className="text-xs font-medium text-amber-50 mb-1 block">Period</label>
+              <label className="text-xs font-medium text-gray-700 mb-1 block">Period</label>
               <select
                 value={selectedPeriod}
                 onChange={(e) => setSelectedPeriod(e.target.value)}
-                className="w-full px-2 py-1 bg-gray-700 border border-gray-600 rounded text-white text-xs focus:outline-none focus:ring-1 focus:ring-amber-500"
+                className="w-full px-2 py-1 bg-white border border-gray-300 rounded text-black text-xs focus:outline-none focus:ring-1 focus:ring-amber-500 appearance-none cursor-pointer"
+                style={{
+                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23f59e0b' d='M6 9L1 4h10z'/%3E%3C/svg%3E")`,
+                  backgroundRepeat: 'no-repeat',
+                  backgroundPosition: 'right 0.5rem center',
+                  backgroundSize: '1.5em 1.5em',
+                  paddingRight: '2rem',
+                  colorScheme: 'light'
+                }}
               >
-                <option value="AM">AM</option>
-                <option value="PM">PM</option>
+                <option value="AM" style={{ backgroundColor: '#ffffff', color: '#000000' }}>AM</option>
+                <option value="PM" style={{ backgroundColor: '#ffffff', color: '#000000' }}>PM</option>
               </select>
             </div>
           </div>
@@ -135,7 +159,7 @@ const TimePicker = ({ value, onChange, error, disabled = false }) => {
             <button
               type="button"
               onClick={() => setIsOpen(false)}
-              className="flex-1 px-3 py-1 border border-gray-600 text-gray-300 rounded hover:bg-gray-700 transition-colors text-xs font-medium"
+              className="flex-1 px-3 py-1 border border-gray-300 text-gray-700 rounded hover:bg-gray-100 transition-colors text-xs font-medium"
             >
               Cancel
             </button>

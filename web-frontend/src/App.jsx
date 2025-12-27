@@ -1,6 +1,7 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { lazy, Suspense, useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { ThemeProvider } from './context/ThemeContext';
 import LoadingSpinner from './components/ui/LoadingSpinner';
 import ErrorBoundary from './components/ErrorBoundary';
 import ToastContainer from './components/notifications/ToastContainer';
@@ -227,17 +228,19 @@ const AppContent = () => {
 
 function App() {
   return (
-    <AuthProvider>
-      <Router>
-        <div className="min-h-screen bg-gray-900">
-          <ToastContainer isDarkMode={true} />
-          <AppContent />
-          {/* Chatbot enabled after fixes to nullable userId and endpoint routing */}
-          <ChatbotButton />
-          <InstallPrompt />
-        </div>
-      </Router>
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <Router>
+          <div className="min-h-screen bg-gray-900 dark:bg-gray-950">
+            <ToastContainer isDarkMode={true} />
+            <AppContent />
+            {/* Chatbot enabled after fixes to nullable userId and endpoint routing */}
+            <ChatbotButton />
+            <InstallPrompt />
+          </div>
+        </Router>
+      </AuthProvider>
+    </ThemeProvider>
   );
 }
 

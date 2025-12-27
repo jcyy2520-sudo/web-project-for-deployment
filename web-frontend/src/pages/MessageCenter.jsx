@@ -15,7 +15,8 @@ import {
   ExclamationTriangleIcon,
   EllipsisVerticalIcon,
   ClockIcon,
-  CalendarIcon
+  CalendarIcon,
+  ArrowLeftIcon
 } from '@heroicons/react/24/outline';
 
 // Message Details Modal
@@ -241,6 +242,7 @@ const MessageCenter = ({ isDarkMode = true, compact = false }) => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [mobileViewingConversation, setMobileViewingConversation] = useState(false);
   const messagesEndRef = useRef(null);
 
   useEffect(() => {
@@ -272,12 +274,16 @@ const MessageCenter = ({ isDarkMode = true, compact = false }) => {
       if (result.success) {
         let convs = Array.isArray(result.data?.data) ? result.data.data : (Array.isArray(result.data) ? result.data : []);
         
-        // Deduplicate conversations
+        // Deduplicate conversations and filter out chatbot messages
         const seen = new Set();
         convs = convs.filter(conv => {
           const userId = conv.user?.id;
           if (seen.has(userId)) return false;
           seen.add(userId);
+          // Filter out chatbot-type messages from last_message
+          if (conv.last_message?.type === 'chatbot') {
+            conv.last_message = null;
+          }
           return true;
         });
         
@@ -356,6 +362,7 @@ const MessageCenter = ({ isDarkMode = true, compact = false }) => {
       if (result.success) {
         setShowDeleteConfirm(false);
         setSelectedConversation(null);
+        setMobileViewingConversation(false);
         await loadConversations();
       }
     } catch (error) {
@@ -393,7 +400,7 @@ const MessageCenter = ({ isDarkMode = true, compact = false }) => {
     <>
       {compact ? (
         // Compact mode - for use within Dashboard
-        <div className={`flex flex-col gap-4 h-[500px] ${isDarkMode ? 'bg-gray-800' : 'bg-white'} border rounded-lg overflow-hidden`}>
+        <div className={`flex flex-col gap-4 h-auto min-h-[400px] sm:h-[500px] ${isDarkMode ? 'bg-gray-800' : 'bg-white'} border rounded-lg overflow-hidden`}>
           {/* Header */}
           <div className={`p-4 border-b ${isDarkMode ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-gray-50'}`}>
             <h3 className={`font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>Conversations</h3>
@@ -410,9 +417,9 @@ const MessageCenter = ({ isDarkMode = true, compact = false }) => {
           </div>
 
           {/* Main Content Area */}
-          <div className="flex flex-1 min-h-0 gap-3 px-4 pb-4">
+          <div className="flex flex-1 min-h-0 gap-3 px-4 pb-4 flex-col sm:flex-row">
             {/* Conversations Sidebar */}
-            <div className={`w-48 flex-shrink-0 overflow-y-auto border rounded-lg ${isDarkMode ? 'bg-gray-700 border-gray-600' : 'bg-gray-50 border-gray-200'}`}>
+            <div className={`w-full sm:w-48 sm:flex-shrink-0 overflow-y-auto border rounded-lg ${isDarkMode ? 'bg-gray-700 border-gray-600' : 'bg-gray-50 border-gray-200'}`}>
               {filteredConversations.length === 0 ? (
                 <div className={`flex items-center justify-center h-full ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} text-xs text-center p-4`}>
                   <p>No conversations</p>
@@ -511,15 +518,25 @@ const MessageCenter = ({ isDarkMode = true, compact = false }) => {
         // Full screen mode
         <div className={`min-h-screen ${isDarkMode ? 'bg-gray-900' : 'bg-gray-50'}`}>
           {/* Mobile Header */}
-          <div className={`md:hidden fixed top-0 left-0 right-0 z-40 ${isDarkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'} border-b p-4 flex items-center justify-between`}>
-            <button
-              onClick={() => setShowMobileSidebar(!showMobileSidebar)}
-              className={`${isDarkMode ? 'text-gray-400 hover:text-amber-400' : 'text-gray-600 hover:text-amber-600'}`}
-            >
-              <Bars3Icon className="h-6 w-6" />
-            </button>
-            <h1 className={`text-lg font-bold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>Messages</h1>
-            <div className="w-6" />
+          <div className={`md:hidden fixed top-0 left-0 right-0 z-40 ${isDarkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'} border-b p-3 flex items-center justify-between h-16`}>
+            {mobileViewingConversation && selectedConversation && (
+              <button
+                onClick={() => {
+                  setMobileViewingConversation(false);
+                  setSelectedConversation(null);
+                  setReplyMessage('');
+                }}
+                className={`${isDarkMode ? 'text-gray-400 hover:text-amber-400' : 'text-gray-600 hover:text-amber-600'}`}
+              >
+                <ArrowLeftIcon className="h-5 w-5" />
+              </button>
+            )}
+            <h1 className={`text-base font-bold truncate ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>
+              {mobileViewingConversation && selectedConversation 
+                ? `${selectedConversation.user?.first_name} ${selectedConversation.user?.last_name}`
+                : 'Messages'}
+            </h1>
+            <div className="w-5" />
           </div>
 
           {/* Desktop Header */}
@@ -533,97 +550,89 @@ const MessageCenter = ({ isDarkMode = true, compact = false }) => {
             </div>
           </div>
 
-          {/* Mobile Sidebar Overlay */}
-          {showMobileSidebar && (
-            <div
-              className="fixed inset-0 bg-black/50 z-30 md:hidden mt-14"
-              onClick={() => setShowMobileSidebar(false)}
-            />
-          )}
-
           {/* Main Content */}
-          <main className={`pt-16 md:pt-0 md:p-6`}>
-            <div className={`flex gap-4 md:h-[600px] mx-auto`}>
-              {/* Conversations Sidebar */}
-              <div className={`${
-                showMobileSidebar ? 'fixed' : 'hidden md:flex'
-              } left-0 top-14 md:top-auto md:relative w-64 h-auto md:h-auto flex-col ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} border rounded-lg overflow-hidden z-40`}>
-                <div className={`p-4 border-b ${isDarkMode ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-gray-50'}`}>
-                  <h3 className={`font-semibold mb-3 ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>Conversations</h3>
-                  <div className="relative">
-                    <MagnifyingGlassIcon className={`absolute left-3 top-2.5 h-4 w-4 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`} />
-                    <input
-                      type="text"
-                      placeholder="Search..."
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      className={`w-full pl-9 pr-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-500'}`}
-                    />
+          <main className={`flex-1 overflow-hidden flex flex-col pt-16 md:pt-0 md:p-6`}>
+            <div className={`flex flex-col sm:flex-row gap-2 md:gap-4 flex-1 md:h-[600px] min-h-0 p-2 sm:p-0`}>
+              {/* Conversations List - Hide on mobile when viewing conversation */}
+              {!mobileViewingConversation && (
+                <div className={`w-full sm:w-48 sm:flex-shrink-0 flex flex-col ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} border rounded-lg overflow-hidden z-40`}>
+                  <div className={`p-2 sm:p-3 border-b ${isDarkMode ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-gray-50'}`}>
+                    <h3 className={`font-semibold text-xs sm:text-sm mb-2 ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>Conversations</h3>
+                    <div className="relative">
+                      <MagnifyingGlassIcon className={`absolute left-2 top-2 h-3.5 w-3.5 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`} />
+                      <input
+                        type="text"
+                        placeholder="Search..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className={`w-full pl-8 pr-3 py-1.5 text-xs border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-500'}`}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto min-h-0">
+                    {filteredConversations.length === 0 ? (
+                      <div className={`flex items-center justify-center h-full ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} text-sm`}>
+                        <div className="text-center py-8">
+                          <EnvelopeIcon className="h-10 w-10 mx-auto mb-2 opacity-50" />
+                          <p>No conversations</p>
+                        </div>
+                      </div>
+                    ) : (
+                      filteredConversations.map((conv) => (
+                        <button
+                          key={conv.user.id}
+                          onClick={() => {
+                            setSelectedConversation(conv);
+                            setMobileViewingConversation(true);
+                          }}
+                          className={`w-full text-left p-2 border-b flex flex-col ${
+                            selectedConversation?.user.id === conv.user.id
+                              ? isDarkMode
+                                ? 'bg-amber-500/10 border-amber-500'
+                                : 'bg-amber-50 border-amber-300'
+                              : isDarkMode
+                              ? 'border-gray-700 hover:bg-gray-700'
+                              : 'border-gray-200 hover:bg-gray-50'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-2 min-w-0 w-full">
+                            <div className="flex-1 min-w-0 text-left">
+                              <p className={`text-xs sm:text-sm font-medium truncate text-left ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>
+                                {conv.user?.first_name} {conv.user?.last_name}
+                              </p>
+                              <p className={`text-xs truncate text-left ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>{conv.user?.email}</p>
+                              {conv.last_message && (
+                                <div className="flex flex-col gap-1 mt-1 min-w-0 text-left">
+                                  <p className={`text-xs break-words text-left ${isDarkMode ? 'text-gray-500' : 'text-gray-600'}`}>
+                                    {conv.last_message.message.substring(0, 60)}{conv.last_message.message.length > 60 ? '...' : ''}
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex flex-col items-end gap-1 flex-shrink-0 whitespace-nowrap">
+                              {conv.last_message?.created_at && (
+                                <span className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
+                                  {getLastMessageTime(conv)}
+                                </span>
+                              )}
+                              {conv.unread_count > 0 && (
+                                <div className="bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+                                  {conv.unread_count}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </button>
+                      ))
+                    )}
                   </div>
                 </div>
+              )}
 
-                <div className="flex-1 overflow-y-auto">
-                  {filteredConversations.length === 0 ? (
-                    <div className={`flex items-center justify-center h-full ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} text-sm`}>
-                      <div className="text-center py-8">
-                        <EnvelopeIcon className="h-10 w-10 mx-auto mb-2 opacity-50" />
-                        <p>No conversations</p>
-                      </div>
-                    </div>
-                  ) : (
-                    filteredConversations.map((conv) => (
-                      <button
-                        key={conv.user.id}
-                        onClick={() => {
-                          setSelectedConversation(conv);
-                          setShowMobileSidebar(false);
-                        }}
-                        className={`w-full text-left p-3 border-b ${
-                          selectedConversation?.user.id === conv.user.id
-                            ? isDarkMode
-                              ? 'bg-amber-500/10 border-amber-500'
-                              : 'bg-amber-50 border-amber-300'
-                            : isDarkMode
-                            ? 'border-gray-700 hover:bg-gray-700'
-                            : 'border-gray-200 hover:bg-gray-50'
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex-1 min-w-0">
-                            <p className={`text-sm font-medium truncate ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>
-                              {conv.user?.first_name} {conv.user?.last_name}
-                            </p>
-                            <p className={`text-xs truncate ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>{conv.user?.email}</p>
-                            {conv.last_message && (
-                              <div className="flex items-center gap-1 mt-1">
-                                <p className={`text-xs truncate line-clamp-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-600'}`}>
-                                  {conv.last_message.message}
-                                </p>
-                              </div>
-                            )}
-                          </div>
-                          <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                            {conv.last_message?.created_at && (
-                              <span className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>
-                                {getLastMessageTime(conv)}
-                              </span>
-                            )}
-                            {conv.unread_count > 0 && (
-                              <div className="bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
-                                {conv.unread_count}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </button>
-                    ))
-                  )}
-                </div>
-              </div>
-
-              {/* Messages Area */}
+              {/* Messages Area - Show on mobile when conversation selected, always on desktop */}
               {selectedConversation ? (
-                <div className={`flex-1 flex flex-col border rounded-lg overflow-hidden ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+                <div className={`flex-1 flex flex-col min-h-0 w-full sm:w-auto border rounded-lg overflow-hidden ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
                   {/* Header with User Info */}
                   <div className={`p-4 border-b flex-shrink-0 ${isDarkMode ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-gray-50'}`}>
                     <div className="flex items-center justify-between">
@@ -644,26 +653,26 @@ const MessageCenter = ({ isDarkMode = true, compact = false }) => {
                   </div>
 
                   {/* Messages - Fixed height with scroll */}
-                  <div className={`max-h-96 overflow-y-auto p-4 space-y-3`}>
+                  <div className={`flex-1 overflow-y-auto p-3 sm:p-4 space-y-3 min-h-0`}>
                     <MessageThread messages={messages} currentUserId={user?.id} isDarkMode={isDarkMode} />
                     <div ref={messagesEndRef} />
                   </div>
 
                   {/* Send Message Form - Fixed at bottom */}
-                  <form onSubmit={handleSendReply} className={`flex-shrink-0 p-3 md:p-4 border-t ${isDarkMode ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-gray-50'}`}>
+                  <form onSubmit={handleSendReply} className={`flex-shrink-0 p-1.5 sm:p-3 border-t ${isDarkMode ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-gray-50'}`}>
                     <div className="flex gap-2">
                       <input
                         type="text"
                         value={replyMessage}
                         onChange={(e) => setReplyMessage(e.target.value)}
                         placeholder="Type your message..."
-                        className={`flex-1 px-3 py-2 text-xs border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-500'}`}
+                        className={`flex-1 px-2.5 py-1.5 text-xs border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-500'}`}
                         disabled={loading}
                       />
                       <button
                         type="submit"
                         disabled={loading || !replyMessage.trim()}
-                        className="px-4 py-2 bg-amber-600 text-white rounded-lg text-xs font-medium hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                        className="px-3 py-1.5 bg-amber-600 text-white rounded-lg text-xs font-medium hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
                       >
                         {loading ? (
                           <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full"></div>

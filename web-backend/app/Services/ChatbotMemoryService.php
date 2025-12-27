@@ -458,6 +458,191 @@ class ChatbotMemoryService
     }
 
     /**
+     * Resolve contextual references in user messages
+     * Examples: "that one", "yung sinabi mo kanina", "it", "the appointment", etc.
+     * 
+     * @param string $message Current user message
+     * @param array $recentMessages Previous messages in conversation
+     * @return array Resolved context and references
+     */
+    public function resolveContextualReferences(string $message, array $recentMessages): array
+    {
+        $resolved = [
+            'original_message' => $message,
+            'has_references' => false,
+            'references' => [],
+            'context_entities' => [],
+            'clarification_needed' => false,
+        ];
+
+        // Patterns for contextual references (English and Tagalog)
+        $referencePatterns = [
+            // English references
+            'that_one' => '/\b(that one|it|that|the one|this one)\b/i',
+            'that_appointment' => '/\b(the appointment|my appointment|that appointment|the booking)\b/i',
+            'previous_mention' => '/\b(what you mentioned|as you said|like you said|the thing)\b/i',
+            'last_discussed' => '/\b(last time|before|earlier)\b/i',
+            
+            // Tagalog/Taglish references
+            'yung_reference' => '/\byung\s+(sinabi|tinu|sabi|mentioned|nabanggit)\b/i',
+            'yan_reference' => '/\b(yan|iyan|yun|iyon|yon|doon)\b/i',
+            'kanina_reference' => '/\b(kanina|awhile ago|kahapon|earlier)\b/i',
+            'ang_reference' => '/\bango|ang\s+\w+\b/i',
+            'dito_reference' => '/\b(dito|dyan|doon|here|there)\b/i',
+        ];
+
+        // Check for reference patterns
+        foreach ($referencePatterns as $type => $pattern) {
+            if (preg_match($pattern, $message, $matches)) {
+                $resolved['has_references'] = true;
+                $resolved['references'][] = [
+                    'type' => $type,
+                    'matched_text' => $matches[0],
+                ];
+            }
+        }
+
+        // If message has references, try to resolve them from recent messages
+        if ($resolved['has_references'] && !empty($recentMessages)) {
+            $resolved['context_entities'] = $this->extractContextFromRecent($recentMessages);
+            
+            // Check if we have enough context to resolve references
+            if (empty($resolved['context_entities'])) {
+                $resolved['clarification_needed'] = true;
+            }
+        }
+
+        // Handle incomplete messages
+        if (preg_match('/^(di|hindi|no|yep|oo|oops|wait|actually|cancel|never mind)$/i', trim($message))) {
+            $resolved['is_brief_response'] = true;
+            $resolved['expected_context'] = 'previous_question_or_statement';
+        }
+
+        return $resolved;
+    }
+
+    /**
+     * Extract entities and context from recent messages
+     */
+    private function extractContextFromRecent(array $recentMessages): array
+    {
+        $entities = [
+            'appointments' => [],
+            'services' => [],
+            'dates' => [],
+            'times' => [],
+            'people' => [],
+            'last_mentioned' => null,
+        ];
+
+        foreach ($recentMessages as $msg) {
+            $text = $msg['message'] ?? '';
+            
+            // Extract appointments
+            if (preg_match('/appointment|booking|sched/i', $text)) {
+                $entities['appointments'][] = $text;
+            }
+            
+            // Extract services
+            if (preg_match('/service|notary|legal|consultation/i', $text)) {
+                $entities['services'][] = $text;
+            }
+            
+            // Extract dates
+            if (preg_match('/(\d{1,2}\/\d{1,2}\/\d{4}|january|february|march|april|may|june|july|august|september|october|november|december|\d{1,2}\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec))/i', $text)) {
+                $entities['dates'][] = $text;
+            }
+            
+            // Extract times
+            if (preg_match('/(\d{1,2}:\d{2}\s*(am|pm)?|\d{1,2}\s*(am|pm))/i', $text)) {
+                $entities['times'][] = $text;
+            }
+        }
+
+        // Store the most recent main context
+        if (!empty($recentMessages)) {
+            $lastMsg = end($recentMessages);
+            $entities['last_mentioned'] = $lastMsg['message'] ?? null;
+        }
+
+        return $entities;
+    }
+
+    /**
+     * Build context-aware clarification questions for ambiguous references
+     */
+    public function buildClarificationForReference(array $resolvedReference, string $language = 'en'): string
+    {
+        $templates = [
+            'en' => [
+                'general' => "Could you clarify what you're referring to? Please provide more details.",
+                'that_one' => "I noticed you mentioned 'that one' - which item are you referring to? Please be more specific.",
+                'appointment' => "Which appointment are you asking about? Please provide the date or service name.",
+                'previous' => "I'm not sure what you mean by that. Could you rephrase or give me more context?",
+            ],
+            'tl' => [
+                'general' => "Pwede mo ba i-clarify kung ano ang tinutukoy mo? Bigyan mo ko ng mas maraming detalye.",
+                'that_one' => "Nakita ko na sinabi mo 'yun' - aling bagay ang tinutukoy mo? Mas specific naman.",
+                'appointment' => "Aling appointment ang tinutukoy mo? Bigyan mo ko ng petsa o serbisyo.",
+                'previous' => "Hindi ko maintindihan. Pwede mo ba i-rephrase o bigyan mo ako ng mas maraming context?",
+            ],
+        ];
+
+        $hasReferences = $resolvedReference['has_references'] ?? false;
+        $needsClarification = $resolvedReference['clarification_needed'] ?? false;
+        
+        if (!$hasReferences || !$needsClarification) {
+            return '';
+        }
+
+        $template = $templates[$language] ?? $templates['en'];
+        $referenceType = $resolvedReference['references'][0]['type'] ?? 'general';
+        
+        // Match reference type to template
+        if (strpos($referenceType, 'appointment') !== false) {
+            return $template['appointment'];
+        } elseif (strpos($referenceType, 'kanina') !== false || strpos($referenceType, 'last') !== false) {
+            return $template['previous'];
+        } elseif (strpos($referenceType, 'yan') !== false || strpos($referenceType, 'that') !== false) {
+            return $template['that_one'];
+        }
+
+        return $template['general'];
+    }
+
+    /**
+     * Check if user is asking a follow-up without restating context
+     * Returns true if message is a natural follow-up (no need to repeat context)
+     */
+    public function isNaturalFollowUp(string $currentMessage, array $recentMessages): bool
+    {
+        if (empty($recentMessages)) {
+            return false;
+        }
+
+        $lastMessage = end($recentMessages);
+        
+        // Check if current message relates to last message
+        $currentWords = array_filter(preg_split('/\W+/', mb_strtolower($currentMessage)));
+        $lastWords = array_filter(preg_split('/\W+/', mb_strtolower($lastMessage['message'] ?? '')));
+        
+        // Calculate similarity (Jaccard similarity)
+        $intersection = count(array_intersect($currentWords, $lastWords));
+        $union = count(array_unique(array_merge($currentWords, $lastWords)));
+        $similarity = $union > 0 ? $intersection / $union : 0;
+
+        // Natural follow-up if:
+        // 1. Contains contextual reference words
+        // 2. Has reasonable similarity to previous message
+        // 3. Is relatively short (follow-ups are typically brief)
+        
+        $hasContextRef = preg_match('/\b(that|it|so|then|what|why|how|more|please|yes|no|okay|ok|sure|absolutely)\b/i', $currentMessage);
+        $isShortMessage = str_word_count($currentMessage) <= 15;
+        
+        return ($hasContextRef || $similarity > 0.2) && $isShortMessage;
+    }
+
+    /**
      * Format context for LLM system prompt
      */
     public function formatContextForPrompt(array $context): string

@@ -1,6 +1,6 @@
 import React from 'react';
 
-const ChatbotMessage = ({ message }) => {
+const ChatbotMessage = ({ message, isDarkMode = true }) => {
   const isUser = message.role === 'user';
   const meta = message?.meta || {};
   const actionResult = meta?.action_result || {};
@@ -151,8 +151,8 @@ const ChatbotMessage = ({ message }) => {
     if (simpleMetrics.length === 0) return null;
 
     return (
-      <div className="mt-3 p-3 bg-gray-800 border border-amber-500/10 rounded-lg">
-        <div className="text-xs text-gray-400 uppercase tracking-wide mb-2">📊 Metrics</div>
+      <div className={`mt-3 p-3 rounded-lg ${isDarkMode ? 'bg-gray-800 border border-amber-500/10' : 'bg-white border border-blue-100'}`}>
+        <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'} uppercase tracking-wide mb-2`}>📊 Metrics</div>
         <div className="grid grid-cols-2 gap-2 text-sm">
           {simpleMetrics.map(([key, value]) => {
             const label = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
@@ -162,8 +162,8 @@ const ChatbotMessage = ({ message }) => {
               : value;
             return (
               <div key={key} className="flex flex-col">
-                <span className="text-gray-400 text-xs">{label}</span>
-                <span className="text-gray-200 font-medium">{displayValue}</span>
+                <span className={`${isDarkMode ? 'text-gray-400' : 'text-slate-600'} text-xs`}>{label}</span>
+                <span className={`${isDarkMode ? 'text-gray-200' : 'text-slate-800'} font-medium`}>{displayValue}</span>
               </div>
             );
           })}
@@ -178,19 +178,19 @@ const ChatbotMessage = ({ message }) => {
     if (!appointments || !Array.isArray(appointments) || appointments.length === 0) return null;
 
     return (
-      <div className="mt-3 p-3 bg-gray-800 border border-amber-500/10 rounded-lg">
-        <div className="text-xs text-gray-400 uppercase tracking-wide mb-2">📅 Appointments</div>
+      <div className={`mt-3 p-3 rounded-lg ${isDarkMode ? 'bg-gray-800 border border-amber-500/10' : 'bg-white border border-blue-100'}`}>
+        <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'} uppercase tracking-wide mb-2`}>📅 Appointments</div>
         <div className="space-y-2">
-          {appointments.slice(0, 5).map((apt, idx) => (
-            <div key={idx} className="flex justify-between items-center text-sm p-2 bg-gray-900/50 rounded">
+            {appointments.slice(0, 5).map((apt, idx) => (
+              <div key={idx} className={`flex justify-between items-center text-sm p-2 rounded ${isDarkMode ? 'bg-gray-900/50' : 'bg-white'}`}>
               <div className="flex-1">
                 <div className="flex items-center gap-2">
-                  <span className="text-gray-200 font-medium">#{apt.id}</span>
+                  <span className={`${isDarkMode ? 'text-gray-200' : 'text-slate-800'} font-medium`}>#{apt.id}</span>
                   <span className={`text-[10px] px-2 py-0.5 rounded-full border ${getStatusColor(apt.status)}`}>
                     {apt.status}
                   </span>
                 </div>
-                <div className="text-xs text-gray-400">{apt.client || apt.service}</div>
+                <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>{apt.client || apt.service}</div>
                 <div className="text-xs text-amber-400">{apt.date} {apt.time && `at ${apt.time}`}</div>
               </div>
               <button
@@ -215,7 +215,7 @@ const ChatbotMessage = ({ message }) => {
     if (!apt || isUser) return null;
 
     return (
-      <div className="mt-3 p-3 bg-gray-800 border border-amber-500/10 rounded-lg">
+      <div className={`mt-3 p-3 rounded-lg ${isDarkMode ? 'bg-gray-800 border border-amber-500/10' : 'bg-white border border-blue-100'}`}>
         <div className="flex items-center justify-between mb-2">
           <span className="text-sm font-semibold text-gray-200">Appointment #{apt.id}</span>
           <span className={`text-[10px] px-2 py-0.5 rounded-full border ${getStatusColor(apt.status)}`}>
@@ -275,18 +275,18 @@ const ChatbotMessage = ({ message }) => {
 
     return (
       <div className="mt-3 p-3 bg-gray-800 border border-amber-500/10 rounded-lg">
-        <div className="text-xs text-gray-400 uppercase tracking-wide mb-2">💳 Payments</div>
+        <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'} uppercase tracking-wide mb-2`}>💳 Payments</div>
         <div className="space-y-2">
-          {payments.slice(0, 5).map((payment, idx) => (
-            <div key={idx} className="flex justify-between items-center text-sm p-2 bg-gray-900/50 rounded">
+            {payments.slice(0, 5).map((payment, idx) => (
+              <div key={idx} className={`flex justify-between items-center text-sm p-2 rounded ${isDarkMode ? 'bg-gray-900/50' : 'bg-white'}`}>
               <div className="flex-1">
                 <div className="flex items-center gap-2">
-                  <span className="text-gray-200">{payment.client}</span>
+                  <span className={`${isDarkMode ? 'text-gray-200' : 'text-slate-800'}`}>{payment.client}</span>
                   <span className={`text-[10px] px-2 py-0.5 rounded-full border ${getStatusColor(payment.status)}`}>
                     {payment.status}
                   </span>
                 </div>
-                <div className="text-xs text-gray-400">{payment.service}</div>
+                <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>{payment.service}</div>
               </div>
               <div className="text-right">
                 <div className="text-amber-400 font-medium">{formatCurrency(payment.amount)}</div>
@@ -315,19 +315,19 @@ const ChatbotMessage = ({ message }) => {
     if (!refunds || !Array.isArray(refunds) || refunds.length === 0) return null;
 
     return (
-      <div className="mt-3 p-3 bg-gray-800 border border-red-500/10 rounded-lg">
-        <div className="text-xs text-gray-400 uppercase tracking-wide mb-2">💸 Refunds</div>
+      <div className={`mt-3 p-3 rounded-lg ${isDarkMode ? 'bg-gray-800 border border-red-500/10' : 'bg-white border border-red-100'}`}>
+        <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'} uppercase tracking-wide mb-2`}>💸 Refunds</div>
         <div className="space-y-2">
-          {refunds.slice(0, 5).map((refund, idx) => (
-            <div key={idx} className="flex justify-between items-center text-sm p-2 bg-gray-900/50 rounded">
+            {refunds.slice(0, 5).map((refund, idx) => (
+              <div key={idx} className={`flex justify-between items-center text-sm p-2 rounded ${isDarkMode ? 'bg-gray-900/50' : 'bg-white'}`}>
               <div className="flex-1">
                 <div className="flex items-center gap-2">
-                  <span className="text-gray-200">{refund.client}</span>
+                  <span className={`${isDarkMode ? 'text-gray-200' : 'text-slate-800'}`}>{refund.client}</span>
                   <span className={`text-[10px] px-2 py-0.5 rounded-full border ${getStatusColor(refund.status)}`}>
                     {refund.status}
                   </span>
                 </div>
-                <div className="text-xs text-gray-400">{refund.reason?.substring(0, 40)}{refund.reason?.length > 40 ? '...' : ''}</div>
+                <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>{refund.reason?.substring(0, 40)}{refund.reason?.length > 40 ? '...' : ''}</div>
               </div>
               <div className="text-right">
                 <div className="text-red-400 font-medium">{formatCurrency(refund.amount)}</div>
@@ -356,14 +356,14 @@ const ChatbotMessage = ({ message }) => {
     if (!services || !Array.isArray(services) || services.length === 0) return null;
 
     return (
-      <div className="mt-3 p-3 bg-gray-800 border border-amber-500/10 rounded-lg">
-        <div className="text-xs text-gray-400 uppercase tracking-wide mb-2">📋 Services</div>
+      <div className={`mt-3 p-3 rounded-lg ${isDarkMode ? 'bg-gray-800 border border-amber-500/10' : 'bg-white border border-blue-100'}`}>
+        <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'} uppercase tracking-wide mb-2`}>📋 Services</div>
         <div className="space-y-2">
-          {services.slice(0, 6).map((service, idx) => (
-            <div key={idx} className="flex justify-between items-center text-sm p-2 bg-gray-900/50 rounded">
+            {services.slice(0, 6).map((service, idx) => (
+            <div key={idx} className={`flex justify-between items-center text-sm p-2 rounded ${isDarkMode ? 'bg-gray-900/50' : 'bg-white'}`}>
               <div>
-                <div className="text-gray-200">{service.name}</div>
-                <div className="text-xs text-gray-400">{service.duration}</div>
+                <div className={`${isDarkMode ? 'text-gray-200' : 'text-slate-800'}`}>{service.name}</div>
+                <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>{service.duration}</div>
               </div>
               <div className="text-amber-400 font-medium">{service.price}</div>
             </div>
@@ -386,9 +386,9 @@ const ChatbotMessage = ({ message }) => {
     };
 
     return (
-      <div className="mt-3 p-3 bg-gray-800 border border-amber-500/10 rounded-lg">
+      <div className={`mt-3 p-3 rounded-lg ${isDarkMode ? 'bg-gray-800 border border-amber-500/10' : 'bg-white border border-blue-100'}`}>
         <div className="flex items-center justify-between mb-2">
-          <span className="text-xs text-gray-400 uppercase tracking-wide">🔧 System Health</span>
+            <span className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'} uppercase tracking-wide`}>🔧 System Health</span>
           <span className={`text-sm font-medium ${statusColors[health.status] || statusColors.unknown}`}>
             {health.status?.toUpperCase()}
           </span>
@@ -426,21 +426,22 @@ const ChatbotMessage = ({ message }) => {
     if (!pendingItems || !Array.isArray(pendingItems) || pendingItems.length === 0) return null;
 
     return (
-      <div className="mt-3 p-3 bg-gray-800 border border-yellow-500/10 rounded-lg">
+      <div className={`mt-3 p-3 rounded-lg ${isDarkMode ? 'bg-gray-800 border border-yellow-500/10' : 'bg-white border border-yellow-100'}`}>
         <div className="text-xs text-gray-400 uppercase tracking-wide mb-2">📋 Items Needing Attention</div>
+          <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'} uppercase tracking-wide mb-2`}>📋 Items Needing Attention</div>
         <div className="space-y-2">
-          {pendingItems.map((item, idx) => (
-            <button
-              key={idx}
-              className="w-full text-left text-sm p-2 bg-gray-900/50 rounded hover:bg-gray-900 transition-colors"
+              {pendingItems.map((item, idx) => (
+                <button
+                  key={idx}
+                  className={`w-full text-left text-sm p-2 rounded hover:bg-gray-900 transition-colors ${isDarkMode ? 'bg-gray-900/50' : 'bg-white'}`}
               onClick={() => window.dispatchEvent(new CustomEvent('chatbot-suggestion', { detail: `Show appointment #${item.id}` }))}
             >
               <div className="flex justify-between items-center">
                 <span className="text-amber-400">#{item.id}</span>
                 <span className="text-gray-400 text-xs">{item.date}</span>
               </div>
-              <div className="text-gray-300">{item.client}</div>
-              <div className="text-xs text-gray-500">{item.service}</div>
+                <div className={`${isDarkMode ? 'text-gray-300' : 'text-slate-800'}`}>{item.client}</div>
+              <div className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-slate-600'}`}>{item.service}</div>
             </button>
           ))}
         </div>
@@ -453,10 +454,10 @@ const ChatbotMessage = ({ message }) => {
       <div
         className={`max-w-[85%] rounded-xl px-4 py-3 ${
           isUser
-            ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/20'
+            ? (isDarkMode ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/20' : 'bg-blue-600 text-white shadow-md')
             : isPriority 
-              ? 'bg-gray-900 text-gray-100 border-2 border-red-500/40 ring-2 ring-red-500/20'
-              : 'bg-gray-900 text-gray-100 border border-amber-500/20'
+              ? (isDarkMode ? 'bg-gray-900 text-gray-100 border-2 border-red-500/40 ring-2 ring-red-500/20' : 'bg-red-50 text-red-700 border-2 border-red-200')
+              : (isDarkMode ? 'bg-gray-900 text-gray-100 border border-amber-500/20' : 'bg-white text-slate-900 border border-blue-100')
         }`}
       >
         <div>
@@ -470,7 +471,7 @@ const ChatbotMessage = ({ message }) => {
 
           {/* Render structured appointment card when present (legacy support) */}
           {message?.meta?.data?.next_appointment && !data?.appointment && (
-            <div className="mt-3 p-3 bg-gray-800 border border-amber-500/10 rounded-lg">
+            <div className={`mt-3 p-3 rounded-lg ${isDarkMode ? 'bg-gray-800 border border-amber-500/10' : 'bg-white border border-blue-100'}`}>
               <div className="text-sm text-gray-300 font-semibold">Next appointment</div>
               <div className="mt-2 text-sm text-gray-200">
                 <div><strong>Date:</strong> {message.meta.data.next_appointment.date}</div>
@@ -527,10 +528,10 @@ const ChatbotMessage = ({ message }) => {
                   key={idx}
                   className={`text-xs px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
                     action.type === 'primary'
-                      ? 'bg-amber-500 text-gray-900 hover:bg-amber-400'
+                      ? (isDarkMode ? 'bg-amber-500 text-gray-900 hover:bg-amber-400' : 'bg-blue-600 text-white hover:bg-blue-500')
                       : action.type === 'danger'
-                      ? 'bg-red-500/20 text-red-300 border border-red-500/30 hover:bg-red-500/30'
-                      : 'bg-gray-800 border border-amber-500/20 text-amber-400 hover:bg-amber-500/10 hover:border-amber-500/40'
+                      ? (isDarkMode ? 'bg-red-500/20 text-red-300 border border-red-500/30 hover:bg-red-500/30' : 'bg-red-50 text-red-700 border border-red-100')
+                      : (isDarkMode ? 'bg-gray-800 border border-amber-500/20 text-amber-400 hover:bg-amber-500/10 hover:border-amber-500/40' : 'bg-white border border-blue-100 text-slate-700 hover:bg-blue-50')
                   }`}
                   onClick={() => {
                     if (action.route) {
@@ -560,7 +561,7 @@ const ChatbotMessage = ({ message }) => {
               {meta.suggestions.map((suggestion, idx) => (
                 <button
                   key={idx}
-                  className="text-xs px-3 py-1.5 bg-gray-800 border border-amber-500/20 text-amber-400 rounded-full hover:bg-amber-500/10 hover:border-amber-500/40 transition-all"
+                  className={`text-xs px-3 py-1.5 rounded-full transition-all ${isDarkMode ? 'bg-gray-800 border border-amber-500/20 text-amber-400 hover:bg-amber-500/10 hover:border-amber-500/40' : 'bg-white border border-blue-100 text-slate-700 hover:bg-blue-50'}`}
                   onClick={() => {
                     // Dispatch custom event to send suggestion as message
                     window.dispatchEvent(new CustomEvent('chatbot-suggestion', { detail: suggestion }));
@@ -573,7 +574,7 @@ const ChatbotMessage = ({ message }) => {
           )}
 
           <div className="flex items-center justify-between mt-2">
-            <span className={`text-xs ${isUser ? 'text-amber-100/70' : 'text-gray-400'}`}>
+            <span className={`text-xs ${isUser ? 'text-amber-100/70' : (isDarkMode ? 'text-gray-400' : 'text-slate-600')}`}>
               {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               {renderLanguageIndicator()}
             </span>

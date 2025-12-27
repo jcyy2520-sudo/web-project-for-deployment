@@ -140,11 +140,11 @@ const StaffAppointments = () => {
 
   const getStatusColor = (status) => {
     switch (status) {
-      case 'completed': return 'bg-green-100 text-green-800';
-      case 'approved': return 'bg-blue-100 text-blue-800';
-      case 'declined': return 'bg-red-100 text-red-800';
-      case 'cancelled': return 'bg-gray-100 text-gray-800';
-      default: return 'bg-yellow-100 text-yellow-800';
+      case 'completed': return 'bg-green-100 text-green-800 dark:bg-green-500/20 dark:text-green-300';
+      case 'approved': return 'bg-blue-100 text-blue-800 dark:bg-blue-500/20 dark:text-blue-300';
+      case 'declined': return 'bg-red-100 text-red-800 dark:bg-red-500/20 dark:text-red-300';
+      case 'cancelled': return 'bg-slate-300 text-slate-900 dark:bg-slate-500/30 dark:text-slate-200';
+      default: return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-500/20 dark:text-yellow-300';
     }
   };
 

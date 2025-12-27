@@ -27,6 +27,29 @@
   --error: #DC2626;
 }
 
+/* Dark mode color variables */
+.dark,
+html.dark,
+[data-theme="dark"] {
+  /* Modern Amber/Orange dark palette */
+  --background: #0f172a;            /* Background */
+  --sidebar-bg: #1a2332;            /* Sidebar / surface */
+  --surface: #1a2332;               /* Card / Surface */
+  --primary: #D97706;               /* Primary (buttons/links) */
+  --primary-hover: #B45309;         /* Primary hover */
+  --secondary: #F59E0B;             /* Secondary (icons, subtle) */
+  --accent: #FCD34D;                /* Accent / CTA */
+  --accent-hover: #F59E0B;          /* Accent hover */
+  --text-primary: #FFFBEB;          /* Text primary */
+  --text-secondary: #F3E8FF;        /* Text secondary */
+  --borders: #374151;               /* Borders / Dividers */
+  --secondary-10: rgba(245,158,11,0.08);
+  --secondary-20: rgba(245,158,11,0.16);
+  --success: #22C55E;
+  --warning: #FBBF24;
+  --error: #EF4444;
+}
+
 /* Theme-aware utility classes using Tailwind layers */
 @layer components {
   /* Card/Container theme classes */
@@ -173,12 +196,13 @@ body {
   color: var(--text-primary);
 }
 
-/* Dark mode styles */
-.dark body,
-body.dark,
-html.dark body {
-  background-color: #0f172a;
-  color: #e2e8f0;
+/* Dark mode styles - multiple selectors for reliability */
+html.dark body,
+[data-theme="dark"] body,
+.dark,
+html.dark {
+  background-color: var(--background);
+  color: var(--text-primary);
 }
 
 #root {

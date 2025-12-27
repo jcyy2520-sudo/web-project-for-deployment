@@ -1,8 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 import { useApi } from '../hooks/useApi';
 import useRealtimeUpdates from '../hooks/useRealtimeUpdates';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
+import BottomNav from '../components/BottomNav';
+import ProfilePage from './ProfilePage';
 import axios from 'axios';
 import TimePicker from '../components/TimePicker';
 import ActionLogViewer from '../components/ActionLogViewer';
@@ -38,48 +41,92 @@ import {
   CalendarDaysIcon,
   KeyIcon,
   Bars3Icon,
-  CurrencyDollarIcon
+  CurrencyDollarIcon,
+  ArrowLeftIcon
 } from '@heroicons/react/24/outline';
 
 // Enhanced Status Badge Component
 const StatusBadge = ({ status }) => {
   const statusConfig = {
     pending: {
-      color: 'bg-amber-100 text-amber-800 border border-amber-200 dark:bg-amber-500/20 dark:text-amber-300 dark:border-amber-500/30',
-      icon: ClockIcon,
-      glow: 'shadow-amber-100'
+      bgColor: 'rgb(254, 243, 199)',
+      textColor: 'rgb(120, 53, 15)',
+      borderColor: 'rgb(253, 224, 71)',
+      darkBg: 'rgb(91, 64, 22)',
+      darkText: 'rgb(254, 215, 170)',
+      darkBorder: 'rgb(217, 119, 6)'
     },
     approved: {
-      color: 'bg-blue-100 text-blue-800 border border-blue-200 dark:bg-blue-500/20 dark:text-blue-300 dark:border-blue-500/30',
-      icon: CheckCircleIcon,
-      glow: 'shadow-blue-100'
+      bgColor: 'rgb(219, 234, 254)',
+      textColor: 'rgb(30, 58, 138)',
+      borderColor: 'rgb(96, 165, 250)',
+      darkBg: 'rgb(30, 58, 138)',
+      darkText: 'rgb(191, 219, 254)',
+      darkBorder: 'rgb(59, 130, 246)'
     },
     completed: {
-      color: 'bg-green-100 text-green-800 border border-green-200 dark:bg-green-500/20 dark:text-green-300 dark:border-green-500/30',
-      icon: CheckCircleIcon,
-      glow: 'shadow-green-100'
+      bgColor: 'rgb(220, 252, 231)',
+      textColor: 'rgb(20, 83, 45)',
+      borderColor: 'rgb(134, 239, 172)',
+      darkBg: 'rgb(20, 83, 45)',
+      darkText: 'rgb(187, 247, 208)',
+      darkBorder: 'rgb(52, 211, 153)'
     },
     cancelled: {
-      color: 'bg-red-100 text-red-800 border border-red-200 dark:bg-red-500/20 dark:text-red-300 dark:border-red-500/30',
-      icon: XCircleIcon,
-      glow: 'shadow-red-100'
+      bgColor: 'rgb(254, 226, 226)',
+      textColor: 'rgb(127, 29, 29)',
+      borderColor: 'rgb(252, 86, 86)',
+      darkBg: 'rgb(127, 29, 29)',
+      darkText: 'rgb(254, 202, 202)',
+      darkBorder: 'rgb(239, 68, 68)'
     },
     declined: {
-      color: 'bg-red-100 text-red-800 border border-red-200 dark:bg-red-500/20 dark:text-red-300 dark:border-red-500/30',
-      icon: XCircleIcon,
-      glow: 'shadow-red-100'
+      bgColor: 'rgb(254, 226, 226)',
+      textColor: 'rgb(127, 29, 29)',
+      borderColor: 'rgb(252, 86, 86)',
+      darkBg: 'rgb(127, 29, 29)',
+      darkText: 'rgb(254, 202, 202)',
+      darkBorder: 'rgb(239, 68, 68)'
     }
   };
   
-  const config = statusConfig[status] || statusConfig.pending;
-  const IconComponent = config.icon;
+  const config = statusConfig[status] || {
+    bgColor: 'rgb(226, 232, 240)',
+    textColor: 'rgb(15, 23, 42)',
+    borderColor: 'rgb(148, 163, 184)',
+    darkBg: 'rgb(51, 65, 85)',
+    darkText: 'rgb(241, 245, 249)',
+    darkBorder: 'rgb(71, 85, 105)'
+  };
+  
+  const isDark = document.documentElement.classList.contains('dark');
   
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${config.color} ${config.glow} shadow`}>
-      <IconComponent className="w-3 h-3 mr-1" />
-      {status.charAt(0).toUpperCase() + status.slice(1)}
+    <span 
+      className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border"
+      style={{
+        backgroundColor: isDark ? config.darkBg : config.bgColor,
+        color: isDark ? config.darkText : config.textColor,
+        borderColor: isDark ? config.darkBorder : config.borderColor,
+        boxShadow: isDark ? `0 4px 6px rgba(0, 0, 0, 0.1)` : `0 4px 6px rgba(0, 0, 0, 0.05)`
+      }}
+    >
+      {status && status.length > 0 ? (
+        <>
+          {status === 'pending' && <ClockIcon className="w-3 h-3 mr-1" />}
+          {(status === 'approved' || status === 'completed') && <CheckCircleIcon className="w-3 h-3 mr-1" />}
+          {(status === 'cancelled' || status === 'declined') && <XCircleIcon className="w-3 h-3 mr-1" />}
+          {!['pending', 'approved', 'completed', 'cancelled', 'declined'].includes(status) && <ClockIcon className="w-3 h-3 mr-1" />}
+          {status.charAt(0).toUpperCase() + status.slice(1)}
+        </>
+      ) : (
+        <>
+          <ClockIcon className="w-3 h-3 mr-1" />
+          Unknown
+        </>
+      )}
     </span>
-    );
+  );
 };
 
 // Enhanced Service Type Dropdown with Search
@@ -634,8 +681,8 @@ const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, confirm
   return (
     <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4 animate-fadeIn">
       <div className="bg-gray-900 border border-amber-500/30 rounded-lg shadow-xl w-full max-w-md transform animate-scaleIn">
-        <div className="p-4">
-          <div className="flex items-center mb-3">
+        <div className="p-6">
+          <div className="flex items-center mb-4">
             <div className={`p-2 rounded-lg ${
               type === 'danger' ? 'bg-red-500/20' : 
               type === 'warning' ? 'bg-yellow-500/20' : 
@@ -649,26 +696,26 @@ const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, confirm
                 'text-amber-400'
               }`} />
             </div>
-            <h3 className="text-sm font-semibold text-amber-50 ml-2">{title}</h3>
+            <h3 className="text-base font-bold text-amber-50 ml-3">{title}</h3>
           </div>
-          <p className="text-gray-300 text-sm mb-4">{message}</p>
-          <div className="flex justify-end space-x-2">
+          <p className="text-gray-300 text-sm mb-6 leading-relaxed">{message}</p>
+          <div className="flex flex-col-reverse sm:flex-row gap-3 justify-end">
             <button
               onClick={onClose}
               disabled={loading}
-              className="px-3 py-2 border border-gray-600 text-gray-300 rounded-lg hover:bg-gray-800 transition-colors duration-200 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 focus:ring-offset-gray-900 disabled:opacity-50"
+              className="px-4 py-2.5 border-2 border-amber-500/50 text-amber-400 font-semibold text-sm rounded-lg hover:bg-amber-500/10 hover:border-amber-400 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 focus:ring-offset-gray-900 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Cancel
             </button>
             <button
               onClick={onConfirm}
               disabled={loading}
-              className={`px-3 py-2 text-white rounded-lg transition-colors duration-200 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 disabled:opacity-50 ${buttonColors[type]}`}
+              className={`px-4 py-2.5 text-white font-semibold text-sm rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 disabled:opacity-50 disabled:cursor-not-allowed ${buttonColors[type]}`}
             >
               {loading ? (
-                <div className="flex items-center">
-                  <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full mr-1"></div>
-                  Processing...
+                <div className="flex items-center justify-center">
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                  <span>Processing...</span>
                 </div>
               ) : (
                 confirmText
@@ -865,12 +912,41 @@ const Dashboard = () => {
   
   const [activeTab, setActiveTab] = useState('home');
   const [isEditing, setIsEditing] = useState(false);
+
   const [showSettings, setShowSettings] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false); // Track logout loading state
   const [showThankYouModal, setShowThankYouModal] = useState(false);
   const [latestAppointment, setLatestAppointment] = useState(null);
-  const [isDarkMode, setIsDarkMode] = useState(true);
+  const { isDarkMode, setIsDarkMode } = useTheme(); // Use ThemeContext
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
+  const [profileSection, setProfileSection] = useState('overview');
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+
+  // Sync active tab with URL query `?tab=` so BottomNav can navigate using query params
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(location.search);
+      const tab = params.get('tab');
+      if (tab) {
+        const normalized = tab.toLowerCase();
+        const allowed = ['home','book','appointments','messages','refunds','action-logs','profile','settings'];
+        if (allowed.includes(normalized)) {
+          setActiveTab(normalized === 'home' ? 'home' : normalized);
+          // if navigating to profile on mobile, show the profile menu
+          if (normalized === 'profile') {
+            const section = params.get('section');
+            if (section) setProfileSection(section.toLowerCase());
+            setShowProfileMenu(true);
+          } else {
+            setShowProfileMenu(false);
+          }
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, [location.search]);
   
   // Real data states
   const [appointments, setAppointments] = useState([]);
@@ -1061,6 +1137,7 @@ const Dashboard = () => {
   }, [user]);
 
   // Theme management - apply theme to document
+  // Note: Theme persistence is now handled by ThemeContext in main.jsx
   useEffect(() => {
     const root = document.documentElement;
     if (isDarkMode) {
@@ -1090,30 +1167,19 @@ const Dashboard = () => {
       root.style.backgroundColor = 'var(--background)';
       root.style.color = 'var(--text-primary)';
     }
-    
-    // Save preference to localStorage
-    localStorage.setItem('userTheme', isDarkMode ? 'dark' : 'light');
   }, [isDarkMode]);
 
-  // Load saved theme preference on component mount
+  // Load saved settings on component mount (but NOT theme - that's handled by ThemeContext)
   useEffect(() => {
-    const savedTheme = localStorage.getItem('userTheme');
     const savedSettings = localStorage.getItem('userSettings');
     
     if (savedSettings) {
       try {
         const parsedSettings = JSON.parse(savedSettings);
         setSettings(parsedSettings);
-        if (parsedSettings.theme === 'light') {
-          setIsDarkMode(false);
-        }
       } catch (e) {
         console.error('Failed to parse saved settings:', e);
       }
-    } else if (savedTheme === 'light') {
-      setIsDarkMode(false);
-    } else {
-      setIsDarkMode(true);
     }
   }, []);
 
@@ -1382,7 +1448,8 @@ const Dashboard = () => {
     );
     
     if (result.success) {
-      const messagesData = result.data.data || [];
+      // Filter out chatbot-type messages to keep only genuine user-admin conversations
+      const messagesData = (result.data.data || []).filter(msg => msg.type !== 'chatbot');
       setMessages(messagesData);
       
       // If user is a client, calculate remaining replies to the most recent admin message
@@ -1829,9 +1896,17 @@ const Dashboard = () => {
     setShowLogoutModal(true);
   };
 
-  const confirmLogout = () => {
-    logout();
-    setShowLogoutModal(false);
+  const confirmLogout = async () => {
+    setIsLoggingOut(true);
+    try {
+      await logout();
+      // Modal will close automatically when user is cleared
+      setShowLogoutModal(false);
+    } catch (error) {
+      console.error('Logout error:', error);
+      setIsLoggingOut(false);
+      setShowLogoutModal(false);
+    }
   };
 
   // Stats Cards Component for Home
@@ -1889,8 +1964,8 @@ const Dashboard = () => {
       <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4 sm:p-6 hover:border-amber-500/40 transition-all duration-300`}>
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="flex-1">
-            <h2 className={`text-base sm:text-lg font-bold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>Welcome back, {user?.first_name}! 👋</h2>
-            <p className={`mt-1 text-xs sm:text-sm ${isDarkMode ? 'text-amber-400/70' : 'text-amber-700/70'}`}>Ready to schedule your next notarization service?</p>
+            <h2 className={`text-base sm:text-lg font-bold ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>Welcome back, {user?.first_name}! 👋</h2>
+            <p className={`mt-1 text-xs sm:text-sm ${isDarkMode ? 'text-amber-400/70' : 'text-gray-600'}`}>Ready to schedule your next notarization service?</p>
           </div>
           <button
             onClick={() => setActiveTab('book')}
@@ -1908,14 +1983,14 @@ const Dashboard = () => {
       {/* Quick Actions */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4 hover:border-amber-500/40 transition-all duration-300`}>
-          <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-3 flex items-center`}>
+          <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-gray-900'} mb-3 flex items-center`}>
             <ClockIcon className="h-4 w-4 mr-2" />
             Quick Actions
           </h3>
           <div className="space-y-2">
             <button
               onClick={() => setActiveTab('book')}
-              className={`w-full text-left p-2 border rounded hover:border-amber-500/40 hover:bg-amber-500/5 transition-all duration-200 text-sm flex items-center justify-between group ${isDarkMode ? 'border-gray-600 text-amber-50' : 'border-gray-300 text-amber-900'}`}
+              className={`w-full text-left p-2 border rounded hover:border-amber-500/40 hover:bg-amber-500/5 transition-all duration-200 text-sm flex items-center justify-between group ${isDarkMode ? 'border-gray-600 text-amber-50' : 'border-gray-300 text-gray-900'}`}
             >
               <div className="flex items-center">
                 <PlusIcon className={`h-4 w-4 mr-2 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`} />
@@ -1925,7 +2000,7 @@ const Dashboard = () => {
             </button>
             <button
               onClick={() => setActiveTab('appointments')}
-              className={`w-full text-left p-2 border rounded hover:border-amber-500/40 hover:bg-amber-500/5 transition-all duration-200 text-sm flex items-center justify-between group ${isDarkMode ? 'border-gray-600 text-amber-50' : 'border-gray-300 text-amber-900'}`}
+              className={`w-full text-left p-2 border rounded hover:border-amber-500/40 hover:bg-amber-500/5 transition-all duration-200 text-sm flex items-center justify-between group ${isDarkMode ? 'border-gray-600 text-amber-50' : 'border-gray-300 text-gray-900'}`}
             >
               <div className="flex items-center">
                 <CalendarIcon className={`h-4 w-4 mr-2 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`} />
@@ -1953,8 +2028,8 @@ const Dashboard = () => {
           {appointments.length === 0 ? (
             <div className="text-center py-4">
               <CalendarIcon className={`mx-auto h-8 w-8 ${isDarkMode ? 'text-gray-600' : 'text-gray-400'}`} />
-              <h3 className={`mt-1 text-xs font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>No appointments</h3>
-              <p className={`text-xs mt-0.5 ${isDarkMode ? 'text-amber-400/70' : 'text-amber-700/70'}`}>Schedule your first appointment to get started</p>
+              <h3 className={`mt-1 text-xs font-medium ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>No appointments</h3>
+              <p className={`text-xs mt-0.5 ${isDarkMode ? 'text-amber-400/70' : 'text-gray-600'}`}>Schedule your first appointment to get started</p>
             </div>
           ) : (
             <div className="space-y-2">
@@ -1987,10 +2062,10 @@ const Dashboard = () => {
 
   const renderBookAppointment = () => (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="hidden lg:flex justify-between items-center">
         <div>
-          <h2 className="text-lg font-bold text-amber-50">Book New Appointment</h2>
-          <p className="text-amber-400/70 mt-1 text-sm">Schedule your document notarization service</p>
+          <h2 className={`text-lg font-bold ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>Book New Appointment</h2>
+          <p className={`text-amber-400/70 mt-1 text-sm ${isDarkMode ? '' : 'text-gray-600'}`}>Schedule your document notarization service</p>
         </div>
         <div className="flex items-center space-x-1 text-xs text-amber-400/70">
           <ClockIcon className="h-3 w-3" />
@@ -2206,10 +2281,14 @@ const Dashboard = () => {
 
     return (
       <div className="space-y-6">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div>
-            <h2 className={`text-lg font-bold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>My Appointments</h2>
-            <p className={`mt-1 text-sm ${isDarkMode ? 'text-amber-400/70' : 'text-amber-700/70'}`}>View and manage your notarization appointments</p>
+        <div className="hidden lg:flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
+          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3">
+            <div>
+              <h2 className={`text-lg font-bold ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>My Appointments</h2>
+              <p className={`mt-1 text-sm ${isDarkMode ? 'text-amber-400/70' : 'text-gray-600'}`}>View and manage your notarization appointments</p>
+            </div>
+          </div>
           </div>
           <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
             <button
@@ -2426,10 +2505,12 @@ const Dashboard = () => {
 
     return (
       <div className="space-y-6">
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
-          <div>
-            <h2 className="text-lg font-bold text-amber-50">My Refunds</h2>
-            <p className="text-amber-400/70 mt-1 text-sm">View and manage your refund requests</p>
+        <div className="hidden lg:flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
+          <div className="flex items-center gap-3">
+            <div>
+              <h2 className={`text-lg font-bold ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>My Refunds</h2>
+              <p className={`mt-1 text-sm ${isDarkMode ? 'text-amber-400/70' : 'text-gray-600'}`}>View and manage your refund requests</p>
+            </div>
           </div>
           <button
             onClick={loadRefunds}
@@ -2457,7 +2538,6 @@ const Dashboard = () => {
               <div className={`${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                 <CurrencyDollarIcon className="h-12 w-12 mx-auto mb-3 opacity-50" />
                 <p className="text-sm">No refund requests yet</p>
-                <p className={`text-xs mt-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>You can request refunds for completed appointments directly from the appointments list</p>
               </div>
             </div>
           ) : (
@@ -2543,20 +2623,26 @@ const Dashboard = () => {
 
   const renderProfile = () => (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
-        <div>
-          <h2 className="text-lg font-bold text-amber-50">Profile Settings</h2>
-          <p className="text-amber-400/70 mt-1 text-sm">Manage your personal information and security</p>
+      {/* Mobile Back Button */}
+      <div className="lg:hidden flex items-center gap-2 mb-4">
+        <button
+          onClick={() => setActiveTab('home')}
+          className="p-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors"
+          title="Back to home"
+        >
+          <ArrowLeftIcon className={`h-5 w-5 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`} />
+        </button>
+        <h2 className={`text-lg font-bold ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>Profile Settings</h2>
+      </div>
+
+      <div className="hidden lg:flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
+        <div className="flex items-center gap-3">
+          <div>
+            <h2 className={`text-lg font-bold ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>Profile Settings</h2>
+            <p className={`mt-1 text-sm ${isDarkMode ? 'text-amber-400/70' : 'text-gray-600'}`}>Manage your personal information and security</p>
+          </div>
         </div>
         <div className="flex gap-2 w-full sm:w-auto">
-          <button
-            onClick={() => setShowSettings(true)}
-            className="flex-1 sm:flex-none px-3 py-2 sm:py-1.5 border border-amber-500/30 text-amber-50 rounded hover:bg-amber-500/10 transition-all duration-200 font-medium text-xs sm:text-sm flex items-center justify-center gap-1 whitespace-nowrap"
-          >
-            <Cog6ToothIcon className="h-3 w-3" />
-            <span className="hidden sm:inline">Preferences</span>
-            <span className="sm:hidden text-xs">Pref</span>
-          </button>
           <button
             onClick={() => setIsEditing(!isEditing)}
             className="flex-1 sm:flex-none px-3 py-2 sm:py-1.5 border border-amber-500/30 text-amber-50 rounded hover:bg-amber-500/10 transition-all duration-200 font-medium text-xs sm:text-sm flex items-center justify-center gap-1 whitespace-nowrap"
@@ -2564,6 +2650,13 @@ const Dashboard = () => {
             <PencilIcon className="h-3 w-3" />
             <span className="hidden sm:inline">{isEditing ? 'Cancel Edit' : 'Edit Profile'}</span>
             <span className="sm:hidden text-xs">{isEditing ? 'Cancel' : 'Edit'}</span>
+          </button>
+          <button
+            onClick={() => setShowSettings(true)}
+            className="hidden sm:flex flex-1 sm:flex-none px-3 py-2 sm:py-1.5 border border-amber-500/30 text-amber-50 rounded hover:bg-amber-500/10 transition-all duration-200 font-medium text-xs sm:text-sm items-center justify-center gap-1 whitespace-nowrap"
+          >
+            <Cog6ToothIcon className="h-3 w-3" />
+            <span className="hidden sm:inline">Preferences</span>
           </button>
         </div>
       </div>
@@ -2842,6 +2935,21 @@ const Dashboard = () => {
       case 'refunds': return renderRefunds();
       case 'action-logs': return <ActionLogViewer isDarkMode={isDarkMode} />;
       case 'profile': return renderProfile();
+      case 'settings': 
+        return (
+          <div className="space-y-6">
+            <div className="hidden lg:block">
+              <h2 className={`text-lg font-bold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>Settings</h2>
+              <p className={`mt-1 text-sm ${isDarkMode ? 'text-amber-400/70' : 'text-amber-700/70'}`}>Manage your application preferences</p>
+            </div>
+            <button
+              onClick={() => setShowSettings(true)}
+              className="px-4 py-2 bg-gradient-to-r from-amber-600 to-amber-700 text-white rounded-lg hover:from-amber-700 hover:to-amber-800 transition-all duration-200 font-medium"
+            >
+              Open Settings
+            </button>
+          </div>
+        );
       default: return renderHome();
     }
   };
@@ -2860,20 +2968,8 @@ const Dashboard = () => {
 
   return (
     <div className={`h-screen ${isDarkMode ? 'bg-gray-900' : 'bg-gray-50'} flex flex-col lg:flex-row transition-colors duration-300 overflow-hidden`}>
-      {/* Mobile Hamburger Menu */}
-      <div className={`lg:hidden fixed top-0 left-0 right-0 z-40 ${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-gray-50 border-amber-300/40'} border-b shadow-md transition-colors duration-300`}>
-        <div className="flex justify-between items-center px-4 py-3">
-          <div className="w-10"></div>
-          <span className={`text-base font-bold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>LEGAL EASE</span>
-          <button
-            onClick={() => setShowMobileSidebar(!showMobileSidebar)}
-            className="text-amber-400 hover:text-amber-300 transition-colors p-2 rounded-lg hover:bg-amber-500/10"
-            title="Toggle menu"
-          >
-            <Bars3Icon className="h-6 w-6" />
-          </button>
-        </div>
-      </div>
+      {/* Mobile Hamburger Menu - Hidden on all mobile screens */}
+      {/* Removed: Full header with menu button now hidden on mobile */}
 
       {/* Mobile Sidebar Overlay */}
       {showMobileSidebar && (
@@ -2884,7 +2980,7 @@ const Dashboard = () => {
       )}
 
       {/* Sidebar - Hidden on mobile by default, shown on desktop and when toggled on mobile */}
-      <div className={`fixed inset-y-0 right-0 lg:right-auto lg:left-0 z-40 w-64 h-screen ${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border-l lg:border-l-0 lg:border-r shadow-xl transition-all duration-300 lg:translate-x-0 ${
+      <div className={`hidden lg:block fixed inset-y-0 right-0 lg:right-auto lg:left-0 z-40 w-64 h-screen ${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border-l lg:border-l-0 lg:border-r shadow-xl transition-all duration-300 lg:translate-x-0 ${
         showMobileSidebar ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'
       }`}>
         <div className="flex flex-col h-full overflow-y-auto scrollbar-hide">
@@ -2914,8 +3010,8 @@ const Dashboard = () => {
                 {user?.first_name?.charAt(0)}{user?.last_name?.charAt(0)}
               </div>
               <div className="flex-1 min-w-0">
-                <p className={`text-xs font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} truncate`}>{user?.first_name} {user?.last_name}</p>
-                <p className={`text-xs ${isDarkMode ? 'text-amber-400/60' : 'text-amber-700/60'} truncate`}>{user?.email}</p>
+                <p className={`text-xs font-semibold ${isDarkMode ? 'text-amber-50' : 'text-gray-900'} truncate`}>{user?.first_name} {user?.last_name}</p>
+                <p className={`text-xs ${isDarkMode ? 'text-amber-400/60' : 'text-gray-600'} truncate`}>{user?.email}</p>
               </div>
             </div>
           </div>
@@ -2944,8 +3040,8 @@ const Dashboard = () => {
                       }}
                       className={`w-full flex items-center justify-between px-2.5 py-1.5 text-xs lg:text-xs font-medium rounded-none transition-all duration-200 border group relative overflow-hidden ${
                         item.current
-                          ? (isDarkMode ? 'text-amber-400 border-amber-500/30' : 'text-amber-700 border-amber-300/30')
-                          : (isDarkMode ? 'text-gray-400 border-transparent hover:text-amber-300' : 'text-gray-600 border-transparent hover:text-amber-700')
+                          ? (isDarkMode ? 'text-amber-400 border-amber-500/30' : 'text-gray-900 border-amber-300/30')
+                          : (isDarkMode ? 'text-gray-400 border-transparent hover:text-amber-300' : 'text-gray-700 border-transparent hover:text-gray-900')
                       }`}
                     >
                       <div className="flex items-center flex-1 min-w-0">
@@ -2989,15 +3085,15 @@ const Dashboard = () => {
             </div>
           </div>
 
-          {/* Footer with Settings and Logout */}
+          {/* Footer with Settings (Desktop only) and Logout */}
           <div className={`p-3 border-t ${isDarkMode ? 'border-amber-500/20 bg-gray-900/50' : 'border-amber-300/30 bg-gray-50/50'} space-y-2 transition-colors duration-300`}>
-            {/* Settings Button */}
+            {/* Settings Button - Hidden on mobile */}
             <button
               onClick={() => {
                 setShowSettings(true);
                 setShowMobileSidebar(false);
               }}
-              className={`w-full flex items-center px-3 py-2 text-xs font-medium rounded-lg transition-all duration-200 border ${
+              className={`hidden lg:flex w-full items-center px-3 py-2 text-xs font-medium rounded-lg transition-all duration-200 border ${
                 isDarkMode
                   ? 'text-gray-400 border-gray-700 hover:border-amber-500/30 hover:bg-amber-500/8 hover:text-amber-300'
                   : 'text-gray-600 border-gray-300 hover:border-amber-400/50 hover:bg-amber-200/10 hover:text-amber-700'
@@ -3009,7 +3105,7 @@ const Dashboard = () => {
 
             {/* Logout Button */}
             <button
-              onClick={handleLogout}
+              onClick={() => setShowLogoutModal(true)}
               className={`w-full flex items-center px-3 py-2 text-xs font-medium rounded-lg border transition-all duration-200 ${
                 isDarkMode
                   ? 'text-red-400 border-red-500/30 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/50'
@@ -3024,9 +3120,9 @@ const Dashboard = () => {
       </div>
 
       {/* Main content */}
-      <div className="flex-1 flex flex-col min-w-0 lg:mt-0 mt-16 lg:ml-64 h-screen overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 lg:mt-0 mt-0 lg:ml-64 h-auto lg:h-screen overflow-y-auto lg:overflow-hidden lg:h-screen">
         {/* Header */}
-        <header className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-gray-50 border-amber-300/40'} border-b shadow flex-shrink-0 transition-colors duration-300`}>
+        <header className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-gray-50 border-amber-300/40'} border-b shadow flex-shrink-0 transition-colors duration-300 hidden lg:flex flex-col`}>
           <div className="flex justify-between items-center px-4 lg:px-6 py-3 lg:py-4">
             <div className="flex items-center space-x-3 min-w-0">
               <div>
@@ -3085,7 +3181,7 @@ const Dashboard = () => {
         )}
 
         {/* Page content */}
-        <main className={`flex-1 p-3 sm:p-4 lg:p-6 overflow-y-auto scrollbar-hide ${isDarkMode ? '' : 'bg-gray-100'} transition-colors duration-300`}>
+        <main className={`flex-1 p-3 sm:p-4 lg:p-6 pb-24 lg:pb-6 overflow-y-auto scrollbar-hide ${isDarkMode ? '' : 'bg-gray-100'} transition-colors duration-300`}>
           {renderContent()}
         </main>
       </div>
@@ -3116,13 +3212,24 @@ const Dashboard = () => {
 
       <ConfirmationModal
         isOpen={showLogoutModal}
-        onClose={() => setShowLogoutModal(false)}
+        onClose={() => !isLoggingOut && setShowLogoutModal(false)}
         onConfirm={confirmLogout}
         title="Confirm Logout"
         message="Are you sure you want to logout from your account?"
         confirmText="Logout"
-        type="primary"
-        loading={loading}
+        type="danger"
+        loading={isLoggingOut}
+      />
+
+      <ConfirmationModal
+        isOpen={showLogoutModal}
+        onClose={() => !isLoggingOut && setShowLogoutModal(false)}
+        onConfirm={confirmLogout}
+        title="Confirm Logout"
+        message="Are you sure you want to log out? You will need to sign in again to access your account."
+        confirmText="Yes, Logout"
+        type="danger"
+        loading={isLoggingOut}
       />
 
       <SettingsModal
@@ -3185,55 +3292,65 @@ const Dashboard = () => {
                 </div>
               </div>
 
-              {/* User Information */}
+                           {/* User Information */}
               <div className="bg-gray-800/50 p-4 rounded-lg border border-gray-700">
                 <h3 className="font-semibold text-amber-50 mb-3">👤 User Information</h3>
                 <div className="space-y-2 text-sm">
-                  <p className="text-gray-400">
-                    <span className="text-amber-300 font-medium">Name:</span> {selectedAppointment.user?.first_name} {selectedAppointment.user?.last_name}
-                  </p>
-                  <p className="text-gray-400">
-                    <span className="text-amber-300 font-medium">Email:</span> {selectedAppointment.user?.email}
-                  </p>
-                  {selectedAppointment.user?.phone && (
-                    <p className="text-gray-400">
-                      <span className="text-amber-300 font-medium">Phone:</span> {selectedAppointment.user?.phone}
-                    </p>
-                  )}
-                </div>
-              </div>
+                  <div className="text-gray-400">
+                    <span className="text-amber-300 font-medium">Name:</span>{" "}
+                    {selectedAppointment.user?.first_name}{" "}
+                    {selectedAppointment.user?.last_name}
+                  </div>
 
-              {/* Payment Breakdown */}
-              <div className="bg-gray-800/50 p-4 rounded-lg border border-gray-700">
-                <h3 className="font-semibold text-amber-50 mb-3">💰 Payment Breakdown</h3>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Original Price:</span>
-                    <span className="text-amber-50 font-medium">₱{parseFloat(selectedAppointment.original_price || selectedAppointment.payment_amount || 0).toFixed(2)}</span>
-                  </div>
-                  {selectedAppointment.discount_amount > 0 && (
-                    <>
-                      <div className="flex justify-between">
-                        <span className="text-gray-400">Discount:</span>
-                        <span className="text-red-400 font-medium">-₱{parseFloat(selectedAppointment.discount_amount).toFixed(2)}</span>
+                  {user && user.role !== "admin" && user.role !== "staff" && (
+                    <div
+                      className={`block sm:hidden p-3 rounded-lg border ${
+                        isDarkMode
+                          ? "bg-gray-800/50 border-amber-500/20"
+                          : "bg-white/50 border-amber-300/30"
+                      } transition-colors duration-200`}
+                    >
+                      <div className="grid grid-cols-4 gap-2">
+                        <button
+                          onClick={() => setActiveTab("refunds")}
+                          className="flex flex-col items-center justify-center p-2 rounded-lg border text-xs text-amber-50 bg-gray-800/40 hover:bg-amber-500/10"
+                          title="Refunds"
+                        >
+                          <CurrencyDollarIcon className="h-5 w-5 mb-1" />
+                          <span className="text-[11px]">Refunds</span>
+                        </button>
+
+                        <button
+                          onClick={() => setActiveTab("action-logs")}
+                          className="flex flex-col items-center justify-center p-2 rounded-lg border text-xs text-amber-50 bg-gray-800/40 hover:bg-amber-500/10"
+                          title="Action Logs"
+                        >
+                          <DocumentTextIcon className="h-5 w-5 mb-1" />
+                          <span className="text-[11px]">Actions</span>
+                        </button>
+
+                        <button
+                          onClick={handleLogout}
+                          className="flex flex-col items-center justify-center p-2 rounded-lg border text-xs text-red-400 bg-gray-800/40 hover:bg-red-500/8"
+                          title="Logout"
+                        >
+                          <ArrowPathIcon className="h-5 w-5 mb-1" />
+                          <span className="text-[11px]">Logout</span>
+                        </button>
                       </div>
-                      <div className="flex justify-between">
-                        <span className="text-gray-400">Discount Type:</span>
-                        <span className="text-amber-50 font-medium">{selectedAppointment.discount_type || 'N/A'}</span>
-                      </div>
-                    </>
+                    </div>
                   )}
-                  <div className="border-t border-gray-700 pt-2 flex justify-between">
-                    <span className="text-gray-400">Price Entered:</span>
-                    <span className="text-green-400 font-bold">₱{parseFloat(selectedAppointment.payment_amount || 0).toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-400">Payment Type:</span>
-                    <span className="text-amber-50 font-medium capitalize">{selectedAppointment.payment_type || 'N/A'}</span>
-                  </div>
-                  <div className="border-t border-gray-700 pt-2 flex justify-between bg-green-500/10 p-2 rounded">
-                    <span className="text-green-300 font-semibold">Total Refundable Amount:</span>
-                    <span className="text-green-300 font-bold">₱{parseFloat(selectedAppointment.payment_amount || 0).toFixed(2)}</span>
+
+                  <div>
+                    <span className="text-green-300 font-semibold">
+                      Total Refundable Amount:
+                    </span>{" "}
+                    <span className="text-green-300 font-bold">
+                      ₱
+                      {parseFloat(
+                        selectedAppointment.payment_amount || 0
+                      ).toFixed(2)}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -3241,27 +3358,49 @@ const Dashboard = () => {
               {/* Refund Form */}
               <form onSubmit={handleRequestRefund} className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-amber-400 mb-2">Refund Reason *</label>
+                  <label className="block text-sm font-medium text-amber-400 mb-2">
+                    Refund Reason *
+                  </label>
                   <select
                     value={refundData.reason}
-                    onChange={(e) => setRefundData({ ...refundData, reason: e.target.value })}
+                    onChange={(e) =>
+                      setRefundData({
+                        ...refundData,
+                        reason: e.target.value,
+                      })
+                    }
                     className="w-full px-4 py-2 bg-gray-800 border border-gray-600 rounded-lg text-amber-50 focus:outline-none focus:ring-2 focus:ring-amber-500 transition-all"
                     required
                   >
-                    <option value="customer_request">Customer Request</option>
-                    <option value="service_not_provided">Service Not Provided</option>
-                    <option value="duplicate_payment">Duplicate Payment</option>
-                    <option value="service_cancellation">Service Cancellation</option>
+                    <option value="customer_request">
+                      Customer Request
+                    </option>
+                    <option value="service_not_provided">
+                      Service Not Provided
+                    </option>
+                    <option value="duplicate_payment">
+                      Duplicate Payment
+                    </option>
+                    <option value="service_cancellation">
+                      Service Cancellation
+                    </option>
                     <option value="poor_service">Poor Service</option>
                     <option value="other">Other</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-amber-400 mb-2">Description (Optional)</label>
+                  <label className="block text-sm font-medium text-amber-400 mb-2">
+                    Description (Optional)
+                  </label>
                   <textarea
                     value={refundData.description}
-                    onChange={(e) => setRefundData({ ...refundData, description: e.target.value })}
+                    onChange={(e) =>
+                      setRefundData({
+                        ...refundData,
+                        description: e.target.value,
+                      })
+                    }
                     placeholder="Please provide additional details about your refund request..."
                     className="w-full px-4 py-2 bg-gray-800 border border-gray-600 rounded-lg text-amber-50 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-amber-500 transition-all"
                     rows="4"
@@ -3270,7 +3409,9 @@ const Dashboard = () => {
 
                 <div className="bg-blue-500/10 border border-blue-500/30 p-3 rounded-lg">
                   <p className="text-sm text-blue-300">
-                    <strong>Note:</strong> Your refund request will be reviewed by our admin team. You will receive a notification once your request is approved or declined.
+                    <strong>Note:</strong> Your refund request will be reviewed by
+                    our admin team. You will receive a notification once your
+                    request is approved or declined.
                   </p>
                 </div>
 
@@ -3280,14 +3421,19 @@ const Dashboard = () => {
                     disabled={refundLoading}
                     className="flex-1 px-4 py-2 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-lg hover:from-green-700 hover:to-green-800 disabled:from-gray-600 disabled:to-gray-700 transition-all font-medium border border-green-500/30"
                   >
-                    {refundLoading ? 'Submitting...' : 'Submit Refund Request'}
+                    {refundLoading
+                      ? "Submitting..."
+                      : "Submit Refund Request"}
                   </button>
                   <button
                     type="button"
                     onClick={() => {
                       setShowRefundModal(false);
                       setSelectedAppointment(null);
-                      setRefundData({ reason: 'customer_request', description: '' });
+                      setRefundData({
+                        reason: "customer_request",
+                        description: "",
+                      });
                     }}
                     className="flex-1 px-4 py-2 bg-gray-700 text-gray-50 rounded-lg hover:bg-gray-600 transition-all font-medium border border-gray-600"
                   >
@@ -3299,6 +3445,32 @@ const Dashboard = () => {
           </div>
         </div>
       )}
+
+
+      {/* Mobile bottom navigation for user side and ProfilePage overlay */}
+      {user && user.role !== "admin" && user.role !== "staff" && (
+        <>
+          <BottomNav />
+          {showProfileMenu && (
+            <div className="fixed inset-0 z-[100] flex items-start justify-center bg-black/40 md:hidden">
+              <div className="w-full h-full flex items-start justify-center">
+                <ProfilePage 
+                  onBack={() => {
+                    setShowProfileMenu(false);
+                    setActiveTab('home');
+                  }} 
+                  onTabChange={(tabName) => {
+                    setShowProfileMenu(false);
+                    setActiveTab(tabName);
+                  }}
+                  onLogout={() => setShowLogoutModal(true)}
+                />
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
     </div>
   );
 };
