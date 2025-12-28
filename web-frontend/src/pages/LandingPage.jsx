@@ -1,15 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import logger from '../utils/logger';
-import LoginModal from '../components/auth/LoginModal';
-import RegisterModal from '../components/auth/RegisterModal';
+import AuthTabsModal from '../components/auth/AuthTabsModal';
 import ChatbotButton from '../components/chatbot/ChatbotButton';
 import axios from 'axios';
 
 const LandingPage = () => {
   const { isDarkMode, setIsDarkMode } = useTheme();
-  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
-  const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [feedbackEmail, setFeedbackEmail] = useState('');
   const [feedbackMessage, setFeedbackMessage] = useState('');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -18,7 +16,7 @@ const LandingPage = () => {
     totalAppointments: 0,
     totalUsers: 0,
     completedAppointments: 0,
-    pendingAppointments: 0
+    totalServices: 0
   });
 
   // Real data states
@@ -27,7 +25,7 @@ const LandingPage = () => {
     totalAppointments: 0,
     totalUsers: 0,
     completedAppointments: 0,
-    pendingAppointments: 0
+    totalServices: 0
   });
   const [testimonials, setTestimonials] = useState([]);
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
@@ -75,7 +73,7 @@ const LandingPage = () => {
       animateValue(0, stats.totalAppointments, setAnimatedStats, 'totalAppointments');
       animateValue(0, stats.totalUsers, setAnimatedStats, 'totalUsers');
       animateValue(0, stats.completedAppointments, setAnimatedStats, 'completedAppointments');
-      animateValue(0, stats.pendingAppointments, setAnimatedStats, 'pendingAppointments');
+      animateValue(0, stats.totalServices, setAnimatedStats, 'totalServices');
     }
   }, [stats]);
 
@@ -115,7 +113,7 @@ const LandingPage = () => {
             totalAppointments: 500,
             totalUsers: 1000,
             completedAppointments: 450,
-            pendingAppointments: 50
+            totalServices: 5
           });
         }
 
@@ -136,7 +134,7 @@ const LandingPage = () => {
         // Fetch testimonials - with fallback to defaults
         try {
           const appointmentsResponse = await axios.get(
-            '/api/appointments?status=completed&limit=3',
+            '/api/testimonials/completed-appointments?limit=3',
             { timeout: 3000 }
           );
 
@@ -162,6 +160,30 @@ const LandingPage = () => {
     };
 
     fetchLandingPageData();
+  }, []);
+
+  // Real-time service count updates
+  useEffect(() => {
+    const updateServiceCount = async () => {
+      try {
+        const response = await axios.get('/api/services', { timeout: 2000 });
+        if (response.data?.data && Array.isArray(response.data.data)) {
+          const serviceCount = response.data.data.length;
+          setServices(response.data.data.slice(0, 4));
+          setStats(prev => ({ ...prev, totalServices: serviceCount }));
+        }
+      } catch (err) {
+        logger.debug('Service count update failed');
+      }
+    };
+
+    // Fetch immediately
+    updateServiceCount();
+
+    // Set up polling interval (every 10 seconds)
+    const interval = setInterval(updateServiceCount, 10000);
+
+    return () => clearInterval(interval);
   }, []);
 
   const handleSendFeedback = (e) => {
@@ -249,8 +271,8 @@ const LandingPage = () => {
       label: "Completed Services" 
     },
     { 
-      number: animatedStats.pendingAppointments > 0 ? `${animatedStats.pendingAppointments}` : "—", 
-      label: "Pending Appointments" 
+      number: animatedStats.totalServices > 0 ? `${animatedStats.totalServices}` : "—", 
+      label: "Available Services" 
     }
   ];
 
@@ -282,15 +304,6 @@ const LandingPage = () => {
        <div className="fixed top-0 left-0 right-0 h-0.5 z-50 origin-left scale-x-0" 
          style={{ animation: 'progress linear forwards', animationTimeline: 'scroll(root)', background: isDarkMode ? darkGradient() : lightGradient() }} />
 
-      {/* Floating CTA Button (Mobile) - positioned to avoid chatbot button */}
-              <button
-                onClick={() => setIsRegisterModalOpen(true)}
-                className={`md:hidden fixed bottom-20 left-4 px-4 py-3 rounded-full shadow-lg transition-all duration-300 animate-bounce hover:animate-none z-40 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
-                style={{ background: isDarkMode ? darkGradient() : lightGradient(), boxShadow: isDarkMode ? '0 10px 25px rgba(245,158,11,0.12)' : '0 10px 25px rgba(37,99,235,0.12)' }}
-              >
-                <span className="text-sm font-semibold">Get Started</span>
-              </button>
-
       {/* Navigation */}
       <nav className={`fixed w-full backdrop-blur-md z-50 shadow-sm transition-all duration-300 ${
         isDarkMode
@@ -298,7 +311,7 @@ const LandingPage = () => {
           : 'bg-white/60 border-b border-blue-100'
       }`}>
         <div className="max-w-5xl mx-auto px-4 sm:px-6">
-          <div className="flex justify-between items-center h-20">
+          <div className="flex justify-between items-center h-16 md:h-20">
             {/* Logo with hover animation */}
             <div 
               className="flex items-center space-x-2.5 group cursor-pointer"
@@ -307,10 +320,10 @@ const LandingPage = () => {
               <img 
                 src="/logo.jpg" 
                 alt="Logo" 
-                className="h-8 w-auto rounded shadow transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3" 
+                className="h-8 md:h-10 w-auto object-contain rounded shadow transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3" 
               />
               <span className="text-lg font-bold tracking-tight transition-colors duration-300" style={{ color: isDarkMode ? undefined : 'var(--secondary)' }}>
-                <span className="text-2xl font-bold tracking-tight transition-colors duration-300" style={{ color: isDarkMode ? 'rgba(255,255,255,0.95)' : 'var(--secondary)', textTransform: !isDarkMode ? 'uppercase' : undefined, opacity: 0.95, letterSpacing: '1px' }}>
+                <span className="text-lg md:text-2xl font-bold tracking-tight transition-colors duration-300" style={{ color: isDarkMode ? 'rgba(255,255,255,0.95)' : 'var(--secondary)', textTransform: !isDarkMode ? 'uppercase' : undefined, opacity: 0.95, letterSpacing: '1px' }}>
                   LEGALEASE
                 </span>
               </span>
@@ -345,13 +358,13 @@ const LandingPage = () => {
             {/* Auth Buttons */}
             <div className="hidden md:flex items-center space-x-3">
               <button
-                onClick={() => setIsLoginModalOpen(true)}
+                onClick={() => setIsAuthModalOpen(true)}
                 className={`text-gray-400 font-medium text-sm transition-all duration-300 hover:scale-105 ${isDarkMode ? 'hover:text-amber-300' : 'hover:text-blue-600'}`}
               >
                 Sign In
               </button>
               <button
-                onClick={() => setIsRegisterModalOpen(true)}
+                onClick={() => setIsAuthModalOpen(true)}
                 className={`px-5 py-2 rounded-lg font-semibold hover:scale-105 active:scale-95 relative overflow-hidden group transition-all duration-300`}
                 style={{ background: isDarkMode ? darkGradient() : lightGradient(), color: isDarkMode ? '#fff' : 'var(--text-primary)' }}
               >
@@ -401,13 +414,13 @@ const LandingPage = () => {
             })}
             <div className="pt-3 space-y-2 border-t border-gray-800">
               <button
-                onClick={() => setIsLoginModalOpen(true)}
+                onClick={() => setIsAuthModalOpen(true)}
                 className={`block w-full text-left ${isDarkMode ? 'text-gray-300' : 'text-slate-700'} font-medium text-sm py-2 transition-colors duration-300 ${isDarkMode ? 'hover:text-amber-300' : 'hover:text-blue-400'}`}
               >
                 Sign In
               </button>
               <button
-                onClick={() => setIsRegisterModalOpen(true)}
+                onClick={() => setIsAuthModalOpen(true)}
                 className={`w-full py-2.5 rounded-lg font-semibold text-sm transition-all duration-300 hover:scale-105`}
                 style={{ background: isDarkMode ? darkGradient() : lightGradient(), color: isDarkMode ? '#fff' : 'var(--text-primary)' }}
               >
@@ -419,7 +432,7 @@ const LandingPage = () => {
       </nav>
 
       {/* Hero Section */}
-      <section id="home" className="pt-16 pb-12 md:pt-20 md:pb-16 relative">
+      <section id="home" className="pt-20 pb-12 md:pt-24 md:pb-16 relative">
         <div className="max-w-5xl mx-auto px-4 sm:px-6">
           <div className="grid lg:grid-cols-2 gap-10 items-center">
             {/* Hero Content */}
@@ -438,9 +451,9 @@ const LandingPage = () => {
               }`}>
                 Get your documents notarized online in minutes. Secure, convenient, and professional. No hidden fees, no complicated process.
               </p>
-              <div className="flex flex-col sm:flex-row gap-3 justify-center lg:justify-start items-center">
+              <div className="flex flex-row gap-3 justify-center lg:justify-start items-center">
                 <button
-                  onClick={() => setIsRegisterModalOpen(true)}
+                  onClick={() => setIsAuthModalOpen(true)}
                   className={`px-6 py-3 rounded-xl font-semibold hover:scale-105 active:scale-95 group relative overflow-hidden transition-all duration-300 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
                   style={{ background: isDarkMode ? darkGradient() : lightGradient(), color: isDarkMode ? '#fff' : 'var(--text-primary)' }}
                 >
@@ -476,7 +489,7 @@ const LandingPage = () => {
               </div>
 
               {/* Trust Indicators */}
-              <div className={`mt-10 flex flex-wrap gap-6 pt-6 border-t ${isDarkMode ? 'border-gray-800' : 'border-blue-300'}`} style={{ animation: 'fadeInUp 0.6s ease-out 300ms forwards' }}>
+              <div className={`mt-10 flex flex-wrap gap-6 pt-6 border-t justify-center lg:justify-start ${isDarkMode ? 'border-gray-800' : 'border-blue-300'}`} style={{ animation: 'fadeInUp 0.6s ease-out 300ms forwards' }}>
                 <div className="group">
                   <p className={`text-xl font-bold transition-all duration-300 group-hover:scale-110 ${isDarkMode ? 'text-amber-400' : ''}`} style={!isDarkMode ? { color: 'var(--primary)' } : {}}>
                     {stats.totalAppointments || '500+'}
@@ -552,33 +565,31 @@ const LandingPage = () => {
             <div className="inline-block mb-3 px-3 py-1 bg-blue-500/10 border border-blue-500/20 rounded-full animate-pulse">
               <span className="text-blue-400 text-xs font-semibold">Our Services</span>
             </div>
-            <h2 className="text-3xl md:text-4xl font-bold mb-4" style={isDarkMode ? { color: '#ffffff' } : { color: 'var(--primary)' }}>
+            <h2 className="text-2xl md:text-4xl font-bold mb-4" style={isDarkMode ? { color: '#ffffff' } : { color: 'var(--primary)' }}>
               Complete Notary Solutions
             </h2>
-            <p className="text-gray-400 max-w-2xl mx-auto">
+            <p className="text-sm md:text-base text-gray-400 max-w-2xl mx-auto">
               Professional notarization services tailored to your legal needs
             </p>
           </div>
 
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {features.map((feature, index) => (
               <div 
                 key={index} 
-                className={`group rounded-xl p-6 hover:scale-105 relative overflow-hidden transition-all duration-500 ${isDarkMode ? 'bg-gray-900/50 border border-gray-800 hover:border-blue-500/30' : 'bg-white border border-blue-100 hover:border-blue-200'}`}
-                style={{ animation: `fadeInUp 0.6s ease-out ${index * 150}ms forwards` }}
+                className={`rounded-lg p-4 relative overflow-hidden transition-all duration-300 ${isDarkMode ? 'bg-gray-900/50 border border-gray-800 hover:border-blue-500/30' : 'bg-white border border-blue-100 hover:border-blue-200'}`}
               >
                 <div className="relative z-10">
-                  <div className="text-4xl mb-4 transition-transform duration-500 group-hover:scale-125 group-hover:rotate-3">
+                  <div className="text-3xl md:text-4xl mb-2 md:mb-4">
                     {feature.icon}
                   </div>
-                      <h3 className={`text-lg font-bold mb-2 transition-colors ${isDarkMode ? 'text-white group-hover:text-blue-300' : 'text-slate-900 group-hover:text-blue-600'}`}>
+                      <h3 className={`text-sm md:text-lg font-bold mb-1 md:mb-2 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
                         {feature.title}
                       </h3>
-                      <p className={`text-sm leading-relaxed transition-colors ${isDarkMode ? 'text-gray-400 group-hover:text-gray-300' : 'text-gray-700 group-hover:text-gray-900'}`}>
+                      <p className={`text-xs md:text-sm leading-relaxed ${isDarkMode ? 'text-gray-400' : 'text-gray-700'}`}>
                         {feature.description}
                       </p>
                 </div>
-                <div className="absolute inset-0 bg-gradient-to-br from-blue-500/0 to-blue-500/0 group-hover:from-blue-500/5 group-hover:to-blue-500/10 transition-all duration-500 rounded-xl" />
               </div>
             ))}
           </div>
@@ -742,7 +753,7 @@ const LandingPage = () => {
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center" style={{ animation: 'fadeInUp 0.6s ease-out 200ms forwards' }}>
             <button
-              onClick={() => setIsRegisterModalOpen(true)}
+              onClick={() => setIsAuthModalOpen(true)}
               className="px-6 py-3 rounded-xl font-bold hover:bg-gray-50 transition-all duration-300 hover:scale-105 active:scale-95 shadow-lg hover:shadow-xl relative overflow-hidden group"
               style={isDarkMode ? { background: darkGradient(), color: '#fff' } : { backgroundColor: 'var(--surface)', color: 'var(--primary)' }}
             >
@@ -766,14 +777,14 @@ const LandingPage = () => {
           : 'bg-gray-100 text-slate-600 border-t border-gray-300'
       }`}>
         <div className="max-w-5xl mx-auto px-4 sm:px-6">
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8 mb-10">
+          <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-8 mb-10 place-items-center">
             {/* Company Info */}
-            <div style={{ animation: 'fadeInUp 0.6s ease-out forwards' }}>
-              <div className="flex items-center space-x-2.5 mb-3 group">
+            <div className="col-span-2 md:col-span-1 text-center" style={{ animation: 'fadeInUp 0.6s ease-out forwards' }}>
+              <div className="flex flex-col items-center space-y-2.5 mb-3 group">
                 <img 
                   src="/logo.jpg" 
                   alt="Logo" 
-                  className="h-8 w-auto rounded transition-transform duration-300 group-hover:scale-110" 
+                  className="h-10 w-auto object-contain rounded transition-transform duration-300 group-hover:scale-110" 
                 />
                 <span className="text-xl font-bold group-hover:text-amber-400 transition-colors" style={isDarkMode ? { color: '#ffffff' } : { color: '#7DD3FC', textTransform: 'uppercase', letterSpacing: '1px' }}>
                   LegalEase
@@ -785,13 +796,13 @@ const LandingPage = () => {
             </div>
 
             {/* Quick Links */}
-            <div style={{ animation: 'fadeInUp 0.6s ease-out 100ms forwards' }}>
+            <div className="text-center" style={{ animation: 'fadeInUp 0.6s ease-out 100ms forwards' }}>
               <h4 className="font-semibold mb-3 text-sm" style={isDarkMode ? { color: '#ffffff' } : { color: 'var(--primary)' }}>Services</h4>
               <ul className="space-y-1.5 text-xs text-gray-500">
                 {['Services', 'Notarization', 'Verification', 'Certification', 'Signing'].map((item, index) => (
                   <li key={item}>
                     <button 
-                      className="hover:text-blue-400 transition-colors duration-300 hover:translate-x-1 block"
+                      className="hover:text-blue-400 transition-colors duration-300"
                       style={{ animationDelay: `${index * 50}ms` }}
                     >
                       {item}
@@ -802,13 +813,13 @@ const LandingPage = () => {
             </div>
 
             {/* Support */}
-            <div style={{ animation: 'fadeInUp 0.6s ease-out 200ms forwards' }}>
+            <div className="text-center" style={{ animation: 'fadeInUp 0.6s ease-out 200ms forwards' }}>
               <h4 className="font-semibold mb-3 text-sm" style={isDarkMode ? { color: '#ffffff' } : { color: 'var(--primary)' }}>Support</h4>
               <ul className="space-y-1.5 text-xs text-gray-500">
                 {['Help Center', 'Contact Us', 'FAQ'].map((item, index) => (
                   <li key={item}>
                     <button 
-                      className="hover:text-blue-400 transition-colors duration-300 hover:translate-x-1 block"
+                      className="hover:text-blue-400 transition-colors duration-300"
                       style={{ animationDelay: `${index * 50}ms` }}
                     >
                       {item}
@@ -819,13 +830,13 @@ const LandingPage = () => {
             </div>
 
             {/* Contact */}
-            <div style={{ animation: 'fadeInUp 0.6s ease-out 300ms forwards' }}>
+            <div className="col-span-2 md:col-span-1 text-center" style={{ animation: 'fadeInUp 0.6s ease-out 300ms forwards' }}>
               <h4 className="font-semibold mb-3 text-sm" style={isDarkMode ? { color: '#ffffff' } : { color: 'var(--primary)' }}>Get Started</h4>
               <p className="text-gray-500 text-xs mb-3 hover:text-gray-400 transition-colors">
                 Have questions? Our team is here to help.
               </p>
               <button
-                onClick={() => setIsRegisterModalOpen(true)}
+                onClick={() => setIsAuthModalOpen(true)}
                 className="w-full py-2 rounded-lg font-semibold text-sm hover:shadow-md transition-all duration-300 hover:scale-105 active:scale-95 relative overflow-hidden group"
                 style={isDarkMode ? { background: darkGradient(), color: '#fff' } : { backgroundColor: 'var(--surface)', color: 'var(--secondary)' }}
               >
@@ -898,25 +909,11 @@ const LandingPage = () => {
         </div>
       </footer>
 
-      {/* Modals */}
-      <LoginModal
-        isOpen={isLoginModalOpen}
-        onClose={() => setIsLoginModalOpen(false)}
+      {/* Auth Modal with Tabs */}
+      <AuthTabsModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
         isDarkMode={isDarkMode}
-        onSwitchToRegister={() => {
-          setIsLoginModalOpen(false);
-          setIsRegisterModalOpen(true);
-        }}
-      />
-
-      <RegisterModal
-        isOpen={isRegisterModalOpen}
-        onClose={() => setIsRegisterModalOpen(false)}
-        isDarkMode={isDarkMode}
-        onSwitchToLogin={() => {
-          setIsRegisterModalOpen(false);
-          setIsLoginModalOpen(true);
-        }}
       />
 
       {/* Guest Chatbot - Available to all visitors */}

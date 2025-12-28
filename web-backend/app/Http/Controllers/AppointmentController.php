@@ -1267,4 +1267,53 @@ class AppointmentController extends Controller
         Cache::forget('analytics_auto_alerts');
         Cache::forget('analytics_dashboard_comprehensive');
     }
+
+    /**
+     * Get completed appointments for public testimonials
+     * (Landing page doesn't require authentication)
+     */
+    public function getCompletedAppointmentsPublic(Request $request)
+    {
+        try {
+            $limit = $request->input('limit', 3);
+
+            $appointments = Appointment::where('status', 'completed')
+                ->with([
+                    'user:id,first_name,last_name',
+                    'service:id,name,price'
+                ])
+                ->orderBy('completed_at', 'desc')
+                ->limit($limit)
+                ->get()
+                ->map(function ($apt) {
+                    return [
+                        'id' => $apt->id,
+                        'user' => [
+                            'name' => $apt->user?->first_name . ' ' . $apt->user?->last_name
+                        ],
+                        'type' => $apt->service?->name ?? $apt->service_type ?? 'Service',
+                        'notes' => $apt->notes ?? 'Successfully completed appointment',
+                        'completed_at' => $apt->completed_at?->toDateTimeString()
+                    ];
+                });
+
+            return response()->json([
+                'success' => true,
+                'data' => $appointments,
+                'count' => count($appointments),
+                'timestamp' => now()->toDateTimeString()
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Error fetching completed appointments for testimonials', [
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'data' => [],
+                'message' => 'Unable to fetch testimonials',
+                'timestamp' => now()->toDateTimeString()
+            ], 500);
+        }
+    }
 }

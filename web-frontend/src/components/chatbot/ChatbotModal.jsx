@@ -209,8 +209,8 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
         onClick={onClose}
       />
 
-      {/* Modal - Responsive: smaller on mobile, positioned on desktop */}
-      <div className={`fixed bottom-20 right-4 w-[calc(100vw-2rem)] sm:inset-auto sm:bottom-24 sm:right-6 sm:w-[400px] sm:max-w-[calc(100vw-3rem)] rounded-xl shadow-2xl flex flex-col h-[60vh] sm:h-[600px] sm:max-h-[calc(100vh-8rem)] z-50 overflow-hidden border ${isDarkMode ? 'bg-gray-900 border-amber-500/30' : 'bg-white border-blue-100'}`}>
+      {/* Modal - Responsive: larger on mobile, positioned on desktop */}
+      <div className={`fixed bottom-6 right-6 left-6 w-auto sm:inset-auto sm:bottom-24 sm:right-6 sm:w-[400px] sm:max-w-[calc(100vw-3rem)] rounded-xl shadow-2xl flex flex-col h-[82vh] sm:h-[600px] sm:max-h-[calc(100vh-8rem)] z-50 overflow-hidden border ${isDarkMode ? 'bg-gray-900 border-amber-500/30' : 'bg-white border-blue-100'}`}>
         {/* Header */}
         <div className={`px-5 py-4 flex justify-between items-center flex-shrink-0 ${isDarkMode ? 'bg-gray-900 border-b border-amber-500/20 text-gray-100' : 'bg-white border-b border-blue-100 text-slate-900'}`}>
           <div className="flex items-center gap-3">

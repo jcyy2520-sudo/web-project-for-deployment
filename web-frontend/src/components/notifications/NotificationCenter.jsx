@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useApi } from '../hooks/useApi';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import {
   CheckCircleIcon,
@@ -12,6 +13,7 @@ import {
 } from '@heroicons/react/24/outline';
 
 const NotificationCenter = ({ isOpen, onClose, isDarkMode = true }) => {
+  const navigate = useNavigate();
   const { callApi } = useApi();
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -68,6 +70,35 @@ const NotificationCenter = ({ isOpen, onClose, isDarkMode = true }) => {
 
     if (result.success) {
       setNotifications(prev => prev.filter(n => n.id !== notificationId));
+    }
+  };
+
+  const handleNotificationClick = (notification) => {
+    // Mark as read
+    if (!notification.is_read) {
+      markAsRead(notification.id);
+    }
+
+    // Navigate based on notification type and reference_id
+    const type = notification.type || '';
+    const refId = notification.reference_id;
+
+    if (type.includes('appointment')) {
+      navigate(`/dashboard?tab=appointments${refId ? `&id=${refId}` : ''}`);
+      onClose();
+    } else if (type.includes('payment') || type.includes('refund')) {
+      navigate(`/dashboard?tab=payments${refId ? `&id=${refId}` : ''}`);
+      onClose();
+    } else if (type.includes('message')) {
+      navigate('/dashboard?tab=messages');
+      onClose();
+    } else if (type.includes('service')) {
+      navigate(`/dashboard?tab=services${refId ? `&id=${refId}` : ''}`);
+      onClose();
+    } else {
+      // Default: navigate to dashboard
+      navigate('/dashboard');
+      onClose();
     }
   };
 
@@ -167,6 +198,7 @@ const NotificationCenter = ({ isOpen, onClose, isDarkMode = true }) => {
                   className={`p-4 ${isDarkMode ? 'hover:bg-gray-800/50' : 'hover:bg-gray-50'} transition-colors cursor-pointer ${
                     !notification.is_read ? `${isDarkMode ? 'bg-gray-800/30' : 'bg-amber-50/30'}` : ''
                   }`}
+                  onClick={() => handleNotificationClick(notification)}
                 >
                   <div className="flex items-start gap-3">
                     <div className="mt-1">
@@ -200,7 +232,7 @@ const NotificationCenter = ({ isOpen, onClose, isDarkMode = true }) => {
                     <div className="flex gap-1 flex-shrink-0">
                       {!notification.is_read && (
                         <button
-                          onClick={() => markAsRead(notification.id)}
+                          onClick={(e) => { e.stopPropagation(); markAsRead(notification.id); }}
                           className={`p-1 ${isDarkMode ? 'text-gray-400 hover:text-amber-400 hover:bg-gray-700' : 'text-gray-500 hover:text-amber-500 hover:bg-gray-200'} rounded transition-all`}
                           title="Mark as read"
                         >
@@ -208,7 +240,7 @@ const NotificationCenter = ({ isOpen, onClose, isDarkMode = true }) => {
                         </button>
                       )}
                       <button
-                        onClick={() => deleteNotification(notification.id)}
+                        onClick={(e) => { e.stopPropagation(); deleteNotification(notification.id); }}
                         className={`p-1 ${isDarkMode ? 'text-gray-400 hover:text-red-400 hover:bg-gray-700' : 'text-gray-500 hover:text-red-500 hover:bg-gray-200'} rounded transition-all`}
                         title="Delete"
                       >

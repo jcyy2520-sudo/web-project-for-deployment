@@ -152,6 +152,53 @@ Route::prefix('realtime')->group(function () {
 Route::get('/appointment-settings/current', [AppointmentSettingsController::class, 'index']);
 Route::get('/appointment-settings/user-limit/{userId}/{date?}', [AppointmentSettingsController::class, 'getUserLimit']);
 
+// Public business information endpoint (for chatbot and public use)
+Route::get('/business-info', function () {
+    try {
+        $settings = \App\Models\AppointmentSettings::first();
+        $services = \App\Models\Service::where('is_active', true)->get(['id', 'name', 'description', 'price', 'duration_minutes']);
+        $staff = \App\Models\User::where('is_active', true)
+            ->whereIn('role', ['admin', 'staff', 'attorney', 'lawyer'])
+            ->get(['id', 'first_name', 'last_name', 'email', 'phone']);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'location' => [
+                    'business_hours' => $settings->business_hours ?? 'Not specified',
+                    'address' => $settings->address ?? 'Not specified',
+                    'phone' => $settings->phone ?? 'Not specified',
+                    'timezone' => $settings->timezone ?? 'UTC'
+                ],
+                'services' => $services->map(function ($service) {
+                    return [
+                        'id' => $service->id,
+                        'name' => $service->name,
+                        'description' => $service->description,
+                        'price' => $service->price,
+                        'duration' => $service->duration_minutes
+                    ];
+                })->toArray(),
+                'staff' => $staff->map(function ($person) {
+                    return [
+                        'name' => $person->first_name . ' ' . $person->last_name,
+                        'email' => $person->email,
+                        'phone' => $person->phone
+                    ];
+                })->toArray()
+            ],
+            'timestamp' => now()->toDateTimeString()
+        ]);
+    } catch (\Exception $e) {
+        \Log::error('Business info endpoint error: ' . $e->getMessage());
+        return response()->json([
+            'success' => false,
+            'message' => 'Unable to fetch business information',
+            'timestamp' => now()->toDateTimeString()
+        ], 500);
+    }
+});
+
 // Frontend error logging - SECURED with rate limiting and abuse detection
 Route::post('/frontend-errors/log', [\App\Http\Controllers\Admin\FrontendErrorLogController::class, 'storePublic'])
     ->middleware(['throttle:30,1', 'abuse.detect']); // Rate limit: 30 requests per minute per user/IP + abuse detection
@@ -261,6 +308,9 @@ Route::get('/shared-resource/{uuid}', function (Request $request, $uuid) {
         'token_data' => $result['token_data']
     ]);
 });
+
+// Public appointment-related endpoints
+Route::get('/testimonials/completed-appointments', [AppointmentController::class, 'getCompletedAppointmentsPublic']);
 
 // ==================== PROTECTED ROUTES ====================
 

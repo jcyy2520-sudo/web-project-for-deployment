@@ -98,7 +98,12 @@ Route::get('/test-db', function () {
 Route::post('/register-step1', [AuthController::class, 'registerStep1']);
 Route::post('/verify-code', [AuthController::class, 'verifyCode']);
 Route::post('/complete-registration', [AuthController::class, 'completeRegistration']);
-Route::post('/login', [AuthController::class, 'login']);
+Route::post('/login', [AuthController::class, 'login'])
+    ->middleware([
+        \Illuminate\Cookie\Middleware\EncryptCookies::class,
+        \Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
+        \Illuminate\Session\Middleware\StartSession::class,
+    ]);
 Route::post('/resend-verification', [AuthController::class, 'resendVerificationCode']);
 Route::get('/check-verification-status', [AuthController::class, 'checkVerificationStatus']);
 
@@ -151,6 +156,53 @@ Route::prefix('realtime')->group(function () {
 // Public appointment settings (for user booking limit checks)
 Route::get('/appointment-settings/current', [AppointmentSettingsController::class, 'index']);
 Route::get('/appointment-settings/user-limit/{userId}/{date?}', [AppointmentSettingsController::class, 'getUserLimit']);
+
+// Public business information endpoint (for chatbot and public use)
+Route::get('/business-info', function () {
+    try {
+        $settings = \App\Models\AppointmentSettings::first();
+        $services = \App\Models\Service::where('is_active', true)->get(['id', 'name', 'description', 'price', 'duration_minutes']);
+        $staff = \App\Models\User::where('is_active', true)
+            ->whereIn('role', ['admin', 'staff', 'attorney', 'lawyer'])
+            ->get(['id', 'first_name', 'last_name', 'email', 'phone']);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'location' => [
+                    'business_hours' => $settings->business_hours ?? 'Not specified',
+                    'address' => $settings->address ?? 'Not specified',
+                    'phone' => $settings->phone ?? 'Not specified',
+                    'timezone' => $settings->timezone ?? 'UTC'
+                ],
+                'services' => $services->map(function ($service) {
+                    return [
+                        'id' => $service->id,
+                        'name' => $service->name,
+                        'description' => $service->description,
+                        'price' => $service->price,
+                        'duration' => $service->duration_minutes
+                    ];
+                })->toArray(),
+                'staff' => $staff->map(function ($person) {
+                    return [
+                        'name' => $person->first_name . ' ' . $person->last_name,
+                        'email' => $person->email,
+                        'phone' => $person->phone
+                    ];
+                })->toArray()
+            ],
+            'timestamp' => now()->toDateTimeString()
+        ]);
+    } catch (\Exception $e) {
+        \Log::error('Business info endpoint error: ' . $e->getMessage());
+        return response()->json([
+            'success' => false,
+            'message' => 'Unable to fetch business information',
+            'timestamp' => now()->toDateTimeString()
+        ], 500);
+    }
+});
 
 // Frontend error logging - SECURED with rate limiting and abuse detection
 Route::post('/frontend-errors/log', [\App\Http\Controllers\Admin\FrontendErrorLogController::class, 'storePublic'])
@@ -262,10 +314,18 @@ Route::get('/shared-resource/{uuid}', function (Request $request, $uuid) {
     ]);
 });
 
+// Public appointment-related endpoints - NEWLY ADDED
+Route::get('/testimonials/completed-appointments', [AppointmentController::class, 'getCompletedAppointmentsPublic']);
+
 // ==================== PROTECTED ROUTES ====================
 
-// Protected routes
-Route::middleware(['auth:sanctum'])->group(function () {
+// Protected routes - WITH SESSION MIDDLEWARE FOR STATEFUL AUTH
+Route::middleware([
+    \Illuminate\Cookie\Middleware\EncryptCookies::class,
+    \Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
+    \Illuminate\Session\Middleware\StartSession::class,
+    'auth:sanctum'
+])->group(function () {
     // Auth routes
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/user', [AuthController::class, 'user']);

@@ -596,6 +596,17 @@ class ChatbotController extends Controller
             if ($isGuest) {
                 $aiResponse = $this->getGuestResponse($userMessage);
                 
+                // Ensure we have a valid response
+                if (!$aiResponse || (is_string($aiResponse) && trim($aiResponse) === '')) {
+                    Log::error('Guest response generation failed - empty response', [
+                        'user_message' => $userMessage,
+                        'ai_response' => $aiResponse,
+                        'conversation_id' => $conversationId
+                    ]);
+                    
+                    $aiResponse = "I appreciate your question. To provide you with better assistance, please consider registering or logging in to our system.";
+                }
+                
                 try {
                     $this->logAnalytics([
                         'start_time' => $startTime,
@@ -879,9 +890,15 @@ class ChatbotController extends Controller
             ]);
 
         } catch (\Illuminate\Validation\ValidationException $e) {
+            Log::warning('Chatbot validation error', [
+                'errors' => $e->errors(),
+                'message_input' => $request->input('message'),
+                'headers' => $request->headers->all()
+            ]);
+            
             return response()->json([
                 'success' => false,
-                'message' => 'Validation error',
+                'message' => 'Validation error: ' . implode(', ', array_map(fn($e) => implode(', ', $e), $e->errors())),
                 'errors' => $e->errors()
             ], 422);
         } catch (\Exception $e) {
@@ -1229,12 +1246,75 @@ class ChatbotController extends Controller
             $topic = $topics[0] ?? 'general';
 
             $data = [];
+            
+            // Dynamically fetch data based on detected topic
             if ($topic === 'services') {
-                $data['services_count'] = \App\Models\Service::where('is_active', true)->count();
+                // Get all active services
+                $services = \App\Models\Service::where('is_active', true)->get(['id', 'name', 'description', 'price', 'duration_minutes']);
+                $data['services_count'] = $services->count();
+                $data['services'] = $services->map(function ($service) {
+                    return [
+                        'name' => $service->name,
+                        'description' => $service->description,
+                        'price' => $service->price,
+                        'duration' => $service->duration_minutes
+                    ];
+                })->toArray();
+            } elseif ($topic === 'location' || $topic === 'address' || strpos(strtolower($userMessage), 'where') !== false) {
+                // Get location/address info from AppointmentSettings
+                try {
+                    $settings = \App\Models\AppointmentSettings::first();
+                    if ($settings) {
+                        $data['location'] = [
+                            'business_hours' => $settings->business_hours,
+                            'address' => $settings->address ?? 'Not specified',
+                            'phone' => $settings->phone ?? 'Not specified',
+                            'timezone' => $settings->timezone ?? 'UTC'
+                        ];
+                    } else {
+                        $data['location'] = ['message' => 'Location information is not configured yet.'];
+                    }
+                } catch (\Exception $e) {
+                    \Log::debug('Failed to fetch location info: ' . $e->getMessage());
+                    $data['location'] = ['message' => 'Unable to fetch location information.'];
+                }
+            } elseif ($topic === 'lawyer' || $topic === 'staff' || $topic === 'attorney' || strpos(strtolower($userMessage), 'lawyer') !== false || strpos(strtolower($userMessage), 'attorney') !== false) {
+                // Get staff/lawyer information
+                try {
+                    $staff = \App\Models\User::where('is_active', true)
+                        ->whereIn('role', ['admin', 'staff', 'attorney', 'lawyer'])
+                        ->get(['id', 'first_name', 'last_name', 'email', 'phone', 'address']);
+                    
+                    $data['staff_count'] = $staff->count();
+                    $data['staff'] = $staff->map(function ($person) {
+                        return [
+                            'name' => $person->first_name . ' ' . $person->last_name,
+                            'email' => $person->email,
+                            'phone' => $person->phone,
+                            'address' => $person->address
+                        ];
+                    })->toArray();
+                    
+                    if ($staff->isEmpty()) {
+                        $data['staff'] = ['message' => 'No staff members are currently available.'];
+                    }
+                } catch (\Exception $e) {
+                    \Log::debug('Failed to fetch staff info: ' . $e->getMessage());
+                    $data['staff'] = ['message' => 'Unable to fetch staff information.'];
+                }
             }
 
             $structured = $this->intelligenceService->buildStructuredResponse($topic, $data, [], 'en');
             $nl = $this->intelligenceService->structuredToNaturalLanguage($structured);
+
+            // Ensure response is not empty
+            if (!$nl || (is_string($nl) && trim($nl) === '')) {
+                Log::warning('Guest response was empty, using fallback', [
+                    'topic' => $topic,
+                    'user_message_snippet' => substr($userMessage, 0, 50)
+                ]);
+                return "Thanks for your question! To get personalized assistance and access all features, please register or log in.";
+            }
 
             // For guests, include prompt to register but keep content dynamic
             $nl .= "\n\nTo perform account-specific actions, please register or log in so I can fetch your personal data.";

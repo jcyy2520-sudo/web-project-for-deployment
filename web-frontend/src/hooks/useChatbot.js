@@ -277,9 +277,14 @@ export const useChatbot = () => {
       // Normalize ai_response/message
       const aiResponseText = typeof response.data?.ai_response === 'string' && response.data.ai_response.trim().length > 0
         ? response.data.ai_response
-        : (typeof response.data?.message === 'string' ? response.data.message : '');
+        : (typeof response.data?.message === 'string' && response.data.message.trim().length > 0 ? response.data.message : '');
 
-      if (!aiResponseText) {
+      // For guest responses, provide a fallback message if empty
+      const finalResponse = aiResponseText || (meta?.role === 'guest' 
+        ? "Thanks for your question! To get personalized assistance and access all features, please register or log in."
+        : "I'm experiencing a temporary issue processing your request. Please try again.");
+
+      if (!finalResponse) {
         console.error('Invalid ai_response format:', response.data);
         setError('Invalid response format from server');
         setMessages((prev) => prev.filter((msg) => msg.id !== newUserMessage.id));
@@ -288,7 +293,7 @@ export const useChatbot = () => {
 
       const aiMessage = {
         id: Date.now() + 1,
-        message: aiResponseText,
+        message: finalResponse,
         role: 'assistant',
         created_at: response.data.timestamp || new Date().toISOString(),
         source: meta?.source || meta?.meta_source || 'huggingface',
@@ -317,6 +322,13 @@ export const useChatbot = () => {
       // Note: Chatbot messages are NOT saved to Message Center to keep them separate
     } catch (err) {
       console.error('Failed to send message:', err);
+      console.error('Error details:', {
+        status: err.response?.status,
+        statusText: err.response?.statusText,
+        data: err.response?.data,
+        message: err.message,
+        config: err.config
+      });
       
       // Check for rate limit error (429)
       if (err.response?.status === 429) {
@@ -347,6 +359,8 @@ export const useChatbot = () => {
         errorMsg = err.response.data.message;
       } else if (err.message === 'Network Error') {
         errorMsg = 'Network error. Please check your internet connection.';
+      } else if (err.code === 'ECONNABORTED') {
+        errorMsg = 'Request timeout. Please try again.';
       }
       
       setError(errorMsg);
