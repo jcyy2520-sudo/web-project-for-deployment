@@ -42,13 +42,28 @@ import './index.css'
 // On Vercel (production): use cPanel backend URL
 // In development: use local backend
 const isProduction = import.meta.env.PROD;
-const API_URL = isProduction 
-  ? 'https://legaleaase.site/api'
-  : (import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api');
+const envApiUrl = import.meta.env.VITE_API_URL;
+
+// Determine API URL with proper fallback
+let API_URL;
+if (envApiUrl) {
+  // If explicitly set via VITE_API_URL env var, use it
+  API_URL = envApiUrl;
+} else if (isProduction) {
+  // If production build, use cPanel backend
+  API_URL = 'https://legaleaase.site/api';
+} else {
+  // Otherwise use local development backend
+  API_URL = 'http://127.0.0.1:8000/api';
+}
 
 // Configure axios to use the API URL
 if (API_URL) {
   axios.defaults.baseURL = API_URL;
+  // Log for debugging (remove in production if needed)
+  if (isProduction) {
+    console.log('✓ Production API configured: ' + API_URL);
+  }
 }
 
 // Remove StrictMode to prevent double-rendering in development
