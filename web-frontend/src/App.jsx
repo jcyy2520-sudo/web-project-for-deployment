@@ -1,7 +1,7 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { lazy, Suspense, useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { ThemeProvider } from './context/ThemeContext';
+import { ThemeProvider, useTheme } from './context/ThemeContext';
 import LoadingSpinner from './components/ui/LoadingSpinner';
 import ErrorBoundary from './components/ErrorBoundary';
 import ToastContainer from './components/notifications/ToastContainer';
@@ -32,15 +32,22 @@ const UserManagement = lazy(() => import('./pages/UserManagement'));
 const CalendarManagement = lazy(() => import('./pages/CalendarManagement'));
 const MessageCenter = lazy(() => import('./pages/MessageCenter'));
 
-// Loading component for Suspense fallback
-const PageLoading = () => (
-  <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-    <div className="text-center">
-      <LoadingSpinner size="lg" />
-      <p className="mt-4 text-amber-100 text-sm">Loading...</p>
+// Loading component for Suspense fallback - theme-aware
+const PageLoading = () => {
+  // Read theme preference from localStorage to avoid flash of wrong theme
+  const isDark = localStorage.getItem('isDarkMode') !== 'false';
+  
+  return (
+    <div className={`min-h-screen flex items-center justify-center transition-colors ${
+      isDark ? 'bg-gray-900' : 'bg-gray-50'
+    }`}>
+      <div className="text-center">
+        <LoadingSpinner size="lg" />
+        <p className={`mt-4 text-sm ${isDark ? 'text-amber-100' : 'text-gray-600'}`}>Loading...</p>
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 // ProtectedRoute component
 const ProtectedRoute = ({ children, allowedRoles = [] }) => {
@@ -231,16 +238,31 @@ function App() {
     <ThemeProvider>
       <AuthProvider>
         <Router>
-          <div className="min-h-screen bg-gray-900 dark:bg-gray-950">
-            <ToastContainer isDarkMode={true} />
-            <AppContent />
-            {/* Chatbot enabled after fixes to nullable userId and endpoint routing */}
-            <ChatbotButton />
-            <InstallPrompt />
-          </div>
+          <AppWrapper />
         </Router>
       </AuthProvider>
     </ThemeProvider>
+  );
+}
+
+function AppWrapper() {
+  const { isDarkMode } = useTheme();
+  
+  return (
+    <div 
+      className={`min-h-screen transition-colors duration-300 ${
+        isDarkMode 
+          ? 'bg-gray-900' 
+          : 'bg-[var(--background)]'
+      }`}
+      style={!isDarkMode ? { backgroundColor: 'var(--background, #F8FAFC)' } : {}}
+    >
+      <ToastContainer isDarkMode={isDarkMode} />
+      <AppContent />
+      {/* Chatbot enabled after fixes to nullable userId and endpoint routing */}
+      <ChatbotButton isDarkMode={isDarkMode} />
+      <InstallPrompt />
+    </div>
   );
 }
 

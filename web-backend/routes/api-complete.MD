@@ -1,27 +1,3 @@
-// ==================== TESTIMONIALS ROUTES ====================
-Route::get('/testimonials/feedbacks/all', [FeedbackController::class, 'getAllTestimonials']);
-
-    // Chatbot position persistence (per-user)
-    Route::get('/chatbot/position', [ChatbotPositionController::class, 'show']);
-    Route::post('/chatbot/position', [ChatbotPositionController::class, 'store']);
-    // FEEDBACK ROUTES (Admin only)
-    Route::prefix('admin/feedback')->middleware(['role:admin'])->group(function () {
-        Route::get('/', [FeedbackController::class, 'index']);
-        Route::get('/stats', [FeedbackController::class, 'getStats']);
-        Route::get('/settings', [FeedbackSettingsController::class, 'show']);
-        Route::put('/settings', [FeedbackSettingsController::class, 'update']);
-        Route::get('/{id}', [FeedbackController::class, 'show']);
-        Route::put('/{id}/testimonial', [FeedbackController::class, 'updateTestimonial']);
-        Route::post('/{id}/report', [FeedbackController::class, 'reportFeedback']);
-        Route::post('/{id}/block-user', [FeedbackController::class, 'blockUser']);
-        Route::delete('/{id}', [FeedbackController::class, 'destroy']);
-    });
-    // USER FEEDBACK ROUTES (Authenticated users)
-    Route::prefix('user/feedback')->middleware(['auth:sanctum'])->group(function () {
-        Route::get('/', [FeedbackController::class, 'getUserFeedback']);
-        Route::post('/', [FeedbackController::class, 'store']);
-        Route::get('/check-limit', [FeedbackController::class, 'checkRateLimit']);
-    });
 <?php
 
 use App\Http\Controllers\AuthController;

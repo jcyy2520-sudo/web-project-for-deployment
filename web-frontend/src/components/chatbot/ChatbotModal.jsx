@@ -212,7 +212,7 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
       {/* Modal - Responsive: larger on mobile, positioned on desktop */}
       <div className={`fixed bottom-6 right-6 left-6 w-auto sm:inset-auto sm:bottom-24 sm:right-6 sm:w-[400px] sm:max-w-[calc(100vw-3rem)] rounded-xl shadow-2xl flex flex-col h-[82vh] sm:h-[600px] sm:max-h-[calc(100vh-8rem)] z-50 overflow-hidden border ${isDarkMode ? 'bg-gray-900 border-amber-500/30' : 'bg-white border-slate-200'}`}>
         {/* Header */}
-        <div className={`px-5 py-4 flex justify-between items-center flex-shrink-0 ${isDarkMode ? 'bg-gray-900 border-b border-amber-500/20 text-gray-100' : 'bg-white border-b border-blue-100 text-slate-900'}`}>
+        <div className={`px-5 py-4 flex justify-between items-center flex-shrink-0 ${isDarkMode ? 'bg-gray-900 border-b border-amber-500/20 text-gray-100' : 'bg-slate-50 border-b border-slate-200 text-slate-900'}`}>
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center">
               <svg className="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -228,7 +228,7 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
             {/* New Chat Button */}
             <button
               onClick={handleNewConversation}
-              className={`p-2 rounded-lg transition-all ${isDarkMode ? 'hover:bg-amber-500/10 hover:text-amber-500 text-gray-400' : 'hover:bg-blue-50 hover:text-blue-600 text-slate-600'}`}
+              className={`p-2 rounded-lg transition-all ${isDarkMode ? 'hover:bg-amber-500/10 hover:text-amber-500 text-gray-400' : 'hover:bg-slate-50 hover:text-amber-600 text-slate-600'}`}
               title="New conversation"
               aria-label="Start new conversation"
             >
@@ -239,7 +239,7 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
             {/* History Button */}
             <button
               onClick={toggleHistory}
-              className={`p-2 rounded-lg transition-all ${isDarkMode ? (showHistory ? 'bg-amber-500/20 text-amber-500' : 'text-gray-400 hover:bg-amber-500/10 hover:text-amber-500') : (showHistory ? 'bg-blue-100 text-blue-600' : 'text-slate-600 hover:bg-blue-50 hover:text-blue-600')}`}
+              className={`p-2 rounded-lg transition-all ${isDarkMode ? (showHistory ? 'bg-amber-500/20 text-amber-500' : 'text-gray-400 hover:bg-amber-500/10 hover:text-amber-500') : (showHistory ? 'bg-slate-200 text-amber-600' : 'text-slate-600 hover:bg-slate-50 hover:text-amber-600')}`}
               title="Chat history"
               aria-label="View chat history"
             >
@@ -249,7 +249,7 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
             </button>
             <button
               onClick={() => setShowClearConfirm(true)}
-              className={`p-2 rounded-lg transition-all ${isDarkMode ? 'hover:bg-amber-500/10 hover:text-amber-500 text-gray-400' : 'hover:bg-blue-50 hover:text-blue-600 text-slate-600'}`}
+              className={`p-2 rounded-lg transition-all ${isDarkMode ? 'hover:bg-amber-500/10 hover:text-amber-500 text-gray-400' : 'hover:bg-slate-50 hover:text-amber-600 text-slate-600'}`}
               title="Clear history"
               aria-label="Clear chat history"
             >
@@ -259,7 +259,7 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
             </button>
             <button
               onClick={onClose}
-              className={`p-2 rounded-lg transition-all ${isDarkMode ? 'hover:bg-amber-500/10 hover:text-amber-500 text-gray-400' : 'hover:bg-blue-50 hover:text-blue-600 text-slate-600'}`}
+              className={`p-2 rounded-lg transition-all ${isDarkMode ? 'hover:bg-amber-500/10 hover:text-amber-500 text-gray-400' : 'hover:bg-slate-50 hover:text-amber-600 text-slate-600'}`}
               title="Close chat"
               aria-label="Close chat"
             >
@@ -272,20 +272,20 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
 
         {/* Rate Limit Warning Banner */}
         {isRateLimited && rateLimitInfo.mustStartNew && (
-          <div className={`${isDarkMode ? 'px-4 py-3 bg-amber-500/20 border-b border-amber-500/30 flex-shrink-0' : 'px-4 py-3 bg-blue-50 border-b border-blue-100 flex-shrink-0'}`}>
+          <div className={`${isDarkMode ? 'px-4 py-3 bg-amber-500/20 border-b border-amber-500/30 flex-shrink-0' : 'px-4 py-3 bg-slate-50 border-b border-slate-200 flex-shrink-0'}`}>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <svg className="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
                 <div>
-                  <p className={`text-sm font-medium ${isDarkMode ? 'text-amber-300' : 'text-blue-700'}`}>Message Limit Reached</p>
-                  <p className={`text-xs ${isDarkMode ? 'text-amber-400/80' : 'text-blue-600'}`}>{rateLimitMessage || 'Start a new conversation to continue chatting.'}</p>
+                  <p className={`text-sm font-medium ${isDarkMode ? 'text-amber-300' : 'text-amber-700'}`}>Message Limit Reached</p>
+                  <p className={`text-xs ${isDarkMode ? 'text-amber-400/80' : 'text-amber-600'}`}>{rateLimitMessage || 'Start a new conversation to continue chatting.'}</p>
                 </div>
               </div>
               <button
                 onClick={handleNewConversation}
-                className={`px-3 py-1.5 text-sm font-medium rounded-lg hover:opacity-95 transition-all ${isDarkMode ? 'bg-amber-500 text-gray-900 hover:bg-amber-400' : 'bg-blue-600 text-white hover:bg-blue-500'}`}
+                className={`px-3 py-1.5 text-sm font-medium rounded-lg hover:opacity-95 transition-all ${isDarkMode ? 'bg-amber-500 text-gray-900 hover:bg-amber-400' : 'bg-amber-600 text-white hover:bg-slate-500'}`}
               >
                 New Chat
               </button>
@@ -295,14 +295,14 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
 
         {/* Message Counter (shows remaining messages) */}
         {!isRateLimited && rateLimitInfo.remaining <= 5 && rateLimitInfo.remaining > 0 && (
-          <div className={`${isDarkMode ? 'px-4 py-2 bg-gray-800/50 border-b border-amber-500/10 flex-shrink-0' : 'px-4 py-2 bg-white/80 border-b border-blue-100 flex-shrink-0'}`}>
+          <div className={`${isDarkMode ? 'px-4 py-2 bg-gray-800/50 border-b border-amber-500/10 flex-shrink-0' : 'px-4 py-2 bg-white/80 border-b border-slate-200 flex-shrink-0'}`}>
             <div className="flex items-center justify-between">
               <span className="text-xs text-gray-400">
                 {rateLimitInfo.remaining} message{rateLimitInfo.remaining !== 1 ? 's' : ''} remaining in this conversation
               </span>
               <button
                 onClick={handleNewConversation}
-                className={`text-xs transition-colors ${isDarkMode ? 'text-amber-400 hover:text-amber-300' : 'text-blue-600 hover:text-blue-500'}`}
+                className={`text-xs transition-colors ${isDarkMode ? 'text-amber-400 hover:text-amber-300' : 'text-amber-600 hover:text-slate-500'}`}
               >
                 Start new
               </button>
@@ -312,9 +312,9 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
 
         {/* Conversation History Panel (Slide-in sidebar) */}
         {showHistory && (
-          <div className={`absolute inset-0 top-[73px] z-10 flex flex-col border-t ${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-blue-100'}`}>
+          <div className={`absolute inset-0 top-[73px] z-10 flex flex-col border-t ${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-slate-200'}`}>
             {/* History Header */}
-            <div className={`px-4 py-3 border-b ${isDarkMode ? 'border-amber-500/20' : 'border-blue-100'} flex items-center justify-between`}>
+            <div className={`px-4 py-3 border-b ${isDarkMode ? 'border-amber-500/20' : 'border-slate-200'} flex items-center justify-between`}>
               <h3 className={`font-medium ${isDarkMode ? 'text-gray-200' : 'text-slate-900'}`}>Conversation History</h3>
               <button
                 onClick={() => setShowHistory(false)}
@@ -327,10 +327,10 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
             </div>
             
             {/* New Conversation Button */}
-            <div className={`px-4 py-2 border-b ${isDarkMode ? 'border-amber-500/10' : 'border-blue-100'}`}>
+            <div className={`px-4 py-2 border-b ${isDarkMode ? 'border-amber-500/10' : 'border-slate-200'}`}>
               <button
                 onClick={handleNewConversation}
-                className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg transition-all ${isDarkMode ? 'bg-amber-500/10 border border-amber-500/30 text-amber-400 hover:bg-amber-500/20 hover:border-amber-500/50' : 'bg-blue-50 border border-blue-100 text-blue-600 hover:bg-blue-100 hover:border-blue-200'}`}
+                className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg transition-all ${isDarkMode ? 'bg-amber-500/10 border border-amber-500/30 text-amber-400 hover:bg-amber-500/20 hover:border-amber-500/50' : 'bg-slate-50 border border-slate-200 text-amber-600 hover:bg-slate-200 hover:border-slate-300'}`}
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -344,14 +344,14 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
               {conversationsLoading ? (
                 <div className="flex items-center justify-center py-8">
                   <div className="flex space-x-1">
-                    <div className={`w-2 h-2 rounded-full animate-bounce ${isDarkMode ? 'bg-amber-500' : 'bg-blue-500'}`} />
-                    <div className={`w-2 h-2 rounded-full animate-bounce ${isDarkMode ? 'bg-amber-500' : 'bg-blue-500'}`} style={{ animationDelay: '0.1s' }} />
-                    <div className={`w-2 h-2 rounded-full animate-bounce ${isDarkMode ? 'bg-amber-500' : 'bg-blue-500'}`} style={{ animationDelay: '0.2s' }} />
+                    <div className={`w-2 h-2 rounded-full animate-bounce ${isDarkMode ? 'bg-amber-500' : 'bg-slate-500'}`} />
+                    <div className={`w-2 h-2 rounded-full animate-bounce ${isDarkMode ? 'bg-amber-500' : 'bg-slate-500'}`} style={{ animationDelay: '0.1s' }} />
+                    <div className={`w-2 h-2 rounded-full animate-bounce ${isDarkMode ? 'bg-amber-500' : 'bg-slate-500'}`} style={{ animationDelay: '0.2s' }} />
                   </div>
                 </div>
               ) : conversations.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
-                  <svg className={`w-12 h-12 mb-3 ${isDarkMode ? 'text-gray-600' : 'text-blue-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className={`w-12 h-12 mb-3 ${isDarkMode ? 'text-gray-600' : 'text-amber-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                   </svg>
                   <p className={`${isDarkMode ? 'text-gray-500' : 'text-slate-600'} text-sm`}>No conversation history yet</p>
@@ -362,7 +362,7 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
                   {conversations.map((conv) => (
                     <div
                       key={conv.conversation_id}
-                      className={`relative group ${conversationId === conv.conversation_id ? (isDarkMode ? 'bg-amber-500/10' : 'bg-blue-50') : (isDarkMode ? 'hover:bg-gray-800/50' : 'hover:bg-gray-50')}`}
+                      className={`relative group ${conversationId === conv.conversation_id ? (isDarkMode ? 'bg-amber-500/10' : 'bg-slate-50') : (isDarkMode ? 'hover:bg-gray-800/50' : 'hover:bg-gray-50')}`}
                     >
                       <button
                         onClick={() => handleSwitchConversation(conv.conversation_id)}
@@ -370,7 +370,7 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex-1 min-w-0">
-                            <p className={`text-sm font-medium truncate ${conversationId === conv.conversation_id ? (isDarkMode ? 'text-amber-400' : 'text-blue-600') : (isDarkMode ? 'text-gray-300' : 'text-slate-700')}`}>
+                            <p className={`text-sm font-medium truncate ${conversationId === conv.conversation_id ? (isDarkMode ? 'text-amber-400' : 'text-amber-600') : (isDarkMode ? 'text-gray-300' : 'text-slate-700')}`}>
                               {conv.title}
                             </p>
                             {conv.last_message && (
@@ -389,7 +389,7 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
                             </div>
                           </div>
                             {conversationId === conv.conversation_id && (
-                            <div className={`w-2 h-2 rounded-full flex-shrink-0 mt-1.5 ${isDarkMode ? 'bg-amber-500' : 'bg-blue-600'}`} />
+                            <div className={`w-2 h-2 rounded-full flex-shrink-0 mt-1.5 ${isDarkMode ? 'bg-amber-500' : 'bg-amber-600'}`} />
                           )}
                         </div>
                       </button>
@@ -448,9 +448,9 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
               ) : loadingSuggestions ? (
                   <div className="w-full">
                   <div className={`flex items-center justify-center gap-2 ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>
-                    <div className={`w-2 h-2 rounded-full animate-bounce ${isDarkMode ? 'bg-amber-500' : 'bg-blue-500'}`} />
-                    <div className={`w-2 h-2 rounded-full animate-bounce ${isDarkMode ? 'bg-amber-500' : 'bg-blue-500'}`} style={{ animationDelay: '0.1s' }} />
-                    <div className={`w-2 h-2 rounded-full animate-bounce ${isDarkMode ? 'bg-amber-500' : 'bg-blue-500'}`} style={{ animationDelay: '0.2s' }} />
+                    <div className={`w-2 h-2 rounded-full animate-bounce ${isDarkMode ? 'bg-amber-500' : 'bg-slate-500'}`} />
+                    <div className={`w-2 h-2 rounded-full animate-bounce ${isDarkMode ? 'bg-amber-500' : 'bg-slate-500'}`} style={{ animationDelay: '0.1s' }} />
+                    <div className={`w-2 h-2 rounded-full animate-bounce ${isDarkMode ? 'bg-amber-500' : 'bg-slate-500'}`} style={{ animationDelay: '0.2s' }} />
                   </div>
                 </div>
               ) : (
@@ -467,8 +467,8 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
                                 update.priority === 'high'
                                   ? (isDarkMode ? 'bg-red-500/10 border-red-500/30 hover:bg-red-500/20 hover:border-red-500/50' : 'bg-red-50 border-red-100 hover:bg-red-100')
                                   : update.priority === 'medium'
-                                  ? (isDarkMode ? 'bg-amber-500/10 border-amber-500/30 hover:bg-amber-500/20 hover:border-amber-500/50' : 'bg-blue-50 border-blue-100 hover:bg-blue-100')
-                                  : (isDarkMode ? 'bg-gray-900/50 border-gray-700 hover:bg-gray-900 hover:border-gray-600' : 'bg-white border-blue-100 hover:bg-gray-50')
+                                  ? (isDarkMode ? 'bg-amber-500/10 border-amber-500/30 hover:bg-amber-500/20 hover:border-amber-500/50' : 'bg-slate-50 border-slate-200 hover:bg-slate-200')
+                                  : (isDarkMode ? 'bg-gray-900/50 border-gray-700 hover:bg-gray-900 hover:border-gray-600' : 'bg-white border-slate-200 hover:bg-gray-50')
                               }`}
                         >
                           <span className="flex items-center justify-between gap-2">

@@ -25,7 +25,7 @@ const ChatbotMessage = ({ message, isDarkMode = true }) => {
       'pending': 'bg-yellow-500/20 text-yellow-300 border-yellow-500/30',
       'approved': 'bg-green-500/20 text-green-300 border-green-500/30',
       'confirmed': 'bg-green-500/20 text-green-300 border-green-500/30',
-      'completed': 'bg-blue-500/20 text-blue-300 border-blue-500/30',
+      'completed': 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30',
       'cancelled': 'bg-red-500/20 text-red-300 border-red-500/30',
       'declined': 'bg-red-500/20 text-red-300 border-red-500/30',
       'paid': 'bg-green-500/20 text-green-300 border-green-500/30',
@@ -83,7 +83,7 @@ const ChatbotMessage = ({ message, isDarkMode = true }) => {
     const roleColors = {
       'ADMIN': 'bg-purple-500/20 text-purple-300 border-purple-500/30',
       'CASHIER': 'bg-green-500/20 text-green-300 border-green-500/30',
-      'CLIENT': 'bg-blue-500/20 text-blue-300 border-blue-500/30',
+      'CLIENT': 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30',
       'SYSTEM': 'bg-gray-500/20 text-gray-300 border-gray-500/30',
     };
 
@@ -151,7 +151,7 @@ const ChatbotMessage = ({ message, isDarkMode = true }) => {
     if (simpleMetrics.length === 0) return null;
 
     return (
-      <div className={`mt-3 p-3 rounded-lg ${isDarkMode ? 'bg-gray-800 border border-amber-500/10' : 'bg-white border border-blue-100'}`}>
+      <div className={`mt-3 p-3 rounded-lg ${isDarkMode ? 'bg-gray-800 border border-amber-500/10' : 'bg-white border border-slate-200'}`}>
         <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'} uppercase tracking-wide mb-2`}>📊 Metrics</div>
         <div className="grid grid-cols-2 gap-2 text-sm">
           {simpleMetrics.map(([key, value]) => {
@@ -178,7 +178,7 @@ const ChatbotMessage = ({ message, isDarkMode = true }) => {
     if (!appointments || !Array.isArray(appointments) || appointments.length === 0) return null;
 
     return (
-      <div className={`mt-3 p-3 rounded-lg ${isDarkMode ? 'bg-gray-800 border border-amber-500/10' : 'bg-white border border-blue-100'}`}>
+      <div className={`mt-3 p-3 rounded-lg ${isDarkMode ? 'bg-gray-800 border border-amber-500/10' : 'bg-white border border-slate-200'}`}>
         <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'} uppercase tracking-wide mb-2`}>📅 Appointments</div>
         <div className="space-y-2">
             {appointments.slice(0, 5).map((apt, idx) => (
@@ -215,7 +215,7 @@ const ChatbotMessage = ({ message, isDarkMode = true }) => {
     if (!apt || isUser) return null;
 
     return (
-      <div className={`mt-3 p-3 rounded-lg ${isDarkMode ? 'bg-gray-800 border border-amber-500/10' : 'bg-white border border-blue-100'}`}>
+      <div className={`mt-3 p-3 rounded-lg ${isDarkMode ? 'bg-gray-800 border border-amber-500/10' : 'bg-white border border-slate-200'}`}>
         <div className="flex items-center justify-between mb-2">
           <span className="text-sm font-semibold text-gray-200">Appointment #{apt.id}</span>
           <span className={`text-[10px] px-2 py-0.5 rounded-full border ${getStatusColor(apt.status)}`}>
@@ -356,7 +356,7 @@ const ChatbotMessage = ({ message, isDarkMode = true }) => {
     if (!services || !Array.isArray(services) || services.length === 0) return null;
 
     return (
-      <div className={`mt-3 p-3 rounded-lg ${isDarkMode ? 'bg-gray-800 border border-amber-500/10' : 'bg-white border border-blue-100'}`}>
+      <div className={`mt-3 p-3 rounded-lg ${isDarkMode ? 'bg-gray-800 border border-amber-500/10' : 'bg-white border border-slate-200'}`}>
         <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'} uppercase tracking-wide mb-2`}>📋 Services</div>
         <div className="space-y-2">
             {services.slice(0, 6).map((service, idx) => (
@@ -386,7 +386,7 @@ const ChatbotMessage = ({ message, isDarkMode = true }) => {
     };
 
     return (
-      <div className={`mt-3 p-3 rounded-lg ${isDarkMode ? 'bg-gray-800 border border-amber-500/10' : 'bg-white border border-blue-100'}`}>
+      <div className={`mt-3 p-3 rounded-lg ${isDarkMode ? 'bg-gray-800 border border-amber-500/10' : 'bg-white border border-slate-200'}`}>
         <div className="flex items-center justify-between mb-2">
             <span className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'} uppercase tracking-wide`}>🔧 System Health</span>
           <span className={`text-sm font-medium ${statusColors[health.status] || statusColors.unknown}`}>
@@ -454,10 +454,10 @@ const ChatbotMessage = ({ message, isDarkMode = true }) => {
       <div
         className={`max-w-[85%] rounded-xl px-4 py-3 ${
           isUser
-            ? (isDarkMode ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/20' : 'bg-blue-600 text-white shadow-md')
+            ? (isDarkMode ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/20' : 'bg-amber-600 text-white shadow-md')
             : isPriority 
               ? (isDarkMode ? 'bg-gray-900 text-gray-100 border-2 border-red-500/40 ring-2 ring-red-500/20' : 'bg-red-50 text-red-700 border-2 border-red-200')
-              : (isDarkMode ? 'bg-gray-900 text-gray-100 border border-amber-500/20' : 'bg-white text-slate-900 border border-blue-100')
+              : (isDarkMode ? 'bg-gray-900 text-gray-100 border border-amber-500/20' : 'bg-white text-slate-900 border border-slate-200')
         }`}
       >
         <div>
@@ -471,7 +471,7 @@ const ChatbotMessage = ({ message, isDarkMode = true }) => {
 
           {/* Render structured appointment card when present (legacy support) */}
           {message?.meta?.data?.next_appointment && !data?.appointment && (
-            <div className={`mt-3 p-3 rounded-lg ${isDarkMode ? 'bg-gray-800 border border-amber-500/10' : 'bg-white border border-blue-100'}`}>
+            <div className={`mt-3 p-3 rounded-lg ${isDarkMode ? 'bg-gray-800 border border-amber-500/10' : 'bg-white border border-slate-200'}`}>
               <div className="text-sm text-gray-300 font-semibold">Next appointment</div>
               <div className="mt-2 text-sm text-gray-200">
                 <div><strong>Date:</strong> {message.meta.data.next_appointment.date}</div>
@@ -528,10 +528,10 @@ const ChatbotMessage = ({ message, isDarkMode = true }) => {
                   key={idx}
                   className={`text-xs px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
                     action.type === 'primary'
-                      ? (isDarkMode ? 'bg-amber-500 text-gray-900 hover:bg-amber-400' : 'bg-blue-600 text-white hover:bg-blue-500')
+                      ? (isDarkMode ? 'bg-amber-500 text-gray-900 hover:bg-amber-400' : 'bg-amber-600 text-white hover:bg-cyan-500')
                       : action.type === 'danger'
                       ? (isDarkMode ? 'bg-red-500/20 text-red-300 border border-red-500/30 hover:bg-red-500/30' : 'bg-red-50 text-red-700 border border-red-100')
-                      : (isDarkMode ? 'bg-gray-800 border border-amber-500/20 text-amber-400 hover:bg-amber-500/10 hover:border-amber-500/40' : 'bg-white border border-blue-100 text-slate-700 hover:bg-blue-50')
+                      : (isDarkMode ? 'bg-gray-800 border border-amber-500/20 text-amber-400 hover:bg-amber-500/10 hover:border-amber-500/40' : 'bg-white border border-slate-200 text-slate-700 hover:bg-blue-50')
                   }`}
                   onClick={() => {
                     if (action.route) {
@@ -561,7 +561,7 @@ const ChatbotMessage = ({ message, isDarkMode = true }) => {
               {meta.suggestions.map((suggestion, idx) => (
                 <button
                   key={idx}
-                  className={`text-xs px-3 py-1.5 rounded-full transition-all ${isDarkMode ? 'bg-gray-800 border border-amber-500/20 text-amber-400 hover:bg-amber-500/10 hover:border-amber-500/40' : 'bg-white border border-blue-100 text-slate-700 hover:bg-blue-50'}`}
+                  className={`text-xs px-3 py-1.5 rounded-full transition-all ${isDarkMode ? 'bg-gray-800 border border-amber-500/20 text-amber-400 hover:bg-amber-500/10 hover:border-amber-500/40' : 'bg-white border border-slate-200 text-slate-700 hover:bg-blue-50'}`}
                   onClick={() => {
                     // Dispatch custom event to send suggestion as message
                     window.dispatchEvent(new CustomEvent('chatbot-suggestion', { detail: suggestion }));
