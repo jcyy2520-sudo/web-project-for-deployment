@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
 import {
   ClockIcon,
   CheckCircleIcon,
@@ -10,11 +11,13 @@ import {
   ArrowPathIcon,
   MagnifyingGlassIcon,
   CalendarIcon,
-  EyeIcon
+  EyeIcon,
+  ArrowLeftIcon
 } from '@heroicons/react/24/outline';
 import ActionLogDetailModal from './modals/ActionLogDetailModal';
 
 const ActionLogViewer = ({ isDarkMode = true }) => {
+  const navigate = useNavigate();
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -29,19 +32,20 @@ const ActionLogViewer = ({ isDarkMode = true }) => {
     loadLogs();
   }, [currentPage]);
 
-  // Real-time polling for action logs
+  // Real-time polling for action logs - poll every 5 seconds for near real-time updates
   useEffect(() => {
-    // Poll for new action logs every 10 seconds
     const pollInterval = setInterval(() => {
-      loadLogs();
-    }, 10000);
+      loadLogs(true); // Silent refresh - no loading spinner
+    }, 5000);
 
     return () => clearInterval(pollInterval);
   }, [currentPage, actionFilter, searchTerm]);
 
-  const loadLogs = async () => {
+  const loadLogs = async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) {
+        setLoading(true);
+      }
       setError('');
       
       const response = await axios.get('/api/action-logs/my/logs', {
@@ -61,7 +65,9 @@ const ActionLogViewer = ({ isDarkMode = true }) => {
       setError(err.response?.data?.message || 'Failed to load action logs');
       console.error('Error loading action logs:', err);
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   };
 
@@ -120,8 +126,32 @@ const ActionLogViewer = ({ isDarkMode = true }) => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-center">
+      {/* Mobile Header with Back Button */}
+      <div className="flex lg:hidden items-center gap-3 -mx-3 -mt-3 px-3 py-3 border-b border-gray-700">
+        <button
+          onClick={() => navigate('/dashboard?tab=home')}
+          className="p-2 rounded-lg hover:bg-gray-800 transition-colors"
+        >
+          <ArrowLeftIcon className="w-5 h-5 text-gray-300" />
+        </button>
+        <div className="flex-1">
+          <h2 className={`text-lg font-bold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} transition-colors duration-300`}>
+            Action Log
+          </h2>
+          <p className={`${isDarkMode ? 'text-amber-400/70' : 'text-amber-700/70'} text-sm transition-colors duration-300`}>
+            View your recent activities
+          </p>
+        </div>
+        <button
+          onClick={loadLogs}
+          className="p-2 rounded-lg hover:bg-gray-800 transition-colors"
+        >
+          <ArrowPathIcon className={`h-5 w-5 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`} />
+        </button>
+      </div>
+
+      {/* Desktop Header */}
+      <div className="hidden lg:flex justify-between items-center">
         <div>
           <h2 className={`text-lg font-bold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} transition-colors duration-300`}>
             Action Log

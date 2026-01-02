@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import ChatbotModal from './ChatbotModal';
 
 const ChatbotButton = ({ className = '', isDarkMode }) => {
@@ -13,6 +13,141 @@ const ChatbotButton = ({ className = '', isDarkMode }) => {
       return true;
     }
   });
+
+  // Draggable position state and refs
+  const buttonRef = useRef(null);
+  const draggingRef = useRef(false);
+  const movedRef = useRef(false);
+  const pointerOffsetRef = useRef({ x: 0, y: 0 });
+  const dragPosRef = useRef(null); // Track position during drag
+  const [pos, setPos] = useState(null); // { left, top }
+  const [isDragging, setIsDragging] = useState(false);
+
+  const STORAGE_KEY = 'chatbot_position_v1';
+
+  // Check if we're on mobile
+  const isMobile = () => {
+    return typeof window !== 'undefined' && window.innerWidth < 640;
+  };
+
+  // Load saved position after mount
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed.left === 'number' && typeof parsed.top === 'number') {
+          // On mobile, ensure the button is not too close to the bottom (where BottomNav is)
+          const btnH = 56;
+          const bottomNavHeight = isMobile() ? 80 : 0; // Account for BottomNav on mobile
+          const maxTop = window.innerHeight - btnH - bottomNavHeight - 16;
+          const adjustedTop = Math.min(parsed.top, maxTop);
+          setPos({ left: parsed.left, top: adjustedTop });
+          return;
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    // default: bottom-right offset, above BottomNav on mobile
+    try {
+      const btnW = 56;
+      const btnH = 56;
+      const right = 24;
+      const bottomNavHeight = isMobile() ? 80 : 0; // Account for BottomNav on mobile
+      const bottom = 80 + bottomNavHeight;
+      const left = Math.max(12, window.innerWidth - btnW - right);
+      const top = Math.max(12, window.innerHeight - btnH - bottom);
+      setPos({ left, top });
+    } catch (e) {
+      setPos({ left: 12, top: 12 });
+    }
+  }, []);
+
+  // Save position to localStorage
+  const persistPos = useCallback((p) => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(p));
+    } catch (e) {
+      console.warn('Failed to save chatbot position:', e);
+    }
+  }, []);
+
+  const clamp = useCallback((value, min, max) => Math.min(Math.max(value, min), max), []);
+
+  const handlePointerMove = useCallback((e) => {
+    if (!draggingRef.current || !buttonRef.current) return;
+
+    const point = e.touches ? e.touches[0] : e;
+    const btn = buttonRef.current;
+    const btnW = btn.offsetWidth;
+    const btnH = btn.offsetHeight;
+    
+    // On mobile, leave space for BottomNav (approximately 80px)
+    const bottomNavHeight = isMobile() ? 80 : 0;
+    const maxTop = window.innerHeight - btnH - bottomNavHeight - 8;
+    
+    const left = clamp(point.clientX - pointerOffsetRef.current.x, 8, window.innerWidth - btnW - 8);
+    const top = clamp(point.clientY - pointerOffsetRef.current.y, 8, maxTop);
+
+    // Store position in ref and apply visual feedback with transform for smooth dragging
+    dragPosRef.current = { left, top };
+    btn.style.left = `${left}px`;
+    btn.style.top = `${top}px`;
+    movedRef.current = true;
+  }, [clamp]);
+
+  const handlePointerUp = useCallback((e) => {
+    if (draggingRef.current) {
+      draggingRef.current = false;
+      setIsDragging(false);
+      
+      // Commit the dragged position to state
+      if (dragPosRef.current) {
+        setPos(dragPosRef.current);
+        persistPos(dragPosRef.current);
+        dragPosRef.current = null;
+      }
+      
+      document.removeEventListener('pointermove', handlePointerMove);
+      document.removeEventListener('touchmove', handlePointerMove);
+      document.removeEventListener('pointerup', handlePointerUp);
+      document.removeEventListener('touchend', handlePointerUp);
+    }
+  }, [persistPos, handlePointerMove]);
+
+  const handlePointerDown = useCallback((e) => {
+    if (isOpen) return; // Don't start drag if modal is open
+    
+    draggingRef.current = true;
+    movedRef.current = false;
+    setIsDragging(true);
+    
+    const point = e.touches ? e.touches[0] : e;
+    const rect = buttonRef.current?.getBoundingClientRect();
+    
+    pointerOffsetRef.current = {
+      x: point.clientX - (rect?.left || 0),
+      y: point.clientY - (rect?.top || 0),
+    };
+
+    // Use document instead of window for better performance
+    document.addEventListener('pointermove', handlePointerMove, { passive: true });
+    document.addEventListener('touchmove', handlePointerMove, { passive: true });
+    document.addEventListener('pointerup', handlePointerUp, { passive: true });
+    document.addEventListener('touchend', handlePointerUp, { passive: true });
+  }, [handlePointerMove, handlePointerUp, isOpen]);
+
+  // Cleanup event listeners
+  useEffect(() => {
+    return () => {
+      document.removeEventListener('pointermove', handlePointerMove);
+      document.removeEventListener('touchmove', handlePointerMove);
+      document.removeEventListener('pointerup', handlePointerUp);
+      document.removeEventListener('touchend', handlePointerUp);
+    };
+  }, [handlePointerMove, handlePointerUp]);
 
   useEffect(() => {
     if (typeof isDarkMode === 'boolean') {
@@ -35,15 +170,54 @@ const ChatbotButton = ({ className = '', isDarkMode }) => {
 
   return (
     <>
-      {/* Floating Button - Responsive positioning to avoid mobile nav collision */}
+      {/* Floating Chatbot Button - Draggable */}
       <button
-        onClick={() => setIsOpen(true)}
-        className={`fixed bottom-20 sm:bottom-6 right-4 sm:right-6 rounded-full shadow-lg transform hover:scale-105 transition-all duration-200 z-40 flex items-center justify-center w-12 h-12 sm:w-14 sm:h-14 group ${className} ${resolvedDark ? 'bg-gray-900 border-2 border-amber-500/50 text-amber-500 hover:shadow-amber-500/20 hover:border-amber-500 hover:bg-gray-800' : 'bg-white border border-blue-100 text-blue-600 hover:bg-blue-50 hover:border-blue-200'}`}
-        title="Chat Assistant"
+        ref={buttonRef}
+        onClick={(e) => {
+          // Prevent click when dragging
+          if (movedRef.current) {
+            e.preventDefault();
+            e.stopPropagation();
+            movedRef.current = false;
+            return;
+          }
+          setIsOpen(true);
+        }}
+        onPointerDown={handlePointerDown}
+        onTouchStart={handlePointerDown}
+        style={
+          pos
+            ? {
+                position: 'fixed',
+                left: `${pos.left}px`,
+                top: `${pos.top}px`,
+                zIndex: 70,
+                willChange: isDragging ? 'transform' : 'auto',
+                cursor: isDragging ? 'grabbing' : 'grab',
+                transition: isDragging ? 'none' : 'all 0.15s ease-out',
+              }
+            : {
+                position: 'fixed',
+                right: '24px',
+                bottom: '80px',
+                zIndex: 70,
+                cursor: 'grab',
+              }
+        }
+        className={`rounded-full shadow-lg transform active:scale-95 z-[70] flex items-center justify-center w-14 h-14 touch-none select-none ${className} ${
+          isDragging
+            ? 'scale-100 shadow-2xl opacity-95'
+            : 'hover:scale-110 transition-all duration-200'
+        } ${
+          resolvedDark
+            ? 'bg-gradient-to-br from-amber-500 to-amber-600 border-2 border-amber-400/50 text-white hover:shadow-amber-500/30 hover:border-amber-400 hover:from-amber-400 hover:to-amber-500'
+            : 'bg-gradient-to-br from-blue-500 to-blue-600 border border-blue-300/50 text-white hover:shadow-blue-500/30 hover:border-blue-300 hover:from-blue-400 hover:to-blue-500'
+        }`}
+        title="Chat Assistant (Drag to move)"
         aria-label="Open Chatbot Assistant"
       >
         <svg
-          className="w-6 h-6 group-hover:scale-110 transition-transform"
+          className={`w-6 h-6 transition-transform ${isDragging ? 'scale-90' : ''}`}
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -55,6 +229,11 @@ const ChatbotButton = ({ className = '', isDarkMode }) => {
             d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"
           />
         </svg>
+
+        {/* Visual dragging indicator */}
+        {isDragging && (
+          <div className="absolute inset-0 rounded-full border-2 border-white/40 animate-pulse" />
+        )}
       </button>
 
       {/* Modal */}

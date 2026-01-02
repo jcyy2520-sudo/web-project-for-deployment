@@ -230,27 +230,27 @@ const Sparkline = ({ data = [], width = 120, height = 28, stroke = 'var(--accent
 // Using shared LineChart component from components/charts/LineChart
 
 // Logout Modal Component
-const LogoutModal = ({ isOpen, onClose, onConfirm, loading }) => {
+const LogoutModal = ({ isOpen, onClose, onConfirm, loading, isDarkMode = true }) => {
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4 animate-fadeIn">
-      <div className="bg-gray-900 border border-amber-500/30 rounded-lg shadow-xl w-full max-w-md transform animate-scaleIn">
+      <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/30' : 'bg-white border-amber-300/40'} border rounded-lg shadow-xl w-full max-w-md transform animate-scaleIn`}>
         <div className="p-4">
-          <h3 className="text-sm font-semibold text-amber-50 mb-3">Confirm Logout</h3>
-          <p className="text-gray-300 text-sm mb-4">Are you sure you want to logout?</p>
+          <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-3`}>Confirm Logout</h3>
+          <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} text-sm mb-4`}>Are you sure you want to logout?</p>
           <div className="flex justify-end space-x-2">
             <button
               onClick={onClose}
               disabled={loading}
-              className="px-3 py-2 border border-gray-600 text-gray-300 rounded-lg hover:bg-gray-800 transition-colors duration-200 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 focus:ring-offset-gray-900 disabled:opacity-50"
+              className={`px-3 py-2 border rounded-lg transition-colors duration-200 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 disabled:opacity-50 ${isDarkMode ? 'border-gray-600 text-gray-300 hover:bg-gray-800 focus:ring-offset-gray-900' : 'border-gray-300 text-gray-700 hover:bg-gray-100 focus:ring-offset-white'}`}
             >
               Cancel
             </button>
             <button
               onClick={onConfirm}
               disabled={loading}
-              className="px-3 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition-colors duration-200 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 focus:ring-offset-gray-900 disabled:opacity-50"
+              className={`px-3 py-2 rounded-lg transition-colors duration-200 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 ${isDarkMode ? 'bg-amber-600 hover:bg-amber-700 text-white focus:ring-amber-500 focus:ring-offset-gray-900' : 'bg-red-600 hover:bg-red-700 text-white focus:ring-red-500 focus:ring-offset-white'}`}
             >
               {loading ? (
                 <div className="flex items-center">
@@ -1229,9 +1229,11 @@ const CashierDashboard = () => {
     }
   }, [appointmentsTab, activeSection, loadAppointments]);
 
-  // Load action logs
-  const loadActionLogs = useCallback(async () => {
-    setLoading(true);
+  // Load action logs (silent = true for background polling to avoid loading spinner flicker)
+  const loadActionLogs = useCallback(async (silent = false) => {
+    if (!silent) {
+      setLoading(true);
+    }
     try {
       // Ensure we pass the correct type parameter with pagination
       const url = `/api/cashier/action-logs?type=${logsTab}&page=${logsPage}&per_page=${logsPerPage}`;
@@ -1254,9 +1256,11 @@ const CashierDashboard = () => {
       }
     } catch (error) {
       console.error('Error loading action logs:', error);
-      if (window?.showToast) window.showToast('Action Logs', 'Failed to load logs', 'error');
+      if (!silent && window?.showToast) window.showToast('Action Logs', 'Failed to load logs', 'error');
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   }, [callApi, logsTab, logsPage, logsPerPage]);
 
@@ -1334,9 +1338,11 @@ const CashierDashboard = () => {
     return () => clearInterval(timer);
   }, [showCompletionConfirmation, isCompletionLoading, completionCountdown]);
 
-  // Polling fallback for cashier dashboard data (appointments + stats)
+  // Polling fallback for cashier dashboard data (appointments + stats + action logs)
   useEffect(() => {
     const POLL_INTERVAL_MS = 15000; // 15s
+    const ACTION_LOGS_POLL_INTERVAL_MS = 5000; // 5s for action logs - more frequent for real-time feel
+    
     const id = setInterval(() => {
       if (activeSection === 'dashboard') {
         loadDashboardData();
@@ -1350,8 +1356,18 @@ const CashierDashboard = () => {
       }
     }, POLL_INTERVAL_MS);
 
-    return () => clearInterval(id);
-  }, [activeSection, currentMonth, loadDashboardData, loadAppointments, loadCalendarAppointments]); // Include all data loading functions
+    // Separate faster polling for action logs for real-time updates
+    const logsId = setInterval(() => {
+      if (activeSection === 'action-logs') {
+        loadActionLogs(true); // Silent refresh - no loading spinner
+      }
+    }, ACTION_LOGS_POLL_INTERVAL_MS);
+
+    return () => {
+      clearInterval(id);
+      clearInterval(logsId);
+    };
+  }, [activeSection, currentMonth, loadDashboardData, loadAppointments, loadCalendarAppointments, loadActionLogs]); // Include all data loading functions
 
   // Real-time subscription via Laravel Echo for cashier dashboard
   useEffect(() => {
@@ -2784,7 +2800,7 @@ const CashierDashboard = () => {
             {/* Logout */}
             <button
               onClick={() => setShowLogoutModal(true)}
-              className={`w-full flex items-center justify-center lg:justify-start px-2 lg:px-2.5 py-1.5 text-xs font-medium rounded-lg transition-all duration-200 border group ${isDarkMode ? 'text-red-400 border-transparent hover:bg-red-500/10 hover:border-red-500/30' : 'text-red-600 border-transparent hover:bg-red-500/20 hover:border-red-500/40'}`}
+              className={`w-full flex items-center justify-center lg:justify-start px-2 lg:px-2.5 py-1.5 text-xs font-medium rounded-lg transition-all duration-200 border group ${isDarkMode ? 'text-red-400 border-transparent hover:bg-red-500/10 hover:border-red-500/30' : 'text-white bg-red-600 border-red-700 hover:bg-red-700 hover:border-red-800'}`}
               title={isCollapsedDesktop ? 'Logout' : ''}
             >
               <div className="flex items-center min-w-0">
@@ -2803,7 +2819,7 @@ const CashierDashboard = () => {
       </div>
 
       {/* Main Content */}
-      <div className={`flex-1 flex flex-col min-w-0 mt-16 lg:mt-0 lg:h-screen lg:overflow-y-auto transition-all duration-300 ${isCollapsedDesktop ? 'lg:ml-20' : 'lg:ml-64'}`}>
+      <div className={`flex-1 flex flex-col min-w-0 mt-16 lg:mt-0 lg:h-screen lg:overflow-y-auto scrollbar-hide transition-all duration-300 ${isCollapsedDesktop ? 'lg:ml-20' : 'lg:ml-64'}`}>
         {/* Header */}
         <header className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-gray-50 border-amber-300/40'} border-b shadow-md flex-shrink-0 sticky top-0 z-30 transition-colors duration-300`}>
           <div className="flex justify-between items-center px-3 sm:px-4 lg:px-6 py-2 lg:py-3">
@@ -2854,6 +2870,7 @@ const CashierDashboard = () => {
         onClose={() => setShowLogoutModal(false)}
         onConfirm={handleLogout}
         loading={loading}
+        isDarkMode={isDarkMode}
       />
 
       <ReceiptModal

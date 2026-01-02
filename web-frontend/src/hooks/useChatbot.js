@@ -53,7 +53,11 @@ export const useChatbot = () => {
           url += `&conversation_id=${encodeURIComponent(savedConversationId)}`;
         }
         
-        const response = await axios.get(url);
+        const response = await axios.get(url, {
+          headers: {
+            'X-Session-ID': sessionIdRef.current
+          }
+        });
         if (response.data.success) {
           setMessages(response.data.data || []);
           setLastMessageCount(response.data.data?.length || 0);
@@ -105,7 +109,11 @@ export const useChatbot = () => {
           return; // Don't poll if no conversation is active
         }
 
-        const response = await axios.get(`/api/chatbot/history?limit=50&conversation_id=${encodeURIComponent(convId)}`);
+        const response = await axios.get(`/api/chatbot/history?limit=50&conversation_id=${encodeURIComponent(convId)}`, {
+          headers: {
+            'X-Session-ID': sessionIdRef.current
+          }
+        });
         if (response.data.success && response.data.data) {
           const serverMessages = response.data.data;
           // Only update if server has different messages to avoid unnecessary re-renders
@@ -413,7 +421,11 @@ export const useChatbot = () => {
   const loadConversations = useCallback(async () => {
     try {
       setConversationsLoading(true);
-      const response = await axios.get('/api/chatbot/conversations');
+      const response = await axios.get('/api/chatbot/conversations', {
+        headers: {
+          'X-Session-ID': sessionIdRef.current
+        }
+      });
       if (response.data.success) {
         setConversations(response.data.data || []);
       }

@@ -217,6 +217,24 @@ export const AuthProvider = ({ children }) => {
     localStorage.removeItem('user');
     setToken(null);
     setUser(null);
+    
+    // Clean up theme customizations applied by Dashboard
+    // This ensures the landing page shows its default theme after logout
+    const root = document.documentElement;
+    root.classList.remove('user-light');
+    // Reset any inline CSS variable overrides to let :root defaults apply
+    root.style.removeProperty('--primary');
+    root.style.removeProperty('--secondary');
+    root.style.removeProperty('--accent');
+    root.style.removeProperty('--background');
+    root.style.removeProperty('--surface');
+    root.style.removeProperty('--text-primary');
+    root.style.removeProperty('--text-secondary');
+    root.style.removeProperty('--borders');
+    root.style.removeProperty('--success');
+    root.style.removeProperty('--error');
+    root.style.removeProperty('background-color');
+    root.style.removeProperty('color');
   };
 
   const logout = async () => {

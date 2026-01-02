@@ -20,7 +20,8 @@ import {
   SunIcon,
   MoonIcon,
   EnvelopeIcon,
-  ChevronDownIcon
+  ChevronDownIcon,
+  StarIcon
 } from '@heroicons/react/24/outline';
 
 
@@ -177,6 +178,16 @@ const ProfilePage = ({ onBack, onTabChange, onLogout }) => {
     {
       section: 'Support',
       items: [
+        {
+          icon: StarIcon,
+          label: 'Feedback',
+          action: () => {
+            if (onTabChange) {
+              onTabChange('feedback');
+            }
+          },
+          color: 'text-yellow-500'
+        },
         {
           icon: CurrencyDollarIcon,
           label: 'Refunds',

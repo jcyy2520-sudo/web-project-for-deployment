@@ -15,6 +15,7 @@ use App\Services\ChatbotSmartResponseBuilder;
 use App\Services\ChatbotActionService;
 use App\Services\ChatbotLLMIntegration;
 use App\Services\ChatbotGuardService;
+use App\Services\ChatbotContextResolutionService;
 use App\Services\LLMService;
 use App\Services\SmartActionSuggestionService;
 use App\Services\LanguageDetectionService;
@@ -209,21 +210,28 @@ class ChatbotController extends Controller
     {
         try {
             $userId = auth()->id();
+            $sessionId = $request->header('X-Session-ID');
             
-            // This endpoint requires authentication (enforced by middleware)
-            // If we reach here without a userId, something is wrong
-            if (!$userId) {
+            // If there's no authenticated user and no session ID, return empty
+            if (!$userId && !$sessionId) {
                 return response()->json([
-                    'success' => false,
-                    'message' => 'Authentication required',
-                    'data' => []
-                ], 401);
+                    'success' => true,
+                    'data' => [],
+                    'conversation_id' => null
+                ]);
             }
             
             $limit = $request->query('limit', 20);
             $conversationId = $request->query('conversation_id');
 
-            $query = ChatMessage::where('user_id', $userId);
+            $query = ChatMessage::query();
+            
+            // Filter by user_id if authenticated, otherwise by session_id for guests
+            if ($userId) {
+                $query->where('user_id', $userId);
+            } elseif ($sessionId) {
+                $query->where('session_id', $sessionId);
+            }
             
             // If conversation_id is provided, filter by it
             // This is crucial for loading the correct conversation after switching
@@ -1241,87 +1249,48 @@ class ChatbotController extends Controller
     private function getGuestResponse($userMessage)
     {
         try {
-            $analysis = $this->intelligenceService->analyzeForAmbiguity($userMessage, []);
-            $topics = $analysis['detected_topics'] ?? [];
-            $topic = $topics[0] ?? 'general';
-
-            $data = [];
+            // Simple fallback response for guest users
+            $lowerMessage = strtolower($userMessage);
             
-            // Dynamically fetch data based on detected topic
-            if ($topic === 'services') {
-                // Get all active services
-                $services = \App\Models\Service::where('is_active', true)->get(['id', 'name', 'description', 'price', 'duration_minutes']);
-                $data['services_count'] = $services->count();
-                $data['services'] = $services->map(function ($service) {
-                    return [
-                        'name' => $service->name,
-                        'description' => $service->description,
-                        'price' => $service->price,
-                        'duration' => $service->duration_minutes
-                    ];
-                })->toArray();
-            } elseif ($topic === 'location' || $topic === 'address' || strpos(strtolower($userMessage), 'where') !== false) {
-                // Get location/address info from AppointmentSettings
+            // Check for service-related queries
+            if (strpos($lowerMessage, 'service') !== false || strpos($lowerMessage, 'what') !== false) {
+                try {
+                    $services = \App\Models\Service::where('is_active', true)->get(['name']);
+                    if ($services->count() > 0) {
+                        $serviceNames = $services->pluck('name')->implode(', ');
+                        return "We offer several services including: " . $serviceNames . "\n\nTo book a service or get more details, please register or log in.";
+                    }
+                } catch (\Exception $e) {
+                    Log::debug('Failed to fetch services for guest: ' . $e->getMessage());
+                }
+            }
+            
+            // Check for location/address queries
+            if (strpos($lowerMessage, 'location') !== false || strpos($lowerMessage, 'address') !== false || strpos($lowerMessage, 'where') !== false) {
                 try {
                     $settings = \App\Models\AppointmentSettings::first();
-                    if ($settings) {
-                        $data['location'] = [
-                            'business_hours' => $settings->business_hours,
-                            'address' => $settings->address ?? 'Not specified',
-                            'phone' => $settings->phone ?? 'Not specified',
-                            'timezone' => $settings->timezone ?? 'UTC'
-                        ];
-                    } else {
-                        $data['location'] = ['message' => 'Location information is not configured yet.'];
+                    if ($settings && $settings->address) {
+                        return "Our office is located at: " . $settings->address . "\n\nFor more details, please register or log in to your account.";
                     }
                 } catch (\Exception $e) {
-                    \Log::debug('Failed to fetch location info: ' . $e->getMessage());
-                    $data['location'] = ['message' => 'Unable to fetch location information.'];
-                }
-            } elseif ($topic === 'lawyer' || $topic === 'staff' || $topic === 'attorney' || strpos(strtolower($userMessage), 'lawyer') !== false || strpos(strtolower($userMessage), 'attorney') !== false) {
-                // Get staff/lawyer information
-                try {
-                    $staff = \App\Models\User::where('is_active', true)
-                        ->whereIn('role', ['admin', 'staff', 'attorney', 'lawyer'])
-                        ->get(['id', 'first_name', 'last_name', 'email', 'phone', 'address']);
-                    
-                    $data['staff_count'] = $staff->count();
-                    $data['staff'] = $staff->map(function ($person) {
-                        return [
-                            'name' => $person->first_name . ' ' . $person->last_name,
-                            'email' => $person->email,
-                            'phone' => $person->phone,
-                            'address' => $person->address
-                        ];
-                    })->toArray();
-                    
-                    if ($staff->isEmpty()) {
-                        $data['staff'] = ['message' => 'No staff members are currently available.'];
-                    }
-                } catch (\Exception $e) {
-                    \Log::debug('Failed to fetch staff info: ' . $e->getMessage());
-                    $data['staff'] = ['message' => 'Unable to fetch staff information.'];
+                    Log::debug('Failed to fetch location for guest: ' . $e->getMessage());
                 }
             }
-
-            $structured = $this->intelligenceService->buildStructuredResponse($topic, $data, [], 'en');
-            $nl = $this->intelligenceService->structuredToNaturalLanguage($structured);
-
-            // Ensure response is not empty
-            if (!$nl || (is_string($nl) && trim($nl) === '')) {
-                Log::warning('Guest response was empty, using fallback', [
-                    'topic' => $topic,
-                    'user_message_snippet' => substr($userMessage, 0, 50)
-                ]);
-                return "Thanks for your question! To get personalized assistance and access all features, please register or log in.";
+            
+            // Check for lawyer/staff queries
+            if (strpos($lowerMessage, 'lawyer') !== false || strpos($lowerMessage, 'attorney') !== false || strpos($lowerMessage, 'staff') !== false) {
+                return "We have experienced legal professionals available to assist you. Please register or log in to view staff details and book a consultation.";
             }
-
-            // For guests, include prompt to register but keep content dynamic
-            $nl .= "\n\nTo perform account-specific actions, please register or log in so I can fetch your personal data.";
-            return $nl;
+            
+            // Generic helpful response
+            return "Thank you for your question! I'm here to help with information about our services, appointments, payments, and more. To get personalized assistance and access all features, please register or log in.";
+            
         } catch (\Exception $e) {
-            Log::debug('Guest dynamic response failed: ' . $e->getMessage());
-            return "Thanks for your question! To get personalized assistance and access all features, please register or log in.";
+            Log::error('Guest response generation error: ' . $e->getMessage(), [
+                'message' => $userMessage,
+                'trace' => $e->getTraceAsString()
+            ]);
+            return "Thank you for your question! To get personalized assistance and access all features, please register or log in.";
         }
     }
 
@@ -1420,15 +1389,27 @@ class ChatbotController extends Controller
     {
         try {
             $userId = auth()->id();
+            $sessionId = $request->header('X-Session-ID');
             $conversationId = $request->input('conversation_id');
 
-            if ($conversationId) {
-                ChatMessage::where('user_id', $userId)
-                    ->where('conversation_id', $conversationId)
-                    ->delete();
+            // Build the query
+            if ($userId) {
+                $query = ChatMessage::where('user_id', $userId);
+            } elseif ($sessionId) {
+                $query = ChatMessage::where('session_id', $sessionId);
             } else {
-                ChatMessage::where('user_id', $userId)->delete();
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Cannot clear history: no user or session identifier'
+                ], 400);
             }
+
+            // Delete specific conversation or all messages
+            if ($conversationId) {
+                $query->where('conversation_id', $conversationId);
+            }
+            
+            $query->delete();
 
             return response()->json([
                 'success' => true,
@@ -1668,25 +1649,39 @@ class ChatbotController extends Controller
     {
         try {
             $userId = auth()->id();
+            $sessionId = $request->header('X-Session-ID');
             
-            if (!$userId) {
+            // If there's no authenticated user and no session ID, return empty
+            if (!$userId && !$sessionId) {
                 return response()->json([
-                    'success' => false,
-                    'message' => 'Authentication required',
+                    'success' => true,
                     'data' => []
-                ], 401);
+                ]);
             }
 
             // Get all conversations that have messages, grouped by conversation_id
-            $conversations = ChatMessage::where('user_id', $userId)
-                ->select('conversation_id')
-                ->distinct()
-                ->get()
-                ->map(function ($conv) use ($userId) {
-                    $messages = ChatMessage::where('user_id', $userId)
-                        ->where('conversation_id', $conv->conversation_id)
-                        ->orderBy('created_at', 'asc')
-                        ->get();
+            $query = ChatMessage::select('conversation_id')
+                ->distinct();
+            
+            // Filter by user_id if authenticated, otherwise by session_id for guests
+            if ($userId) {
+                $query->where('user_id', $userId);
+            } elseif ($sessionId) {
+                $query->where('session_id', $sessionId);
+            }
+            
+            $conversations = $query->get()
+                ->map(function ($conv) use ($userId, $sessionId) {
+                    $messageQuery = ChatMessage::where('conversation_id', $conv->conversation_id);
+                    
+                    // Filter by user_id if authenticated, otherwise by session_id for guests
+                    if ($userId) {
+                        $messageQuery->where('user_id', $userId);
+                    } elseif ($sessionId) {
+                        $messageQuery->where('session_id', $sessionId);
+                    }
+                    
+                    $messages = $messageQuery->orderBy('created_at', 'asc')->get();
 
                     // Skip conversations with no messages
                     if ($messages->count() === 0) {

@@ -47,11 +47,24 @@ class AppServiceProvider extends ServiceProvider
     {
         // Register Chatbot Data Observers for 100% Real-time accuracy
         // This ensures that whenever data changes, the chatbot cache is cleared
-        \App\Models\Appointment::observe(\App\Observers\ChatbotDataObserver::class);
-        \App\Models\Payment::observe(\App\Observers\ChatbotDataObserver::class);
-        \App\Models\Refund::observe(\App\Observers\ChatbotDataObserver::class);
-        \App\Models\User::observe(\App\Observers\ChatbotDataObserver::class);
-        \App\Models\Service::observe(\App\Observers\ChatbotDataObserver::class);
+        // and knowledge is kept up-to-date automatically
+        $chatbotObserver = \App\Observers\ChatbotDataObserver::class;
+        
+        \App\Models\Appointment::observe($chatbotObserver);
+        \App\Models\Payment::observe($chatbotObserver);
+        \App\Models\Refund::observe($chatbotObserver);
+        \App\Models\User::observe($chatbotObserver);
+        \App\Models\Service::observe($chatbotObserver);
+        
+        // Also observe AppointmentSettings if it exists
+        if (class_exists(\App\Models\AppointmentSettings::class)) {
+            \App\Models\AppointmentSettings::observe($chatbotObserver);
+        }
+        
+        // Observe Notification for real-time updates
+        if (class_exists(\App\Models\Notification::class)) {
+            \App\Models\Notification::observe($chatbotObserver);
+        }
 
         // Configure granular rate limiting for different API endpoints
         RateLimiter::for('api', function (Request $request) {

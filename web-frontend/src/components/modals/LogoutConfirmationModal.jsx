@@ -25,7 +25,11 @@ const LogoutConfirmationModal = ({ isOpen, onClose, onConfirm, loading, isDarkMo
             <button
               onClick={onConfirm}
               disabled={loading}
-              className="px-3 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition-colors duration-200 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 focus:ring-offset-gray-900 disabled:opacity-50"
+              className={`px-3 py-2 rounded-lg transition-colors duration-200 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 ${
+                isDarkMode
+                  ? 'bg-amber-600 hover:bg-amber-700 text-white focus:ring-amber-500 focus:ring-offset-gray-900'
+                  : 'bg-red-600 hover:bg-red-700 text-white focus:ring-red-500 focus:ring-offset-white'
+              }`
             >
               {loading ? (
                 <div className="flex items-center">

@@ -41,14 +41,17 @@ import {
   ChatBubbleLeftRightIcon,
   ChatBubbleBottomCenterTextIcon,
   Bars3Icon,
-  UserMinusIcon
+  UserMinusIcon,
+  StarIcon
 } from '@heroicons/react/24/outline';
+import AdminFeedbackSettings from '../components/admin/AdminFeedbackSettings';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { formatServiceName, formatPrice } from '../utils/format';
 import AdminMessages from '../components/admin/AdminMessages';
 import AdminActionLogs from '../components/admin/AdminActionLogs';
 import AdminServices from '../components/admin/AdminServices';
 import AdminAnalyticsDashboard from '../components/admin/AdminAnalyticsDashboard';
+import AdminFeedback from '../components/admin/AdminFeedback';
 import DocumentManagement from '../components/admin/DocumentManagement';
 import DeclineModal from '../components/modals/DeclineModal';
 import CompletionModal from '../components/modals/CompletionModal';
@@ -386,32 +389,32 @@ const MessageModal = ({ isOpen, onClose, user, onSend, loading }) => {
 };
 
 // Logout Confirmation Modal
-const LogoutConfirmationModal = ({ isOpen, onClose, onConfirm, loading }) => {
+const LogoutConfirmationModal = ({ isOpen, onClose, onConfirm, loading, isDarkMode = true }) => {
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4 animate-fadeIn">
-      <div className="bg-gray-900 border border-amber-500/30 rounded-lg shadow-xl w-full max-w-md transform animate-scaleIn">
+      <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/30' : 'bg-white border-amber-300/40'} border rounded-lg shadow-xl w-full max-w-md transform animate-scaleIn`}>
         <div className="p-4">
           <div className="flex items-center mb-3">
-            <div className="p-2 rounded-lg bg-amber-500/20">
-              <ExclamationTriangleIcon className="h-5 w-5 text-amber-400" />
+            <div className={`p-2 rounded-lg ${isDarkMode ? 'bg-amber-500/20' : 'bg-amber-100'}`}>
+              <ExclamationTriangleIcon className={`h-5 w-5 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`} />
             </div>
-            <h3 className="text-sm font-semibold text-amber-50 ml-2">Confirm Logout</h3>
+            <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} ml-2`}>Confirm Logout</h3>
           </div>
-          <p className="text-gray-300 text-sm mb-4">Are you sure you want to logout from the admin dashboard?</p>
+          <p className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} text-sm mb-4`}>Are you sure you want to logout from the admin dashboard?</p>
           <div className="flex justify-end space-x-2">
             <button
               onClick={onClose}
               disabled={loading}
-              className="px-3 py-2 border border-gray-600 text-gray-300 rounded-lg hover:bg-gray-800 transition-colors duration-200 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 focus:ring-offset-gray-900 disabled:opacity-50"
+              className={`px-3 py-2 border rounded-lg transition-colors duration-200 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 disabled:opacity-50 ${isDarkMode ? 'border-gray-600 text-gray-300 hover:bg-gray-800 focus:ring-offset-gray-900' : 'border-gray-300 text-gray-700 hover:bg-gray-100 focus:ring-offset-white'}`}
             >
               Cancel
             </button>
             <button
               onClick={onConfirm}
               disabled={loading}
-              className="px-3 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition-colors duration-200 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 focus:ring-offset-gray-900 disabled:opacity-50"
+              className={`px-3 py-2 rounded-lg transition-colors duration-200 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 ${isDarkMode ? 'bg-amber-600 hover:bg-amber-700 text-white focus:ring-amber-500 focus:ring-offset-gray-900' : 'bg-red-600 hover:bg-red-700 text-white focus:ring-red-500 focus:ring-offset-white'}`}
             >
               {loading ? (
                 <div className="flex items-center">
@@ -1773,6 +1776,16 @@ const AdminDashboard = () => {
           name: 'Action Logs', 
           icon: ClockIcon, 
           key: 'action-logs'
+        },
+        { 
+          name: 'Feedback', 
+          icon: StarIcon, 
+          key: 'feedback'
+        }
+        ,{ 
+          name: 'Feedback Settings', 
+          icon: CogIcon, 
+          key: 'feedback-settings'
         }
       ]
     },
@@ -4861,6 +4874,8 @@ const AdminDashboard = () => {
       case 'deactivated': return renderDeactivatedAccounts();
       case 'messages': return renderMessages();
       case 'action-logs': return <AdminActionLogs isDarkMode={isDarkMode} />;
+      case 'feedback': return <AdminFeedback />;
+      case 'feedback-settings': return <AdminFeedbackSettings />;
       case 'refunds': return <AdminRefundManagement isUserLight={!isDarkMode} />;
       case 'settings': return renderSettings();
       default: return renderDashboard();
@@ -5012,7 +5027,7 @@ const AdminDashboard = () => {
         </div>
 
         {/* Main content */}
-        <div className={`flex-1 flex flex-col min-w-0 mt-16 lg:mt-0 lg:h-screen lg:overflow-y-auto transition-all duration-300 ${isCollapsedDesktop ? 'lg:ml-20' : 'lg:ml-64'}`}>
+        <div className={`flex-1 flex flex-col min-w-0 mt-16 lg:mt-0 lg:h-screen lg:overflow-y-auto scrollbar-hide transition-all duration-300 ${isCollapsedDesktop ? 'lg:ml-20' : 'lg:ml-64'}`}>
           <header className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-gray-50 border-amber-300/40'} border-b shadow-md flex-shrink-0 sticky top-0 z-30 transition-colors duration-300`}>
             <div className="flex justify-between items-center px-3 sm:px-4 lg:px-6 py-2 lg:py-3">
               <div className="flex items-center space-x-2 lg:space-x-3 min-w-0">
@@ -5255,6 +5270,7 @@ const AdminDashboard = () => {
         onClose={() => setShowLogoutModal(false)}
         onConfirm={logout}
         loading={apiLoading}
+        isDarkMode={isDarkMode}
       />
 
       <ConfirmationModal

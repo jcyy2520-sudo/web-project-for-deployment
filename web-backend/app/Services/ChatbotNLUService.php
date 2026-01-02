@@ -451,6 +451,27 @@ class ChatbotNLUService
             'taglish' => ['okay ba', 'may issue ba', 'working ba'],
             'role_hint' => ['admin'],
         ],
+        'help_register' => [
+            'patterns' => [
+                'how to register', 'how do i register', 'sign up', 'create account',
+                'register account', 'new account', 'register now', 'make account',
+                'paano mag register', 'paano mag signup', 'gumawa ng account',
+                'bagong account', 'register ako', 'sign up ko'
+            ],
+            'keywords' => ['register', 'signup', 'sign up', 'account', 'create', 'new', 'join'],
+            'taglish' => ['pano mag register', 'mag signup', 'gumawa ng account', 'bagong account'],
+            'role_hint' => ['guest'],
+        ],
+        'help_login' => [
+            'patterns' => [
+                'how to login', 'how do i login', 'how to log in', 'sign in',
+                'login help', 'cant login', 'forgot password', 'reset password',
+                'paano mag login', 'login ako', 'sign in naman', 'password ko'
+            ],
+            'keywords' => ['login', 'log in', 'sign in', 'password', 'account', 'access', 'signin'],
+            'taglish' => ['pano mag login', 'mag sign in', 'password ko', 'login help'],
+            'role_hint' => ['guest'],
+        ],
         'help' => [
             'patterns' => [
                 'help', 'what can you do', 'how to use', 'help me', 'i need help',

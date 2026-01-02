@@ -39,19 +39,29 @@ const Modal = ({ isOpen, onClose, title, children, size = 'md', isDarkMode = tru
               leaveFrom="opacity-100 scale-100"
               leaveTo="opacity-0 scale-95"
             >
-              <Dialog.Panel className={`w-full ${sizeClasses[size]} transform overflow-hidden rounded-2xl p-6 text-left align-middle transition-all`} style={isDarkMode ? { backgroundColor: undefined, border: '1px solid rgba(245,158,11,0.18)', boxShadow: '0 20px 60px rgba(245,158,11,0.06)' } : { backgroundColor: 'var(--surface)', border: '1px solid var(--borders)', boxShadow: '0 20px 60px rgba(0,0,0,0.06)' }}>
-                <div className="flex items-center justify-between mb-4">
-                  <Dialog.Title as="h3" className="text-lg font-semibold" style={isDarkMode ? { color: '#FDE68A' } : { color: 'var(--text-primary)' }}>
-                    {title}
-                  </Dialog.Title>
+              <Dialog.Panel className={`relative w-full ${sizeClasses[size]} transform overflow-hidden rounded-2xl p-6 text-left align-middle transition-all`} style={isDarkMode ? { backgroundColor: undefined, border: '1px solid rgba(245,158,11,0.18)', boxShadow: '0 20px 60px rgba(245,158,11,0.06)' } : { backgroundColor: 'var(--surface)', border: '1px solid var(--borders)', boxShadow: '0 20px 60px rgba(0,0,0,0.06)' }}>
+                {title ? (
+                  <div className="flex items-center justify-between mb-4">
+                    <Dialog.Title as="h3" className="text-lg font-semibold" style={isDarkMode ? { color: '#FDE68A' } : { color: 'var(--text-primary)' }}>
+                      {title}
+                    </Dialog.Title>
+                    <button
+                      onClick={onClose}
+                      className="p-1 rounded-lg transition-all duration-200"
+                      style={isDarkMode ? { color: 'rgba(245,158,11,0.7)', backgroundColor: 'transparent' } : { color: 'var(--text-secondary)', backgroundColor: 'transparent' }}
+                    >
+                      <XMarkIcon className="h-6 w-6" />
+                    </button>
+                  </div>
+                ) : (
                   <button
                     onClick={onClose}
-                    className="p-1 rounded-lg transition-all duration-200"
+                    className="absolute top-4 right-4 p-1 rounded-lg transition-all duration-200 z-10"
                     style={isDarkMode ? { color: 'rgba(245,158,11,0.7)', backgroundColor: 'transparent' } : { color: 'var(--text-secondary)', backgroundColor: 'transparent' }}
                   >
                     <XMarkIcon className="h-6 w-6" />
                   </button>
-                </div>
+                )}
                 {children}
               </Dialog.Panel>
             </Transition.Child>

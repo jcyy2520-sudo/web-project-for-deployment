@@ -1,3 +1,27 @@
+// ==================== TESTIMONIALS ROUTES ====================
+Route::get('/testimonials/feedbacks/all', [FeedbackController::class, 'getAllTestimonials']);
+
+    // Chatbot position persistence (per-user)
+    Route::get('/chatbot/position', [ChatbotPositionController::class, 'show']);
+    Route::post('/chatbot/position', [ChatbotPositionController::class, 'store']);
+    // FEEDBACK ROUTES (Admin only)
+    Route::prefix('admin/feedback')->middleware(['role:admin'])->group(function () {
+        Route::get('/', [FeedbackController::class, 'index']);
+        Route::get('/stats', [FeedbackController::class, 'getStats']);
+        Route::get('/settings', [FeedbackSettingsController::class, 'show']);
+        Route::put('/settings', [FeedbackSettingsController::class, 'update']);
+        Route::get('/{id}', [FeedbackController::class, 'show']);
+        Route::put('/{id}/testimonial', [FeedbackController::class, 'updateTestimonial']);
+        Route::post('/{id}/report', [FeedbackController::class, 'reportFeedback']);
+        Route::post('/{id}/block-user', [FeedbackController::class, 'blockUser']);
+        Route::delete('/{id}', [FeedbackController::class, 'destroy']);
+    });
+    // USER FEEDBACK ROUTES (Authenticated users)
+    Route::prefix('user/feedback')->middleware(['auth:sanctum'])->group(function () {
+        Route::get('/', [FeedbackController::class, 'getUserFeedback']);
+        Route::post('/', [FeedbackController::class, 'store']);
+        Route::get('/check-limit', [FeedbackController::class, 'checkRateLimit']);
+    });
 <?php
 
 use App\Http\Controllers\AuthController;
@@ -30,6 +54,7 @@ use App\Http\Controllers\HealthCheckController;
 use App\Http\Controllers\MetricsController;
 use App\Http\Controllers\AlertController;
 use App\Http\Controllers\BackupController;
+use App\Http\Controllers\FeedbackController;
 use App\Http\Controllers\Admin\FrontendErrorLogController;
 use App\Http\Controllers\Admin\JobController;
 use Illuminate\Support\Facades\Route;
@@ -316,6 +341,10 @@ Route::get('/shared-resource/{uuid}', function (Request $request, $uuid) {
 
 // Public appointment-related endpoints - NEWLY ADDED
 Route::get('/testimonials/completed-appointments', [AppointmentController::class, 'getCompletedAppointmentsPublic']);
+
+// Public feedback endpoints
+Route::post('/feedback', [FeedbackController::class, 'store']);
+Route::get('/testimonials/feedbacks', [FeedbackController::class, 'getTestimonials']);
 
 // ==================== PROTECTED ROUTES ====================
 
@@ -616,6 +645,14 @@ Route::middleware([
         Route::delete('/{id}', [UnavailableDateController::class, 'destroy']);
     });
 
+    // FEEDBACK ROUTES (Admin only)
+    Route::prefix('admin/feedback')->middleware(['role:admin'])->group(function () {
+        Route::get('/', [FeedbackController::class, 'index']);
+        Route::get('/{id}', [FeedbackController::class, 'show']);
+        Route::put('/{id}/testimonial', [FeedbackController::class, 'updateTestimonial']);
+        Route::delete('/{id}', [FeedbackController::class, 'destroy']);
+    });
+
     // STAFF APPOINTMENTS ROUTES
     Route::middleware(['role:staff,admin'])->get('/staff/appointments', [AppointmentController::class, 'staffAppointments']);
 
@@ -724,24 +761,28 @@ Route::prefix('chatbot')->group(function () {
     Route::get('/suggestions', [\App\Http\Controllers\ChatbotStreamController::class, 'getSuggestions']);
     Route::post('/search-knowledge', [\App\Http\Controllers\ChatbotStreamController::class, 'searchKnowledge']);
     
+    // Semi-public routes (work for both authenticated users and guests)
+    // These endpoints support guest session persistence via the `X-Session-ID` header
+    // (frontend stores a session id in localStorage and sends it for guest chats).
+    Route::get('/history', [ChatbotController::class, 'getHistory']);
+    Route::delete('/clear-history', [ChatbotController::class, 'clearHistory']);
+    Route::get('/conversations', [ChatbotController::class, 'getConversations']);
+
     // Protected routes (authenticated users only)
     Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/save-to-messages', [ChatbotController::class, 'saveMessageToMessageCenter']);
-        Route::get('/history', [ChatbotController::class, 'getHistory']);
-        Route::delete('/clear-history', [ChatbotController::class, 'clearHistory']);
         Route::get('/conversation-summary', [ChatbotController::class, 'getConversationSummary']);
-        
+
         // Action execution routes
         Route::post('/execute-action', [ChatbotController::class, 'executeAction']);
         Route::post('/confirm-action', [ChatbotController::class, 'confirmAction']);
         Route::post('/real-time-data', [ChatbotController::class, 'getRealTimeData']);
-        
-        // Conversation management routes
-        Route::get('/conversations', [ChatbotController::class, 'getConversations']);
+
+        // Conversation management routes (create / view / delete)
         Route::post('/conversations/new', [ChatbotController::class, 'startNewConversation']);
         Route::get('/conversations/{conversationId}', [ChatbotController::class, 'getConversationMessages']);
         Route::delete('/conversations/{conversationId}', [ChatbotController::class, 'deleteConversation']);
-        
+
         // NEW: User preference management
         Route::post('/preferences', [\App\Http\Controllers\ChatbotStreamController::class, 'setPreference']);
     });

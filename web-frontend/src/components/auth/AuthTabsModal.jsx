@@ -146,7 +146,7 @@ const AuthTabsModal = ({ isOpen, onClose, isDarkMode = true }) => {
 
   return (
     <Modal isOpen={isOpen} onClose={handleClose} size="sm" isDarkMode={isDarkMode}>
-      <div className={`rounded-lg -mx-6 -mt-6 -mb-6 px-6 ${isDarkMode ? '' : 'bg-gradient-to-br from-gray-50 to-gray-100'}`}>
+      <div className={`-mx-6 -mt-6 -mb-6 px-6 pt-4 pb-6 ${isDarkMode ? '' : 'bg-gradient-to-br from-gray-50 to-gray-100'}`}>
       {/* Tab Headers - Centered */}
       <div className={`flex gap-8 border-b justify-center ${isDarkMode ? 'border-amber-500/20' : 'border-gray-300'}`}>
         <button
@@ -185,7 +185,7 @@ const AuthTabsModal = ({ isOpen, onClose, isDarkMode = true }) => {
 
       {/* Login Tab Content */}
       {activeTab === 'login' && (
-        <form onSubmit={handleLoginSubmit} className="space-y-4 mt-4 animate-in fade-in duration-300">
+        <form onSubmit={handleLoginSubmit} className="space-y-4 max-h-[60vh] overflow-y-auto scrollbar-hide mt-4 animate-in fade-in duration-300">
           {loginError && (
             <div className={isDarkMode ? "bg-red-500/10 border border-red-500/30 text-red-300 px-3 py-2 rounded-lg text-sm flex items-center" : "bg-red-50 border border-red-100 text-red-700 px-3 py-2 rounded-lg text-sm flex items-center"}>
               <div className="w-4 h-4 mr-2 flex-shrink-0">
@@ -293,7 +293,7 @@ const AuthTabsModal = ({ isOpen, onClose, isDarkMode = true }) => {
 
       {/* Register Tab Content */}
       {activeTab === 'register' && (
-        <form onSubmit={handleRegisterSubmit} className="space-y-4 max-h-[70vh] overflow-y-auto mt-4 animate-in fade-in duration-300">
+        <form onSubmit={handleRegisterSubmit} className="space-y-4 max-h-[60vh] overflow-y-auto scrollbar-hide mt-4 pr-1 animate-in fade-in duration-300">
           {registerError && (
             <div className={isDarkMode ? "bg-red-500/10 border border-red-500/30 text-red-300 px-3 py-2 rounded-lg text-sm flex items-center" : "bg-red-50 border border-red-100 text-red-700 px-3 py-2 rounded-lg text-sm flex items-center"}>
               <div className="w-4 h-4 mr-2 flex-shrink-0">

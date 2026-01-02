@@ -35,9 +35,21 @@ const AdminActionLogs = ({ isDarkMode = true }) => {
     loadStats();
   }, [currentPage, selectedUser, actionFilter]);
 
-  const loadLogs = async () => {
+  // Real-time polling for action logs - refresh every 5 seconds
+  useEffect(() => {
+    const pollInterval = setInterval(() => {
+      loadLogs(true); // Silent refresh - no loading spinner
+      loadStats(true);
+    }, 5000);
+
+    return () => clearInterval(pollInterval);
+  }, [currentPage, selectedUser, actionFilter, searchTerm]);
+
+  const loadLogs = async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) {
+        setLoading(true);
+      }
       setError('');
       
       const response = await axios.get('/api/action-logs/', {
@@ -60,7 +72,9 @@ const AdminActionLogs = ({ isDarkMode = true }) => {
       setError(err.response?.data?.message || 'Failed to load action logs');
       console.error('Error loading action logs:', err);
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   };
 

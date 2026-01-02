@@ -274,7 +274,7 @@ const MessageCenter = ({ isDarkMode = true, compact = false }) => {
       if (result.success) {
         let convs = Array.isArray(result.data?.data) ? result.data.data : (Array.isArray(result.data) ? result.data : []);
         
-        // Deduplicate conversations and filter out chatbot messages
+        // Deduplicate conversations and filter to show only admin/staff conversations
         const seen = new Set();
         convs = convs.filter(conv => {
           const userId = conv.user?.id;
@@ -284,7 +284,9 @@ const MessageCenter = ({ isDarkMode = true, compact = false }) => {
           if (conv.last_message?.type === 'chatbot') {
             conv.last_message = null;
           }
-          return true;
+          // Only show conversations with admin or staff users
+          const userRole = conv.user?.role?.toLowerCase();
+          return userRole === 'admin' || userRole === 'staff';
         });
         
         // Sort conversations by last message date (newest first) - most recent conversations at top
@@ -518,7 +520,7 @@ const MessageCenter = ({ isDarkMode = true, compact = false }) => {
         // Full screen mode
         <div className={`min-h-screen ${isDarkMode ? 'bg-gray-900' : 'bg-gray-50'}`}>
           {/* Mobile Header */}
-          <div className={`md:hidden fixed top-0 left-0 right-0 z-40 ${isDarkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'} border-b p-3 flex items-center justify-between h-16`}>
+          <div className={`md:hidden fixed top-0 left-0 right-0 z-50 ${isDarkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'} border-b p-3 flex items-center justify-between h-14`}>
             {mobileViewingConversation && selectedConversation && (
               <button
                 onClick={() => {
@@ -551,11 +553,11 @@ const MessageCenter = ({ isDarkMode = true, compact = false }) => {
           </div>
 
           {/* Main Content */}
-          <main className={`flex-1 overflow-hidden flex flex-col pt-16 md:pt-0 md:p-6`}>
-            <div className={`flex flex-col sm:flex-row gap-2 md:gap-4 flex-1 md:h-[600px] min-h-0 p-2 sm:p-0`}>
+          <main className={`flex-1 overflow-hidden flex flex-col pt-14 md:pt-0 md:p-6`}>
+            <div className={`flex flex-col sm:flex-row gap-0 md:gap-4 flex-1 md:h-[600px] min-h-0 p-0 sm:p-0`}>
               {/* Conversations List - Hide on mobile when viewing conversation */}
               {!mobileViewingConversation && (
-                <div className={`w-full sm:w-48 sm:flex-shrink-0 flex flex-col ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} border rounded-lg overflow-hidden z-40`}>
+                <div className={`w-full sm:w-48 sm:flex-shrink-0 flex flex-col h-[calc(100vh-3.5rem)] md:h-auto ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} border-0 md:border md:rounded-lg overflow-hidden z-40`}>
                   <div className={`p-2 sm:p-3 border-b ${isDarkMode ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-gray-50'}`}>
                     <h3 className={`font-semibold text-xs sm:text-sm mb-2 ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>Conversations</h3>
                     <div className="relative">
@@ -632,7 +634,7 @@ const MessageCenter = ({ isDarkMode = true, compact = false }) => {
 
               {/* Messages Area - Show on mobile when conversation selected, always on desktop */}
               {selectedConversation ? (
-                <div className={`flex-1 flex flex-col min-h-0 w-full sm:w-auto border rounded-lg overflow-hidden ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+                <div className={`flex-1 flex flex-col min-h-0 w-full sm:w-auto h-[calc(100vh-3.5rem)] md:h-auto border-0 md:border md:rounded-lg overflow-hidden ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
                   {/* Header with User Info */}
                   <div className={`p-4 border-b flex-shrink-0 ${isDarkMode ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-gray-50'}`}>
                     <div className="flex items-center justify-between">

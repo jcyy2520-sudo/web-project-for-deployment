@@ -10,6 +10,7 @@ import axios from 'axios';
 import TimePicker from '../components/TimePicker';
 import ActionLogViewer from '../components/ActionLogViewer';
 import MessageCenter from './MessageCenter';
+import UserFeedback from '../components/user/UserFeedback';
 import { formatServiceName, formatTime12Hour } from '../utils/format';
 import { 
   HomeIcon,
@@ -42,7 +43,8 @@ import {
   KeyIcon,
   Bars3Icon,
   CurrencyDollarIcon,
-  ArrowLeftIcon
+  ArrowLeftIcon,
+  StarIcon
 } from '@heroicons/react/24/outline';
 
 // Enhanced Status Badge Component
@@ -1056,6 +1058,13 @@ const Dashboard = () => {
           current: activeTab === 'appointments',
           badge: appointments.length
         }
+        ,{ 
+          name: 'Feedback', 
+          href: '#', 
+          icon: StarIcon, 
+          current: activeTab === 'feedback',
+          badge: null
+        }
       ]
     },
     {
@@ -1941,10 +1950,10 @@ const Dashboard = () => {
           >
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs font-medium text-gray-400 group-hover:text-amber-300 transition-colors">
+                <p className={`text-xs font-medium ${isDarkMode ? 'text-gray-400 group-hover:text-amber-300' : 'text-gray-500 group-hover:text-amber-600'} transition-colors`}>
                   {stat.name}
                 </p>
-                <p className="text-lg font-bold text-amber-50 mt-0.5 group-hover:scale-105 transition-transform">
+                <p className={`text-lg font-bold ${isDarkMode ? 'text-amber-50' : 'text-gray-900'} mt-0.5 group-hover:scale-105 transition-transform`}>
                   {stat.value}
                 </p>
               </div>
@@ -2156,6 +2165,7 @@ const Dashboard = () => {
               onChange={(value) => handleAppointmentChange({ target: { name: 'appointment_time', value } })}
               error={formErrors.appointment_time}
               disabled={dailyLimitInfo.hasReachedLimit}
+              isDarkMode={isDarkMode}
             />
 
             <div className="lg:col-span-2">
@@ -2505,6 +2515,29 @@ const Dashboard = () => {
 
     return (
       <div className="space-y-6">
+        {/* Mobile Header with Back Button */}
+        <div className="flex lg:hidden items-center gap-3 -mx-3 -mt-3 px-3 py-3 border-b border-gray-700">
+          <button
+            onClick={() => navigate('/dashboard?tab=home')}
+            className="p-2 rounded-lg hover:bg-gray-800 transition-colors"
+          >
+            <ArrowLeftIcon className="w-5 h-5 text-gray-300" />
+          </button>
+          <div className="flex-1">
+            <h2 className={`text-lg font-bold ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>My Refunds</h2>
+            <p className={`text-sm ${isDarkMode ? 'text-amber-400/70' : 'text-gray-600'}`}>View and manage your refund requests</p>
+          </div>
+          <button
+            onClick={loadRefunds}
+            disabled={refundsLoading}
+            className="p-2 rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50"
+            title="Refresh refunds"
+          >
+            <ArrowPathIcon className={`h-5 w-5 text-amber-400 ${refundsLoading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
+        
+        {/* Desktop Header */}
         <div className="hidden lg:flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
           <div className="flex items-center gap-3">
             <div>
@@ -2934,6 +2967,7 @@ const Dashboard = () => {
       case 'messages': return renderMessages();
       case 'refunds': return renderRefunds();
       case 'action-logs': return <ActionLogViewer isDarkMode={isDarkMode} />;
+      case 'feedback': return <UserFeedback />;
       case 'profile': return renderProfile();
       case 'settings': 
         return (
@@ -2983,7 +3017,7 @@ const Dashboard = () => {
       <div className={`hidden lg:block fixed inset-y-0 right-0 lg:right-auto lg:left-0 z-40 w-64 h-screen ${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border-l lg:border-l-0 lg:border-r shadow-xl transition-all duration-300 lg:translate-x-0 ${
         showMobileSidebar ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'
       }`}>
-        <div className="flex flex-col h-full overflow-y-auto scrollbar-hide">
+        <div className="flex flex-col h-full">
           {/* Logo Section */}
           <div className={`p-4 shadow-md ${isDarkMode ? 'bg-gray-800 border-amber-500/30' : 'bg-gray-50 border-amber-300/50'} px-3 border-b transition-colors duration-300`}>
             <div className="flex items-center justify-center space-x-3">
@@ -3066,25 +3100,6 @@ const Dashboard = () => {
             ))}
           </nav>
 
-          {/* Quick Stats */}
-          <div className={`mx-3 mb-4 p-3 rounded-lg border-2 ${isDarkMode ? 'bg-gradient-to-br from-gray-800/40 to-gray-900/40 border-amber-500/20' : 'bg-gradient-to-br from-white/40 to-gray-50/40 border-amber-300/30'} transition-all duration-300`}>
-            <p className={`text-xs font-semibold ${isDarkMode ? 'text-amber-400' : 'text-amber-700'} mb-2 uppercase tracking-widest`}>Quick Stats</p>
-            <div className="space-y-1.5 text-xs">
-              <div className="flex justify-between items-center">
-                <span className={isDarkMode ? 'text-gray-400' : 'text-gray-600'}>Appointments:</span>
-                <span className={`font-bold ${isDarkMode ? 'text-amber-300' : 'text-amber-700'}`}>{appointments?.length || 0}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className={isDarkMode ? 'text-gray-400' : 'text-gray-600'}>Pending:</span>
-                <span className={`font-bold ${isDarkMode ? 'text-blue-300' : 'text-blue-700'}`}>{appointments?.filter(a => a.status === 'pending')?.length || 0}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className={isDarkMode ? 'text-gray-400' : 'text-gray-600'}>Completed:</span>
-                <span className={`font-bold ${isDarkMode ? 'text-green-300' : 'text-green-700'}`}>{appointments?.filter(a => a.status === 'completed')?.length || 0}</span>
-              </div>
-            </div>
-          </div>
-
           {/* Footer with Settings (Desktop only) and Logout */}
           <div className={`p-3 border-t ${isDarkMode ? 'border-amber-500/20 bg-gray-900/50' : 'border-amber-300/30 bg-gray-50/50'} space-y-2 transition-colors duration-300`}>
             {/* Settings Button - Hidden on mobile */}
@@ -3109,7 +3124,7 @@ const Dashboard = () => {
               className={`w-full flex items-center px-3 py-2 text-xs font-medium rounded-lg border transition-all duration-200 ${
                 isDarkMode
                   ? 'text-red-400 border-red-500/30 hover:bg-red-500/10 hover:text-red-300 hover:border-red-500/50'
-                  : 'text-red-600 border-red-300/50 hover:bg-red-100/30 hover:text-red-700 hover:border-red-400/50'
+                  : 'text-white bg-red-600 border-red-700 hover:bg-red-700 hover:border-red-800 active:bg-red-800'
               }`}
             >
               <ArrowPathIcon className="mr-2 h-4 w-4 flex-shrink-0" />

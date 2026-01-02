@@ -2,7 +2,10 @@ import { useState, useEffect, useRef } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import logger from '../utils/logger';
 import AuthTabsModal from '../components/auth/AuthTabsModal';
-import ChatbotButton from '../components/chatbot/ChatbotButton';
+import StarRating from '../components/ui/StarRating';
+import FeedbackThankYouModal from '../components/modals/FeedbackThankYouModal';
+import FeedbackErrorModal from '../components/modals/FeedbackErrorModal';
+import AllTestimonialsModal from '../components/modals/AllTestimonialsModal';
 import axios from 'axios';
 
 const LandingPage = () => {
@@ -10,6 +13,11 @@ const LandingPage = () => {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [feedbackEmail, setFeedbackEmail] = useState('');
   const [feedbackMessage, setFeedbackMessage] = useState('');
+  const [feedbackRating, setFeedbackRating] = useState(0);
+  const [isThankYouModalOpen, setIsThankYouModalOpen] = useState(false);
+  const [isErrorModalOpen, setIsErrorModalOpen] = useState(false);
+  const [errorModalContent, setErrorModalContent] = useState({ title: '', message: '', primaryAction: null });
+  const [isFeedbackLoading, setIsFeedbackLoading] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [activeSection, setActiveSection] = useState('home');
   const [animatedStats, setAnimatedStats] = useState({
@@ -29,6 +37,11 @@ const LandingPage = () => {
   });
   const [testimonials, setTestimonials] = useState([]);
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
+  const [isAllTestimonialsModalOpen, setIsAllTestimonialsModalOpen] = useState(false);
+  const [feedbackCategory, setFeedbackCategory] = useState('other');
+  
+  // Track if we've already animated to prevent re-animation on polling updates
+  const hasAnimatedRef = useRef(false);
 
   // Theme colors are provided via CSS variables in `src/index.css`.
   // Note: Theme is now managed by ThemeContext and initialized in main.jsx
@@ -50,32 +63,66 @@ const LandingPage = () => {
     return () => window.removeEventListener('mousemove', handleMouseMove);
   }, []);
 
-  // Animate stats counter
+  // Animate stats counter - Animate once when stats first load
   useEffect(() => {
-    const duration = 2000; // 2 seconds
-    const steps = 60;
-    const interval = duration / steps;
+    // Only animate if we have any valid stat and haven't animated yet
+    if ((stats.totalAppointments > 0 || stats.totalUsers > 0 || stats.completedAppointments > 0 || stats.totalServices > 0) && !hasAnimatedRef.current) {
+      hasAnimatedRef.current = true;
+      
+      const duration = 2000; // 2 seconds
+      const steps = 60;
+      const interval = duration / steps;
 
-    const animateValue = (start, end, setter, key) => {
-      let current = start;
-      const increment = (end - start) / steps;
-      const timer = setInterval(() => {
-        current += increment;
-        if ((increment > 0 && current >= end) || (increment < 0 && current <= end)) {
-          current = end;
-          clearInterval(timer);
+      const animateValue = (start, end, setter, key) => {
+        let current = start;
+        const increment = (end - start) / steps;
+        const timer = setInterval(() => {
+          current += increment;
+          if ((increment > 0 && current >= end) || (increment < 0 && current <= end)) {
+            current = end;
+            clearInterval(timer);
+          }
+          setter(prev => ({ ...prev, [key]: Math.floor(current) }));
+        }, interval);
+        
+        return () => clearInterval(timer);
+      };
+
+      const cleanups = [
+        animateValue(0, stats.totalAppointments, setAnimatedStats, 'totalAppointments'),
+        animateValue(0, stats.totalUsers, setAnimatedStats, 'totalUsers'),
+        animateValue(0, stats.completedAppointments, setAnimatedStats, 'completedAppointments'),
+        animateValue(0, stats.totalServices, setAnimatedStats, 'totalServices')
+      ];
+      
+      return () => cleanups.forEach(cleanup => cleanup && cleanup());
+    } else if (stats.totalAppointments === 0) {
+      // Reset animation flag if stats go back to 0 (shouldn't happen but just in case)
+      hasAnimatedRef.current = false;
+    }
+  }, [stats]); // Depend on stats to trigger animation when they load
+
+  // Poll stats endpoint to provide near-real-time updates for the landing page
+  useEffect(() => {
+    const updateStats = async () => {
+      try {
+        const resp = await axios.get('/api/stats/summary', { timeout: 2500 });
+        if (resp.data?.data) {
+          setStats(resp.data.data);
         }
-        setter(prev => ({ ...prev, [key]: Math.floor(current) }));
-      }, interval);
+      } catch (err) {
+        logger.debug('Stats polling failed');
+      }
     };
 
-    if (stats.totalAppointments > 0) {
-      animateValue(0, stats.totalAppointments, setAnimatedStats, 'totalAppointments');
-      animateValue(0, stats.totalUsers, setAnimatedStats, 'totalUsers');
-      animateValue(0, stats.completedAppointments, setAnimatedStats, 'completedAppointments');
-      animateValue(0, stats.totalServices, setAnimatedStats, 'totalServices');
-    }
-  }, [stats]);
+    // Poll every 5 seconds
+    const interval = setInterval(updateStats, 5000);
+
+    // Call once immediately to attempt a quick refresh
+    updateStats();
+
+    return () => clearInterval(interval);
+  }, []);
 
   // Active section observer
   useEffect(() => {
@@ -97,56 +144,89 @@ const LandingPage = () => {
   useEffect(() => {
     const fetchLandingPageData = async () => {
       try {
+        let finalStats = {
+          totalAppointments: 0,
+          totalUsers: 0,
+          completedAppointments: 0,
+          totalServices: 0
+        };
 
-        // Fetch stats - with fallback to defaults
+        // Fetch stats first
         try {
           const statsResponse = await axios.get('/api/stats/summary', {
             timeout: 3000
           });
 
           if (statsResponse.data?.data) {
-            setStats(statsResponse.data.data);
+            finalStats = statsResponse.data.data;
+          } else {
+            throw new Error('No stats data received');
           }
         } catch (err) {
           logger.warn('Stats API unavailable, using defaults');
-          setStats({
+          finalStats = {
             totalAppointments: 500,
             totalUsers: 1000,
             completedAppointments: 450,
             totalServices: 5
-          });
+          };
         }
 
-        // Fetch services - with fallback to defaults
+        // Fetch services and get actual count
         try {
           const servicesResponse = await axios.get('/api/services', {
             timeout: 3000
           });
 
           if (servicesResponse.data?.data && Array.isArray(servicesResponse.data.data)) {
-            setServices(servicesResponse.data.data.slice(0, 4));
+            const servicesList = servicesResponse.data.data;
+            setServices(servicesList.slice(0, 4));
+            // Update totalServices with actual count from API
+            finalStats.totalServices = servicesList.length;
           }
         } catch (err) {
-          logger.warn('Services API unavailable, using defaults');
+          logger.warn('Services API unavailable');
           setServices([]);
         }
 
-        // Fetch testimonials - with fallback to defaults
+        // Set final stats with accurate service count
+        setStats(finalStats);
+
+        // Fetch testimonials - try feedback testimonials first, then fallback to appointments
         try {
-          const appointmentsResponse = await axios.get(
-            '/api/testimonials/completed-appointments?limit=3',
+          // First try to get feedback testimonials
+          const feedbackResponse = await axios.get(
+            '/api/testimonials/feedbacks?limit=3',
             { timeout: 3000 }
           );
 
-          if (appointmentsResponse.data?.data && Array.isArray(appointmentsResponse.data.data)) {
-            const testimonialData = appointmentsResponse.data.data.map((apt, idx) => ({
-              id: apt.id,
-              clientName: apt.user?.name || `Client ${idx + 1}`,
-              serviceType: apt.type || 'Legal Service',
-              rating: 5,
-              message: apt.notes || `Successfully completed ${apt.type || 'appointment'}`
+          if (feedbackResponse.data?.data && Array.isArray(feedbackResponse.data.data) && feedbackResponse.data.data.length > 0) {
+            const testimonialData = feedbackResponse.data.data.map((feedback, idx) => ({
+              id: feedback.id,
+              clientName: feedback.privacy_safe_username || feedback.email?.split('@')[0] || `Client ${idx + 1}`,
+              maskedInitial: feedback.masked_initial || feedback.privacy_safe_username?.charAt(0).toUpperCase() || 'U',
+              serviceType: feedback.feedback_type?.replace(/_/g, ' ') || 'Feedback',
+              rating: feedback.rating || 5,
+              message: feedback.message
             }));
             setTestimonials(testimonialData);
+          } else {
+            // Fallback to completed appointments
+            const appointmentsResponse = await axios.get(
+              '/api/testimonials/completed-appointments?limit=3',
+              { timeout: 3000 }
+            );
+
+            if (appointmentsResponse.data?.data && Array.isArray(appointmentsResponse.data.data)) {
+              const testimonialData = appointmentsResponse.data.data.map((apt, idx) => ({
+                id: apt.id,
+                clientName: apt.user?.name || `Client ${idx + 1}`,
+                serviceType: apt.type || 'Legal Service',
+                rating: 5,
+                message: apt.notes || `Successfully completed ${apt.type || 'appointment'}`
+              }));
+              setTestimonials(testimonialData);
+            }
           }
         } catch (err) {
           logger.warn('Testimonials API unavailable, using defaults');
@@ -162,7 +242,7 @@ const LandingPage = () => {
     fetchLandingPageData();
   }, []);
 
-  // Real-time service count updates
+  // Real-time service count updates (only update service count, not all stats)
   useEffect(() => {
     const updateServiceCount = async () => {
       try {
@@ -170,6 +250,7 @@ const LandingPage = () => {
         if (response.data?.data && Array.isArray(response.data.data)) {
           const serviceCount = response.data.data.length;
           setServices(response.data.data.slice(0, 4));
+          // Only update total services silently without affecting other stats
           setStats(prev => ({ ...prev, totalServices: serviceCount }));
         }
       } catch (err) {
@@ -177,21 +258,79 @@ const LandingPage = () => {
       }
     };
 
-    // Fetch immediately
-    updateServiceCount();
-
-    // Set up polling interval (every 10 seconds)
-    const interval = setInterval(updateServiceCount, 10000);
+    // Set up polling interval (every 5 seconds) but don't call immediately to avoid race conditions
+    const interval = setInterval(updateServiceCount, 5000);
 
     return () => clearInterval(interval);
   }, []);
 
-  const handleSendFeedback = (e) => {
+  const handleSendFeedback = async (e) => {
     e.preventDefault();
-    logger.info('Feedback:', { email: feedbackEmail, message: feedbackMessage });
-    setFeedbackEmail('');
-    setFeedbackMessage('');
-    alert('Thank you for your feedback!');
+    
+    if (!feedbackEmail || !feedbackMessage || feedbackRating === 0) {
+      logger.warn('Feedback form incomplete');
+      alert('Please complete all feedback fields before submitting.');
+      return;
+    }
+
+    if (feedbackMessage.trim().length < 10) {
+      logger.warn('Feedback message too short');
+      alert('Feedback must be at least 10 characters long.');
+      return;
+    }
+
+    setIsFeedbackLoading(true);
+    try {
+      const response = await axios.post('/api/feedback', {
+        email: feedbackEmail,
+        message: feedbackMessage,
+        rating: feedbackRating,
+        feedback_type: feedbackCategory
+      });
+
+      logger.info('Feedback sent successfully', { response });
+      
+      // Show thank you modal with feedback details (before reset so modal shows the data)
+      setIsThankYouModalOpen(true);
+      
+      // Reset form after a short delay to ensure modal receives the data
+      setTimeout(() => {
+        setFeedbackEmail('');
+        setFeedbackMessage('');
+        setFeedbackRating(0);
+        setFeedbackCategory('other');
+      }, 100);
+
+    } catch (error) {
+      logger.error('Failed to send feedback', { error });
+      const resp = error.response?.data || {};
+
+      // Show modal for known errors
+      if (resp.error === 'email_not_registered') {
+        setErrorModalContent({
+          title: 'Email Not Registered',
+          message: 'The email you provided is not registered. Please create an account or log in to submit feedback.',
+          primaryAction: { label: 'Sign Up / Log In', onClick: () => { window.location.href = '/auth'; } }
+        });
+        setIsErrorModalOpen(true);
+      } else if (resp.error === 'rate_limit_reached') {
+        setErrorModalContent({
+          title: 'Feedback Limit Reached',
+          message: resp.message || 'You have reached your feedback submission limit. Please try again later.'
+        });
+        setIsErrorModalOpen(true);
+      } else if (resp.error === 'profanity_detected') {
+        setErrorModalContent({ title: 'Inappropriate Language', message: 'Your feedback contains disallowed language. Please edit and try again.' });
+        setIsErrorModalOpen(true);
+      } else if (resp.error === 'duplicate_feedback') {
+        setErrorModalContent({ title: 'Duplicate Feedback', message: resp.message || 'It looks like you submitted a similar feedback recently.' });
+        setIsErrorModalOpen(true);
+      } else {
+        alert('Failed to send feedback. Please try again.');
+      }
+    } finally {
+      setIsFeedbackLoading(false);
+    }
   };
 
   const scrollToSection = (sectionId) => {
@@ -366,7 +505,7 @@ const LandingPage = () => {
               <button
                 onClick={() => setIsAuthModalOpen(true)}
                 className={`px-5 py-2 rounded-lg font-semibold hover:scale-105 active:scale-95 relative overflow-hidden group transition-all duration-300`}
-                style={{ background: isDarkMode ? darkGradient() : lightGradient(), color: isDarkMode ? '#fff' : 'var(--text-primary)' }}
+                style={{ background: isDarkMode ? darkGradient() : lightGradient(), color: '#ffffff' }}
               >
                 <span className="relative z-10">Get Started</span>
                 <span className="absolute inset-0 translate-y-full group-hover:translate-y-0 transition-transform duration-300" style={{ background: isDarkMode ? 'linear-gradient(90deg,#C2410C,#92400E)' : lightGradient() }} />
@@ -454,8 +593,8 @@ const LandingPage = () => {
               <div className="flex flex-row gap-3 justify-center lg:justify-start items-center">
                 <button
                   onClick={() => setIsAuthModalOpen(true)}
-                  className={`px-6 py-3 rounded-xl font-semibold hover:scale-105 active:scale-95 group relative overflow-hidden transition-all duration-300 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}
-                  style={{ background: isDarkMode ? darkGradient() : lightGradient(), color: isDarkMode ? '#fff' : 'var(--text-primary)' }}
+                  className={`px-6 py-3 rounded-xl font-semibold hover:scale-105 active:scale-95 group relative overflow-hidden transition-all duration-300 text-white`}
+                  style={{ background: isDarkMode ? darkGradient() : lightGradient() }}
                 >
                   <span className="relative z-10">Book Appointment</span>
                   <span className="absolute inset-0 translate-y-full group-hover:translate-y-0 transition-transform duration-300" style={{ background: isDarkMode ? 'linear-gradient(90deg,#C2410C,#92400E)' : lightGradient() }} />
@@ -482,7 +621,7 @@ const LandingPage = () => {
                     </svg>
                   ) : (
                     <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M10 2a1 1 0 011 1v2a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l-2.12-2.12a1 1 0 11-1.414 1.414l2.12 2.12a1 1 0 111.414-1.414zM2.05 6.464l2.12 2.12a1 1 0 01-1.414 1.414L.636 7.878a1 1 0 111.414-1.414zM17.5 2a1 1 0 011 1v2a1 1 0 11-2 0V3a1 1 0 011-1zM1 10a1 1 0 011-1h2a1 1 0 110 2H2a1 1 0 01-1-1zm14.5 7a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1zM4.464 16.95l2.12-2.12a1 1 0 011.414 1.414l-2.12 2.12a1 1 0 01-1.414-1.414z" clipRule="evenodd" />
+                      <path fillRule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" clipRule="evenodd" />
                     </svg>
                   )}
                 </button>
@@ -731,6 +870,22 @@ const LandingPage = () => {
               ))
             )}
           </div>
+
+          {/* See All Button */}
+          {testimonials.length > 0 && (
+            <div className="mt-8 flex justify-center">
+              <button
+                onClick={() => setIsAllTestimonialsModalOpen(true)}
+                className={`px-6 py-3 rounded-lg font-semibold transition-all duration-300 hover:scale-105 active:scale-95 ${
+                  isDarkMode
+                    ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-white hover:shadow-lg hover:shadow-amber-500/30'
+                    : 'bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:shadow-lg hover:shadow-blue-500/30'
+                }`}
+              >
+                See All Testimonials
+              </button>
+            </div>
+          )}
         </div>
       </section>
 
@@ -855,7 +1010,42 @@ const LandingPage = () => {
             <h3 className={`font-semibold mb-4 text-sm transition-colors duration-300 ${
               isDarkMode ? 'text-white' : 'text-gray-800'
             }`}>Share Your Feedback</h3>
-            <form className="space-y-3" onSubmit={handleSendFeedback}>
+            <form className="space-y-4" onSubmit={handleSendFeedback}>
+              <div>
+                <label className={`block text-xs font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                  Feedback Category
+                </label>
+                <select
+                  value={feedbackCategory}
+                  onChange={(e) => setFeedbackCategory(e.target.value)}
+                  className={`w-full text-sm rounded-lg px-3 py-2 border focus:outline-none transition-colors duration-300 ${
+                    isDarkMode
+                      ? 'bg-gray-800 text-white border-gray-700 focus:border-amber-500'
+                      : 'bg-white text-gray-800 border-blue-300 focus:border-blue-500'
+                  }`}
+                  disabled={isFeedbackLoading}
+                >
+                  <option value="service_quality">Service Quality</option>
+                  <option value="speed">Speed</option>
+                  <option value="support">Support</option>
+                  <option value="system_experience">System Experience</option>
+                  <option value="bug_report">Bug Report</option>
+                  <option value="suggestion">Suggestion</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div>
+                <label className={`block text-xs font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                  Rate your experience
+                </label>
+                <div className="flex justify-start">
+                  <StarRating 
+                    value={feedbackRating} 
+                    onChange={setFeedbackRating}
+                    size="md"
+                  />
+                </div>
+              </div>
               <div>
                 <input
                   type="email"
@@ -864,10 +1054,11 @@ const LandingPage = () => {
                   onChange={(e) => setFeedbackEmail(e.target.value)}
                   className={`w-full text-sm rounded-lg px-3 py-2 border focus:outline-none transition-colors duration-300 ${
                     isDarkMode
-                      ? 'bg-gray-800 text-white border-gray-700 focus:border-blue-500 placeholder-gray-500'
+                      ? 'bg-gray-800 text-white border-gray-700 focus:border-amber-500 placeholder-gray-500'
                       : 'bg-white text-gray-800 border-blue-300 focus:border-blue-500 placeholder-gray-500'
                   }`}
                   required
+                  disabled={isFeedbackLoading}
                 />
               </div>
               <div>
@@ -878,21 +1069,30 @@ const LandingPage = () => {
                   rows="3"
                   className={`w-full text-sm rounded-lg px-3 py-2 border focus:outline-none transition-colors duration-300 resize-none ${
                     isDarkMode
-                      ? 'bg-gray-800 text-white border-gray-700 focus:border-blue-500 placeholder-gray-500'
+                      ? 'bg-gray-800 text-white border-gray-700 focus:border-amber-500 placeholder-gray-500'
                       : 'bg-white text-gray-800 border-blue-300 focus:border-blue-500 placeholder-gray-500'
                   }`}
                   required
+                  disabled={isFeedbackLoading}
                 />
               </div>
               <button
                 type="submit"
-                className={`w-full py-2 rounded-lg font-semibold text-sm transition-all duration-300 hover:scale-105 active:scale-95 ${
+                disabled={isFeedbackLoading || feedbackRating === 0}
+                className={`w-full py-2 rounded-lg font-semibold text-sm transition-all duration-300 hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed ${
                   isDarkMode
                     ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-white hover:shadow-md hover:shadow-amber-500/30'
                     : 'bg-gradient-to-r from-blue-600 to-blue-700 text-white hover:shadow-md hover:shadow-blue-600/40'
                 }`}
               >
-                Send Feedback
+                {isFeedbackLoading ? (
+                  <div className="flex items-center justify-center">
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                    Sending...
+                  </div>
+                ) : (
+                  'Send Feedback'
+                )}
               </button>
             </form>
           </div>
@@ -916,8 +1116,28 @@ const LandingPage = () => {
         isDarkMode={isDarkMode}
       />
 
-      {/* Guest Chatbot - Available to all visitors */}
-      <ChatbotButton isDarkMode={isDarkMode} />
+      {/* Feedback Thank You Modal */}
+      <FeedbackThankYouModal
+        isOpen={isThankYouModalOpen}
+        onClose={() => setIsThankYouModalOpen(false)}
+        rating={feedbackRating}
+        message={feedbackMessage}
+        category={feedbackCategory}
+      />
+      <FeedbackErrorModal
+        isOpen={isErrorModalOpen}
+        onClose={() => setIsErrorModalOpen(false)}
+        title={errorModalContent.title}
+        message={errorModalContent.message}
+        primaryAction={errorModalContent.primaryAction}
+      />
+
+      {/* All Testimonials Modal */}
+      <AllTestimonialsModal
+        isOpen={isAllTestimonialsModalOpen}
+        onClose={() => setIsAllTestimonialsModalOpen(false)}
+        isDarkMode={isDarkMode}
+      />
     </div>
   );
 };

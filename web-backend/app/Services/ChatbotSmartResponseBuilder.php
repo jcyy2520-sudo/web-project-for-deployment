@@ -108,6 +108,8 @@ class ChatbotSmartResponseBuilder
                 'shift_report' => $this->buildShiftReportResponse($userId, $roleInfo, $language),
                 'verify_receipt' => $this->buildVerifyReceiptResponse($entities, $roleInfo, $language),
                 'system_status' => $this->buildSystemStatusResponse($roleInfo, $language),
+                'help_register' => $this->buildHelpRegisterResponse($roleInfo, $language),
+                'help_login' => $this->buildHelpLoginResponse($roleInfo, $language),
                 'help' => $this->buildHelpResponse($roleInfo, $language),
                 'greeting' => $this->buildGreetingResponse($roleInfo, $language),
                 'farewell' => $this->buildFarewellResponse($roleInfo, $language),
@@ -276,6 +278,18 @@ class ChatbotSmartResponseBuilder
             'system_status' => [
                 'admin' => [
                     ['label' => 'System Dashboard', 'route' => '/admin/system', 'icon' => '🔧', 'type' => 'primary'],
+                ],
+            ],
+            'help_register' => [
+                'guest' => [
+                    ['label' => 'Create Account', 'route' => '/register', 'icon' => '📝', 'type' => 'primary'],
+                    ['label' => 'Already have an account?', 'route' => '/login', 'icon' => '🔐', 'type' => 'secondary'],
+                ],
+            ],
+            'help_login' => [
+                'guest' => [
+                    ['label' => 'Sign In', 'route' => '/login', 'icon' => '🔐', 'type' => 'primary'],
+                    ['label' => 'Don\'t have an account?', 'route' => '/register', 'icon' => '📝', 'type' => 'secondary'],
                 ],
             ],
             'help' => [
@@ -1270,6 +1284,86 @@ class ChatbotSmartResponseBuilder
      * Build response for help request
      * Explains the chatbot's role and capabilities
      */
+    /**
+     * Build help register response
+     */
+    private function buildHelpRegisterResponse(array $roleInfo, string $language = 'english'): array
+    {
+        if ($language === 'filipino') {
+            $response = "📝 **Paano mag-register**\n\n";
+            $response .= "Madali lang po! Dito ang steps:\n\n";
+            $response .= "1️⃣ I-click ang **'Create Account'** button\n";
+            $response .= "2️⃣ Punan ang form ng inyong:\n";
+            $response .= "   • Full name\n";
+            $response .= "   • Email address\n";
+            $response .= "   • Phone number\n";
+            $response .= "   • Password (secure!)\n";
+            $response .= "3️⃣ I-submit ang form\n";
+            $response .= "4️⃣ Mag-login gamit ang inyong email at password\n\n";
+            $response .= "✅ Tapos na! Ready na kayong mag-book ng appointments!\n\n";
+            $response .= "May tanong pa po?";
+        } else {
+            $response = "📝 **How to Register**\n\n";
+            $response .= "It's easy! Here are the steps:\n\n";
+            $response .= "1️⃣ Click the **'Create Account'** button\n";
+            $response .= "2️⃣ Fill out the form with:\n";
+            $response .= "   • Your full name\n";
+            $response .= "   • Email address\n";
+            $response .= "   • Phone number\n";
+            $response .= "   • A secure password\n";
+            $response .= "3️⃣ Submit the form\n";
+            $response .= "4️⃣ Log in using your email and password\n\n";
+            $response .= "✅ Done! You're ready to book appointments!\n\n";
+            $response .= "Any other questions?";
+        }
+
+        return [
+            'response' => $response,
+            'role_specific' => true,
+            'action_suggested' => 'register',
+        ];
+    }
+
+    /**
+     * Build help login response
+     */
+    private function buildHelpLoginResponse(array $roleInfo, string $language = 'english'): array
+    {
+        if ($language === 'filipino') {
+            $response = "🔐 **Paano mag-login**\n\n";
+            $response .= "Sundin lang ang mga steps:\n\n";
+            $response .= "1️⃣ I-click ang **'Sign In'** button\n";
+            $response .= "2️⃣ Ilagay ang inyong:\n";
+            $response .= "   • Email address (na gumamit ninyo sa registration)\n";
+            $response .= "   • Password\n";
+            $response .= "3️⃣ I-click ang 'Login' o 'Sign In' button\n";
+            $response .= "4️⃣ Tapos na! Welcome sa inyong account!\n\n";
+            $response .= "**Nakalimutan ang password?**\n";
+            $response .= "May 'Forgot Password?' link sa login page - i-click lang para mag-reset!\n\n";
+            $response .= "✅ Ready na kayong gumamit ng system!\n\n";
+            $response .= "Kailangan pa ba ng tulong?";
+        } else {
+            $response = "🔐 **How to Log In**\n\n";
+            $response .= "Follow these simple steps:\n\n";
+            $response .= "1️⃣ Click the **'Sign In'** button\n";
+            $response .= "2️⃣ Enter your:\n";
+            $response .= "   • Email address (the one you used to register)\n";
+            $response .= "   • Password\n";
+            $response .= "3️⃣ Click the 'Login' or 'Sign In' button\n";
+            $response .= "4️⃣ Done! Welcome to your account!\n\n";
+            $response .= "**Forgot your password?**\n";
+            $response .= "There's a 'Forgot Password?' link on the login page - just click it to reset!\n\n";
+            $response .= "✅ You're all set to use the system!\n\n";
+            $response .= "Need anything else?";
+        }
+
+        return [
+            'response' => $response,
+            'role_specific' => true,
+            'action_suggested' => 'login',
+        ];
+    }
+
     private function buildHelpResponse(array $roleInfo, string $language = 'english'): array
     {
         $role = $roleInfo['primary_role'];
