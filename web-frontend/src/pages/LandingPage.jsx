@@ -63,42 +63,49 @@ const LandingPage = () => {
     return () => window.removeEventListener('mousemove', handleMouseMove);
   }, []);
 
-  // Animate stats counter - Animate once when stats first load
+  // Animate stats counter - Always update animated stats when real stats change
   useEffect(() => {
-    // Only animate if we have any valid stat and haven't animated yet
-    if ((stats.totalAppointments > 0 || stats.totalUsers > 0 || stats.completedAppointments > 0 || stats.totalServices > 0) && !hasAnimatedRef.current) {
-      hasAnimatedRef.current = true;
-      
-      const duration = 2000; // 2 seconds
-      const steps = 60;
-      const interval = duration / steps;
-
-      const animateValue = (start, end, setter, key) => {
-        let current = start;
-        const increment = (end - start) / steps;
-        const timer = setInterval(() => {
-          current += increment;
-          if ((increment > 0 && current >= end) || (increment < 0 && current <= end)) {
-            current = end;
-            clearInterval(timer);
-          }
-          setter(prev => ({ ...prev, [key]: Math.floor(current) }));
-        }, interval);
+    if (stats.totalAppointments > 0 || stats.totalUsers > 0 || stats.completedAppointments > 0 || stats.totalServices > 0) {
+      // If this is the first time with data, animate from 0
+      if (!hasAnimatedRef.current) {
+        hasAnimatedRef.current = true;
         
-        return () => clearInterval(timer);
-      };
+        const duration = 2000; // 2 seconds
+        const steps = 60;
+        const interval = duration / steps;
 
-      const cleanups = [
-        animateValue(0, stats.totalAppointments, setAnimatedStats, 'totalAppointments'),
-        animateValue(0, stats.totalUsers, setAnimatedStats, 'totalUsers'),
-        animateValue(0, stats.completedAppointments, setAnimatedStats, 'completedAppointments'),
-        animateValue(0, stats.totalServices, setAnimatedStats, 'totalServices')
-      ];
-      
-      return () => cleanups.forEach(cleanup => cleanup && cleanup());
-    } else if (stats.totalAppointments === 0) {
-      // Reset animation flag if stats go back to 0 (shouldn't happen but just in case)
-      hasAnimatedRef.current = false;
+        const animateValue = (start, end, setter, key) => {
+          let current = start;
+          const increment = (end - start) / steps;
+          const timer = setInterval(() => {
+            current += increment;
+            if ((increment > 0 && current >= end) || (increment < 0 && current <= end)) {
+              current = end;
+              clearInterval(timer);
+            }
+            setter(prev => ({ ...prev, [key]: Math.floor(current) }));
+          }, interval);
+          
+          return () => clearInterval(timer);
+        };
+
+        const cleanups = [
+          animateValue(0, stats.totalAppointments, setAnimatedStats, 'totalAppointments'),
+          animateValue(0, stats.totalUsers, setAnimatedStats, 'totalUsers'),
+          animateValue(0, stats.completedAppointments, setAnimatedStats, 'completedAppointments'),
+          animateValue(0, stats.totalServices, setAnimatedStats, 'totalServices')
+        ];
+        
+        return () => cleanups.forEach(cleanup => cleanup && cleanup());
+      } else {
+        // On subsequent updates (polling), just update without animation
+        setAnimatedStats({
+          totalAppointments: stats.totalAppointments,
+          totalUsers: stats.totalUsers,
+          completedAppointments: stats.completedAppointments,
+          totalServices: stats.totalServices
+        });
+      }
     }
   }, [stats]); // Depend on stats to trigger animation when they load
 
@@ -590,10 +597,10 @@ const LandingPage = () => {
               }`}>
                 Get your documents notarized online in minutes. Secure, convenient, and professional. No hidden fees, no complicated process.
               </p>
-              <div className="flex flex-row gap-3 justify-center lg:justify-start items-center">
+              <div className="flex flex-row gap-2 sm:gap-3 justify-center lg:justify-start items-center flex-wrap">
                 <button
                   onClick={() => setIsAuthModalOpen(true)}
-                  className={`px-6 py-3 rounded-xl font-semibold hover:scale-105 active:scale-95 group relative overflow-hidden transition-all duration-300 text-white`}
+                  className={`px-4 sm:px-6 py-2.5 sm:py-3 rounded-xl font-semibold hover:scale-105 active:scale-95 group relative overflow-hidden transition-all duration-300 text-white text-sm sm:text-base`}
                   style={{ background: isDarkMode ? darkGradient() : lightGradient() }}
                 >
                   <span className="relative z-10">Book Appointment</span>
@@ -601,7 +608,7 @@ const LandingPage = () => {
                 </button>
                 <button
                   onClick={() => scrollToSection('howitworks')}
-                  className="border px-6 py-3 rounded-xl font-semibold transition-all duration-300 hover:scale-105 active:scale-95"
+                  className="border px-4 sm:px-6 py-2.5 sm:py-3 rounded-xl font-semibold transition-all duration-300 hover:scale-105 active:scale-95 text-sm sm:text-base"
                   style={!isDarkMode ? { borderColor: 'var(--borders)', color: 'var(--secondary)', backgroundColor: 'transparent' } : {}}
                 >
                   Learn More

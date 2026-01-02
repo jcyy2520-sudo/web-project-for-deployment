@@ -194,9 +194,11 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
     setInputValue('');
   };
 
-  const handleKeyPress = (e) => {
+  // Using onKeyDown instead of deprecated onKeyPress for better compatibility
+  const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
+      e.stopPropagation();
       handleSendMessage();
     }
   };
@@ -566,7 +568,7 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
           inputValue={inputValue}
           setInputValue={setInputValue}
           onSend={handleSendMessage}
-          onKeyPress={handleKeyPress}
+          onKeyPress={handleKeyDown}
           isLoading={loading}
           isDarkMode={isDarkMode}
         />

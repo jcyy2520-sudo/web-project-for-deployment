@@ -8,6 +8,7 @@ export const logger = {
   info: isDev ? (...args) => console.info(...args) : noop,
   warn: isDev ? (...args) => console.warn(...args) : noop,
   error: isDev ? (...args) => console.error(...args) : noop,
+  debug: isDev ? (...args) => console.debug(...args) : noop,
   group: isDev ? (...args) => console.group(...args) : noop,
   groupEnd: isDev ? () => console.groupEnd() : noop,
 };

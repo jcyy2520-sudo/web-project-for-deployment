@@ -18,8 +18,12 @@ const ChatbotButton = ({ className = '', isDarkMode }) => {
   const movedRef = useRef(false);
   const pointerOffsetRef = useRef({ x: 0, y: 0 });
   const dragPosRef = useRef(null);
+  const dragStartPosRef = useRef({ x: 0, y: 0 });
   const [pos, setPos] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
+
+  // Minimum distance to consider as a drag (in pixels)
+  const DRAG_THRESHOLD = 8;
 
   const STORAGE_KEY = 'chatbot_position_v1';
 
@@ -78,6 +82,20 @@ const ChatbotButton = ({ className = '', isDarkMode }) => {
     if (!draggingRef.current || !buttonRef.current) return;
 
     const point = e.touches ? e.touches[0] : e;
+    
+    // Check if we've moved beyond the drag threshold
+    const deltaX = Math.abs(point.clientX - dragStartPosRef.current.x);
+    const deltaY = Math.abs(point.clientY - dragStartPosRef.current.y);
+    
+    // Only start visual dragging if we've moved past the threshold
+    if (deltaX < DRAG_THRESHOLD && deltaY < DRAG_THRESHOLD) {
+      return;
+    }
+    
+    // Mark as actually moved (for click prevention)
+    movedRef.current = true;
+    setIsDragging(true);
+    
     const btn = buttonRef.current;
     const btnW = btn.offsetWidth;
     const btnH = btn.offsetHeight;
@@ -93,7 +111,6 @@ const ChatbotButton = ({ className = '', isDarkMode }) => {
     dragPosRef.current = { left, top };
     btn.style.left = `${left}px`;
     btn.style.top = `${top}px`;
-    movedRef.current = true;
   }, [clamp]);
 
   const handlePointerUp = useCallback((e) => {
@@ -120,10 +137,16 @@ const ChatbotButton = ({ className = '', isDarkMode }) => {
     
     draggingRef.current = true;
     movedRef.current = false;
-    setIsDragging(true);
+    // Don't set isDragging yet - wait until we pass the threshold
     
     const point = e.touches ? e.touches[0] : e;
     const rect = buttonRef.current?.getBoundingClientRect();
+    
+    // Store starting position for threshold calculation
+    dragStartPosRef.current = {
+      x: point.clientX,
+      y: point.clientY,
+    };
     
     pointerOffsetRef.current = {
       x: point.clientX - (rect?.left || 0),

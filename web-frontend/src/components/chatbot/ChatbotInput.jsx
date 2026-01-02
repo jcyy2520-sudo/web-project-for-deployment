@@ -8,20 +8,36 @@ const ChatbotInput = ({
   isLoading,
   isDarkMode = true
 }) => {
+  // Handle key events - use onKeyDown for better compatibility
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (inputValue.trim() && !isLoading) {
+        onSend();
+      }
+    }
+  };
+
   return (
     <div className={`border-t p-4 flex-shrink-0 ${isDarkMode ? 'border-amber-500/20 bg-gray-900' : 'border-slate-100 bg-gray-50'}`}>
       <div className="flex gap-2">
         <textarea
           value={inputValue}
           onChange={(e) => setInputValue(e.target.value)}
-          onKeyPress={onKeyPress}
+          onKeyDown={handleKeyDown}
           placeholder="Type your message..."
           disabled={isLoading}
           className={`flex-1 resize-none px-4 py-3 rounded-lg text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed ${isDarkMode ? 'bg-gray-800 border border-amber-500/20 text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500/50' : 'bg-white border border-slate-100 text-slate-900 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200 focus:border-slate-300'}`}
           rows={2}
         />
         <button
-          onClick={onSend}
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onSend();
+          }}
           disabled={isLoading || !inputValue.trim()}
           className={`px-4 py-3 rounded-lg flex items-center justify-center shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed ${isDarkMode ? 'bg-amber-500 text-white hover:bg-amber-600 shadow-amber-500/20 hover:shadow-amber-500/30' : 'bg-amber-600 text-white hover:bg-slate-500 shadow-amber-600/20'}`}
           title="Send message"

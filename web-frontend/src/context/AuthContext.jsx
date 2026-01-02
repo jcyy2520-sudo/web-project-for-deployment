@@ -235,6 +235,18 @@ export const AuthProvider = ({ children }) => {
     root.style.removeProperty('--error');
     root.style.removeProperty('background-color');
     root.style.removeProperty('color');
+    
+    // Restore the theme based on stored preference or default to dark
+    const savedTheme = localStorage.getItem('isDarkMode');
+    const shouldBeDark = savedTheme !== 'false'; // Default to dark if not explicitly set to false
+    
+    if (shouldBeDark) {
+      root.classList.add('dark');
+      root.setAttribute('data-theme', 'dark');
+    } else {
+      root.classList.remove('dark');
+      root.setAttribute('data-theme', 'light');
+    }
   };
 
   const logout = async () => {
