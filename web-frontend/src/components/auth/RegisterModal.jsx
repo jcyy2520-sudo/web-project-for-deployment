@@ -36,7 +36,7 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin, isDarkMode = true }) 
   });
   const { loading, error, callApi, clearError } = useApi();
 
-  // API base path (relative) - keep relative so Vite proxy is used
+  // API base path - /api is appended to axios baseURL
   const API_BASE = '/api';
 
   // Show notification function
@@ -109,31 +109,43 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin, isDarkMode = true }) 
     e.preventDefault();
     
     if (!validateStep1()) return;
-    const result = await callApi((signal) =>
-      axios.post(`${API_BASE}/register-step1`, {
-        username: formData.username,
-        email: formData.email,
-        password: formData.password,
-        password_confirmation: formData.confirmPassword,
-      }, { signal })
-    , { requireAuth: false }); // Public endpoint, no CSRF needed
+    
+    console.log('📝 Attempting registration step 1...');
+    console.log('📍 API_BASE:', API_BASE);
+    console.log('📧 Form data:', { username: formData.username, email: formData.email });
+    
+    try {
+      const result = await callApi((signal) =>
+        axios.post(`${API_BASE}/register-step1`, {
+          username: formData.username,
+          email: formData.email,
+          password: formData.password,
+          password_confirmation: formData.confirmPassword,
+        }, { signal })
+      , { requireAuth: false }); // Public endpoint, no CSRF needed
 
-    if (result.success) {
-      setStep(2);
-      showNotification('Verification code sent to your email!', 'success');
-    } else if (result.status === 422 && result.data) {
-      const data = result.data;
-      if (data?.errors && typeof data.errors === 'object') {
-        const errorMessages = Object.entries(data.errors)
-          .map(([field, messages]) => Array.isArray(messages) && messages.length > 0 ? messages[0] : messages)
-          .filter(Boolean)
-          .join('\n');
-        showNotification(errorMessages || 'Validation failed', 'error');
+      console.log('📦 Registration result:', result);
+
+      if (result.success) {
+        setStep(2);
+        showNotification('Verification code sent to your email!', 'success');
+      } else if (result.status === 422 && result.data) {
+        const data = result.data;
+        if (data?.errors && typeof data.errors === 'object') {
+          const errorMessages = Object.entries(data.errors)
+            .map(([field, messages]) => Array.isArray(messages) && messages.length > 0 ? messages[0] : messages)
+            .filter(Boolean)
+            .join('\n');
+          showNotification(errorMessages || 'Validation failed', 'error');
+        } else {
+          showNotification(result.error || 'Validation failed', 'error');
+        }
       } else {
-        showNotification(result.error || 'Validation failed', 'error');
+        showNotification(result.error || 'Registration failed', 'error');
       }
-    } else {
-      showNotification(result.error || 'Registration failed', 'error');
+    } catch (err) {
+      console.error('❌ Registration error:', err);
+      showNotification(err.message || 'Registration failed', 'error');
     }
   };
 
