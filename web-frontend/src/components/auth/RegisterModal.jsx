@@ -116,7 +116,7 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin, isDarkMode = true }) 
         password: formData.password,
         password_confirmation: formData.confirmPassword,
       }, { signal })
-    );
+    , { requireAuth: false }); // Public endpoint, no CSRF needed
 
     if (result.success) {
       setStep(2);
@@ -140,7 +140,7 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin, isDarkMode = true }) 
   const handleResendCode = async () => {
     const result = await callApi((signal) =>
       axios.post(`${API_BASE}/resend-verification`, { email: formData.email }, { signal })
-    );
+    , { requireAuth: false });
 
     if (result.success) {
       setTimeLeft(30);
@@ -159,7 +159,7 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin, isDarkMode = true }) 
     }
     const result = await callApi((signal) =>
       axios.post(`${API_BASE}/verify-code`, { email: formData.email, code: formData.verificationCode }, { signal })
-    );
+    , { requireAuth: false });
 
     if (result.success && result.data?.verified) {
       setStep(3);
@@ -188,7 +188,7 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin, isDarkMode = true }) 
         phone: formData.phone,
         address: formData.address,
       }, { signal })
-    );
+    , { requireAuth: false });
 
     if (result.success) {
       showNotification('Registration successful! You can now sign in.', 'success');

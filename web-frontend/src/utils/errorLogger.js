@@ -9,6 +9,7 @@ class ErrorLogger {
     this.apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
     this.errorQueue = [];
     this.isOnline = navigator.onLine;
+    this.isInitialized = false;
 
     // Listen for online/offline events
     window.addEventListener('online', () => {
@@ -25,8 +26,15 @@ class ErrorLogger {
    * Initialize error tracking by setting up global error handlers
    */
   initialize() {
+    // Prevent double initialization
+    if (this.isInitialized) return;
+    this.isInitialized = true;
+    
     // Global error handler for uncaught exceptions
     window.addEventListener('error', (event) => {
+      // Ignore ResizeObserver errors (common false positives)
+      if (event.message?.includes('ResizeObserver')) return;
+      
       this.captureError({
         message: event.message,
         error_type: 'uncaught_exception',
@@ -38,8 +46,12 @@ class ErrorLogger {
 
     // Global handler for unhandled promise rejections
     window.addEventListener('unhandledrejection', (event) => {
+      // Ignore network errors from polling (expected failures)
+      const message = event.reason?.message || String(event.reason);
+      if (message.includes('Network Error') || message.includes('timeout')) return;
+      
       this.captureError({
-        message: event.reason?.message || String(event.reason),
+        message: message,
         error_type: 'unhandled_promise_rejection',
         severity: 'critical',
         stack_trace: event.reason?.stack,

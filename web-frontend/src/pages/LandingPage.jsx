@@ -109,26 +109,43 @@ const LandingPage = () => {
     }
   }, [stats]); // Depend on stats to trigger animation when they load
 
-  // Poll stats endpoint to provide near-real-time updates for the landing page
+  // Single consolidated polling for all stats - avoid multiple conflicting intervals
   useEffect(() => {
-    const updateStats = async () => {
+    let isMounted = true;
+    
+    const fetchAllData = async () => {
+      if (!isMounted) return;
+      
       try {
-        const resp = await axios.get('/api/stats/summary', { timeout: 2500 });
-        if (resp.data?.data) {
-          setStats(resp.data.data);
+        // Fetch stats from the single source of truth
+        const statsResponse = await axios.get('/api/stats/summary', { timeout: 3000 });
+        
+        if (isMounted && statsResponse.data?.data) {
+          const apiStats = statsResponse.data.data;
+          // Use stats from API directly - this is the authoritative source
+          setStats({
+            totalAppointments: apiStats.totalAppointments || 0,
+            totalUsers: apiStats.totalUsers || 0,
+            completedAppointments: apiStats.completedAppointments || 0,
+            totalServices: apiStats.totalServices || 0
+          });
         }
       } catch (err) {
-        logger.debug('Stats polling failed');
+        // On error, keep existing stats - don't reset to defaults on network blips
+        logger.debug('Stats fetch failed, keeping existing values');
       }
     };
 
-    // Poll every 5 seconds
-    const interval = setInterval(updateStats, 5000);
+    // Fetch immediately on mount
+    fetchAllData();
 
-    // Call once immediately to attempt a quick refresh
-    updateStats();
+    // Poll every 30 seconds (not 5s - reduces load and flicker)
+    const interval = setInterval(fetchAllData, 30000);
 
-    return () => clearInterval(interval);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
   }, []);
 
   // Active section observer
@@ -147,128 +164,54 @@ const LandingPage = () => {
     return () => observer.disconnect();
   }, []);
 
-  // Fetch real data on component mount
+  // Fetch services and testimonials on component mount (stats handled by separate polling)
   useEffect(() => {
-    const fetchLandingPageData = async () => {
+    const fetchServicesAndTestimonials = async () => {
+      // Fetch services
       try {
-        let finalStats = {
-          totalAppointments: 0,
-          totalUsers: 0,
-          completedAppointments: 0,
-          totalServices: 0
-        };
-
-        // Fetch stats first
-        try {
-          const statsResponse = await axios.get('/api/stats/summary', {
-            timeout: 3000
-          });
-
-          if (statsResponse.data?.data) {
-            finalStats = statsResponse.data.data;
-          } else {
-            throw new Error('No stats data received');
-          }
-        } catch (err) {
-          logger.warn('Stats API unavailable, using defaults');
-          finalStats = {
-            totalAppointments: 500,
-            totalUsers: 1000,
-            completedAppointments: 450,
-            totalServices: 5
-          };
-        }
-
-        // Fetch services and get actual count
-        try {
-          const servicesResponse = await axios.get('/api/services', {
-            timeout: 3000
-          });
-
-          if (servicesResponse.data?.data && Array.isArray(servicesResponse.data.data)) {
-            const servicesList = servicesResponse.data.data;
-            setServices(servicesList.slice(0, 4));
-            // Update totalServices with actual count from API
-            finalStats.totalServices = servicesList.length;
-          }
-        } catch (err) {
-          logger.warn('Services API unavailable');
-          setServices([]);
-        }
-
-        // Set final stats with accurate service count
-        setStats(finalStats);
-
-        // Fetch testimonials - try feedback testimonials first, then fallback to appointments
-        try {
-          // First try to get feedback testimonials
-          const feedbackResponse = await axios.get(
-            '/api/testimonials/feedbacks?limit=3',
-            { timeout: 3000 }
-          );
-
-          if (feedbackResponse.data?.data && Array.isArray(feedbackResponse.data.data) && feedbackResponse.data.data.length > 0) {
-            const testimonialData = feedbackResponse.data.data.map((feedback, idx) => ({
-              id: feedback.id,
-              clientName: feedback.privacy_safe_username || feedback.email?.split('@')[0] || `Client ${idx + 1}`,
-              maskedInitial: feedback.masked_initial || feedback.privacy_safe_username?.charAt(0).toUpperCase() || 'U',
-              serviceType: feedback.feedback_type?.replace(/_/g, ' ') || 'Feedback',
-              rating: feedback.rating || 5,
-              message: feedback.message
-            }));
-            setTestimonials(testimonialData);
-          } else {
-            // Fallback to completed appointments
-            const appointmentsResponse = await axios.get(
-              '/api/testimonials/completed-appointments?limit=3',
-              { timeout: 3000 }
-            );
-
-            if (appointmentsResponse.data?.data && Array.isArray(appointmentsResponse.data.data)) {
-              const testimonialData = appointmentsResponse.data.data.map((apt, idx) => ({
-                id: apt.id,
-                clientName: apt.user?.name || `Client ${idx + 1}`,
-                serviceType: apt.type || 'Legal Service',
-                rating: 5,
-                message: apt.notes || `Successfully completed ${apt.type || 'appointment'}`
-              }));
-              setTestimonials(testimonialData);
-            }
-          }
-        } catch (err) {
-          logger.warn('Testimonials API unavailable, using defaults');
-          setTestimonials([]);
-        }
-
-      } catch (error) {
-        logger.error('Error in landing page data fetch:', error.message);
-        // All errors are already handled in individual try-catch blocks
-      }
-    };
-
-    fetchLandingPageData();
-  }, []);
-
-  // Real-time service count updates (only update service count, not all stats)
-  useEffect(() => {
-    const updateServiceCount = async () => {
-      try {
-        const response = await axios.get('/api/services', { timeout: 2000 });
-        if (response.data?.data && Array.isArray(response.data.data)) {
-          const serviceCount = response.data.data.length;
-          setServices(response.data.data.slice(0, 4));
-          // Only update total services silently without affecting other stats
-          setStats(prev => ({ ...prev, totalServices: serviceCount }));
+        const servicesResponse = await axios.get('/api/services', { timeout: 3000 });
+        if (servicesResponse.data?.data && Array.isArray(servicesResponse.data.data)) {
+          setServices(servicesResponse.data.data.slice(0, 4));
         }
       } catch (err) {
-        logger.debug('Service count update failed');
+        logger.debug('Services API unavailable');
+        setServices([]);
+      }
+
+      // Fetch testimonials
+      try {
+        const feedbackResponse = await axios.get('/api/testimonials/feedbacks?limit=3', { timeout: 3000 });
+        if (feedbackResponse.data?.data && Array.isArray(feedbackResponse.data.data) && feedbackResponse.data.data.length > 0) {
+          const testimonialData = feedbackResponse.data.data.map((feedback, idx) => ({
+            id: feedback.id,
+            clientName: feedback.privacy_safe_username || feedback.email?.split('@')[0] || `Client ${idx + 1}`,
+            maskedInitial: feedback.masked_initial || feedback.privacy_safe_username?.charAt(0).toUpperCase() || 'U',
+            serviceType: feedback.feedback_type?.replace(/_/g, ' ') || 'Feedback',
+            rating: feedback.rating || 5,
+            message: feedback.message
+          }));
+          setTestimonials(testimonialData);
+        } else {
+          // Fallback to completed appointments
+          const appointmentsResponse = await axios.get('/api/testimonials/completed-appointments?limit=3', { timeout: 3000 });
+          if (appointmentsResponse.data?.data && Array.isArray(appointmentsResponse.data.data)) {
+            const testimonialData = appointmentsResponse.data.data.map((apt, idx) => ({
+              id: apt.id,
+              clientName: apt.user?.name || `Client ${idx + 1}`,
+              serviceType: apt.type || 'Legal Service',
+              rating: 5,
+              message: apt.notes || `Successfully completed ${apt.type || 'appointment'}`
+            }));
+            setTestimonials(testimonialData);
+          }
+        }
+      } catch (err) {
+        logger.debug('Testimonials API unavailable');
+        setTestimonials([]);
       }
     };
 
-    // Set up polling interval (every 5 seconds) but don't call immediately to avoid race conditions
-    const interval = setInterval(updateServiceCount, 5000);
-
-    return () => clearInterval(interval);
+    fetchServicesAndTestimonials();
   }, []);
 
   const handleSendFeedback = async (e) => {
