@@ -210,7 +210,7 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
       />
 
       {/* Modal - Responsive: larger on mobile, positioned on desktop */}
-      <div className={`fixed bottom-6 right-6 left-6 w-auto sm:inset-auto sm:bottom-24 sm:right-6 sm:w-[400px] sm:max-w-[calc(100vw-3rem)] rounded-xl shadow-2xl flex flex-col h-[82vh] sm:h-[600px] sm:max-h-[calc(100vh-8rem)] z-50 overflow-hidden border ${isDarkMode ? 'bg-gray-900 border-amber-500/30' : 'bg-white border-blue-100'}`}>
+      <div className={`fixed bottom-6 right-6 left-6 w-auto sm:inset-auto sm:bottom-24 sm:right-6 sm:w-[400px] sm:max-w-[calc(100vw-3rem)] rounded-xl shadow-2xl flex flex-col h-[82vh] sm:h-[600px] sm:max-h-[calc(100vh-8rem)] z-50 overflow-hidden border ${isDarkMode ? 'bg-gray-900 border-amber-500/30' : 'bg-white border-slate-200'}`}>
         {/* Header */}
         <div className={`px-5 py-4 flex justify-between items-center flex-shrink-0 ${isDarkMode ? 'bg-gray-900 border-b border-amber-500/20 text-gray-100' : 'bg-white border-b border-blue-100 text-slate-900'}`}>
           <div className="flex items-center gap-3">
@@ -220,7 +220,7 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
               </svg>
             </div>
             <div>
-              <h2 className="font-semibold text-base" style={{ color: isDarkMode ? undefined : 'var(--primary)' }}>Chat Assistant</h2>
+              <h2 className={`font-semibold text-base ${isDarkMode ? 'text-gray-100' : 'text-slate-900'}`}>Chat Assistant</h2>
               <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>AI-powered support</p>
             </div>
           </div>

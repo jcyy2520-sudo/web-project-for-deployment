@@ -14,13 +14,12 @@ const ChatbotButton = ({ className = '', isDarkMode }) => {
     }
   });
 
-  // Draggable position state and refs
   const buttonRef = useRef(null);
   const draggingRef = useRef(false);
   const movedRef = useRef(false);
   const pointerOffsetRef = useRef({ x: 0, y: 0 });
-  const dragPosRef = useRef(null); // Track position during drag
-  const [pos, setPos] = useState(null); // { left, top }
+  const dragPosRef = useRef(null);
+  const [pos, setPos] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
 
   const STORAGE_KEY = 'chatbot_position_v1';
@@ -235,7 +234,73 @@ const ChatbotButton = ({ className = '', isDarkMode }) => {
           <div className="absolute inset-0 rounded-full border-2 border-white/40 animate-pulse" />
         )}
       </button>
+      {/* Floating button hidden when modal is open */}
+      {!isOpen && (
+        <button
+          ref={buttonRef}
+          onClick={(e) => {
+            // Prevent click when dragging
+            if (movedRef.current) {
+              e.preventDefault();
+              e.stopPropagation();
+              movedRef.current = false;
+              return;
+            }
+            setIsOpen(true);
+          }}
+          onPointerDown={handlePointerDown}
+          onTouchStart={handlePointerDown}
+          style={
+            pos
+              ? {
+                  position: 'fixed',
+                  left: `${pos.left}px`,
+                  top: `${pos.top}px`,
+                  zIndex: 70,
+                  willChange: isDragging ? 'transform' : 'auto',
+                  cursor: isDragging ? 'grabbing' : 'grab',
+                  transition: isDragging ? 'none' : 'all 0.15s ease-out',
+                }
+              : {
+                  position: 'fixed',
+                  right: '24px',
+                  bottom: '80px',
+                  zIndex: 70,
+                  cursor: 'grab',
+                }
+          }
+          className={`rounded-full shadow-lg transform active:scale-95 z-[70] flex items-center justify-center w-14 h-14 touch-none select-none ${className} ${
+            isDragging
+              ? 'scale-100 shadow-2xl opacity-95'
+              : 'hover:scale-110 transition-all duration-200'
+          } ${
+            resolvedDark
+              ? 'bg-gradient-to-br from-amber-500 to-amber-600 border-2 border-amber-400/50 text-white hover:shadow-amber-500/30 hover:border-amber-400 hover:from-amber-400 hover:to-amber-500'
+              : 'bg-gradient-to-br from-blue-500 to-blue-600 border border-blue-300/50 text-white hover:shadow-blue-500/30 hover:border-blue-300 hover:from-blue-400 hover:to-blue-500'
+          }`}
+          title="Chat Assistant (Drag to move)"
+          aria-label="Open Chatbot Assistant"
+        >
+          <svg
+            className={`w-6 h-6 transition-transform ${isDragging ? 'scale-90' : ''}`}
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"
+            />
+          </svg>
 
+          {/* Visual dragging indicator */}
+          {isDragging && (
+            <div className="absolute inset-0 rounded-full border-2 border-white/40 animate-pulse" />
+          )}
+        </button>
+      )}
       {/* Modal */}
       {isOpen && <ChatbotModal onClose={() => setIsOpen(false)} isDarkMode={resolvedDark} />}
     </>
