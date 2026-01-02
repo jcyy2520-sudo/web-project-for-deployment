@@ -1,5 +1,6 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
+import axios from 'axios'
 import App from './App.jsx'
 import './index.css'
 
@@ -38,7 +39,17 @@ import './index.css'
 })();
 
 // Set API URL from environment
-const API_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api';
+// On Vercel (production): use cPanel backend URL
+// In development: use local backend
+const isProduction = import.meta.env.PROD;
+const API_URL = isProduction 
+  ? 'https://legaleaase.site/api'
+  : (import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api');
+
+// Configure axios to use the API URL
+if (API_URL) {
+  axios.defaults.baseURL = API_URL;
+}
 
 // Remove StrictMode to prevent double-rendering in development
 ReactDOM.createRoot(document.getElementById('root')).render(

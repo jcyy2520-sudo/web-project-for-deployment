@@ -28,6 +28,7 @@ class StatsController extends Controller
                     'totalAppointments' => Appointment::count(),
                     'pendingAppointments' => Appointment::where('status', 'pending')->count(),
                     'completedAppointments' => Appointment::where('status', 'completed')->count(),
+                    'totalServices' => Service::where('is_active', true)->count(),
                 ];
             });
 
