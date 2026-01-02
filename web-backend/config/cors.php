@@ -21,13 +21,13 @@ return [
     
     // Environment-aware allowed origins - CRITICAL SECURITY FIX
     'allowed_origins' => env('APP_ENV') === 'production' 
-        ? explode(',', env('CORS_ALLOWED_ORIGINS', 'https://yourdomain.com'))
+        ? ['https://web-project-for-deployment255.vercel.app']
         : ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:5173', 'http://127.0.0.1:5173'],
     
     'allowed_origins_patterns' => [],
     
     // Only expose necessary headers
-    'allowed_headers' => ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With'],
+    'allowed_headers' => ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With', 'X-Session-ID'],
     
     'exposed_headers' => ['Authorization', 'X-Total-Count', 'X-Page-Count'],
     
