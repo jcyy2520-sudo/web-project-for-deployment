@@ -298,7 +298,20 @@ class ChatbotController extends Controller
             
             $userMessage = $request->input('message');
             $conversationId = $request->input('conversation_id') ?? uniqid('chat_');
-            $sessionId = $request->header('X-Session-ID') ?? $request->session()->getId() ?? uniqid('session_');
+            
+            // Get session ID - prioritize X-Session-ID header, fallback to generated ID
+            $sessionId = $request->header('X-Session-ID');
+            if (!$sessionId) {
+                try {
+                    $sessionId = $request->session() ? $request->session()->getId() : null;
+                } catch (\Exception $e) {
+                    $sessionId = null;
+                }
+            }
+            if (!$sessionId) {
+                $sessionId = uniqid('session_');
+            }
+            
             $ipAddress = $request->ip();
             $userAgent = $request->userAgent();
 
