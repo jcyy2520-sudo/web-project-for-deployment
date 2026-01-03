@@ -513,7 +513,7 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin, isDarkMode = true }) 
             </div>
 
             <div>
-              <label htmlFor="phone" className="block text-xs font-medium text-amber-50 mb-1">
+              <label htmlFor="phone" className={`block text-xs font-medium mb-1 ${isDarkMode ? 'text-amber-50' : 'text-gray-800'}`}>
                 Phone Number *
               </label>
               <div className="relative">

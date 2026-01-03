@@ -45,16 +45,17 @@ const isProduction = import.meta.env.PROD;
 const envApiUrl = import.meta.env.VITE_API_URL;
 
 // Determine API URL with proper fallback
+// NOTE: Do NOT include /api here - the routes already have /api prefix
 let API_URL;
 if (envApiUrl) {
   // If explicitly set via VITE_API_URL env var, use it
   API_URL = envApiUrl;
 } else if (isProduction) {
-  // If production build, use cPanel backend
-  API_URL = 'https://legaleaase.site/api';
+  // If production build, use cPanel backend (no /api suffix)
+  API_URL = 'https://legaleaase.site';
 } else {
-  // Otherwise use local development backend
-  API_URL = 'http://127.0.0.1:8000/api';
+  // Otherwise use local development backend (no /api suffix)
+  API_URL = 'http://127.0.0.1:8000';
 }
 
 // Configure axios to use the API URL
