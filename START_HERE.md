@@ -48,3 +48,56 @@ Also make sure that in the admin feedabck section, when i selected a feedback to
 I want you to check if the feedback system that i implemented has flaws, gaps, and more. 
 
 Check if everything is 100 working, connected, functional, and real time. Directly say it if yes. No extra, if not fix.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Remove:
+Hardcoded intent patterns - They're rigid and fail on variations
+Excessive service dependencies - 15+ services are overkill and conflict with each other
+LLM fallback as band-aid - Using LLM only when patterns fail = inconsistent accuracy
+Confidence thresholds - Arbitrary values (0.85, 0.3) don't reflect real reliability
+
+Add:
+Vector embeddings - Use real semantic similarity (not keyword matching)
+Conversation history - LLM needs context, not isolated messages
+Retrieval augmentation - Feed LLM your actual data upfront, not as afterthought
+Feedback loop - Track wrong answers, retrain on corrections
+Unified response pipeline - One path through LLM, not 12 different handlers
+
+Improve:
+Make LLM the primary system - Not a fallback. All messages through LLM with your data as context.
+Simplify to 2-3 core services - NLU for basic categorization, LLM for reasoning, Data for retrieval
+Fix the system prompt - It's verbose. Make it: "Answer ONLY what you know. If uncertain, ask."
+Test accuracy on real user logs - Not hardcoded test phrases. What actually fails?
+Use streaming - Users wait for LLM; show they're thinking instead of hanging
+Real AI chatbots (Claude, ChatGPT) don't pattern-match first then LLM-fallback. They embed everything → retrieve relevant context → feed to LLM → respond. That's what you need.

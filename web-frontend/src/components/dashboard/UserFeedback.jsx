@@ -407,13 +407,15 @@ const UserFeedback = ({ user }) => {
       )}
 
       {/* Modals */}
-      <FeedbackThankYouModal
-        isOpen={showThankYouModal}
-        onClose={() => setShowThankYouModal(false)}
-        rating={submittedFeedback.rating}
-        message={submittedFeedback.message}
-        category={submittedFeedback.feedback_type}
-      />
+      {showThankYouModal && submittedFeedback && (
+        <FeedbackThankYouModal
+          isOpen={true}
+          onClose={() => setShowThankYouModal(false)}
+          rating={submittedFeedback.rating}
+          message={submittedFeedback.message}
+          category={submittedFeedback.feedback_type}
+        />
+      )}
     </div>
   );
 };

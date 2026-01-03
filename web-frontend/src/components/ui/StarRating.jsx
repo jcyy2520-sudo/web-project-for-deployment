@@ -13,13 +13,19 @@ const StarRating = ({ value, rating, onChange, size = 'md', readOnly = false }) 
 
   const { star, gap } = sizes[size];
 
+  const handleStarClick = (starNum) => {
+    if (!readOnly && onChange) {
+      onChange(starNum);
+    }
+  };
+
   return (
     <div className="flex items-center" style={{ gap: `${gap}px` }}>
       {[1, 2, 3, 4, 5].map((starNum) => (
         <button
           key={starNum}
           type="button"
-          onClick={() => !readOnly && onChange(starNum)}
+          onClick={() => handleStarClick(starNum)}
           onMouseEnter={() => !readOnly && setHovered(starNum)}
           onMouseLeave={() => !readOnly && setHovered(0)}
           disabled={readOnly}
