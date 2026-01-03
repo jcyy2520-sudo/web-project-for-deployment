@@ -36,8 +36,8 @@ const AdminFeedback = () => {
   const [total, setTotal] = useState(0);
 
   // View mode and card expansion
-  const [viewMode, setViewMode] = useState('cards'); // 'cards' or 'table'
-  const [allExpanded, setAllExpanded] = useState(true);
+  const [viewMode, setViewMode] = useState('cards'); // 'cards' only - simplified
+  const [allExpanded, setAllExpanded] = useState(false); // Default collapsed for performance
   const [expandedCards, setExpandedCards] = useState({});
 
   // Modal states
@@ -283,50 +283,28 @@ const AdminFeedback = () => {
         </div>
       </div>
 
-      {/* Header with View Toggle */}
+      {/* Header with Controls */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold text-amber-50">User Feedback</h2>
-          <p className="text-xs text-gray-400 mt-0.5">Manage feedback and testimonials</p>
+          <p className="text-xs text-gray-400 mt-0.5">{total} total • Manage and feature testimonials</p>
         </div>
-        <div className="flex items-center gap-2">
-          {/* View Mode Toggle */}
-          <div className="flex bg-gray-800 rounded-lg p-1">
-            <button
-              onClick={() => setViewMode('cards')}
-              className={`p-1.5 rounded ${viewMode === 'cards' ? 'bg-amber-600 text-white' : 'text-gray-400 hover:text-white'}`}
-              title="Card View"
-            >
-              <Squares2X2Icon className="h-4 w-4" />
-            </button>
-            <button
-              onClick={() => setViewMode('table')}
-              className={`p-1.5 rounded ${viewMode === 'table' ? 'bg-amber-600 text-white' : 'text-gray-400 hover:text-white'}`}
-              title="Table View"
-            >
-              <ListBulletIcon className="h-4 w-4" />
-            </button>
-          </div>
-          {/* Expand/Collapse All (only in card view) */}
-          {viewMode === 'cards' && (
-            <button
-              onClick={toggleAllCards}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-800 text-gray-300 rounded-lg text-xs hover:bg-gray-700 transition-colors"
-            >
-              {allExpanded ? (
-                <>
-                  <ChevronUpIcon className="h-3.5 w-3.5" />
-                  Collapse All
-                </>
-              ) : (
-                <>
-                  <ChevronDownIcon className="h-3.5 w-3.5" />
-                  Expand All
-                </>
-              )}
-            </button>
+        <button
+          onClick={toggleAllCards}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600/20 text-amber-400 rounded-lg text-xs hover:bg-amber-600/30 transition-colors border border-amber-500/30"
+        >
+          {allExpanded ? (
+            <>
+              <ChevronUpIcon className="h-3.5 w-3.5" />
+              Collapse All
+            </>
+          ) : (
+            <>
+              <ChevronDownIcon className="h-3.5 w-3.5" />
+              Expand All
+            </>
           )}
-        </div>
+        </button>
       </div>
 
       {/* Filters - Compact Row */}
@@ -474,72 +452,6 @@ const AdminFeedback = () => {
                   )}
                 </div>
               ))}
-            </div>
-          ) : (
-            /* Table View */
-            <div className="bg-gray-800/50 border border-gray-700 rounded-xl overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-800 border-b border-gray-700">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-400">User</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-400">Rating</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-400">Message</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-400">Status</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-400">Date</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-400">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-700">
-                    {feedback.map((item) => (
-                      <tr key={item.id} className="hover:bg-gray-800/30">
-                        <td className="px-4 py-3">
-                          <span className="text-gray-300 truncate block max-w-[150px]">{item.email}</span>
-                        </td>
-                        <td className="px-4 py-3">{renderStars(item.rating, 12)}</td>
-                        <td className="px-4 py-3">
-                          <span className="text-gray-400 truncate block max-w-[200px]">{item.message}</span>
-                        </td>
-                        <td className="px-4 py-3">
-                          {item.is_testimonial ? (
-                            <span className="text-xs bg-green-500/20 text-green-400 px-2 py-0.5 rounded">Featured</span>
-                          ) : (
-                            <span className="text-xs bg-gray-700 text-gray-400 px-2 py-0.5 rounded">Regular</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-xs text-gray-500">
-                          {new Date(item.created_at).toLocaleDateString()}
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center justify-end gap-1">
-                            <button
-                              onClick={() => { setSelectedFeedback(item); setShowDetailModal(true); }}
-                              className="p-1.5 text-gray-400 hover:text-amber-400 rounded"
-                              title="View"
-                            >
-                              <EyeIcon className="h-4 w-4" />
-                            </button>
-                            <button
-                              onClick={() => handleToggleTestimonial(item.id, item.is_testimonial)}
-                              className={`p-1.5 rounded ${item.is_testimonial ? 'text-green-400' : 'text-gray-400 hover:text-green-400'}`}
-                              title="Toggle Featured"
-                            >
-                              <CheckIcon className="h-4 w-4" />
-                            </button>
-                            <button
-                              onClick={() => { setDeleteTargetId(item.id); setShowConfirmDelete(true); }}
-                              className="p-1.5 text-gray-400 hover:text-red-400 rounded"
-                              title="Delete"
-                            >
-                              <TrashIcon className="h-4 w-4" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
             </div>
           )}
 
