@@ -72,11 +72,20 @@ const AdminFeedback = () => {
     try {
       setLoading(true);
       const result = await callApi(async () => {
+        // Parse sort value from "field-order" format
+        let sortField = 'created_at';
+        let sortOrder = 'desc';
+        if (sortBy && sortBy.includes('-')) {
+          const [field, order] = sortBy.split('-');
+          sortField = field;
+          sortOrder = order;
+        }
+
         const params = {
           page,
           per_page: itemsPerPage,
           search: searchTerm,
-          sort_by: sortBy,
+          sort_by: sortField,
           sort_order: sortOrder,
         };
         if (ratingFilter !== 'all') params.rating = ratingFilter;

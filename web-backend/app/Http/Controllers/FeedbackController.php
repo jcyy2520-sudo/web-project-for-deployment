@@ -230,6 +230,14 @@ class FeedbackController extends Controller
                 $query->orderBy('created_at', 'desc');
             }
 
+            // IMPORTANT: Always put featured testimonials first (when not already sorting by is_testimonial)
+            if ($sortBy !== 'is_testimonial') {
+                // Re-order with testimonials first
+                $query->orderByRaw('is_testimonial DESC')
+                      ->orderBy($sortBy === 'created_at' || !in_array($sortBy, $validSortFields) ? 'created_at' : $sortBy, 
+                               strtoupper($sortOrder) === 'DESC' ? 'desc' : 'asc');
+            }
+
             // Get total count before pagination
             $total = $query->count();
 
