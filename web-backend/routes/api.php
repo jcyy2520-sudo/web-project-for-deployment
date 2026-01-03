@@ -732,7 +732,25 @@ Route::middleware(['auth:sanctum'])->group(function () {
     });
 });
 
-// CHATBOT ROUTES (PUBLIC - Allow guests and authenticated users)
+// ==================== UNIFIED CHATBOT V2 ROUTES (LLM-First) ====================
+// New unified chatbot endpoint that uses LLM as primary (not fallback)
+Route::prefix('chatbot/v2')->group(function () {
+    // Public endpoints
+    Route::post('/send-message', [\App\Http\Controllers\UnifiedChatbotController::class, 'sendMessage']);
+    Route::post('/stream', [\App\Http\Controllers\UnifiedChatbotController::class, 'streamMessage']);
+    Route::get('/status', [\App\Http\Controllers\UnifiedChatbotController::class, 'getStatus']);
+    Route::get('/history', [\App\Http\Controllers\UnifiedChatbotController::class, 'getHistory']);
+    
+    // Feedback endpoint (semi-public - works for guests and users)
+    Route::post('/feedback', [\App\Http\Controllers\UnifiedChatbotController::class, 'submitFeedback']);
+    
+    // Admin endpoints
+    Route::middleware(['auth:sanctum', 'role:admin'])->group(function () {
+        Route::get('/analytics', [\App\Http\Controllers\UnifiedChatbotController::class, 'getFeedbackAnalytics']);
+    });
+});
+
+// CHATBOT ROUTES (PUBLIC - Allow guests and authenticated users) - LEGACY ENDPOINTS
 Route::prefix('chatbot')->group(function () {
     // Public routes (guests can ask questions)
     Route::post('/send-message', [ChatbotController::class, 'sendMessage']);

@@ -23,17 +23,21 @@ class LLMService
 {
     private const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages';
     private const OLLAMA_API_URL = 'http://localhost:11434/api/generate';
+    private const HUGGINGFACE_API_URL = 'https://router.huggingface.co/v1/chat/completions';
     private const REQUEST_TIMEOUT = 30;
     private const MAX_TOKENS = 2048; // Increased for better context window
     private const CONTEXT_WINDOW = 8000; // Token limit for conversation history (Claude: 200K, Ollama Mistral: 32K)
     
     private $claudeApiKey;
+    private $huggingfaceApiKey;
     private $useOllama;
     private $ollamaModel = 'mistral'; // Change to 'llama2' if using Llama 2
+    private $huggingfaceModel = 'meta-llama/Llama-3.2-3B-Instruct'; // Free, good quality
 
     public function __construct()
     {
         $this->claudeApiKey = env('ANTHROPIC_API_KEY');
+        $this->huggingfaceApiKey = env('HUGGINGFACE_API_KEY');
         $this->useOllama = env('USE_OLLAMA_LLM', false) === true || env('USE_OLLAMA_LLM', 'false') === 'true';
     }
 
@@ -64,15 +68,21 @@ class LLMService
                         $systemPrompt
                     );
                 } catch (\Exception $e) {
-                    Log::warning('Claude API failed, falling back to Ollama: ' . $e->getMessage());
-                    if (!$this->useOllama) {
-                        // If Claude fails and Ollama not configured, return error
-                        return [
-                            'success' => false,
-                            'error' => 'LLM service unavailable',
-                            'message' => 'AI service is temporarily unavailable. Please try again later.',
-                        ];
-                    }
+                    Log::warning('Claude API failed, trying fallbacks: ' . $e->getMessage());
+                }
+            }
+
+            // Try HuggingFace (free, cloud-based)
+            if ($this->huggingfaceApiKey) {
+                try {
+                    Log::debug('Attempting HuggingFace API call');
+                    return $this->generateViaHuggingFace(
+                        $userMessage,
+                        $conversationHistory,
+                        $systemPrompt
+                    );
+                } catch (\Exception $e) {
+                    Log::warning('HuggingFace API failed: ' . $e->getMessage());
                 }
             }
 
@@ -208,6 +218,109 @@ class LLMService
             Log::error('Ollama generation failed: ' . $e->getMessage());
             throw $e;
         }
+    }
+
+    /**
+     * Generate response via HuggingFace Inference API (FREE!)
+     * Uses Llama 3.2 via OpenAI-compatible endpoint
+     */
+    private function generateViaHuggingFace(
+        string $userMessage,
+        array $conversationHistory,
+        string $systemPrompt
+    ): array {
+        try {
+            // Build messages array (OpenAI format)
+            $messages = [
+                ['role' => 'system', 'content' => $systemPrompt]
+            ];
+            
+            // Add conversation history
+            $historyLimit = min(count($conversationHistory), 6);
+            $recentHistory = array_slice($conversationHistory, -$historyLimit);
+            
+            foreach ($recentHistory as $msg) {
+                $role = ($msg['role'] === 'assistant' || $msg['role'] === 'bot') ? 'assistant' : 'user';
+                $content = $msg['message'] ?? $msg['content'] ?? '';
+                if ($content) {
+                    $messages[] = ['role' => $role, 'content' => $content];
+                }
+            }
+            
+            // Add current message
+            $messages[] = ['role' => 'user', 'content' => $userMessage];
+
+            $response = Http::withHeaders([
+                'Authorization' => 'Bearer ' . $this->huggingfaceApiKey,
+                'Content-Type' => 'application/json',
+            ])
+            ->timeout(self::REQUEST_TIMEOUT * 2)
+            ->post(self::HUGGINGFACE_API_URL, [
+                'model' => $this->huggingfaceModel,
+                'messages' => $messages,
+                'max_tokens' => min(self::MAX_TOKENS, 1024),
+                'temperature' => 0.7,
+            ]);
+
+            if (!$response->successful()) {
+                Log::error('HuggingFace error', [
+                    'status' => $response->status(),
+                    'body' => $response->body(),
+                ]);
+                throw new \Exception('HuggingFace returned ' . $response->status() . ': ' . $response->body());
+            }
+
+            $data = $response->json();
+            $responseText = $data['choices'][0]['message']['content'] ?? '';
+
+            if (!$responseText) {
+                throw new \Exception('Empty response from HuggingFace');
+            }
+
+            return [
+                'success' => true,
+                'response' => $this->cleanResponse($responseText),
+                'provider' => 'huggingface',
+                'model' => $this->huggingfaceModel,
+                'tokens_used' => $data['usage']['total_tokens'] ?? 0,
+            ];
+        } catch (\Exception $e) {
+            Log::error('HuggingFace generation failed: ' . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    /**
+     * Build prompt for HuggingFace Mistral Instruct format
+     * @deprecated Use OpenAI-compatible format instead
+     */
+    private function buildHuggingFacePrompt(
+        string $userMessage,
+        array $conversationHistory,
+        string $systemPrompt
+    ): string {
+        // Mistral Instruct format: [INST] instruction [/INST]
+        $prompt = "[INST] <<SYS>>\n{$systemPrompt}\n<</SYS>>\n\n";
+        
+        // Add conversation history (limited)
+        $historyLimit = min(count($conversationHistory), 4);
+        $recentHistory = array_slice($conversationHistory, -$historyLimit);
+        
+        foreach ($recentHistory as $msg) {
+            $role = $msg['role'] ?? 'user';
+            $content = $msg['message'] ?? $msg['content'] ?? '';
+            
+            if ($role === 'assistant' || $role === 'bot') {
+                $prompt .= "[/INST] {$content} [INST] ";
+            } else {
+                $prompt .= "{$content}\n";
+            }
+        }
+        
+        // Add current message
+        $prompt .= "{$userMessage} [/INST]";
+        
+        return $prompt;
     }
 
     /**

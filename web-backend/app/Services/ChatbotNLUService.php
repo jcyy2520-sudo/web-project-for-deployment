@@ -8,6 +8,17 @@ use Illuminate\Support\Facades\Cache;
 /**
  * ChatbotNLUService - Enhanced Natural Language Understanding
  * 
+ * @deprecated This service uses pattern matching which is less accurate than 
+ *             semantic embeddings. Use VectorEmbeddingService + UnifiedChatbotService
+ *             for the LLM-first architecture. This service remains for backward 
+ *             compatibility with legacy endpoints.
+ * 
+ * MIGRATION PATH:
+ * - Old: ChatbotNLUService->detectIntent() → pattern match → confidence threshold
+ * - New: VectorEmbeddingService->semanticSearch() → LLM with context
+ * 
+ * See UNIFIED_CHATBOT_ARCHITECTURE.md for details.
+ * 
  * Advanced Natural Language Understanding with:
  * - Fuzzy matching for typos and variations
  * - Intent recognition from user input

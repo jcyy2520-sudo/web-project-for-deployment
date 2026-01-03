@@ -377,6 +377,31 @@ class ChatbotRealTimeDataService
     }
 
     /**
+     * Get business information (contact, address, etc.)
+     * 
+     * @return array
+     */
+    public function getBusinessInfo(): array
+    {
+        return [
+            'company_name' => config('chatbot.business.name', 'Peejayy De Guzman Legal'),
+            'email' => config('chatbot.business.email', 'peejaydeguzmanlegal@gmail.com'),
+            'phone' => config('chatbot.business.phone', '09765075274'),
+            'address' => config('chatbot.business.address', '233 Aljenjay Building, Vicente Ylagan Street, Bagong Bayan 2, Bongabong, Oriental Mindoro'),
+            'type' => 'Notary Services & Legal Consultation',
+            'specialties' => [
+                'Notary Services',
+                'Legal Consultations',
+                'Document Review',
+                'Contract Drafting',
+                'Court Representation',
+                'Legal Opinions',
+                'Case Evaluations'
+            ],
+        ];
+    }
+
+    /**
      * Get available services with real-time info
      * 
      * @return array

@@ -31,8 +31,11 @@ use App\Http\Controllers\MetricsController;
 use App\Http\Controllers\AlertController;
 use App\Http\Controllers\BackupController;
 use App\Http\Controllers\FeedbackController;
+use App\Http\Controllers\FeedbackSettingsController;
 use App\Http\Controllers\Admin\FrontendErrorLogController;
 use App\Http\Controllers\Admin\JobController;
+use App\Http\Controllers\ChatbotPositionController;
+use App\Http\Controllers\UnifiedChatbotController;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Mail;
 use App\Mail\VerificationCodeMail;
@@ -723,7 +726,26 @@ Route::middleware([
     });
 });
 
-// CHATBOT ROUTES (PUBLIC - Allow guests and authenticated users)
+// ==================== UNIFIED CHATBOT V2 ROUTES (LLM-First) ====================
+// New unified chatbot endpoint that uses LLM as primary (not fallback)
+// Uses HuggingFace for FREE embeddings and LLM (Mistral-7B-Instruct)
+Route::prefix('chatbot/v2')->group(function () {
+    // Public endpoints
+    Route::post('/send-message', [UnifiedChatbotController::class, 'sendMessage']);
+    Route::post('/stream', [UnifiedChatbotController::class, 'streamMessage']);
+    Route::get('/status', [UnifiedChatbotController::class, 'getStatus']);
+    Route::get('/history', [UnifiedChatbotController::class, 'getHistory']);
+    
+    // Feedback endpoint (semi-public - works for guests and users)
+    Route::post('/feedback', [UnifiedChatbotController::class, 'submitFeedback']);
+    
+    // Admin endpoints
+    Route::middleware(['auth:sanctum', 'role:admin'])->group(function () {
+        Route::get('/analytics', [UnifiedChatbotController::class, 'getFeedbackAnalytics']);
+    });
+});
+
+// CHATBOT ROUTES (PUBLIC - Allow guests and authenticated users) - LEGACY ENDPOINTS
 Route::prefix('chatbot')->group(function () {
     // Public routes (guests can ask questions)
     Route::post('/send-message', [ChatbotController::class, 'sendMessage']);
