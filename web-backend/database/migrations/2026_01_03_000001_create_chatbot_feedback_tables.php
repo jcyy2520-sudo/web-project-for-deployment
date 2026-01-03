@@ -18,10 +18,10 @@ return new class extends Migration
         // Interaction logs - tracks every chatbot conversation
         Schema::create('chatbot_interaction_logs', function (Blueprint $table) {
             $table->id();
-            $table->uuid('interaction_id')->unique();
+            $table->string('interaction_id', 36)->unique(); // UUID as string(36) for MySQL compatibility
             $table->foreignId('user_id')->nullable()->constrained()->nullOnDelete();
-            $table->string('conversation_id')->nullable()->index();
-            $table->string('session_id')->nullable()->index();
+            $table->string('conversation_id', 100)->nullable()->index(); // Limited length for index
+            $table->string('session_id', 100)->nullable()->index(); // Limited length for index
             
             // Message content
             $table->text('user_message');
@@ -56,7 +56,7 @@ return new class extends Migration
         // User feedback on chatbot responses
         Schema::create('chatbot_feedback', function (Blueprint $table) {
             $table->id();
-            $table->uuid('interaction_id');
+            $table->string('interaction_id', 36); // Match the interaction_logs table
             $table->foreignId('user_id')->nullable()->constrained()->nullOnDelete();
             
             // Rating feedback
@@ -69,7 +69,7 @@ return new class extends Migration
             $table->text('expected_response')->nullable(); // What user expected
             
             // Categorization
-            $table->string('feedback_category')->nullable(); // wrong_info, unclear, off_topic, rude, etc.
+            $table->string('feedback_category', 50)->nullable(); // wrong_info, unclear, off_topic, rude, etc.
             $table->text('comments')->nullable(); // Free-form feedback
             
             // Retraining tracking
