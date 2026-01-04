@@ -25,7 +25,8 @@ class User extends Authenticatable
         'address',
         'verification_code',
         'verification_code_expires_at',
-        'is_active'
+        'is_active',
+        'profile_picture'
     ];
 
     protected $hidden = [

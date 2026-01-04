@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+import ProfilePictureUpload from '../components/ProfilePictureUpload';
 import {
   Cog6ToothIcon,
   ArrowRightOnRectangleIcon,
@@ -33,6 +34,9 @@ const ProfilePage = ({ onBack, onTabChange, onLogout }) => {
   const { user, logout } = useAuth();
   const { isDarkMode, setIsDarkMode } = useTheme(); // Use ThemeContext
   const initials = (user?.first_name?.[0] || '') + (user?.last_name?.[0] || '');
+  
+  // Profile picture state
+  const [profilePicture, setProfilePicture] = useState(user?.profile_picture ? `${window.location.origin}/storage/${user.profile_picture}` : null);
   
   // Current menu section state - for mobile back button
   const [currentMenuSection, setCurrentMenuSection] = useState('main');
@@ -287,17 +291,27 @@ const ProfilePage = ({ onBack, onTabChange, onLogout }) => {
       <div className="overflow-y-auto flex-1">
         {currentMenuSection === 'main' ? (
           <>
-            {/* Profile Card */}
-            <div className="px-4 py-6">
-              <div className="flex items-center gap-4">
-                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-white text-2xl font-bold border-3 border-amber-400 flex-shrink-0">
-                  {initials || 'U'}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-base text-gray-900 dark:text-white truncate">
+            {/* Profile Card with Picture Upload */}
+            <div className="px-4 py-6 border-b border-gray-200 dark:border-gray-700">
+              <div className="flex flex-col items-center">
+                {/* Profile Picture Upload Component */}
+                <ProfilePictureUpload
+                  currentImage={profilePicture}
+                  user={user}
+                  onUploadSuccess={(imageUrl) => {
+                    setProfilePicture(imageUrl);
+                  }}
+                  onDeleteSuccess={() => {
+                    setProfilePicture(null);
+                  }}
+                />
+                
+                {/* User Info */}
+                <div className="mt-4 text-center">
+                  <p className="font-semibold text-base text-gray-900 dark:text-white">
                     {user?.first_name} {user?.last_name}
                   </p>
-                  <p className="text-gray-500 dark:text-gray-400 text-sm truncate">
+                  <p className="text-gray-500 dark:text-gray-400 text-sm">
                     {user?.email}
                   </p>
                 </div>

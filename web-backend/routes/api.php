@@ -6,6 +6,7 @@ use App\Http\Controllers\AppointmentController;
 use App\Http\Controllers\CalendarController;
 use App\Http\Controllers\MessageController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\ProfilePictureController;
 use App\Http\Controllers\UnavailableDateController;
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\ArchiveController;
@@ -554,6 +555,11 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/profile', [ProfileController::class, 'show']);
     Route::put('/profile/update', [ProfileController::class, 'update']);
     Route::put('/profile/password', [ProfileController::class, 'updatePassword']);
+
+    // Profile Picture routes
+    Route::post('/profile/picture', [ProfilePictureController::class, 'store']);
+    Route::get('/profile/picture', [ProfilePictureController::class, 'show']);
+    Route::delete('/profile/picture', [ProfilePictureController::class, 'destroy']);
 
     // Appointments - FIXED ROUTES (Static routes MUST come before wildcard routes)
     Route::prefix('appointments')->group(function () {
