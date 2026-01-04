@@ -23,10 +23,9 @@ class AnalyticsService
         // Get all time slots available
         $timeSlots = TimeSlotCapacity::where('is_active', true)->get();
         
-        // Get appointments in range
-        // GROUP BY formatted date string (Y-m-d) to match our dateStr format
+        // Get appointments in range (both completed and pending - not cancelled or no_show)
         $appointments = Appointment::whereBetween('appointment_date', [$startDate, $endDate])
-            ->where('status', '!=', 'cancelled')
+            ->whereNotIn('status', ['cancelled', 'no_show'])
             ->get()
             ->groupBy(function($appointment) {
                 return $appointment->appointment_date->format('Y-m-d');
@@ -56,7 +55,7 @@ class AnalyticsService
                        strpos($slot->day_of_week, $dayName) !== false;
             });
 
-            // Fix: Calculate dayCapacity correctly - multiply max by count only if we have slots
+            // Calculate day capacity: sum of max_appointments_per_slot for each active time slot
             $dayCapacity = $daySlots->count() > 0 ? $daySlots->sum('max_appointments_per_slot') : 0;
             $dayBooked = isset($appointments[$dateStr]) ? $appointments[$dateStr]->count() : 0;
 
@@ -95,7 +94,7 @@ class AnalyticsService
                 'total_capacity' => $totalCapacity,
                 'total_booked' => $totalBooked,
                 'total_available' => max(0, $totalCapacity - $totalBooked),
-                'overall_utilization_rate' => round(($totalBooked / max(1, $totalCapacity)) * 100, 2),
+                'overall_utilization_rate' => $totalCapacity > 0 ? round(($totalBooked / $totalCapacity) * 100, 2) : 0,
             ],
             'days_analysis' => $daysAnalysis,
             'underbooked_days' => array_values($underbookedDays),
@@ -210,14 +209,18 @@ class AnalyticsService
     {
         $startDate = now()->subDays($dateRange);
 
-        // Get all cancellations and no-shows
-        $problematicAppointments = Appointment::where('status', 'cancelled')
-            ->orWhere('status', 'no_show')
+        // Get all ACTUAL no-shows (not user-cancelled)
+        $noShowAppointments = Appointment::where('status', 'no_show')
             ->where('created_at', '>=', $startDate)
             ->get();
 
-        // Users with 2+ no-shows/cancellations
-        $userNoShows = $problematicAppointments->groupBy('user_id')
+        // Get all cancellations (user-initiated)
+        $cancelledAppointments = Appointment::where('status', 'cancelled')
+            ->where('created_at', '>=', $startDate)
+            ->get();
+
+        // Users with 2+ no-shows (actual no-shows only)
+        $userNoShows = $noShowAppointments->groupBy('user_id')
             ->map(fn($group) => $group->count())
             ->filter(fn($count) => $count >= 2);
 
@@ -225,17 +228,17 @@ class AnalyticsService
             ->get()
             ->map(function ($user) use ($userNoShows) {
                 $totalAppointments = Appointment::where('user_id', $user->id)->count();
-                $cancelledCount = $userNoShows[$user->id];
-                $cancelRate = ($cancelledCount / max(1, $totalAppointments)) * 100;
+                $noShowCount = $userNoShows[$user->id];
+                $noShowRate = ($noShowCount / max(1, $totalAppointments)) * 100;
 
                 return [
                     'user_id' => $user->id,
                     'user_name' => "{$user->first_name} {$user->last_name}",
                     'email' => $user->email,
-                    'no_show_count' => $cancelledCount,
+                    'no_show_count' => $noShowCount,
                     'total_appointments' => $totalAppointments,
-                    'no_show_rate' => round($cancelRate, 2),
-                    'risk_level' => $cancelRate >= 50 ? 'high' : ($cancelRate >= 25 ? 'medium' : 'low'),
+                    'no_show_rate' => round($noShowRate, 2),
+                    'risk_level' => $noShowRate >= 50 ? 'high' : ($noShowRate >= 25 ? 'medium' : 'low'),
                 ];
             });
 
@@ -243,40 +246,40 @@ class AnalyticsService
         $timeSlotStats = Appointment::where('created_at', '>=', $startDate)
             ->groupBy('appointment_time')
             ->select('appointment_time', DB::raw('count(*) as total'), 
-                     DB::raw("SUM(CASE WHEN status IN ('cancelled', 'no_show') THEN 1 ELSE 0 END) as cancelled_count"))
+                     DB::raw("SUM(CASE WHEN status = 'no_show' THEN 1 ELSE 0 END) as no_show_count"))
             ->get()
             ->map(function ($slot) {
-                $cancelRate = ($slot->cancelled_count / max(1, $slot->total)) * 100;
+                $noShowRate = ($slot->no_show_count / max(1, $slot->total)) * 100;
                 return [
                     'time' => $slot->appointment_time,
                     'total_appointments' => $slot->total,
-                    'cancelled_count' => $slot->cancelled_count,
-                    'no_show_rate' => round($cancelRate, 2),
-                    'risk_level' => $cancelRate >= 40 ? 'high' : ($cancelRate >= 20 ? 'medium' : 'low'),
+                    'no_show_count' => $slot->no_show_count,
+                    'no_show_rate' => round($noShowRate, 2),
+                    'risk_level' => $noShowRate >= 40 ? 'high' : ($noShowRate >= 20 ? 'medium' : 'low'),
                 ];
             })
             ->filter(fn($s) => $s['no_show_rate'] >= 20)
             ->values();
 
-        // Days with frequent cancellations
+        // Days with frequent no-shows
         $dayStats = Appointment::where('created_at', '>=', $startDate)
             ->groupBy(DB::raw('DAYOFWEEK(appointment_date)'), DB::raw('DAYNAME(appointment_date)'))
             ->select(DB::raw('DAYNAME(appointment_date) as day_name'), 
                      DB::raw('count(*) as total'),
-                     DB::raw("SUM(CASE WHEN status IN ('cancelled', 'no_show') THEN 1 ELSE 0 END) as cancelled_count"))
+                     DB::raw("SUM(CASE WHEN status = 'no_show' THEN 1 ELSE 0 END) as no_show_count"))
             ->get()
             ->map(function ($day) {
-                $cancelRate = ($day->cancelled_count / max(1, $day->total)) * 100;
+                $noShowRate = ($day->no_show_count / max(1, $day->total)) * 100;
                 return [
                     'day' => $day->day_name,
                     'total_appointments' => $day->total,
-                    'cancelled_count' => $day->cancelled_count,
-                    'cancellation_rate' => round($cancelRate, 2),
-                    'risk_level' => $cancelRate >= 40 ? 'high' : ($cancelRate >= 20 ? 'medium' : 'low'),
+                    'no_show_count' => $day->no_show_count,
+                    'no_show_rate' => round($noShowRate, 2),
+                    'risk_level' => $noShowRate >= 40 ? 'high' : ($noShowRate >= 20 ? 'medium' : 'low'),
                 ];
             })
-            ->filter(fn($d) => $d['cancellation_rate'] >= 20)
-            ->sortByDesc('cancellation_rate')
+            ->filter(fn($d) => $d['no_show_rate'] >= 20)
+            ->sortByDesc('no_show_rate')
             ->values();
 
         return [
@@ -486,7 +489,7 @@ class AnalyticsService
             })
             ->avg();
 
-        // Service statistics
+        // Service statistics - include revenue with refunds subtracted
         $serviceStats = Service::where('is_active', true)
             ->get()
             ->map(function ($service) use ($startDate) {
@@ -498,6 +501,17 @@ class AnalyticsService
                 $completedCount = $serviceAppointments->where('status', 'completed')->count();
                 $cancelledCount = $serviceAppointments->where('status', 'cancelled')->count();
 
+                // Calculate revenue: completed appointments × price - approved refunds
+                $baseRevenue = $completedCount * ($service->price ?? 0);
+                
+                // Subtract approved refunds for completed appointments of this service
+                $refundedAmount = DB::table('refunds')
+                    ->whereIn('status', ['completed', 'approved'])
+                    ->whereIn('appointment_id', $serviceAppointments->where('status', 'completed')->pluck('id'))
+                    ->sum('refund_amount');
+
+                $actualRevenue = max(0, $baseRevenue - $refundedAmount);
+
                 return [
                     'service_id' => $service->id,
                     'service_name' => $service->name,
@@ -507,7 +521,7 @@ class AnalyticsService
                     'pending_approved' => $totalCount - $completedCount - $cancelledCount,
                     'completion_rate' => $totalCount > 0 ? round(($completedCount / $totalCount) * 100, 2) : 0,
                     'price' => $service->price,
-                    'revenue' => $completedCount * ($service->price ?? 0),
+                    'revenue' => $actualRevenue,
                 ];
             })
             ->sortByDesc('total_appointments')
@@ -527,6 +541,9 @@ class AnalyticsService
         $completionRate = $totalAppointments > 0 ? round(($completedAppointments / $totalAppointments) * 100, 2) : 0;
         $cancellationRate = $totalAppointments > 0 ? round(($cancelledAppointments / $totalAppointments) * 100, 2) : 0;
 
+        // Calculate total revenue accounting for refunds
+        $totalRevenue = $serviceStats->sum('revenue');
+
         return [
             'date_range' => [
                 'start' => $startDate->format('Y-m-d'),
@@ -545,8 +562,8 @@ class AnalyticsService
             'most_popular_services' => $mostPopular,
             'least_popular_services' => $leastPopular,
             'average_appointment_duration' => round($avgDuration, 0),
-            'total_revenue' => $serviceStats->sum('revenue'),
-            'avg_revenue_per_appointment' => $completedAppointments > 0 ? round($serviceStats->sum('revenue') / $completedAppointments, 2) : 0,
+            'total_revenue' => $totalRevenue,
+            'avg_revenue_per_appointment' => $completedAppointments > 0 ? round($totalRevenue / $completedAppointments, 2) : 0,
             'recommendations' => $this->generateQualityRecommendations($mostPopular, $leastPopular, $completionRate),
         ];
     }
@@ -597,46 +614,102 @@ class AnalyticsService
     {
         $alerts = [];
 
-        // Check tomorrow's schedule
-        $tomorrow = now()->addDay()->format('Y-m-d');
-        $tomorrowAppointments = Appointment::where('appointment_date', $tomorrow)
-            ->where('status', '!=', 'cancelled')
-            ->count();
+        try {
+            // Check tomorrow's schedule
+            $tomorrow = now()->addDay()->format('Y-m-d');
+            $tomorrowAppointments = Appointment::where('appointment_date', $tomorrow)
+                ->whereNotIn('status', ['cancelled', 'no_show'])
+                ->count();
 
-        $utilizationRate = $this->estimateUtilization($tomorrowAppointments);
-        if ($utilizationRate >= 85) {
-            $alerts[] = [
-                'type' => 'alert',
-                'severity' => 'high',
-                'title' => 'Tomorrow is almost full',
-                'message' => "Tomorrow has $tomorrowAppointments appointments scheduled ($utilizationRate% capacity). Consider limiting new bookings.",
-                'timestamp' => now(),
-            ];
-        }
+            $timeSlots = TimeSlotCapacity::where('is_active', true)
+                ->where('day_of_week', now()->addDay()->format('l'))
+                ->sum('max_appointments_per_slot');
+            
+            $utilizationRate = $timeSlots > 0 ? ($tomorrowAppointments / $timeSlots) * 100 : 0;
+            
+            if ($utilizationRate >= 85) {
+                $alerts[] = [
+                    'type' => 'alert',
+                    'severity' => 'high',
+                    'title' => 'Tomorrow is almost full',
+                    'message' => "Tomorrow has $tomorrowAppointments appointments scheduled (" . round($utilizationRate, 2) . "% capacity). Consider limiting new bookings.",
+                    'timestamp' => now(),
+                ];
+            }
 
-        // Check for high no-show times
-        $noShowData = $this->getNoShowPatterns(30);
-        if (!empty($noShowData['high_risk_time_slots'])) {
-            $alerts[] = [
-                'type' => 'warning',
-                'severity' => 'medium',
-                'title' => 'High no-show rate detected',
-                'message' => 'Some time slots have high cancellation rates. Consider adding reminders or limiting bookings.',
-                'timestamp' => now(),
-            ];
-        }
+            // Check today's schedule for late/missing completions
+            $todayIncomplete = Appointment::where('appointment_date', now()->format('Y-m-d'))
+                ->whereIn('status', ['pending', 'approved'])
+                ->where('appointment_date', '<=', now())
+                ->count();
 
-        // Check for underutilized days
-        $slotData = $this->getSlotUtilization(7);
-        $underbookedCount = count($slotData['underbooked_days']);
-        if ($underbookedCount > 0) {
-            $alerts[] = [
-                'type' => 'info',
-                'severity' => 'low',
-                'title' => "$underbookedCount underbooked days this week",
-                'message' => 'Consider running promotions to fill available slots.',
-                'timestamp' => now(),
-            ];
+            if ($todayIncomplete > 0) {
+                $alerts[] = [
+                    'type' => 'warning',
+                    'severity' => 'medium',
+                    'title' => "Today's appointments not yet completed",
+                    'message' => "You have $todayIncomplete appointments scheduled for today that are still pending or approved. Mark them as completed or cancelled.",
+                    'timestamp' => now(),
+                ];
+            }
+
+            // Check for high no-show times
+            $noShowData = $this->getNoShowPatterns(30);
+            if (!empty($noShowData['high_risk_time_slots'])) {
+                $riskSlots = implode(', ', array_map(fn($s) => $s['time'], $noShowData['high_risk_time_slots']));
+                $alerts[] = [
+                    'type' => 'warning',
+                    'severity' => 'medium',
+                    'title' => 'High no-show rate detected',
+                    'message' => "Time slots $riskSlots have high no-show rates. Consider adding reminders or limiting bookings.",
+                    'timestamp' => now(),
+                ];
+            }
+
+            // Check for underutilized days this week
+            $slotData = $this->getSlotUtilization(7);
+            $underbookedCount = count($slotData['underbooked_days']);
+            if ($underbookedCount >= 3) {
+                $alerts[] = [
+                    'type' => 'info',
+                    'severity' => 'low',
+                    'title' => "$underbookedCount underbooked days this week",
+                    'message' => 'You have significant unused capacity. Consider running promotions to fill available slots.',
+                    'timestamp' => now(),
+                ];
+            }
+
+            // Check for pending refunds
+            $pendingRefunds = DB::table('refunds')
+                ->where('status', 'pending')
+                ->count();
+
+            if ($pendingRefunds > 0) {
+                $alerts[] = [
+                    'type' => 'info',
+                    'severity' => 'low',
+                    'title' => "You have $pendingRefunds pending refunds",
+                    'message' => "Review and process pending refund requests to keep customers satisfied.",
+                    'timestamp' => now(),
+                ];
+            }
+
+            // Check for high-risk users with multiple no-shows
+            $noShowUsers = collect($noShowData['users_with_high_no_show'])
+                ->filter(fn($u) => $u['risk_level'] === 'high');
+
+            if ($noShowUsers->count() > 0) {
+                $alerts[] = [
+                    'type' => 'warning',
+                    'severity' => 'medium',
+                    'title' => $noShowUsers->count() . ' users with high no-show rates',
+                    'message' => "Consider requiring pre-payment, deposits, or blocking these users from future bookings.",
+                    'timestamp' => now(),
+                ];
+            }
+        } catch (\Exception $e) {
+            \Log::error('Error generating auto-alerts: ' . $e->getMessage());
+            // Return empty alerts array on error instead of crashing
         }
 
         return $alerts;

@@ -7,10 +7,12 @@ import {
   ChevronRightIcon,
   StarIcon,
   PlusIcon,
-  ChatBubbleBottomCenterTextIcon
+  ChatBubbleBottomCenterTextIcon,
+  CheckCircleIcon,
+  ExclamationTriangleIcon,
+  XMarkIcon
 } from '@heroicons/react/24/outline';
 import LoadingSpinner from '../LoadingSpinner';
-import FeedbackThankYouModal from '../modals/FeedbackThankYouModal';
 
 const FEEDBACK_TYPES = [
   { value: 'service_quality', label: 'Service Quality', icon: '⭐' },
@@ -61,9 +63,9 @@ const UserFeedback = ({ user }) => {
     return `${date.toLocaleDateString('en-US', dateOptions)} at ${date.toLocaleTimeString('en-US', timeOptions)}`;
   };
 
-  // Thank you modal state
-  const [showThankYouModal, setShowThankYouModal] = useState(false);
-  const [submittedFeedback, setSubmittedFeedback] = useState({ rating: 0, message: '', feedback_type: '' });
+  // Thank you message state (inline, not modal)
+  const [showSuccessMessage, setShowSuccessMessage] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
 
   const loadFeedback = async (page = 1) => {
     try {
@@ -115,6 +117,7 @@ const UserFeedback = ({ user }) => {
   const handleSubmitFeedback = async (e) => {
     e.preventDefault();
     setSubmitError('');
+    setShowSuccessMessage(false);
 
     if (!formData.message.trim() || formData.message.trim().length < 10) {
       setSubmitError('Please enter a message (minimum 10 characters)');
@@ -139,27 +142,28 @@ const UserFeedback = ({ user }) => {
       });
 
       if (result.success || result.data) {
-        setSubmittedFeedback({
-          rating: formData.rating,
-          message: formData.message,
-          feedback_type: formData.feedback_type
-        });
+        // Show inline success message instead of modal
+        setSuccessMessage(`✅ Thank you! Your ${FEEDBACK_TYPES.find(t => t.value === formData.feedback_type)?.label || 'feedback'} has been received.`);
+        setShowSuccessMessage(true);
+        
         setFormData({ message: '', rating: 0, feedback_type: 'other' });
         setShowForm(false);
         loadFeedback(1);
-        setShowThankYouModal(true);
+        
+        // Auto-dismiss success message after 6 seconds
+        setTimeout(() => {
+          setShowSuccessMessage(false);
+        }, 6000);
       }
     } catch (error) {
       const errorMsg = error.response?.data?.message || error.message;
       if (error.response?.data?.error === 'rate_limit_reached') {
         const nextAvailable = error.response?.data?.data?.next_available_at;
-        setSubmitError(nextAvailable 
-          ? `Limit reached. Available: ${formatNextAvailableDate(nextAvailable)}`
-          : `Limit reached. Try again in ${rateLimit.cooldown_days} days.`
-        );
+        const nextDate = formatNextAvailableDate(nextAvailable);
+        setSubmitError(`⚠️ You've reached your feedback limit. You can submit feedback again on ${nextDate}.`);
         setRateLimit(prev => ({ ...prev, can_submit: false, next_available_at: nextAvailable }));
       } else if (error.response?.data?.error === 'user_blocked') {
-        setSubmitError('You have been blocked from submitting feedback.');
+        setSubmitError('❌ You have been blocked from submitting feedback.');
       } else {
         setSubmitError(errorMsg || 'Failed to submit feedback');
       }
@@ -406,15 +410,21 @@ const UserFeedback = ({ user }) => {
         </div>
       )}
 
-      {/* Modals */}
-      {showThankYouModal && submittedFeedback && (
-        <FeedbackThankYouModal
-          isOpen={true}
-          onClose={() => setShowThankYouModal(false)}
-          rating={submittedFeedback.rating}
-          message={submittedFeedback.message}
-          category={submittedFeedback.feedback_type}
-        />
+      {/* Inline Success Message */}
+      {showSuccessMessage && (
+        <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4 flex items-start gap-3">
+          <CheckCircleIcon className="h-5 w-5 text-green-400 flex-shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-green-400 text-sm font-medium">{successMessage}</p>
+            <p className="text-green-400/70 text-xs mt-1">A confirmation email has been sent to your inbox.</p>
+          </div>
+          <button
+            onClick={() => setShowSuccessMessage(false)}
+            className="text-green-400 hover:text-green-300 flex-shrink-0"
+          >
+            <XMarkIcon className="h-4 w-4" />
+          </button>
+        </div>
       )}
     </div>
   );

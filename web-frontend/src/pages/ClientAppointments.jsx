@@ -987,14 +987,14 @@ const ClientAppointments = () => {
                         disabled={isPast || isUnavail || dailyLimitInfo.hasReachedLimit}
                         className={`p-2 text-sm font-medium rounded transition-all ${
                           isSelected
-                            ? 'bg-black text-white'
+                            ? 'bg-amber-500 text-white'
                             : isPast
                             ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
                             : isUnavail
                             ? 'bg-red-100 text-red-600 cursor-not-allowed'
                             : isToday
                             ? 'bg-blue-100 text-blue-700 border-2 border-blue-400'
-                            : 'bg-white text-gray-700 border border-gray-300 hover:border-black'
+                            : 'bg-white text-gray-700 border border-gray-300 hover:border-amber-500'
                         }`}
                         title={isPast ? 'Past date' : isUnavail ? getUnavailableReason(date) : ''}
                       >
@@ -1010,7 +1010,7 @@ const ClientAppointments = () => {
               {/* Legend */}
               <div className="mt-4 pt-3 border-t grid grid-cols-2 gap-2 text-xs">
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-black rounded"></div>
+                  <div className="w-3 h-3 bg-amber-500 rounded"></div>
                   <span>Selected</span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -1149,8 +1149,8 @@ const ClientAppointments = () => {
                           !isAvailable || dailyLimitInfo.hasReachedLimit
                             ? 'bg-red-100 text-red-600 cursor-not-allowed'
                             : isSelected
-                            ? 'bg-black text-white border border-black'
-                            : 'bg-white text-gray-700 border border-gray-300 hover:border-black hover:bg-gray-50'
+                            ? 'bg-amber-500 text-white border border-amber-600'
+                            : 'bg-white text-gray-700 border border-gray-300 hover:border-amber-500 hover:bg-amber-50'
                         }`}
                         title={!isAvailable ? 'This slot is fully booked' : 'Click to select'}
                       >
@@ -1191,7 +1191,7 @@ const ClientAppointments = () => {
             <select
               value={formData.type}
               onChange={(e) => setFormData(prev => ({ ...prev, type: e.target.value }))}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
               disabled={dailyLimitInfo.hasReachedLimit}
             >
               <option value="consultation">Legal Consultation</option>

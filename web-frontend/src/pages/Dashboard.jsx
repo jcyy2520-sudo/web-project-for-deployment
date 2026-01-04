@@ -883,6 +883,205 @@ const ThankYouModal = ({ isOpen, onClose, appointment }) => {
   );
 };
 
+// About Us Modal Component
+const AboutUsModal = ({ isOpen, onClose, isDarkMode = true }) => {
+  if (!isOpen) return null;
+
+  const APP_VERSION = '1.0.0';
+  const LAUNCH_DATE = 'January 2024';
+  const LOCATION = 'San Francisco, California';
+  const DEVELOPER = 'John Christian Fajutagana';
+
+  return (
+    <div className="fixed inset-0 flex items-center justify-center z-50 p-4 animate-fadeIn" style={{backgroundColor: isDarkMode ? 'rgba(0,0,0,0.7)' : 'rgba(0,0,0,0.4)'}}>
+      <div className={`rounded-lg shadow-xl w-full max-w-md transform animate-scaleIn max-h-[90vh] overflow-y-auto border-2 ${
+        isDarkMode 
+          ? 'bg-gray-900 border-amber-500/30' 
+          : 'bg-white border-amber-400'
+      }`}>
+        {/* Header */}
+        <div className={`flex justify-between items-center p-4 border-b sticky top-0 ${
+          isDarkMode 
+            ? 'bg-gray-900 border-gray-700' 
+            : 'bg-white border-gray-200'
+        }`}>
+          <div className="flex items-center">
+            <InformationCircleIcon className={`h-5 w-5 mr-2 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`} />
+            <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>About Us</h3>
+          </div>
+          <button 
+            onClick={onClose} 
+            className={`rounded p-1 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-amber-500 ${
+              isDarkMode 
+                ? 'text-gray-400 hover:text-amber-400' 
+                : 'text-gray-600 hover:text-amber-600'
+            }`}
+          >
+            <XMarkIcon className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className={`p-4 space-y-5 ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>
+          {/* Company Info */}
+          <div>
+            <h4 className={`font-semibold mb-2 text-sm ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
+              NotaryPro Services
+            </h4>
+            <p className={`text-xs leading-relaxed ${isDarkMode ? 'text-amber-100/70' : 'text-gray-700'}`}>
+              NotaryPro is your trusted partner for professional notarization services. Founded with a commitment to excellence, we provide fast, reliable, and accessible notarization for all your legal document needs.
+            </p>
+          </div>
+
+          {/* Company Details */}
+          <div className={`p-3 rounded-lg space-y-2 ${isDarkMode ? 'bg-gray-800/50 border border-gray-700' : 'bg-gray-100 border border-gray-300'}`}>
+            <div className="text-xs">
+              <p className={`mb-2 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}><strong>📍 Location:</strong></p>
+              <p className={`ml-4 ${isDarkMode ? 'text-amber-100/70' : 'text-gray-700'}`}>{LOCATION}</p>
+            </div>
+            <div className="text-xs">
+              <p className={`mb-2 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}><strong>🚀 Founded:</strong></p>
+              <p className={`ml-4 ${isDarkMode ? 'text-amber-100/70' : 'text-gray-700'}`}>{LAUNCH_DATE}</p>
+            </div>
+          </div>
+
+          {/* Our Mission */}
+          <div>
+            <h4 className={`font-semibold mb-2 text-sm ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
+              Our Mission
+            </h4>
+            <p className={`text-xs leading-relaxed ${isDarkMode ? 'text-amber-100/70' : 'text-gray-700'}`}>
+              To make notarization services accessible, convenient, and trustworthy for everyone. We believe in providing exceptional service with integrity and professionalism.
+            </p>
+          </div>
+
+          {/* What We Offer */}
+          <div>
+            <h4 className={`font-semibold mb-3 text-sm ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
+              Services
+            </h4>
+            <ul className={`space-y-2 text-xs ${isDarkMode ? 'text-amber-100/70' : 'text-gray-700'}`}>
+              <li className="flex items-start">
+                <span className={`mr-2 flex-shrink-0 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>✓</span>
+                <span>Professional Notarization Services</span>
+              </li>
+              <li className="flex items-start">
+                <span className={`mr-2 flex-shrink-0 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>✓</span>
+                <span>Document Verification & Witnessing</span>
+              </li>
+              <li className="flex items-start">
+                <span className={`mr-2 flex-shrink-0 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>✓</span>
+                <span>Certified Notary Public Staff</span>
+              </li>
+              <li className="flex items-start">
+                <span className={`mr-2 flex-shrink-0 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>✓</span>
+                <span>Flexible Scheduling & Mobile Service</span>
+              </li>
+            </ul>
+          </div>
+
+          {/* Why Choose Us */}
+          <div>
+            <h4 className={`font-semibold mb-3 text-sm ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
+              Why Choose NotaryPro
+            </h4>
+            <ul className={`space-y-2 text-xs ${isDarkMode ? 'text-amber-100/70' : 'text-gray-700'}`}>
+              <li className="flex items-start">
+                <span className={`mr-2 flex-shrink-0 ${isDarkMode ? 'text-green-400' : 'text-green-600'}`}>✓</span>
+                <span>Licensed & Insured Professionals</span>
+              </li>
+              <li className="flex items-start">
+                <span className={`mr-2 flex-shrink-0 ${isDarkMode ? 'text-green-400' : 'text-green-600'}`}>✓</span>
+                <span>Fast & Reliable Service</span>
+              </li>
+              <li className="flex items-start">
+                <span className={`mr-2 flex-shrink-0 ${isDarkMode ? 'text-green-400' : 'text-green-600'}`}>✓</span>
+                <span>Competitive Pricing</span>
+              </li>
+              <li className="flex items-start">
+                <span className={`mr-2 flex-shrink-0 ${isDarkMode ? 'text-green-400' : 'text-green-600'}`}>✓</span>
+                <span>24/7 Availability</span>
+              </li>
+            </ul>
+          </div>
+
+          {/* Developer & Team */}
+          <div className={`p-3 rounded-lg ${isDarkMode ? 'bg-gray-800/50 border border-gray-700' : 'bg-gray-100 border border-gray-300'}`}>
+            <h4 className={`font-semibold mb-3 text-sm ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
+              👨‍💻 Development Team
+            </h4>
+            <div className={`text-xs ${isDarkMode ? 'text-amber-100/70' : 'text-gray-700'}`}>
+              <p><strong>Lead Developer:</strong></p>
+              <p className={`ml-4 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>{DEVELOPER}</p>
+              <p className={`mt-2 text-xs ${isDarkMode ? 'text-amber-100/60' : 'text-gray-600'}`}>
+                Full Stack Developer specializing in modern web technologies and professional services platforms.
+              </p>
+            </div>
+          </div>
+
+          {/* Contact & Support */}
+          <div className={`p-3 rounded-lg ${isDarkMode ? 'bg-gray-800/50 border border-gray-700' : 'bg-gray-100 border border-gray-300'}`}>
+            <h4 className={`font-semibold mb-2 text-sm ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
+              Get In Touch
+            </h4>
+            <div className={`space-y-1 text-xs ${isDarkMode ? 'text-amber-100/70' : 'text-gray-700'}`}>
+              <p><strong>Email:</strong> support@notarypro.com</p>
+              <p><strong>Phone:</strong> 1-800-NOTARY-1</p>
+              <p><strong>Hours:</strong> 24/7 Service Available</p>
+            </div>
+          </div>
+
+          {/* Legal Links */}
+          <div className={`p-3 rounded-lg space-y-2 ${isDarkMode ? 'bg-gray-800/50 border border-gray-700' : 'bg-gray-100 border border-gray-300'}`}>
+            <button className={`w-full text-left text-xs font-medium px-3 py-2 rounded transition-colors ${
+              isDarkMode 
+                ? 'hover:bg-amber-500/10 text-amber-400' 
+                : 'hover:bg-amber-100 text-amber-600'
+            }`}>
+              📋 Terms of Service
+            </button>
+            <button className={`w-full text-left text-xs font-medium px-3 py-2 rounded transition-colors ${
+              isDarkMode 
+                ? 'hover:bg-amber-500/10 text-amber-400' 
+                : 'hover:bg-amber-100 text-amber-600'
+            }`}>
+              🔒 Privacy Policy
+            </button>
+            <button className={`w-full text-left text-xs font-medium px-3 py-2 rounded transition-colors ${
+              isDarkMode 
+                ? 'hover:bg-amber-500/10 text-amber-400' 
+                : 'hover:bg-amber-100 text-amber-600'
+            }`}>
+              💬 Contact Support
+            </button>
+          </div>
+
+          {/* Version */}
+          <div className={`text-center pt-2 border-t ${isDarkMode ? 'border-gray-700 text-gray-500' : 'border-gray-300 text-gray-600'}`}>
+            <p className="text-xs">
+              Version {APP_VERSION} • © 2024 NotaryPro Services
+            </p>
+          </div>
+        </div>
+
+        {/* Close Button */}
+        <div className={`p-4 border-t ${isDarkMode ? 'bg-gray-800/50 border-gray-700' : 'bg-gray-50 border-gray-300'}`}>
+          <button
+            onClick={onClose}
+            className={`w-full px-4 py-2 rounded-lg font-medium text-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+              isDarkMode
+                ? 'bg-amber-600 hover:bg-amber-700 text-white focus:ring-amber-500 focus:ring-offset-gray-900'
+                : 'bg-amber-600 hover:bg-amber-700 text-white focus:ring-amber-500 focus:ring-offset-white'
+            }`}
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const Dashboard = () => {
   const { user, logout } = useAuth();
   const { callApi, loading, error, clearError } = useApi();
@@ -916,6 +1115,7 @@ const Dashboard = () => {
   const [isEditing, setIsEditing] = useState(false);
 
   const [showSettings, setShowSettings] = useState(false);
+  const [showAboutUs, setShowAboutUs] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false); // Track logout loading state
   const [showThankYouModal, setShowThankYouModal] = useState(false);
@@ -2668,7 +2868,7 @@ const Dashboard = () => {
         <h2 className={`text-lg font-bold ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>Profile Settings</h2>
       </div>
 
-      <div className="hidden lg:flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
         <div className="flex items-center gap-3">
           <div>
             <h2 className={`text-lg font-bold ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>Profile Settings</h2>
@@ -2686,7 +2886,7 @@ const Dashboard = () => {
           </button>
           <button
             onClick={() => setShowSettings(true)}
-            className="hidden sm:flex flex-1 sm:flex-none px-3 py-2 sm:py-1.5 border border-amber-500/30 text-amber-50 rounded hover:bg-amber-500/10 transition-all duration-200 font-medium text-xs sm:text-sm items-center justify-center gap-1 whitespace-nowrap"
+            className="flex-1 sm:flex-none px-3 py-2 sm:py-1.5 border border-amber-500/30 text-amber-50 rounded hover:bg-amber-500/10 transition-all duration-200 font-medium text-xs sm:text-sm items-center justify-center gap-1 whitespace-nowrap"
           >
             <Cog6ToothIcon className="h-3 w-3" />
             <span className="hidden sm:inline">Preferences</span>
@@ -2976,12 +3176,20 @@ const Dashboard = () => {
               <h2 className={`text-lg font-bold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>Settings</h2>
               <p className={`mt-1 text-sm ${isDarkMode ? 'text-amber-400/70' : 'text-amber-700/70'}`}>Manage your application preferences</p>
             </div>
-            <button
-              onClick={() => setShowSettings(true)}
-              className="px-4 py-2 bg-gradient-to-r from-amber-600 to-amber-700 text-white rounded-lg hover:from-amber-700 hover:to-amber-800 transition-all duration-200 font-medium"
-            >
-              Open Settings
-            </button>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <button
+                onClick={() => setShowSettings(true)}
+                className="px-4 py-2 bg-gradient-to-r from-amber-600 to-amber-700 text-white rounded-lg hover:from-amber-700 hover:to-amber-800 transition-all duration-200 font-medium"
+              >
+                Open Settings
+              </button>
+              <button
+                onClick={() => setShowAboutUs(true)}
+                className="px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-700 text-white rounded-lg hover:from-cyan-700 hover:to-blue-800 transition-all duration-200 font-medium"
+              >
+                About Us
+              </button>
+            </div>
           </div>
         );
       default: return renderHome();
@@ -3223,17 +3431,7 @@ const Dashboard = () => {
         confirmText="Cancel Appointment"
         type="danger"
         loading={loading}
-      />
-
-      <ConfirmationModal
-        isOpen={showLogoutModal}
-        onClose={() => !isLoggingOut && setShowLogoutModal(false)}
-        onConfirm={confirmLogout}
-        title="Confirm Logout"
-        message="Are you sure you want to logout from your account?"
-        confirmText="Logout"
-        type="danger"
-        loading={isLoggingOut}
+        isDarkMode={isDarkMode}
       />
 
       <ConfirmationModal
@@ -3245,6 +3443,7 @@ const Dashboard = () => {
         confirmText="Yes, Logout"
         type="danger"
         loading={isLoggingOut}
+        isDarkMode={isDarkMode}
       />
 
       <SettingsModal
@@ -3252,6 +3451,12 @@ const Dashboard = () => {
         onClose={() => setShowSettings(false)}
         settings={settings}
         onSettingsChange={handleSettingsChange}
+      />
+
+      <AboutUsModal
+        isOpen={showAboutUs}
+        onClose={() => setShowAboutUs(false)}
+        isDarkMode={isDarkMode}
       />
 
       <ThankYouModal

@@ -66,6 +66,13 @@ class AppServiceProvider extends ServiceProvider
             \App\Models\Notification::observe($chatbotObserver);
         }
 
+        // Register Analytics Observers for real-time analytics updates
+        // This ensures analytics cache is invalidated whenever appointments or refunds change
+        $analyticsObserver = \App\Observers\AnalyticsObserver::class;
+        
+        \App\Models\Appointment::observe($analyticsObserver);
+        \App\Models\Refund::observe($analyticsObserver);
+
         // Configure granular rate limiting for different API endpoints
         RateLimiter::for('api', function (Request $request) {
             // Stricter limits for auth endpoints

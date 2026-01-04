@@ -429,12 +429,12 @@ const AdminMessages = forwardRef(({ isDarkMode }, ref) => {
                 </div>
               </div>
             ) : (
-              filteredConversations.map((conv) => (
+              filteredConversations.map((conv, index) => (
                 <button
-                  key={conv.user.id}
+                  key={conv.user?.id || `conv-${index}`}
                   onClick={() => setSelectedConversation(conv)}
                   className={`w-full text-left p-3 border-b transition-colors ${
-                    selectedConversation?.user.id === conv.user.id
+                    selectedConversation?.user?.id === conv.user?.id
                       ? isDarkMode
                         ? 'bg-amber-500/10 border-amber-500'
                         : 'bg-amber-50 border-amber-300'

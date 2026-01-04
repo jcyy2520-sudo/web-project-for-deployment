@@ -11,27 +11,49 @@ const ConfirmationModal = ({
   confirmText = "Confirm",
   cancelText = "Cancel",
   type = "warning", // 'warning', 'danger', 'info'
-  isLoading = false
+  isLoading = false,
+  isDarkMode = true
 }) => {
   const typeConfig = {
     warning: {
-      icon: "text-amber-400",
-      iconBg: "bg-amber-500/20",
-      button: "bg-amber-600 hover:bg-amber-700 focus:ring-amber-500 border border-amber-500/30",
+      dark: {
+        icon: "text-amber-400",
+        iconBg: "bg-amber-500/20",
+        button: "bg-amber-600 hover:bg-amber-700 focus:ring-amber-500 border border-amber-500/30",
+      },
+      light: {
+        icon: "text-amber-600",
+        iconBg: "bg-amber-100",
+        button: "bg-amber-600 hover:bg-amber-700 focus:ring-amber-500 border border-amber-600",
+      }
     },
     danger: {
-      icon: "text-red-400",
-      iconBg: "bg-red-500/20", 
-      button: "bg-red-600 hover:bg-red-700 focus:ring-red-500 border border-red-500/30",
+      dark: {
+        icon: "text-red-400",
+        iconBg: "bg-red-500/20", 
+        button: "bg-red-600 hover:bg-red-700 focus:ring-red-500 border border-red-500/30",
+      },
+      light: {
+        icon: "text-red-600",
+        iconBg: "bg-red-100",
+        button: "bg-red-600 hover:bg-red-700 focus:ring-red-500 border border-red-600",
+      }
     },
     info: {
-      icon: "text-blue-400",
-      iconBg: "bg-blue-500/20",
-      button: "bg-blue-600 hover:bg-blue-700 focus:ring-blue-500 border border-blue-500/30",
+      dark: {
+        icon: "text-blue-400",
+        iconBg: "bg-blue-500/20",
+        button: "bg-blue-600 hover:bg-blue-700 focus:ring-blue-500 border border-blue-500/30",
+      },
+      light: {
+        icon: "text-blue-600",
+        iconBg: "bg-blue-100",
+        button: "bg-blue-600 hover:bg-blue-700 focus:ring-blue-500 border border-blue-600",
+      }
     }
   };
 
-  const config = typeConfig[type];
+  const config = typeConfig[type][isDarkMode ? 'dark' : 'light'];
 
   return (
     <Transition appear show={isOpen} as={Fragment}>
@@ -45,7 +67,7 @@ const ConfirmationModal = ({
           leaveFrom="opacity-100"
           leaveTo="opacity-0"
         >
-          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm" />
+          <div className={isDarkMode ? "fixed inset-0 bg-black/70 backdrop-blur-sm" : "fixed inset-0 bg-black/40 backdrop-blur-sm"} />
         </Transition.Child>
 
         <div className="fixed inset-0 overflow-y-auto">
@@ -59,27 +81,37 @@ const ConfirmationModal = ({
               leaveFrom="opacity-100 scale-100"
               leaveTo="opacity-0 scale-95"
             >
-              <Dialog.Panel className="w-full max-w-md transform overflow-hidden rounded-2xl bg-gray-900 border border-amber-500/30 p-6 text-left align-middle shadow-2xl shadow-amber-500/10 transition-all">
+              <Dialog.Panel className={`w-full max-w-md transform overflow-hidden rounded-2xl p-6 text-left align-middle shadow-2xl transition-all ${
+                isDarkMode 
+                  ? 'bg-gray-900 border border-amber-500/30 shadow-amber-500/10' 
+                  : 'bg-white border-2 border-amber-400 shadow-lg'
+              }`}>
                 <div className="sm:flex sm:items-start">
-                  <div className={`mx-auto flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full ${config.iconBg} border border-amber-500/20 sm:mx-0 sm:h-10 sm:w-10`}>
+                  <div className={`mx-auto flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full sm:mx-0 sm:h-10 sm:w-10 ${config.iconBg} ${
+                    isDarkMode ? 'border border-amber-500/20' : 'border-2 border-current border-opacity-30'
+                  }`}>
                     <ExclamationTriangleIcon className={`h-6 w-6 ${config.icon}`} aria-hidden="true" />
                   </div>
                   <div className="mt-3 text-center sm:ml-4 sm:mt-0 sm:text-left">
-                    <Dialog.Title as="h3" className="text-lg font-semibold leading-6 text-amber-50">
+                    <Dialog.Title as="h3" className={`text-lg font-semibold leading-6 ${
+                      isDarkMode ? 'text-amber-50' : 'text-gray-900'
+                    }`}>
                       {title}
                     </Dialog.Title>
                     <div className="mt-2">
-                      <p className="text-sm text-amber-100/70">
+                      <p className={`text-sm ${
+                        isDarkMode ? 'text-amber-100/70' : 'text-gray-700'
+                      }`}>
                         {message}
                       </p>
                     </div>
                   </div>
                 </div>
-                <div className="mt-5 sm:mt-4 sm:flex sm:flex-row-reverse">
+                <div className="mt-5 sm:mt-4 sm:flex sm:flex-row-reverse gap-2">
                   <button
                     type="button"
                     disabled={isLoading}
-                    className={`inline-flex w-full justify-center rounded-xl px-4 py-2.5 text-sm font-semibold text-white shadow-sm ${config.button} focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500 sm:ml-3 sm:w-auto disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200`}
+                    className={`inline-flex w-full justify-center rounded-xl px-4 py-2.5 text-sm font-semibold text-white shadow-sm ${config.button} focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 sm:w-auto disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200`}
                     onClick={onConfirm}
                   >
                     {isLoading ? (
@@ -97,7 +129,11 @@ const ConfirmationModal = ({
                   <button
                     type="button"
                     disabled={isLoading}
-                    className="mt-3 inline-flex w-full justify-center rounded-xl bg-gray-800 px-4 py-2.5 text-sm font-semibold text-amber-100 shadow-sm border border-amber-500/30 hover:bg-amber-500/10 hover:text-amber-50 transition-all duration-200 sm:mt-0 sm:w-auto disabled:opacity-50 disabled:cursor-not-allowed"
+                    className={`mt-3 inline-flex w-full justify-center rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm transition-all duration-200 sm:mt-0 sm:w-auto disabled:opacity-50 disabled:cursor-not-allowed ${
+                      isDarkMode
+                        ? 'bg-gray-800 text-amber-100 border border-amber-500/30 hover:bg-amber-500/10 hover:text-amber-50'
+                        : 'bg-gray-100 text-gray-900 border-2 border-gray-300 hover:bg-gray-200 hover:border-gray-400'
+                    }`}
                     onClick={onClose}
                   >
                     {cancelText}

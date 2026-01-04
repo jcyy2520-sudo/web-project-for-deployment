@@ -215,13 +215,15 @@ class AdminController extends Controller
             $admin = $request->user();
 
             // Save message to database (this creates the conversation)
+            // IMPORTANT: The message must be created the same way as MessageController.store()
+            // to ensure it appears in both the admin message view and the user's conversation view
             $messageModel = \App\Models\Message::create([
                 'sender_id' => $admin->id,
                 'receiver_id' => $user->id,
                 'message' => $request->message,
                 'subject' => $request->subject,
                 'type' => $request->type,
-                'read' => false
+                'read' => false  // Message is unread by receiver until they view it
             ]);
 
             // Send email ONLY for appointment-related messages

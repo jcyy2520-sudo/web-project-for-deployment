@@ -129,7 +129,13 @@ const AuthTabsModal = ({ isOpen, onClose, isDarkMode = true }) => {
 
     setLoginLoading(false);
     onClose();
-    navigate('/dashboard');
+    
+    // Route based on user role
+    if (result.user && result.user.role === 'admin') {
+      navigate('/admin/dashboard');
+    } else {
+      navigate('/dashboard');
+    }
   };
 
   // Register handlers

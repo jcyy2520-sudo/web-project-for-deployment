@@ -536,13 +536,15 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::middleware(['role:admin'])->prefix('users')->group(function () {
         Route::get('/', [UserController::class, 'index']);
         Route::post('/', [UserController::class, 'store']);
-        Route::get('/{user}', [UserController::class, 'show']);
-        Route::put('/{user}', [UserController::class, 'update']);
-        Route::delete('/{user}', [UserController::class, 'destroy']);
-        Route::put('/{user}/toggle-status', [UserController::class, 'toggleStatus']);
+        // Specific routes must come BEFORE generic {user} catch-all
         Route::get('/archived/list', [UserController::class, 'getArchived']);
         Route::put('/restore/{id}', [UserController::class, 'restore']);
         Route::delete('/permanent/{id}', [UserController::class, 'permanentDelete']);
+        Route::put('/{user}/toggle-status', [UserController::class, 'toggleStatus']);
+        // Generic routes last
+        Route::get('/{user}', [UserController::class, 'show']);
+        Route::put('/{user}', [UserController::class, 'update']);
+        Route::delete('/{user}', [UserController::class, 'destroy']);
     });
 
     // Profile routes (All authenticated users)

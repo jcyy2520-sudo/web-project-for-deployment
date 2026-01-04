@@ -434,14 +434,22 @@ const LogoutConfirmationModal = ({ isOpen, onClose, onConfirm, loading, isDarkMo
 
 // AdminLoginModal removed - login should use the main auth flows if needed
 // Modal Components
-const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, confirmText = "Delete", type = "danger", loading = false }) => {
+const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, confirmText = "Delete", type = "danger", loading = false, isDarkMode = true }) => {
   if (!isOpen) return null;
 
   const buttonColors = {
-    danger: "bg-red-600 hover:bg-red-700 focus:ring-red-500",
-    primary: "bg-amber-600 hover:bg-amber-700 focus:ring-amber-500",
-    warning: "bg-yellow-600 hover:bg-yellow-700 focus:ring-yellow-500",
-    success: "bg-green-600 hover:bg-green-700 focus:ring-green-500"
+    dark: {
+      danger: "bg-red-600 hover:bg-red-700 focus:ring-red-500",
+      primary: "bg-amber-600 hover:bg-amber-700 focus:ring-amber-500",
+      warning: "bg-yellow-600 hover:bg-yellow-700 focus:ring-yellow-500",
+      success: "bg-green-600 hover:bg-green-700 focus:ring-green-500"
+    },
+    light: {
+      danger: "bg-red-600 hover:bg-red-700 focus:ring-red-500",
+      primary: "bg-amber-600 hover:bg-amber-700 focus:ring-amber-500",
+      warning: "bg-yellow-600 hover:bg-yellow-700 focus:ring-yellow-500",
+      success: "bg-green-600 hover:bg-green-700 focus:ring-green-500"
+    }
   };
 
   const icons = {
@@ -453,39 +461,59 @@ const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, confirm
 
   const IconComponent = icons[type];
 
+  const getIconBg = () => {
+    switch(type) {
+      case 'danger': return isDarkMode ? 'bg-red-500/20' : 'bg-red-100';
+      case 'warning': return isDarkMode ? 'bg-yellow-500/20' : 'bg-yellow-100';
+      case 'success': return isDarkMode ? 'bg-green-500/20' : 'bg-green-100';
+      default: return isDarkMode ? 'bg-amber-500/20' : 'bg-amber-100';
+    }
+  };
+
+  const getIconColor = () => {
+    switch(type) {
+      case 'danger': return isDarkMode ? 'text-red-400' : 'text-red-600';
+      case 'warning': return isDarkMode ? 'text-yellow-400' : 'text-yellow-600';
+      case 'success': return isDarkMode ? 'text-green-400' : 'text-green-600';
+      default: return isDarkMode ? 'text-amber-400' : 'text-amber-600';
+    }
+  };
+
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4 animate-fadeIn">
-      <div className="bg-gray-900 border border-amber-500/30 rounded-lg shadow-xl w-full max-w-md transform animate-scaleIn">
+    <div className={`fixed inset-0 flex items-center justify-center z-50 p-4 animate-fadeIn ${isDarkMode ? 'bg-black bg-opacity-70' : 'bg-black bg-opacity-40'}`}>
+      <div className={`rounded-lg shadow-xl w-full max-w-md transform animate-scaleIn border-2 ${
+        isDarkMode 
+          ? 'bg-gray-900 border-amber-500/30' 
+          : 'bg-white border-amber-400'
+      }`}>
         <div className="p-4">
           <div className="flex items-center mb-3">
-            <div className={`p-2 rounded-lg ${
-              type === 'danger' ? 'bg-red-500/20' : 
-              type === 'warning' ? 'bg-yellow-500/20' : 
-              type === 'success' ? 'bg-green-500/20' : 
-              'bg-amber-500/20'
-            }`}>
-              <IconComponent className={`h-5 w-5 ${
-                type === 'danger' ? 'text-red-400' : 
-                type === 'warning' ? 'text-yellow-400' : 
-                type === 'success' ? 'text-green-400' : 
-                'text-amber-400'
-              }`} />
+            <div className={`p-2 rounded-lg ${getIconBg()}`}>
+              <IconComponent className={`h-5 w-5 ${getIconColor()}`} />
             </div>
-            <h3 className="text-sm font-semibold text-amber-50 ml-2">{title}</h3>
+            <h3 className={`text-sm font-semibold ml-2 ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>{title}</h3>
           </div>
-          <p className="text-gray-300 text-sm mb-4">{message}</p>
+          <p className={`text-sm mb-4 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>{message}</p>
           <div className="flex justify-end space-x-2">
             <button
               onClick={onClose}
               disabled={loading}
-              className="px-3 py-2 border border-gray-600 text-gray-300 rounded-lg hover:bg-gray-800 transition-colors duration-200 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 focus:ring-offset-gray-900 disabled:opacity-50"
+              className={`px-3 py-2 rounded-lg transition-colors duration-200 font-medium text-sm focus:outline-none focus:ring-2 disabled:opacity-50 ${
+                isDarkMode
+                  ? 'border border-gray-600 text-gray-300 hover:bg-gray-800 focus:ring-amber-500 focus:ring-offset-2 focus:ring-offset-gray-900'
+                  : 'border-2 border-gray-300 text-gray-900 hover:bg-gray-100 focus:ring-amber-500 focus:ring-offset-2 focus:ring-offset-white'
+              }`}
             >
               Cancel
             </button>
             <button
               onClick={onConfirm}
               disabled={loading}
-              className={`px-3 py-2 text-white rounded-lg transition-colors duration-200 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 disabled:opacity-50 ${buttonColors[type]}`}
+              className={`px-3 py-2 text-white rounded-lg transition-colors duration-200 font-medium text-sm focus:outline-none focus:ring-2 disabled:opacity-50 ${buttonColors[isDarkMode ? 'dark' : 'light'][type]} ${
+                isDarkMode 
+                  ? 'focus:ring-offset-2 focus:ring-offset-gray-900'
+                  : 'focus:ring-offset-2 focus:ring-offset-white'
+              }`}
             >
               {loading ? (
                 <div className="flex items-center">
@@ -2941,9 +2969,18 @@ const AdminDashboard = () => {
         return;
       }
 
+      // Map action to correct status (approve → approved, decline → declined)
+      const statusMap = {
+        'approve': 'approved',
+        'decline': 'declined',
+        'cancel': 'cancelled',
+        'complete': 'completed'
+      };
+      const finalStatus = statusMap[action] || action;
+
       // Optimistically update the UI immediately
       setAppointments(prev => prev.map(apt => 
-        apt.id === appointmentId ? { ...apt, status: action } : apt
+        apt.id === appointmentId ? { ...apt, status: finalStatus } : apt
       ));
 
       const payload = (action === 'decline' && data) ? { decline_reason: data } : {};
@@ -4943,7 +4980,7 @@ const AdminDashboard = () => {
                     <div key={item.section} className="space-y-1">
                       <div className="flex items-center justify-between px-3 py-1">
                         {!isCollapsedDesktop && (
-                          <span className="text-xs font-semibold text-amber-400/70 uppercase tracking-wider">
+                          <span className="text-xs font-semibold text-amber-400/70 uppercase tracking-wider text-left">
                             {item.section}
                           </span>
                         )}
@@ -4972,7 +5009,7 @@ const AdminDashboard = () => {
                                 setActiveTab(subItem.key);
                                 setShowMobileSidebar(false);
                               }}
-                              className={`w-full flex items-center justify-center lg:justify-start px-2 lg:px-2.5 py-1.5 text-xs font-medium rounded transition-all duration-200 border-l-0 group ${
+                              className={`w-full flex items-center justify-start px-2 lg:px-2.5 py-1.5 text-xs font-medium rounded transition-all duration-200 border-l-0 group ${
                                 activeTab === subItem.key
                                   ? 'text-amber-400 border-l-4 border-amber-500/40 bg-transparent'
                                   : 'text-gray-400 border-transparent hover:text-amber-300'
@@ -5000,7 +5037,7 @@ const AdminDashboard = () => {
                       setActiveTab(item.key);
                       setShowMobileSidebar(false);
                     }}
-                    className={`w-full flex items-center justify-center lg:justify-start px-2 lg:px-2.5 py-1.5 text-xs font-medium rounded transition-all duration-200 border-l-0 group ${
+                    className={`w-full flex items-center justify-start px-2 lg:px-2.5 py-1.5 text-xs font-medium rounded transition-all duration-200 border-l-0 group ${
                       activeTab === item.key
                         ? 'text-amber-400 border-l-4 border-amber-500/40 bg-transparent'
                         : 'text-gray-400 border-transparent hover:text-amber-300'
@@ -5285,6 +5322,7 @@ const AdminDashboard = () => {
         confirmText={`Delete ${activeTab === 'adminProfile' ? 'Admin' : 'User'}`}
         type="danger"
         loading={apiLoading}
+        isDarkMode={isDarkMode}
       />
     </div>
   );

@@ -1297,7 +1297,7 @@ class ChatbotService
         }
 
         // Deterministic intents: for factual queries we prefer server-side answers
-        $deterministicIntents = ['my_appointment','admin_counts','services','price','hours','address','availability','status','contact'];
+        $deterministicIntents = ['my_appointment','admin_counts','services','price','hours','address','availability','status','contact','system_info','about_system','system_features','system_contact_info'];
         if (in_array($intent, $deterministicIntents, true)) {
             try {
                 try {
@@ -1337,7 +1337,7 @@ class ChatbotService
         }
 
         // Re-check deterministic intents after refinement (cover cases where detection upgraded from 'general')
-        $deterministicIntents = ['my_appointment','admin_counts','services','price','hours','address','availability','status','contact'];
+        $deterministicIntents = ['my_appointment','admin_counts','services','price','hours','address','availability','status','contact','system_info','about_system','system_features','system_contact_info'];
         if (in_array($intent, $deterministicIntents, true)) {
             try {
                 try {
@@ -1801,6 +1801,27 @@ class ChatbotService
                 'keywords' => ['refund', 'money back', 'reimbursement'],
                 'semantic' => ['i want my money back', 'can i get refund'],
             ],
+            // ==================== SYSTEM INFORMATION INTENTS ====================
+            'system_info' => [
+                'patterns' => ['tell me about this system', 'what is this system', 'about this system', 'system information', 'describe system'],
+                'keywords' => ['system', 'about', 'information', 'features', 'capabilities', 'what is'],
+                'semantic' => ['how does this work', 'what can this do', 'system overview', 'system description'],
+            ],
+            'about_system' => [
+                'patterns' => ['about system', 'system info', 'who developed', 'who created this', 'who built this'],
+                'keywords' => ['developer', 'created', 'built', 'made', 'author', 'who'],
+                'semantic' => ['who made this', 'development team', 'system creator'],
+            ],
+            'system_features' => [
+                'patterns' => ['what features', 'system features', 'capabilities', 'what can i do', 'what functions'],
+                'keywords' => ['features', 'capabilities', 'functions', 'features available'],
+                'semantic' => ['what can system do', 'system functionality', 'available features'],
+            ],
+            'system_contact_info' => [
+                'patterns' => ['contact business', 'business contact', 'business email', 'business phone'],
+                'keywords' => ['contact', 'business', 'email', 'phone', 'address', 'location'],
+                'semantic' => ['how to contact business', 'business information', 'business details'],
+            ],
         ];
 
         $scores = [];
@@ -2214,6 +2235,43 @@ class ChatbotService
                 $resp['reply'] = 'You can contact us at: Phone: ' . ($biz['phone'] ?? 'Not available') . ', Email: ' . ($biz['email'] ?? 'Not available') . ', Address: ' . ($biz['address'] ?? 'Not available') . '.';
                 $resp['suggestions'] = ['What are your hours?', 'How do I book an appointment?'];
                 return $resp;
+
+            // ==================== SYSTEM INFORMATION INTENTS ====================
+            case 'system_info':
+            case 'about_system':
+            case 'system_features':
+            case 'system_contact_info':
+                try {
+                    $systemInfoProvider = app(SystemInfoProvider::class);
+                    
+                    // Infer detail level from user's question/context
+                    $detailLevel = 'standard';
+                    if (isset($context['cleaned']) && is_string($context['cleaned'])) {
+                        $detailLevel = $systemInfoProvider->inferDetailLevel($context['cleaned']);
+                    }
+                    
+                    // Format the response based on intent
+                    if ($intent === 'system_contact_info') {
+                        $sysInfo = $systemInfoProvider->getSystemInfo('brief');
+                        $resp['data'] = $sysInfo['contact'] ?? [];
+                        $contact = $sysInfo['contact']['business'] ?? [];
+                        $resp['reply'] = 'You can contact the business at: Phone: ' . ($contact['phone'] ?? 'Not available') . ', Email: ' . ($contact['email'] ?? 'Not available') . ', Address: ' . ($contact['address'] ?? 'Not available') . '.';
+                    } else {
+                        // For system_info, about_system, system_features, get formatted conversational response
+                        $formatted = $systemInfoProvider->getFormattedDescription('conversational', $detailLevel);
+                        $resp['data'] = $systemInfoProvider->getSystemInfo($detailLevel);
+                        $resp['reply'] = $formatted;
+                    }
+                    
+                    $resp['suggestions'] = ['What services do you offer?', 'How do I book an appointment?', 'How can I contact you?'];
+                    $resp['meta_source'] = 'system_info_provider';
+                    return $resp;
+                } catch (\Exception $e) {
+                    Log::error('SystemInfoProvider error: ' . $e->getMessage());
+                    $resp['reply'] = 'This is an appointment management system for legal services. It helps you book appointments, manage payments, and access our services online. For more information, please contact our business directly.';
+                    $resp['suggestions'] = ['What services do you offer?', 'How do I book an appointment?'];
+                    return $resp;
+                }
 
             default:
                 return null;

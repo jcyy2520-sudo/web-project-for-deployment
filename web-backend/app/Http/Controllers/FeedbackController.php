@@ -194,8 +194,10 @@ class FeedbackController extends Controller
             $filterTestimonial = $request->get('is_testimonial', null);
             $filterType = $request->get('feedback_type', null);
             $filterReported = $request->get('is_reported', null);
+            $showDeleted = $request->get('show_deleted', false);
 
-            $query = Feedback::query();
+            // Include soft-deleted feedback so admin can see all submissions
+            $query = $showDeleted ? Feedback::withTrashed() : Feedback::query();
 
             // Apply search
             if ($search) {

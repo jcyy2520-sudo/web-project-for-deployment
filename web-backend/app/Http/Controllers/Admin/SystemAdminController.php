@@ -338,17 +338,28 @@ class SystemAdminController extends Controller
     {
         $this->logAdminAction('list_users', 'user', null, 'Listed all users');
 
-        $query = User::query();
+        // Include soft-deleted users AND all users regardless of is_active status
+        // This ensures we see all users including test/seeded users and inactive ones
+        $query = User::withTrashed();
 
-        if ($request->has('role')) {
+        // Only filter by role if explicitly requested
+        if ($request->has('role') && $request->role) {
             $query->where('role', $request->role);
         }
 
-        if ($request->has('status')) {
-            $query->where('is_active', $request->status === 'active');
+        // Only filter by active status if explicitly requested
+        if ($request->has('status') && $request->status) {
+            if ($request->status === 'active') {
+                $query->where('is_active', true)->whereNull('deleted_at');
+            } elseif ($request->status === 'inactive') {
+                $query->where('is_active', false);
+            } elseif ($request->status === 'deleted') {
+                $query->whereNotNull('deleted_at');
+            }
         }
 
-        if ($request->has('search')) {
+        // Search functionality
+        if ($request->has('search') && $request->search) {
             $search = $request->search;
             $query->where(function ($q) use ($search) {
                 $q->where('username', 'like', "%{$search}%")
@@ -360,6 +371,14 @@ class SystemAdminController extends Controller
 
         $users = $query->orderBy('created_at', 'desc')
             ->paginate($request->get('per_page', 20));
+
+        // Add status indicator to each user for better frontend display
+        $users->getCollection()->transform(function ($user) {
+            $user->status_display = $user->trashed() 
+                ? 'deleted' 
+                : ($user->is_active ? 'active' : 'inactive');
+            return $user;
+        });
 
         return response()->json($users);
     }

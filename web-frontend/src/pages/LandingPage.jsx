@@ -6,6 +6,7 @@ import StarRating from '../components/ui/StarRating';
 import FeedbackThankYouModal from '../components/modals/FeedbackThankYouModal';
 import FeedbackErrorModal from '../components/modals/FeedbackErrorModal';
 import AllTestimonialsModal from '../components/modals/AllTestimonialsModal';
+import { CheckCircleIcon, ExclamationTriangleIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import axios from 'axios';
 
 const LandingPage = () => {
@@ -38,6 +39,10 @@ const LandingPage = () => {
   const [testimonials, setTestimonials] = useState([]);
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
   const [isAllTestimonialsModalOpen, setIsAllTestimonialsModalOpen] = useState(false);
+  
+  // Inline feedback success/error messages (non-modal)
+  const [feedbackSuccessMessage, setFeedbackSuccessMessage] = useState('');
+  const [feedbackLimitMessage, setFeedbackLimitMessage] = useState('');
   const [feedbackCategory, setFeedbackCategory] = useState('other');
   
   // Track if we've already animated to prevent re-animation on polling updates
@@ -230,6 +235,9 @@ const LandingPage = () => {
     }
 
     setIsFeedbackLoading(true);
+    setFeedbackSuccessMessage('');
+    setFeedbackLimitMessage('');
+    
     try {
       const response = await axios.post('/api/feedback', {
         email: feedbackEmail,
@@ -240,41 +248,48 @@ const LandingPage = () => {
 
       logger.info('Feedback sent successfully', { response });
       
-      // Show thank you modal with feedback details (before reset so modal shows the data)
-      setIsThankYouModalOpen(true);
+      // Show inline success message instead of modal
+      setFeedbackSuccessMessage('✅ Thank you! Your feedback has been received. A confirmation email has been sent to your inbox.');
       
-      // Reset form after a short delay to ensure modal receives the data
+      // Reset form
+      setFeedbackEmail('');
+      setFeedbackMessage('');
+      setFeedbackRating(0);
+      setFeedbackCategory('other');
+      
+      // Auto-dismiss success message after 8 seconds
       setTimeout(() => {
-        setFeedbackEmail('');
-        setFeedbackMessage('');
-        setFeedbackRating(0);
-        setFeedbackCategory('other');
-      }, 100);
+        setFeedbackSuccessMessage('');
+      }, 8000);
 
     } catch (error) {
       logger.error('Failed to send feedback', { error });
       const resp = error.response?.data || {};
 
-      // Show modal for known errors
+      // Handle known errors with inline messages instead of modals
       if (resp.error === 'email_not_registered') {
-        setErrorModalContent({
-          title: 'Email Not Registered',
-          message: 'The email you provided is not registered. Please create an account or log in to submit feedback.',
-          primaryAction: { label: 'Sign Up / Log In', onClick: () => { window.location.href = '/auth'; } }
-        });
-        setIsErrorModalOpen(true);
+        setFeedbackLimitMessage(
+          '⚠️ The email you provided is not registered. Please create an account or log in to submit feedback.'
+        );
+        setTimeout(() => setFeedbackLimitMessage(''), 8000);
       } else if (resp.error === 'rate_limit_reached') {
-        setErrorModalContent({
-          title: 'Feedback Limit Reached',
-          message: resp.message || 'You have reached your feedback submission limit. Please try again later.'
-        });
-        setIsErrorModalOpen(true);
+        const nextAvailable = resp.data?.next_available_at;
+        if (nextAvailable) {
+          const date = new Date(nextAvailable);
+          const dateOptions = { month: 'short', day: 'numeric', year: 'numeric' };
+          const timeOptions = { hour: 'numeric', minute: '2-digit', hour12: true };
+          const formattedDate = `${date.toLocaleDateString('en-US', dateOptions)} at ${date.toLocaleTimeString('en-US', timeOptions)}`;
+          setFeedbackLimitMessage(`⚠️ You've reached your feedback limit. You can submit feedback again on ${formattedDate}.`);
+        } else {
+          setFeedbackLimitMessage('⚠️ You have reached your feedback submission limit. Please try again later.');
+        }
+        setTimeout(() => setFeedbackLimitMessage(''), 8000);
       } else if (resp.error === 'profanity_detected') {
-        setErrorModalContent({ title: 'Inappropriate Language', message: 'Your feedback contains disallowed language. Please edit and try again.' });
-        setIsErrorModalOpen(true);
+        setFeedbackLimitMessage('❌ Your feedback contains disallowed language. Please edit and try again.');
+        setTimeout(() => setFeedbackLimitMessage(''), 8000);
       } else if (resp.error === 'duplicate_feedback') {
-        setErrorModalContent({ title: 'Duplicate Feedback', message: resp.message || 'It looks like you submitted a similar feedback recently.' });
-        setIsErrorModalOpen(true);
+        setFeedbackLimitMessage('⚠️ It looks like you submitted similar feedback recently. Please try again later.');
+        setTimeout(() => setFeedbackLimitMessage(''), 8000);
       } else {
         alert('Failed to send feedback. Please try again.');
       }
@@ -1045,6 +1060,50 @@ const LandingPage = () => {
                 )}
               </button>
             </form>
+
+            {/* Inline Success Message */}
+            {feedbackSuccessMessage && (
+              <div className={`mt-4 p-4 rounded-lg flex items-start gap-3 border ${
+                isDarkMode
+                  ? 'bg-green-500/10 border-green-500/30'
+                  : 'bg-green-50 border-green-300'
+              }`}>
+                <CheckCircleIcon className={`h-5 w-5 flex-shrink-0 mt-0.5 ${isDarkMode ? 'text-green-400' : 'text-green-600'}`} />
+                <div className="flex-1">
+                  <p className={`text-sm font-medium ${isDarkMode ? 'text-green-400' : 'text-green-700'}`}>
+                    {feedbackSuccessMessage}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setFeedbackSuccessMessage('')}
+                  className={`flex-shrink-0 ${isDarkMode ? 'text-green-400 hover:text-green-300' : 'text-green-600 hover:text-green-700'}`}
+                >
+                  <XMarkIcon className="h-4 w-4" />
+                </button>
+              </div>
+            )}
+
+            {/* Inline Limit/Error Message */}
+            {feedbackLimitMessage && (
+              <div className={`mt-4 p-4 rounded-lg flex items-start gap-3 border ${
+                isDarkMode
+                  ? 'bg-amber-500/10 border-amber-500/30'
+                  : 'bg-amber-50 border-amber-300'
+              }`}>
+                <ExclamationTriangleIcon className={`h-5 w-5 flex-shrink-0 mt-0.5 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`} />
+                <div className="flex-1">
+                  <p className={`text-sm font-medium ${isDarkMode ? 'text-amber-400' : 'text-amber-700'}`}>
+                    {feedbackLimitMessage}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setFeedbackLimitMessage('')}
+                  className={`flex-shrink-0 ${isDarkMode ? 'text-amber-400 hover:text-amber-300' : 'text-amber-600 hover:text-amber-700'}`}
+                >
+                  <XMarkIcon className="h-4 w-4" />
+                </button>
+              </div>
+            )}
           </div>
 
           <div className={`border-t pt-6 text-center transition-colors duration-300 ${

@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
+import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import {
@@ -21,7 +22,10 @@ import {
   MoonIcon,
   EnvelopeIcon,
   ChevronDownIcon,
-  StarIcon
+  StarIcon,
+  CheckCircleIcon,
+  ExclamationTriangleIcon,
+  XCircleIcon
 } from '@heroicons/react/24/outline';
 
 
@@ -44,6 +48,16 @@ const ProfilePage = ({ onBack, onTabChange, onLogout }) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [loadingNotifications, setLoadingNotifications] = useState(false);
   
+  // Refunds state
+  const [refunds, setRefunds] = useState([]);
+  const [refundsLoading, setRefundsLoading] = useState(false);
+  const [refundsError, setRefundsError] = useState('');
+  
+  // Action logs state
+  const [actionLogs, setActionLogs] = useState([]);
+  const [actionLogsLoading, setActionLogsLoading] = useState(false);
+  const [actionLogsError, setActionLogsError] = useState('');
+  
   // Load notification preferences from localStorage
   useEffect(() => {
     const savedNotifications = localStorage.getItem('userNotifications');
@@ -55,6 +69,48 @@ const ProfilePage = ({ onBack, onTabChange, onLogout }) => {
       }
     }
   }, []);
+  
+  // Load refunds when section is opened
+  useEffect(() => {
+    if (currentMenuSection === 'refunds') {
+      loadRefunds();
+    }
+  }, [currentMenuSection]);
+  
+  // Load action logs when section is opened
+  useEffect(() => {
+    if (currentMenuSection === 'action-logs') {
+      loadActionLogs();
+    }
+  }, [currentMenuSection]);
+  
+  const loadRefunds = async () => {
+    try {
+      setRefundsLoading(true);
+      setRefundsError('');
+      const response = await axios.get('/api/refunds/my', { params: { per_page: 100 } });
+      setRefunds(response.data.data || response.data || []);
+    } catch (err) {
+      setRefundsError(err.response?.data?.message || 'Failed to load refunds');
+      console.error('Error loading refunds:', err);
+    } finally {
+      setRefundsLoading(false);
+    }
+  };
+  
+  const loadActionLogs = async () => {
+    try {
+      setActionLogsLoading(true);
+      setActionLogsError('');
+      const response = await axios.get('/api/action-logs/my/logs', { params: { per_page: 100 } });
+      setActionLogs(response.data.data || response.data || []);
+    } catch (err) {
+      setActionLogsError(err.response?.data?.message || 'Failed to load action logs');
+      console.error('Error loading action logs:', err);
+    } finally {
+      setActionLogsLoading(false);
+    }
+  };
   
   const applyTheme = (isDark) => {
     const root = document.documentElement;
@@ -89,15 +145,8 @@ const ProfilePage = ({ onBack, onTabChange, onLogout }) => {
     localStorage.setItem('userNotifications', JSON.stringify(newPreferences));
   };  // Helper to handle navigation that closes the modal and goes to the section
   const handleNavToSection = (tabName) => {
-    // If it's a sub-section within profile (refunds, action-logs, profile), keep the modal open and show back button
-    if (tabName === 'refunds' || tabName === 'action-logs' || tabName === 'profile') {
-      setCurrentMenuSection(tabName);
-    } else {
-      // For other tabs, close the modal
-      if (onTabChange) {
-        onTabChange(tabName);
-      }
-    }
+    // Navigate to the section within the ProfilePage menu
+    setCurrentMenuSection(tabName);
   };
 
   const handleBackToMenu = () => {
@@ -162,7 +211,7 @@ const ProfilePage = ({ onBack, onTabChange, onLogout }) => {
         {
           icon: InformationCircleIcon,
           label: 'About Us',
-          action: () => {},
+          action: () => handleNavToSection('about-us'),
           color: 'text-cyan-500'
         },
         {
@@ -395,14 +444,238 @@ const ProfilePage = ({ onBack, onTabChange, onLogout }) => {
           </>
         ) : (
           <>
-            {/* Sub-section placeholders - Refunds and Action Logs will be opened in Dashboard */}
-            {(currentMenuSection === 'refunds' || currentMenuSection === 'action-logs') && (
-              <div className="flex items-center justify-center h-full text-center">
-                <div className="p-6">
-                  <p className="text-gray-600 dark:text-gray-300 mb-4">
-                    {currentMenuSection === 'refunds' && 'Refunds section will open in a new view'}
-                    {currentMenuSection === 'action-logs' && 'Action Logs section will open in a new view'}
+            {/* Refunds Section */}
+            {currentMenuSection === 'refunds' && (
+              <div className="flex flex-col h-full">
+                {refundsLoading && (
+                  <div className="flex items-center justify-center h-full">
+                    <div className="text-center">
+                      <div className="w-8 h-8 rounded-full border-4 border-amber-200 border-t-amber-500 animate-spin mx-auto mb-4"></div>
+                      <p className="text-gray-600 dark:text-gray-300">Loading refunds...</p>
+                    </div>
+                  </div>
+                )}
+                
+                {!refundsLoading && refundsError && (
+                  <div className="flex items-center justify-center h-full">
+                    <div className="text-center">
+                      <XCircleIcon className="w-12 h-12 text-red-500 mx-auto mb-4" />
+                      <p className="text-red-600 dark:text-red-400">{refundsError}</p>
+                    </div>
+                  </div>
+                )}
+                
+                {!refundsLoading && !refundsError && refunds.length === 0 && (
+                  <div className="flex items-center justify-center h-full">
+                    <div className="text-center">
+                      <CurrencyDollarIcon className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-4" />
+                      <p className="text-gray-600 dark:text-gray-300">No refunds yet</p>
+                    </div>
+                  </div>
+                )}
+                
+                {!refundsLoading && !refundsError && refunds.length > 0 && (
+                  <div className="space-y-3 p-4">
+                    {refunds.map((refund, idx) => (
+                      <div key={idx} className="p-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="flex-1">
+                            <p className="font-semibold text-gray-900 dark:text-white text-sm">
+                              ${refund.amount || 0}
+                            </p>
+                            <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
+                              {refund.service_name || 'Service'}
+                            </p>
+                          </div>
+                          <div className="flex items-center">
+                            {refund.status === 'approved' && <CheckCircleIcon className="w-5 h-5 text-green-500" />}
+                            {refund.status === 'pending' && <ExclamationTriangleIcon className="w-5 h-5 text-yellow-500" />}
+                            {refund.status === 'rejected' && <XCircleIcon className="w-5 h-5 text-red-500" />}
+                          </div>
+                        </div>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          Status: <span className="font-medium capitalize">{refund.status}</span>
+                        </p>
+                        {refund.reason && (
+                          <p className="text-xs text-gray-600 dark:text-gray-300 mt-2">
+                            {refund.reason}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            
+            {/* Action Logs Section */}
+            {currentMenuSection === 'action-logs' && (
+              <div className="flex flex-col h-full">
+                {actionLogsLoading && (
+                  <div className="flex items-center justify-center h-full">
+                    <div className="text-center">
+                      <div className="w-8 h-8 rounded-full border-4 border-blue-200 border-t-blue-500 animate-spin mx-auto mb-4"></div>
+                      <p className="text-gray-600 dark:text-gray-300">Loading action logs...</p>
+                    </div>
+                  </div>
+                )}
+                
+                {!actionLogsLoading && actionLogsError && (
+                  <div className="flex items-center justify-center h-full">
+                    <div className="text-center">
+                      <XCircleIcon className="w-12 h-12 text-red-500 mx-auto mb-4" />
+                      <p className="text-red-600 dark:text-red-400">{actionLogsError}</p>
+                    </div>
+                  </div>
+                )}
+                
+                {!actionLogsLoading && !actionLogsError && actionLogs.length === 0 && (
+                  <div className="flex items-center justify-center h-full">
+                    <div className="text-center">
+                      <ClockIcon className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-4" />
+                      <p className="text-gray-600 dark:text-gray-300">No action logs yet</p>
+                    </div>
+                  </div>
+                )}
+                
+                {!actionLogsLoading && !actionLogsError && actionLogs.length > 0 && (
+                  <div className="space-y-2 p-4">
+                    {actionLogs.map((log, idx) => (
+                      <div key={idx} className="p-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
+                        <div className="flex items-start justify-between mb-1">
+                          <p className="font-semibold text-gray-900 dark:text-white text-xs capitalize">
+                            {log.action || 'Action'}
+                          </p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400">
+                            {log.created_at ? new Date(log.created_at).toLocaleDateString() : ''}
+                          </p>
+                        </div>
+                        {log.description && (
+                          <p className="text-xs text-gray-600 dark:text-gray-400">
+                            {log.description}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* About Us Section */}
+            {currentMenuSection === 'about-us' && (
+              <div className="overflow-y-auto flex-1 p-4 space-y-4">
+                {/* Company Info */}
+                <div>
+                  <h4 className="font-semibold mb-2 text-sm text-amber-600 dark:text-amber-400">
+                    NotaryPro Services
+                  </h4>
+                  <p className="text-xs leading-relaxed text-gray-700 dark:text-gray-300">
+                    NotaryPro is your trusted partner for professional notarization services. Founded with a commitment to excellence, we provide fast, reliable, and accessible notarization for all your legal document needs.
                   </p>
+                </div>
+
+                {/* Company Details */}
+                <div className="p-3 rounded-lg space-y-2 bg-gray-100 dark:bg-gray-800/50 border border-gray-300 dark:border-gray-700">
+                  <div className="text-xs">
+                    <p className="mb-1 text-amber-600 dark:text-amber-400"><strong>📍 Location:</strong></p>
+                    <p className="ml-4 text-gray-700 dark:text-gray-300">San Francisco, California</p>
+                  </div>
+                  <div className="text-xs">
+                    <p className="mb-1 text-amber-600 dark:text-amber-400"><strong>🚀 Founded:</strong></p>
+                    <p className="ml-4 text-gray-700 dark:text-gray-300">January 2024</p>
+                  </div>
+                </div>
+
+                {/* Our Mission */}
+                <div>
+                  <h4 className="font-semibold mb-2 text-sm text-amber-600 dark:text-amber-400">
+                    Our Mission
+                  </h4>
+                  <p className="text-xs leading-relaxed text-gray-700 dark:text-gray-300">
+                    To make notarization services accessible, convenient, and trustworthy for everyone. We believe in providing exceptional service with integrity and professionalism.
+                  </p>
+                </div>
+
+                {/* What We Offer */}
+                <div>
+                  <h4 className="font-semibold mb-2 text-sm text-amber-600 dark:text-amber-400">
+                    Services
+                  </h4>
+                  <ul className="space-y-1 text-xs text-gray-700 dark:text-gray-300">
+                    <li className="flex items-start">
+                      <span className="mr-2 text-amber-600 dark:text-amber-400">✓</span>
+                      <span>Professional Notarization Services</span>
+                    </li>
+                    <li className="flex items-start">
+                      <span className="mr-2 text-amber-600 dark:text-amber-400">✓</span>
+                      <span>Document Verification & Witnessing</span>
+                    </li>
+                    <li className="flex items-start">
+                      <span className="mr-2 text-amber-600 dark:text-amber-400">✓</span>
+                      <span>Certified Notary Public Staff</span>
+                    </li>
+                    <li className="flex items-start">
+                      <span className="mr-2 text-amber-600 dark:text-amber-400">✓</span>
+                      <span>Flexible Scheduling & Mobile Service</span>
+                    </li>
+                  </ul>
+                </div>
+
+                {/* Why Choose Us */}
+                <div>
+                  <h4 className="font-semibold mb-2 text-sm text-amber-600 dark:text-amber-400">
+                    Why Choose NotaryPro
+                  </h4>
+                  <ul className="space-y-1 text-xs text-gray-700 dark:text-gray-300">
+                    <li className="flex items-start">
+                      <span className="mr-2 text-green-600 dark:text-green-400">✓</span>
+                      <span>Licensed & Insured Professionals</span>
+                    </li>
+                    <li className="flex items-start">
+                      <span className="mr-2 text-green-600 dark:text-green-400">✓</span>
+                      <span>Fast & Reliable Service</span>
+                    </li>
+                    <li className="flex items-start">
+                      <span className="mr-2 text-green-600 dark:text-green-400">✓</span>
+                      <span>Competitive Pricing</span>
+                    </li>
+                    <li className="flex items-start">
+                      <span className="mr-2 text-green-600 dark:text-green-400">✓</span>
+                      <span>24/7 Availability</span>
+                    </li>
+                  </ul>
+                </div>
+
+                {/* Developer & Team */}
+                <div className="p-3 rounded-lg bg-gray-100 dark:bg-gray-800/50 border border-gray-300 dark:border-gray-700">
+                  <h4 className="font-semibold mb-2 text-sm text-amber-600 dark:text-amber-400">
+                    👨‍💻 Development Team
+                  </h4>
+                  <div className="text-xs text-gray-700 dark:text-gray-300">
+                    <p><strong>Lead Developer:</strong></p>
+                    <p className="text-amber-600 dark:text-amber-400 ml-4">John Christian Fajutagana</p>
+                    <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">
+                      Full Stack Developer specializing in modern web technologies and professional services platforms.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Contact & Support */}
+                <div className="p-3 rounded-lg bg-gray-100 dark:bg-gray-800/50 border border-gray-300 dark:border-gray-700">
+                  <h4 className="font-semibold mb-2 text-sm text-amber-600 dark:text-amber-400">
+                    Get In Touch
+                  </h4>
+                  <div className="space-y-1 text-xs text-gray-700 dark:text-gray-300">
+                    <p><strong>Email:</strong> support@notarypro.com</p>
+                    <p><strong>Phone:</strong> 1-800-NOTARY-1</p>
+                    <p><strong>Hours:</strong> 24/7 Service Available</p>
+                  </div>
+                </div>
+
+                {/* Version */}
+                <div className="text-center pt-2 border-t border-gray-300 dark:border-gray-700 text-xs text-gray-500 dark:text-gray-500">
+                  <p>Version 1.0.0 • © 2024 NotaryPro Services</p>
                 </div>
               </div>
             )}

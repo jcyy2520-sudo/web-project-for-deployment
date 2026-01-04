@@ -46,24 +46,37 @@ const AdminAnalyticsDashboard = () => {
 
     let interval;
     if (autoRefreshEnabled) {
+      // Refresh every 5 minutes for non-real-time updates
       interval = setInterval(fetchAnalytics, 300000);
+    } else {
+      // Refresh every 1 minute if manual mode
+      interval = setInterval(fetchAnalytics, 60000);
     }
 
+    // Try to set up real-time WebSocket listener for instant updates
     if (window.Echo && typeof window.Echo.channel === 'function') {
       try {
         const channel = window.Echo.channel('analytics-updates');
-        channel.listen('.analytics.updated', (data) => {
-          if (data.data) {
-            setAnalyticsData(data.data);
-            setRefreshTime(new Date(data.timestamp));
-            setError(null);
-          }
+        
+        // Listen for analytics update events from backend
+        const unsubscribeAnalytics = channel.listen('.analytics.updated', (data) => {
+          // When notified of a change, immediately fetch fresh data
+          console.log('Analytics update event received, refreshing data');
+          fetchAnalytics();
         });
+        
         return () => {
-          channel.stopListening('.analytics.updated');
+          if (unsubscribeAnalytics) unsubscribeAnalytics();
+          if (interval) clearInterval(interval);
+          try {
+            channel.stopListening('.analytics.updated');
+          } catch (e) {
+            // Already unsubscribed
+          }
         };
       } catch (e) {
         console.warn('Echo listener setup failed:', e);
+        // Continue with polling fallback
       }
     }
 

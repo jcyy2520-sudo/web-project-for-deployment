@@ -15,12 +15,14 @@ class MessageController extends Controller
             $user = $request->user();
             
             // Get all users the current user has messaged with
+            // This finds all unique users that have either sent or received messages
             $userIds = Message::where(function($query) use ($user) {
                     $query->where('sender_id', $user->id)
                           ->orWhere('receiver_id', $user->id);
                 })
                 ->get(['sender_id', 'receiver_id'])
                 ->map(function($msg) use ($user) {
+                    // Extract the OTHER user's ID (not the current user)
                     return $msg->sender_id === $user->id ? $msg->receiver_id : $msg->sender_id;
                 })
                 ->unique()
@@ -28,7 +30,7 @@ class MessageController extends Controller
 
             // Build conversations array - one per user
             $conversations = $userIds->map(function($otherUserId) use ($user) {
-                // Get the most recent message with this user
+                // Get the most recent message with this user (either direction)
                 $lastMessage = Message::where(function($query) use ($user, $otherUserId) {
                         $query->where('sender_id', $user->id)
                               ->where('receiver_id', $otherUserId);
@@ -37,14 +39,15 @@ class MessageController extends Controller
                         $query->where('sender_id', $otherUserId)
                               ->where('receiver_id', $user->id);
                     })
-                    ->latest()
+                    ->latest('created_at')  // Explicitly order by created_at DESC
                     ->with(['sender', 'receiver'])
                     ->first();
 
                 // Get the other user
                 $otherUser = User::find($otherUserId);
 
-                // Count unread messages from this user
+                // Count unread messages FROM the other user TO current user
+                // This ensures we show unread count for messages the current user hasn't read yet
                 $unreadCount = Message::where('sender_id', $otherUserId)
                     ->where('receiver_id', $user->id)
                     ->where('read', false)
@@ -76,6 +79,8 @@ class MessageController extends Controller
         try {
             $user = $request->user();
 
+            // Fetch all messages between current user and the other user
+            // This works regardless of who is admin and who is client
             $messages = Message::where(function ($query) use ($user, $otherUser) {
                     $query->where('sender_id', $user->id)
                           ->where('receiver_id', $otherUser->id);
@@ -85,10 +90,11 @@ class MessageController extends Controller
                           ->where('receiver_id', $user->id);
                 })
                 ->with(['sender', 'receiver'])
-                ->orderBy('created_at', 'asc')
+                ->orderBy('created_at', 'asc')  // Explicitly order chronologically (oldest first)
                 ->get();
 
-            // Mark messages as read
+            // Mark all unread messages FROM the other user TO the current user as read
+            // This ensures the conversation shows as read when the user views it
             Message::where('sender_id', $otherUser->id)
                 ->where('receiver_id', $user->id)
                 ->where('read', false)
@@ -265,6 +271,8 @@ class MessageController extends Controller
         $user = $request->user();
         $otherUser = User::findOrFail($userId);
 
+        // Fetch all messages between current user and the specified user
+        // Works regardless of who is admin/client
         $messages = Message::where(function($query) use ($user, $otherUser) {
                 $query->where('sender_id', $user->id)
                       ->where('receiver_id', $otherUser->id);
@@ -274,10 +282,10 @@ class MessageController extends Controller
                       ->where('receiver_id', $user->id);
             })
             ->with(['sender', 'receiver'])
-            ->orderBy('created_at', 'asc')
+            ->orderBy('created_at', 'asc')  // Chronological order
             ->get();
 
-        // Mark messages as read
+        // Mark all unread messages FROM the other user TO current user as read
         Message::where('sender_id', $otherUser->id)
             ->where('receiver_id', $user->id)
             ->where('read', false)
