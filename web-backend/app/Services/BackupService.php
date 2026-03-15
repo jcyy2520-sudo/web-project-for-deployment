@@ -74,22 +74,22 @@ class BackupService
      */
     private function getBackupCommand(string $path): string
     {
-        $host = config('database.connections.mysql.host');
-        $user = config('database.connections.mysql.username');
+        $host = escapeshellarg(config('database.connections.mysql.host'));
+        $user = escapeshellarg(config('database.connections.mysql.username'));
         $password = config('database.connections.mysql.password');
-        $database = config('database.connections.mysql.database');
-        $port = config('database.connections.mysql.port', 3306);
+        $database = escapeshellarg(config('database.connections.mysql.database'));
+        $port = escapeshellarg(config('database.connections.mysql.port', 3306));
 
         // Escape for command line
         $path = escapeshellarg($path);
 
-        if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
-            // Windows
-            return "mysqldump -h{$host} -u{$user} -p{$password} -P{$port} {$database} > {$path}";
-        } else {
-            // Linux/Mac
-            return "mysqldump -h{$host} -u{$user} -p{$password} -P{$port} {$database} > {$path}";
-        }
+        // Use MYSQL_PWD env var to avoid password in process list and shell escaping issues
+        // Rollback: revert to inline -p flag if MYSQL_PWD causes compatibility issues
+        $envPrefix = strtoupper(substr(PHP_OS, 0, 3)) === 'WIN'
+            ? 'set MYSQL_PWD=' . escapeshellarg($password) . '&& '
+            : 'MYSQL_PWD=' . escapeshellarg($password) . ' ';
+
+        return "{$envPrefix}mysqldump -h {$host} -u {$user} -P {$port} {$database} > {$path}";
     }
 
     /**
@@ -103,19 +103,28 @@ class BackupService
                 return false;
             }
 
-            $host = config('database.connections.mysql.host');
-            $user = config('database.connections.mysql.username');
+            $host = escapeshellarg(config('database.connections.mysql.host'));
+            $user = escapeshellarg(config('database.connections.mysql.username'));
             $password = config('database.connections.mysql.password');
-            $database = config('database.connections.mysql.database');
-            $port = config('database.connections.mysql.port', 3306);
+            $database = escapeshellarg(config('database.connections.mysql.database'));
+            $port = escapeshellarg(config('database.connections.mysql.port', 3306));
 
-            $filePath = escapeshellarg($backup->path);
-
-            if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
-                $command = "mysql -h{$host} -u{$user} -p{$password} -P{$port} {$database} < {$filePath}";
-            } else {
-                $command = "mysql -h{$host} -u{$user} -p{$password} -P{$port} {$database} < {$filePath}";
+            // Validate backup path is within expected directory to prevent path traversal
+            $realPath = realpath($backup->path);
+            $expectedDir = realpath(storage_path('backups'));
+            if (!$realPath || !$expectedDir || !str_starts_with($realPath, $expectedDir)) {
+                Log::error('Backup path outside expected directory', ['path' => $backup->path]);
+                return false;
             }
+
+            $filePath = escapeshellarg($realPath);
+
+            // Use MYSQL_PWD env var to avoid exposing password in process list
+            $envPrefix = strtoupper(substr(PHP_OS, 0, 3)) === 'WIN'
+                ? "set MYSQL_PWD={$password}&& "
+                : "MYSQL_PWD=" . escapeshellarg($password) . " ";
+
+            $command = "{$envPrefix}mysql -h{$host} -u{$user} -P{$port} {$database} < {$filePath}";
 
             exec($command, $output, $returnCode);
 

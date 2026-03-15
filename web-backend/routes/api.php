@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\Auth\ProfileCompletionController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\AppointmentController;
 use App\Http\Controllers\CalendarController;
@@ -22,10 +23,12 @@ use App\Http\Controllers\TimeSlotCapacityController;
 use App\Http\Controllers\BlackoutDateController;
 use App\Http\Controllers\AnalyticsController;
 use App\Http\Controllers\AppointmentSettingsController;
-use App\Http\Controllers\ChatbotController;
+
 use App\Http\Controllers\PaymentController;
+use App\Http\Controllers\PayMongoController;
 use App\Http\Controllers\CashierController;
 use App\Http\Controllers\RefundController;
+use App\Http\Controllers\RefundReasonController;
 use App\Http\Controllers\ErrorLogController;
 use App\Http\Controllers\HealthCheckController;
 use App\Http\Controllers\MetricsController;
@@ -36,6 +39,9 @@ use App\Http\Controllers\FeedbackSettingsController;
 use App\Http\Controllers\Admin\FrontendErrorLogController;
 use App\Http\Controllers\Admin\JobController;
 use App\Http\Controllers\ChatbotPositionController;
+use App\Http\Controllers\ForgotPasswordController;
+use App\Http\Controllers\AnnouncementController;
+use App\Http\Controllers\LandingPageController;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Mail;
 use App\Mail\VerificationCodeMail;
@@ -69,32 +75,31 @@ Route::get('/', function () {
     ]);
 });
 
-// ==================== TEST ROUTES ====================
-Route::get('/test', function () {
-    return response()->json([
-        'status' => 'success',
-        'message' => 'API is working!',
-        'timestamp' => now()->toDateTimeString(),
-        'environment' => app()->environment()
-    ]);
-});
-
-Route::get('/test-db', function () {
-    try {
-        \DB::connection()->getPdo();
+// ==================== TEST ROUTES (development only) ====================
+if (app()->environment('local', 'testing')) {
+    Route::get('/test', function () {
         return response()->json([
             'status' => 'success',
-            'message' => '✅ Database connected successfully!',
-            'database' => \DB::connection()->getDatabaseName()
+            'message' => 'API is working!',
+            'timestamp' => now()->toDateTimeString()
         ]);
-    } catch (\Exception $e) {
-        return response()->json([
-            'status' => 'error',
-            'message' => '❌ Database connection failed',
-            'error' => $e->getMessage()
-        ], 500);
-    }
-});
+    });
+
+    Route::get('/test-db', function () {
+        try {
+            \DB::connection()->getPdo();
+            return response()->json([
+                'status' => 'success',
+                'message' => '✅ Database connected successfully!'
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => '❌ Database connection failed'
+            ], 500);
+        }
+    });
+}
 
 // ==================== PUBLIC ROUTES ====================
 
@@ -106,16 +111,34 @@ Route::post('/login', [AuthController::class, 'login']);
 Route::post('/resend-verification', [AuthController::class, 'resendVerificationCode']);
 Route::get('/check-verification-status', [AuthController::class, 'checkVerificationStatus']);
 
+// Forgot Password routes (public)
+Route::prefix('forgot-password')->group(function () {
+    Route::post('/send-code', [ForgotPasswordController::class, 'sendCode']);
+    Route::post('/verify-code', [ForgotPasswordController::class, 'verifyCode']);
+    Route::post('/reset', [ForgotPasswordController::class, 'resetPassword']);
+    Route::post('/resend-code', [ForgotPasswordController::class, 'resendCode']);
+});
+
 // Health check route
 Route::get('/health', [\App\Http\Controllers\HealthCheckController::class, 'check']);
 
+// ==================== PUBLIC APPEAL ROUTES ====================
+Route::get('/appeals/verify/{token}', [\App\Http\Controllers\AppealController::class, 'verify']);
+Route::post('/appeals/submit/{token}', [\App\Http\Controllers\AppealController::class, 'submit']);
+
+// ==================== PAYMONGO WEBHOOK (PUBLIC) ====================
+// Must be outside auth middleware so PayMongo can POST to it
+Route::post('/paymongo/webhook', [PayMongoController::class, 'handleWebhook']);
+
 // ==================== CRITICAL FIX: /services ROUTE ====================
 
-// Public services endpoint - WORKING VERSION
+// Public services endpoint - WORKING VERSION (cached for 60s)
 Route::get('/services', function() {
     try {
-        // Get active services from database
-        $services = \App\Models\Service::where('is_active', true)->orderBy('name')->get();
+        // Cache services for 60 seconds to avoid hitting DB on every request
+        $services = \Illuminate\Support\Facades\Cache::remember('public_services', 60, function () {
+            return \App\Models\Service::where('is_active', true)->orderBy('name')->get();
+        });
         
         return response()->json([
             'data' => $services,
@@ -137,6 +160,62 @@ Route::get('/services', function() {
 
 Route::get('/stats/summary', [StatsController::class, 'summary']);
 
+// ==================== LANDING PAGE CMS ====================
+Route::get('/landing-page', [LandingPageController::class, 'index']);
+
+// ==================== BATCH PUBLIC INIT ENDPOINT ====================
+// Combines stats + services + testimonials into a single request
+// to eliminate multiple sequential API calls on landing page load
+Route::get('/public/init', function () {
+    try {
+        // Fetch all landing page data in one shot, cached for 60 seconds
+        $data = \Illuminate\Support\Facades\Cache::remember('public_init_data', 60, function () {
+            // Stats
+            $stats = [
+                'totalUsers' => \App\Models\User::where('role', 'client')->where('is_active', true)->count(),
+                'totalAppointments' => \App\Models\Appointment::count(),
+                'pendingAppointments' => \App\Models\Appointment::where('status', 'pending')->count(),
+                'completedAppointments' => \App\Models\Appointment::where('status', 'completed')->count(),
+                'totalServices' => \App\Models\Service::where('is_active', true)->count(),
+            ];
+
+            // Services (top 4 active)
+            $services = \App\Models\Service::where('is_active', true)
+                ->orderBy('name')
+                ->get();
+
+            // Testimonials
+            $testimonials = [];
+            try {
+                $feedbackController = app(\App\Http\Controllers\FeedbackController::class);
+                $request = \Illuminate\Http\Request::create('/api/testimonials/feedbacks', 'GET', ['limit' => 3]);
+                $response = $feedbackController->getTestimonials($request);
+                $responseData = json_decode($response->getContent(), true);
+                if (!empty($responseData['data'])) {
+                    $testimonials = $responseData['data'];
+                }
+            } catch (\Exception $e) {
+                \Log::debug('Testimonials fetch in init failed: ' . $e->getMessage());
+            }
+
+            return [
+                'stats' => $stats,
+                'services' => $services,
+                'testimonials' => $testimonials,
+            ];
+        });
+
+        return response()->json([
+            'success' => true,
+            'data' => $data,
+            'timestamp' => now()->toDateTimeString(),
+        ]);
+    } catch (\Exception $e) {
+        \Log::error('Public init endpoint error: ' . $e->getMessage());
+        return response()->json(['success' => false, 'message' => 'Init failed'], 500);
+    }
+});
+
 // User-facing analytics (public for checking slot availability)
 Route::get('/analytics/cancellation-risk', [AnalyticsController::class, 'cancellationRisk']);
 Route::get('/analytics/alternative-slots', [AnalyticsController::class, 'alternativeSlots']);
@@ -146,7 +225,8 @@ Route::get('/unavailable-dates', [UnavailableDateController::class, 'index']);
 Route::get('/unavailable-dates/last-update', [UnavailableDateController::class, 'lastUpdate']);
 
 // Real-time updates endpoints (public - no auth needed for polling)
-Route::prefix('realtime')->group(function () {
+// Rate-limited to prevent abuse from polling clients
+Route::prefix('realtime')->middleware('throttle:60,1')->group(function () {
     Route::get('/updates', [\App\Http\Controllers\RealtimeUpdateController::class, 'getUpdates']);
     Route::get('/slot-capacities', [\App\Http\Controllers\RealtimeUpdateController::class, 'getSlotCapacityData']);
     Route::get('/appointment-settings', [\App\Http\Controllers\RealtimeUpdateController::class, 'getAppointmentSettings']);
@@ -161,9 +241,10 @@ Route::get('/business-info', function () {
     try {
         $settings = \App\Models\AppointmentSettings::first();
         $services = \App\Models\Service::where('is_active', true)->get(['id', 'name', 'description', 'price', 'duration_minutes']);
+        // SECURITY: Only expose staff names publicly, not email/phone (PII protection)
         $staff = \App\Models\User::where('is_active', true)
             ->whereIn('role', ['admin', 'staff', 'attorney', 'lawyer'])
-            ->get(['id', 'first_name', 'last_name', 'email', 'phone']);
+            ->get(['id', 'first_name', 'last_name']);
 
         return response()->json([
             'success' => true,
@@ -186,8 +267,6 @@ Route::get('/business-info', function () {
                 'staff' => $staff->map(function ($person) {
                     return [
                         'name' => $person->first_name . ' ' . $person->last_name,
-                        'email' => $person->email,
-                        'phone' => $person->phone
                     ];
                 })->toArray()
             ],
@@ -205,40 +284,55 @@ Route::get('/business-info', function () {
 
 // Frontend error logging - SECURED with rate limiting and abuse detection
 Route::post('/frontend-errors/log', [\App\Http\Controllers\Admin\FrontendErrorLogController::class, 'storePublic'])
-    ->middleware(['throttle:30,1', 'abuse.detect']); // Rate limit: 30 requests per minute per user/IP + abuse detection
+    ->middleware(['throttle:60,1', 'abuse.detect']); // Rate limit: 60 requests per minute per user/IP + abuse detection
 
 // ==================== TOKENIZED/SECURE ROUTES ====================
 
 // Password reset with tokenized URL
 Route::post('/password-reset-request', function (Request $request) {
     $validated = $request->validate([
-        'email' => 'required|email|exists:users,email'
+        'email' => 'required|email'
     ]);
 
+    // SECURITY: Always return success to prevent email enumeration.
+    // Only actually send the email if the user exists.
     $user = \App\Models\User::where('email', $validated['email'])->first();
-    $tokenData = \App\Services\TokenService::generateTokenizedUrl(
-        $user->id,
-        'password_reset',
-        3600 // 1 hour
-    );
 
-    \Illuminate\Support\Facades\Mail::send([], [], function ($message) use ($user, $tokenData) {
-        $message->from(config('mail.from.address'))
-                ->to($user->email)
-                ->setBody("Reset password: {$tokenData['secure_url']}", 'text/html');
-    });
+    if ($user) {
+        $tokenData = \App\Services\TokenService::generateTokenizedUrl(
+            $user->id,
+            'password_reset',
+            3600 // 1 hour
+        );
+
+        try {
+            \Illuminate\Support\Facades\Mail::send([], [], function ($message) use ($user, $tokenData) {
+                $message->from(config('mail.from.address'))
+                        ->to($user->email)
+                        ->setBody("Reset password: {$tokenData['secure_url']}", 'text/html');
+            });
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Password reset email failed: ' . $e->getMessage());
+        }
+    }
 
     return response()->json([
-        'message' => 'Password reset link sent to email',
-        'user_uuid' => $user->uuid,
-        'test_token_url' => $tokenData['secure_url'] // Only for testing, remove in production
+        'message' => 'If this email is registered, a password reset link has been sent.',
     ]);
-});
+})->middleware('throttle:5,1');
 
 Route::post('/password-reset/{uuid}', function (Request $request, $uuid) {
     $validated = $request->validate([
         'token' => 'required|string',
-        'password' => 'required|string|min:8|confirmed'
+        'password' => [
+            'required',
+            'string',
+            'min:8',
+            'confirmed',
+            'regex:/[a-z]/',      // at least one lowercase letter
+            'regex:/[A-Z]/',      // at least one uppercase letter
+            'regex:/[0-9]/',      // at least one digit
+        ],
     ]);
 
     $result = \App\Services\TokenService::verifyTokenByUuid($uuid, $validated['token']);
@@ -247,7 +341,7 @@ Route::post('/password-reset/{uuid}', function (Request $request, $uuid) {
         return response()->json(['error' => 'Invalid or expired token'], 401);
     }
 
-    $result['user']->update(['password' => bcrypt($validated['password'])]);
+    $result['user']->update(['password' => \Illuminate\Support\Facades\Hash::make($validated['password'])]);
     \App\Services\TokenService::revokeAllUserTokens($result['user']->id);
 
     return response()->json(['message' => 'Password reset successfully']);
@@ -316,15 +410,15 @@ Route::get('/shared-resource/{uuid}', function (Request $request, $uuid) {
 // Public appointment-related endpoints
 Route::get('/testimonials/completed-appointments', [AppointmentController::class, 'getCompletedAppointmentsPublic']);
 
-// Public feedback endpoints
-Route::post('/feedback', [FeedbackController::class, 'store']);
+// Public feedback endpoints - rate limited to prevent spam
+Route::post('/feedback', [FeedbackController::class, 'store'])->middleware('throttle:5,1');
 Route::get('/testimonials/feedbacks', [FeedbackController::class, 'getTestimonials']);
 Route::get('/testimonials/feedbacks/all', [FeedbackController::class, 'getAllTestimonials']);
 
 // ==================== PROTECTED ROUTES ====================
 
 // Protected routes
-Route::middleware(['auth:sanctum'])->group(function () {
+Route::middleware(['auth:sanctum', 'throttle:120,1'])->group(function () {
     // Auth routes
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/user', [AuthController::class, 'user']);
@@ -347,11 +441,18 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::put('/profile', [CashierController::class, 'updateProfile']);
         Route::get('/shift-reports', [CashierController::class, 'getShiftReport']);
         Route::post('/shift-reports/export', [CashierController::class, 'exportShiftReport']);
+        Route::put('/password', [CashierController::class, 'changePassword']);
         
         // REFUND ROUTES - Request and view refunds
         Route::post('/refunds/request', [RefundController::class, 'requestRefund']);
         Route::get('/refunds/pending', [RefundController::class, 'getPendingRefunds']);
         Route::get('/appointments/{appointment}/refunds', [RefundController::class, 'getAppointmentRefunds']);
+        Route::get('/refund-reasons/active', [RefundReasonController::class, 'getActive']);
+
+        // PAYMONGO ONLINE PAYMENT ROUTES
+        Route::post('/paymongo/checkout/{appointment}', [PayMongoController::class, 'createCheckoutSession']);
+        Route::get('/paymongo/status/{appointment}', [PayMongoController::class, 'checkPaymentStatus']);
+        Route::post('/paymongo/expire/{appointment}', [PayMongoController::class, 'expireCheckoutSession']);
     });
 
     // ADMIN DASHBOARD ROUTES - UPDATED WITH ROLE FILTERING
@@ -378,15 +479,17 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::prefix('alerts')->group(function () {
             Route::get('/dashboard', [AlertController::class, 'dashboard']);
             Route::get('/', [AlertController::class, 'index']);
-            Route::get('/{id}', [AlertController::class, 'show']);
-            Route::post('/{id}/acknowledge', [AlertController::class, 'acknowledge']);
             Route::post('/acknowledge-multiple', [AlertController::class, 'acknowledgeMultiple']);
-            
-            // Alert Rules Management
+
+            // Alert Rules Management - static routes before wildcard
             Route::get('/rules', [AlertController::class, 'rules']);
             Route::post('/rules', [AlertController::class, 'createRule']);
             Route::put('/rules/{id}', [AlertController::class, 'updateRule']);
             Route::delete('/rules/{id}', [AlertController::class, 'deleteRule']);
+
+            // Wildcard routes last
+            Route::get('/{id}', [AlertController::class, 'show']);
+            Route::post('/{id}/acknowledge', [AlertController::class, 'acknowledge']);
         });
 
         // BACKUP MANAGEMENT ROUTES - Database backups and restoration
@@ -402,26 +505,30 @@ Route::middleware(['auth:sanctum'])->group(function () {
         // FRONTEND ERROR LOG ROUTES - Client-side error tracking
         Route::prefix('frontend-errors')->group(function () {
             Route::get('/', [FrontendErrorLogController::class, 'index']);
-            Route::get('/{frontendErrorLog}', [FrontendErrorLogController::class, 'show']);
-            Route::post('/{frontendErrorLog}/report', [FrontendErrorLogController::class, 'report']);
+            // Static routes MUST come before wildcard {frontendErrorLog} to avoid shadowing
             Route::get('/stats', [FrontendErrorLogController::class, 'stats']);
             Route::post('/cleanup', [FrontendErrorLogController::class, 'cleanup']);
             Route::post('/bulk-report', [FrontendErrorLogController::class, 'bulkReport']);
+            // Wildcard routes last
+            Route::get('/{frontendErrorLog}', [FrontendErrorLogController::class, 'show']);
+            Route::post('/{frontendErrorLog}/report', [FrontendErrorLogController::class, 'report']);
         });
 
         // JOB MONITORING ROUTES - Background job tracking and management
         Route::prefix('jobs')->group(function () {
             Route::get('/dashboard', [JobController::class, 'dashboard']);
             Route::get('/', [JobController::class, 'index']);
-            Route::get('/{job}', [JobController::class, 'show']);
+            // Static routes MUST come before wildcard {job} to avoid shadowing
             Route::get('/stats', [JobController::class, 'stats']);
             Route::get('/by-queue', [JobController::class, 'byQueue']);
             Route::get('/by-name', [JobController::class, 'byName']);
             Route::get('/slow-jobs', [JobController::class, 'slowJobs']);
             Route::get('/failed', [JobController::class, 'failedJobs']);
             Route::get('/stuck', [JobController::class, 'stuckJobs']);
-            Route::post('/{job}/retry', [JobController::class, 'retry']);
             Route::post('/cleanup', [JobController::class, 'cleanup']);
+            // Wildcard routes last
+            Route::get('/{job}', [JobController::class, 'show']);
+            Route::post('/{job}/retry', [JobController::class, 'retry']);
         });
 
         // SYSTEM ADMINISTRATION ROUTES - Comprehensive admin dashboard
@@ -444,9 +551,18 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::prefix('refunds')->group(function () {
             Route::get('/stats', [RefundController::class, 'getRefundStats']);
             Route::get('/all', [RefundController::class, 'getAllRefunds']);
+            Route::get('/{refund}', [RefundController::class, 'getRefund']);
             Route::post('/{refund}/approve', [RefundController::class, 'approveRefund']);
             Route::post('/{refund}/reject', [RefundController::class, 'rejectRefund']);
             Route::post('/{refund}/complete', [RefundController::class, 'completeRefund']);
+        });
+
+        // REFUND REASONS SETTINGS ROUTES - Admin CRUD for refund/decline reasons
+        Route::prefix('refund-reasons')->group(function () {
+            Route::get('/', [RefundReasonController::class, 'index']);
+            Route::post('/', [RefundReasonController::class, 'store']);
+            Route::put('/{id}', [RefundReasonController::class, 'update']);
+            Route::delete('/{id}', [RefundReasonController::class, 'destroy']);
         });
         
         // ANALYTICS ROUTES - Smart Insights Dashboard
@@ -466,6 +582,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         
         // Admin appointments endpoint
         Route::get('/appointments', [AdminController::class, 'getAllAppointments']);
+        Route::get('/appointments/monthly-summary', [AdminController::class, 'getMonthlyAppointmentSummary']);
         Route::get('/sales', [AdminController::class, 'getSalesData']);
         Route::post('/cancel-bulk-appointments', [AdminController::class, 'cancelBulkAppointments']);
         Route::post('/send-bulk-message', [AdminController::class, 'sendBulkMessage']);
@@ -475,11 +592,13 @@ Route::middleware(['auth:sanctum'])->group(function () {
         
         // Decision Support Actions
         Route::post('/reserve-suggested-slot', [AdminController::class, 'reserveSuggestedSlot']);
-        Route::post('/assign-staff', [AdminController::class, 'assignStaff']);
         
         // User management with role filtering
         Route::get('/users', [UserController::class, 'getUsersByRole']);
         Route::post('/users', [UserController::class, 'store']);
+        // Blocked users management (must be before {user} wildcard)
+        Route::get('/users/blocked', [UserController::class, 'blockedUsers']);
+        Route::put('/users/{user}/unblock', [UserController::class, 'unblockUser']);
         Route::get('/users/{user}', [UserController::class, 'show']);
         Route::put('/users/{user}', [UserController::class, 'update']);
         Route::delete('/users/{user}', [UserController::class, 'destroy']);
@@ -530,22 +649,52 @@ Route::middleware(['auth:sanctum'])->group(function () {
         // Admin message sending
         Route::post('/send-message', [AdminController::class, 'sendMessage']);
 
+        // Admin message settings
+        Route::get('/message-settings', [\App\Http\Controllers\MessageSettingsController::class, 'show']);
+        Route::put('/message-settings', [\App\Http\Controllers\MessageSettingsController::class, 'update']);
+
+        // Account actions (delete/block/deactivate with reason)
+        Route::post('/users/{user}/account-action', [\App\Http\Controllers\AccountController::class, 'adminAction']);
+
+        // Appeals management
+        Route::prefix('appeals')->group(function () {
+            Route::get('/', [\App\Http\Controllers\AppealController::class, 'index']);
+            Route::put('/{appeal}/resolve', [\App\Http\Controllers\AppealController::class, 'resolve']);
+        });
+
+        // Announcements management
+        Route::prefix('announcements')->group(function () {
+            Route::get('/', [AnnouncementController::class, 'index']);
+            Route::post('/', [AnnouncementController::class, 'store']);
+            Route::get('/{announcement}', [AnnouncementController::class, 'show']);
+            Route::put('/{announcement}', [AnnouncementController::class, 'update']);
+            Route::delete('/{announcement}', [AnnouncementController::class, 'destroy']);
+        });
+
+        // Landing Page CMS management
+        Route::prefix('landing-page')->group(function () {
+            Route::get('/sections', [LandingPageController::class, 'adminListSections']);
+            Route::get('/sections/{id}', [LandingPageController::class, 'adminGetSection']);
+            Route::put('/sections/{id}', [LandingPageController::class, 'adminUpdateSection']);
+            Route::post('/sections/{sectionId}/items', [LandingPageController::class, 'adminCreateItem']);
+            Route::put('/items/{itemId}', [LandingPageController::class, 'adminUpdateItem']);
+            Route::delete('/items/{itemId}', [LandingPageController::class, 'adminDeleteItem']);
+            Route::get('/settings', [LandingPageController::class, 'adminListSettings']);
+            Route::put('/settings/{id}', [LandingPageController::class, 'adminUpdateSetting']);
+            Route::put('/settings', [LandingPageController::class, 'adminBulkUpdateSettings']);
+        });
+
         // Attorney management removed
     });
 
-    // User management (Admin only) - Keep for backward compatibility
+    // User management (Admin only) - Archive and restore operations
+    // Note: Primary CRUD is in admin prefix group above. These are supplementary routes.
     Route::middleware(['role:admin'])->prefix('users')->group(function () {
-        Route::get('/', [UserController::class, 'index']);
-        Route::post('/', [UserController::class, 'store']);
         // Specific routes must come BEFORE generic {user} catch-all
         Route::get('/archived/list', [UserController::class, 'getArchived']);
         Route::put('/restore/{id}', [UserController::class, 'restore']);
         Route::delete('/permanent/{id}', [UserController::class, 'permanentDelete']);
         Route::put('/{user}/toggle-status', [UserController::class, 'toggleStatus']);
-        // Generic routes last
-        Route::get('/{user}', [UserController::class, 'show']);
-        Route::put('/{user}', [UserController::class, 'update']);
-        Route::delete('/{user}', [UserController::class, 'destroy']);
     });
 
     // Profile routes (All authenticated users)
@@ -555,18 +704,28 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/profile', [ProfileController::class, 'show']);
     Route::put('/profile/update', [ProfileController::class, 'update']);
     Route::put('/profile/password', [ProfileController::class, 'updatePassword']);
+    Route::put('/profile/set-password', [ProfileController::class, 'setPassword']);
+
+    // Google OAuth Profile Completion routes
+    Route::get('/auth/profile-status', [ProfileCompletionController::class, 'getStatus']);
+    Route::post('/auth/complete-profile', [ProfileCompletionController::class, 'complete']);
+    Route::get('/auth/can-book-appointment', [ProfileCompletionController::class, 'canBookAppointment']);
 
     // Profile Picture routes
     Route::post('/profile/picture', [ProfilePictureController::class, 'store']);
     Route::get('/profile/picture', [ProfilePictureController::class, 'show']);
     Route::delete('/profile/picture', [ProfilePictureController::class, 'destroy']);
 
+    // Account self-deletion (authenticated users)
+    Route::delete('/account/delete', [\App\Http\Controllers\AccountController::class, 'selfDelete']);
+
     // Appointments - FIXED ROUTES (Static routes MUST come before wildcard routes)
     Route::prefix('appointments')->group(function () {
         // STATIC ROUTES FIRST - These must be defined before wildcard {appointment} routes
         Route::get('/', [AppointmentController::class, 'index']);
-        Route::post('/', [AppointmentController::class, 'store']);
+        Route::post('/', [AppointmentController::class, 'store'])->middleware(['profile.completed']);
         Route::post('/suggest-alternative', [AppointmentController::class, 'suggestAlternative']);
+        Route::post('/suggest-alternative-slots', [AppointmentController::class, 'suggestAlternativeSlots']);
         Route::get('/today', [AppointmentController::class, 'getTodayAppointments']);
         Route::get('/stats', [AppointmentController::class, 'getStats']);
         Route::get('/archived/list', [AppointmentController::class, 'getArchived']);
@@ -582,7 +741,6 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::put('/{appointment}/decline', [AppointmentController::class, 'decline']);
         Route::put('/{appointment}/complete', [AppointmentController::class, 'complete']);
         Route::put('/{appointment}/restore', [AppointmentController::class, 'restore']);
-        Route::put('/{appointment}/assign-staff', [AppointmentController::class, 'assignStaff']);
         Route::put('/{id}/cancel', [AppointmentController::class, 'cancel']);
         Route::delete('/{appointment}', [AppointmentController::class, 'destroy']);
     });
@@ -591,6 +749,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/refunds/request', [RefundController::class, 'requestRefund']);
     Route::get('/refunds/my', [RefundController::class, 'getUserRefunds']);
     Route::get('/refunds/{refund}', [RefundController::class, 'getRefund']);
+    Route::get('/refunds/appointment/{appointment}', [RefundController::class, 'getAppointmentRefundsForUser']);
 
     // Calendar
     Route::prefix('calendar')->group(function () {
@@ -616,6 +775,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
         // NEW MESSAGE ROUTES FOR USER DASHBOARD
         Route::get('/staff/list', [MessageController::class, 'getStaff']);
         Route::get('/can-message/{userId}', [MessageController::class, 'canMessage']);
+        Route::get('/admin-contacts', [MessageController::class, 'getAdminContacts']);
+        Route::get('/message-limit/{userId}', [MessageController::class, 'getMessageLimitStatus']);
     });
 
     // UNAVAILABLE DATES ROUTES (Admin only)
@@ -660,9 +821,12 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::prefix('notifications')->group(function () {
         Route::get('/', [NotificationController::class, 'index']);
         Route::get('/unread', [NotificationController::class, 'unread']);
+        Route::get('/unread-count', [NotificationController::class, 'unreadCount']);
         Route::put('/{id}/read', [NotificationController::class, 'markAsRead']);
         Route::put('/mark-all-read', [NotificationController::class, 'markAllAsRead']);
         Route::put('/{id}/unread', [NotificationController::class, 'markAsUnread']);
+        Route::delete('/clear-read', [NotificationController::class, 'clearRead']);
+        Route::post('/batch-delete', [NotificationController::class, 'batchDelete']);
         Route::delete('/{id}', [NotificationController::class, 'delete']);
         Route::delete('/', [NotificationController::class, 'deleteAll']);
         
@@ -730,22 +894,27 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
     // Attorney endpoints removed
 
-    // DECISION SUPPORT ROUTES (Staff and Admin)
+    // DECISION SUPPORT ROUTES (Staff and Admin) - ML-backed
     Route::prefix('decision-support')->middleware(['role:staff,admin'])->group(function () {
         Route::get('/staff-recommendations', [DecisionSupportController::class, 'getStaffRecommendations']);
         Route::get('/time-slot-recommendations', [DecisionSupportController::class, 'getTimeSlotRecommendations']);
         Route::get('/appointment-risk/{appointmentId}', [DecisionSupportController::class, 'getAppointmentRisk']);
         Route::get('/workload-optimization', [DecisionSupportController::class, 'getWorkloadOptimization']);
+        Route::get('/customer-insights/{customerId}', [DecisionSupportController::class, 'getCustomerInsights']);
         Route::get('/dashboard', [DecisionSupportController::class, 'getDashboard']);
+        Route::get('/data-quality', [DecisionSupportController::class, 'getDataQuality']);
+        Route::post('/train', [DecisionSupportController::class, 'trainModel'])->middleware(['role:admin']);
+        Route::post('/outcome', [DecisionSupportController::class, 'logOutcome']);
     });
+
 });
 
 // ==================== UNIFIED CHATBOT V2 ROUTES (LLM-First) ====================
 // New unified chatbot endpoint that uses LLM as primary (not fallback)
-Route::prefix('chatbot/v2')->group(function () {
-    // Public endpoints
-    Route::post('/send-message', [\App\Http\Controllers\UnifiedChatbotController::class, 'sendMessage']);
-    Route::post('/stream', [\App\Http\Controllers\UnifiedChatbotController::class, 'streamMessage']);
+Route::prefix('chatbot/v2')->middleware(['throttle:60,1', 'abuse.detect'])->group(function () {
+    // Public endpoints (rate-limited via custom chatbot.rate-limit middleware)
+    Route::post('/send-message', [\App\Http\Controllers\UnifiedChatbotController::class, 'sendMessage'])->middleware(['chatbot.rate-limit']);
+    Route::post('/stream', [\App\Http\Controllers\UnifiedChatbotController::class, 'streamMessage'])->middleware(['chatbot.rate-limit']);
     Route::get('/status', [\App\Http\Controllers\UnifiedChatbotController::class, 'getStatus']);
     Route::get('/history', [\App\Http\Controllers\UnifiedChatbotController::class, 'getHistory']);
     
@@ -758,49 +927,56 @@ Route::prefix('chatbot/v2')->group(function () {
     });
 });
 
-// CHATBOT ROUTES (PUBLIC - Allow guests and authenticated users) - LEGACY ENDPOINTS
-Route::prefix('chatbot')->group(function () {
-    // Public routes (guests can ask questions)
-    Route::post('/send-message', [ChatbotController::class, 'sendMessage']);
-    Route::get('/suggested-questions', [ChatbotController::class, 'getSuggestedQuestions']);
-    Route::get('/rate-limit-status', [ChatbotController::class, 'getRateLimitStatus']);
-    Route::get('/capabilities', [ChatbotController::class, 'getCapabilities']);
-    
-    // NEW: Streaming & Advanced AI routes
-    Route::post('/stream', [\App\Http\Controllers\ChatbotStreamController::class, 'streamMessage']);
-    Route::get('/status', [\App\Http\Controllers\ChatbotStreamController::class, 'getStatus']);
-    Route::get('/suggestions', [\App\Http\Controllers\ChatbotStreamController::class, 'getSuggestions']);
-    Route::post('/search-knowledge', [\App\Http\Controllers\ChatbotStreamController::class, 'searchKnowledge']);
-    
+// CHATBOT ROUTES (PUBLIC - Allow guests and authenticated users) - REDIRECTED TO UNIFIED CONTROLLER
+Route::prefix('chatbot')->middleware(['throttle:60,1', 'abuse.detect'])->group(function () {
+    // Public routes (guests can ask questions) - rate-limited via custom middleware
+    Route::post('/send-message', [\App\Http\Controllers\UnifiedChatbotController::class, 'sendMessage'])->middleware(['chatbot.rate-limit']);
+    Route::get('/suggested-questions', [\App\Http\Controllers\UnifiedChatbotController::class, 'getSuggestedQuestions']);
+    Route::get('/rate-limit-status', [\App\Http\Controllers\UnifiedChatbotController::class, 'getRateLimitStatus']);
+    Route::get('/capabilities', [\App\Http\Controllers\UnifiedChatbotController::class, 'getCapabilities']);
+
+    // Streaming & Advanced AI routes (rate-limited) - now unified
+    Route::post('/stream', [\App\Http\Controllers\UnifiedChatbotController::class, 'streamMessage'])->middleware(['chatbot.rate-limit']);
+    Route::get('/status', [\App\Http\Controllers\UnifiedChatbotController::class, 'getStatus']);
+    Route::get('/suggestions', [\App\Http\Controllers\UnifiedChatbotController::class, 'getSuggestions']);
+    Route::post('/search-knowledge', [\App\Http\Controllers\UnifiedChatbotController::class, 'searchKnowledge']);
+
     // Semi-public routes (work for both authenticated and guest users)
-    Route::get('/history', [ChatbotController::class, 'getHistory']);
-    Route::delete('/clear-history', [ChatbotController::class, 'clearHistory']);
-    Route::get('/conversations', [ChatbotController::class, 'getConversations']);
-    
+    Route::get('/history', [\App\Http\Controllers\UnifiedChatbotController::class, 'getHistory']);
+    Route::delete('/clear-history', [\App\Http\Controllers\UnifiedChatbotController::class, 'clearHistory']);
+    Route::get('/conversations', [\App\Http\Controllers\UnifiedChatbotController::class, 'getConversations']);
+
+    // Conversation management routes (semi-public — guests use session ID, authenticated users use auth)
+    Route::post('/conversations/new', [\App\Http\Controllers\UnifiedChatbotController::class, 'startNewConversation']);
+    Route::get('/conversations/{conversationId}', [\App\Http\Controllers\UnifiedChatbotController::class, 'getConversationMessages']);
+    Route::delete('/conversations/{conversationId}', [\App\Http\Controllers\UnifiedChatbotController::class, 'deleteConversation']);
+
     // Protected routes (authenticated users only)
     Route::middleware(['auth:sanctum'])->group(function () {
-        Route::post('/save-to-messages', [ChatbotController::class, 'saveMessageToMessageCenter']);
-        Route::get('/conversation-summary', [ChatbotController::class, 'getConversationSummary']);
-        
+        Route::post('/save-to-messages', [\App\Http\Controllers\UnifiedChatbotController::class, 'saveMessageToMessageCenter']);
+        Route::get('/conversation-summary', [\App\Http\Controllers\UnifiedChatbotController::class, 'getConversationSummary']);
+
         // Action execution routes
-        Route::post('/execute-action', [ChatbotController::class, 'executeAction']);
-        Route::post('/confirm-action', [ChatbotController::class, 'confirmAction']);
-        Route::post('/real-time-data', [ChatbotController::class, 'getRealTimeData']);
-        
-        // Conversation management routes (create, update, delete)
-        Route::post('/conversations/new', [ChatbotController::class, 'startNewConversation']);
-        Route::get('/conversations/{conversationId}', [ChatbotController::class, 'getConversationMessages']);
-        Route::delete('/conversations/{conversationId}', [ChatbotController::class, 'deleteConversation']);
-        
-        // NEW: User preference management
-        Route::post('/preferences', [\App\Http\Controllers\ChatbotStreamController::class, 'setPreference']);
+        Route::post('/execute-action', [\App\Http\Controllers\UnifiedChatbotController::class, 'executeAction']);
+        Route::post('/confirm-action', [\App\Http\Controllers\UnifiedChatbotController::class, 'confirmAction']);
+        Route::post('/real-time-data', [\App\Http\Controllers\UnifiedChatbotController::class, 'getRealTimeData']);
+
+        // User preference management
+        Route::post('/preferences', [\App\Http\Controllers\UnifiedChatbotController::class, 'setPreference']);
     });
-    
+
+    // Feedback route (semi-public — works for guests and authenticated users)
+    Route::post('/feedback', [\App\Http\Controllers\UnifiedChatbotController::class, 'submitFeedback']);
+
+    // Proactive tips (public — returns role-aware tips)
+    Route::get('/proactive-tips', [\App\Http\Controllers\UnifiedChatbotController::class, 'getProactiveTips']);
+
     // Admin-only analytics routes
     Route::middleware(['auth:sanctum', 'role:admin'])->prefix('admin')->group(function () {
-        Route::get('/analytics', [ChatbotController::class, 'getAnalytics']);
-        Route::get('/priority-conversations', [ChatbotController::class, 'getPriorityConversations']);
-        Route::get('/training-data', [ChatbotController::class, 'getTrainingData']);
+        Route::get('/analytics', [\App\Http\Controllers\UnifiedChatbotController::class, 'getAnalytics']);
+        Route::get('/priority-conversations', [\App\Http\Controllers\UnifiedChatbotController::class, 'getPriorityConversations']);
+        Route::get('/training-data', [\App\Http\Controllers\UnifiedChatbotController::class, 'getTrainingData']);
+        Route::get('/self-improvement', [\App\Http\Controllers\UnifiedChatbotController::class, 'getSelfImprovementReport']);
     });
 });
 

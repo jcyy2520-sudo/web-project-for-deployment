@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { formatServiceName } from '../../utils/format';
+import { formatServiceName, formatDateDisplay } from '../../utils/format';
 import { 
   XMarkIcon, 
   CheckCircleIcon, 
@@ -63,7 +63,7 @@ const AffectedAppointmentsModal = ({ isOpen, onClose, affected = [], dateData = 
 
   const handleCancelSelected = () => {
     if (selected.length === 0) {
-      alert('Please select at least one appointment to cancel');
+      window.showToast?.('Warning', 'Please select at least one appointment to cancel', 'warning');
       return;
     }
     onCancelSelected({ 
@@ -89,14 +89,14 @@ const AffectedAppointmentsModal = ({ isOpen, onClose, affected = [], dateData = 
       : affected.filter(apt => selected.includes(apt.id));
     
     if (targetAppointments.length === 0) {
-      alert('Please select at least one appointment to send message to');
+      window.showToast?.('Warning', 'Please select at least one appointment to send message to', 'warning');
       return;
     }
 
     const messageContent = messageType === 'default' ? DEFAULT_MESSAGE : customMessage;
     
     if (messageType === 'custom' && !customMessage.trim()) {
-      alert('Please enter a custom message');
+      window.showToast?.('Warning', 'Please enter a custom message', 'warning');
       return;
     }
 
@@ -201,7 +201,7 @@ const AffectedAppointmentsModal = ({ isOpen, onClose, affected = [], dateData = 
                               {apt.user?.first_name} {apt.user?.last_name} — {formatServiceName(apt)}
                             </div>
                             <div className="text-xs text-gray-400 mt-1">
-                              {new Date(apt.appointment_date).toLocaleDateString()} at {apt.appointment_time}
+                              {formatDateDisplay(apt.appointment_date)} at {apt.appointment_time}
                             </div>
                             {apt.user?.email && (
                               <div className="text-xs text-gray-500 mt-0.5">

@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 import { useApi } from '../hooks/useApi';
 import axios from 'axios';
 import { 
@@ -28,16 +29,24 @@ import {
   UserIcon,
   InformationCircleIcon,
   ShieldCheckIcon,
-  LockClosedIcon
+  LockClosedIcon,
+  SunIcon,
+  MoonIcon,
+  BellIcon,
+  ChatBubbleLeftRightIcon,
+  ArrowUturnLeftIcon,
+  EnvelopeIcon,
+  PaperAirplaneIcon,
+  EyeSlashIcon
 } from '@heroicons/react/24/outline';
 import LoadingSpinner from '../components/LoadingSpinner';
 import LineChart from '../components/charts/LineChart';
 import InteractiveCalendar from '../components/calendar/InteractiveCalendar';
 import CalendarDetailPanel from '../components/calendar/CalendarDetailPanel';
-import AdminMessages from '../components/admin/AdminMessages';
-import { formatServiceName, formatPrice } from '../utils/format';
+import NotificationBell from '../components/user/NotificationBell';
+import { formatServiceName, formatPrice, formatDateDisplay } from '../utils/format';
 
-// Chart Components (copied from admin)
+// Enhanced Chart Components
 const BarChart = ({ data, title, color = 'amber', height = 160, isDarkMode = true }) => {
   const safeData = useMemo(() => 
     data.map(item => ({ ...item, value: Number(item.value) || 0 })), 
@@ -46,33 +55,37 @@ const BarChart = ({ data, title, color = 'amber', height = 160, isDarkMode = tru
   const maxValue = Math.max(...safeData.map(item => item.value), 1);
   
   return (
-    <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4 hover:border-amber-500/40 transition-all duration-300 overflow-auto max-h-[280px]`}>
-      <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-3 flex items-center`}>
-        <ChartBarIcon className="h-4 w-4 mr-2" />
-        {title}
-      </h3>
-      <div className="space-y-2" style={{ height: `${height}px` }}>
-        {safeData.map((item, index) => (
-          <div key={index} className="flex items-center justify-between group" title={`${item.label}: ${item.value}`}>
-            <span className={`text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-600'} w-16 truncate group-hover:text-amber-500 transition-colors`}>
-              {item.label}
-            </span>
-            <div className="flex-1 mx-2">
-              <div 
-                className="h-4 rounded-md bg-gradient-to-r from-amber-500 to-amber-600 transition-all duration-500 group-hover:from-amber-400 group-hover:to-amber-500 shadow group-hover:shadow-amber-500/25 relative overflow-hidden"
-                style={{ 
-                  width: `${(item.value / maxValue) * 100}%`,
-                  maxWidth: '100%'
-                }}
-              >
-                <div className="absolute inset-0 bg-white/10"></div>
+    <div className={`${isDarkMode ? 'bg-gray-900/80 border-gray-800' : 'bg-white border-gray-200'} border rounded-xl p-5 hover:shadow-lg hover:shadow-amber-500/5 transition-all duration-300`}>
+      {title && (
+        <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-gray-200' : 'text-gray-800'} mb-4 flex items-center gap-2`}>
+          <ChartBarIcon className="h-4 w-4 text-amber-500" />
+          {title}
+        </h3>
+      )}
+      <div className="space-y-3" style={{ maxHeight: `${height}px`, overflow: 'auto' }}>
+        {safeData.map((item, index) => {
+          const pct = ((item.value / maxValue) * 100).toFixed(0);
+          return (
+            <div key={index} className="group" title={`${item.label}: ${item.value}`}>
+              <div className="flex items-center justify-between mb-1">
+                <span className={`text-xs font-medium ${isDarkMode ? 'text-gray-400 group-hover:text-gray-200' : 'text-gray-500 group-hover:text-gray-700'} truncate max-w-[45%] transition-colors`}>
+                  {item.label}
+                </span>
+                <span className={`text-xs font-bold ${isDarkMode ? 'text-gray-300' : 'text-gray-700'} tabular-nums`}>
+                  {item.value.toLocaleString()}
+                </span>
+              </div>
+              <div className={`w-full h-2 rounded-full ${isDarkMode ? 'bg-gray-800' : 'bg-gray-100'} overflow-hidden`}>
+                <div 
+                  className="h-full rounded-full bg-gradient-to-r from-amber-500 to-amber-400 transition-all duration-700 ease-out group-hover:from-amber-400 group-hover:to-yellow-400 relative"
+                  style={{ width: `${Math.max(2, pct)}%` }}
+                >
+                  <div className="absolute inset-0 bg-white/20 rounded-full"></div>
+                </div>
               </div>
             </div>
-            <span className={`text-xs font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} w-6 text-right group-hover:scale-110 transition-transform`}>
-              {item.value}
-            </span>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -155,8 +168,89 @@ const PieChart = ({ data, title, isDarkMode = true }) => {
   );
 };
 
-// Small sparkline for KPI cards — supports multiple mini chart types
-const Sparkline = ({ data = [], width = 120, height = 28, stroke = 'var(--accent)', type = 'line' }) => {
+// Modern Donut Chart for service distribution analytics
+const DonutChart = ({ data, title, isDarkMode = true, size = 160 }) => {
+  const safeData = useMemo(() =>
+    data.map(item => ({ ...item, value: Number(item.value) || 0 })),
+    [data]
+  );
+  const total = Math.max(safeData.reduce((sum, item) => sum + item.value, 0), 1);
+  const defaultColors = ['#f59e0b', '#3b82f6', '#10b981', '#8b5cf6', '#ef4444', '#06b6d4', '#f97316', '#ec4899'];
+
+  let cumulativePercent = 0;
+  const segments = safeData.map((item, i) => {
+    const percent = (item.value / total) * 100;
+    const startAngle = cumulativePercent * 3.6;
+    cumulativePercent += percent;
+    const endAngle = cumulativePercent * 3.6;
+    const color = item.color || defaultColors[i % defaultColors.length];
+    return { ...item, percent, startAngle, endAngle, color };
+  });
+
+  const r = 44, innerR = 30, cx = 50, cy = 50;
+
+  return (
+    <div>
+      {title && (
+        <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-gray-200' : 'text-gray-800'} mb-4 flex items-center gap-2`}>
+          <ChartPieIcon className="h-4 w-4 text-amber-500" />
+          {title}
+        </h3>
+      )}
+      <div className="flex flex-col items-center">
+        <div className="relative" style={{ width: size, height: size }}>
+          <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
+            {segments.map((seg, i) => {
+              if (seg.percent <= 0) return null;
+              const startRad = (seg.startAngle * Math.PI) / 180;
+              const endRad = (seg.endAngle * Math.PI) / 180;
+              const x1 = cx + r * Math.cos(startRad);
+              const y1 = cy + r * Math.sin(startRad);
+              const x2 = cx + r * Math.cos(endRad);
+              const y2 = cy + r * Math.sin(endRad);
+              const ix1 = cx + innerR * Math.cos(endRad);
+              const iy1 = cy + innerR * Math.sin(endRad);
+              const ix2 = cx + innerR * Math.cos(startRad);
+              const iy2 = cy + innerR * Math.sin(startRad);
+              const largeArc = seg.percent > 50 ? 1 : 0;
+              const d = [
+                `M ${x1} ${y1}`,
+                `A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2}`,
+                `L ${ix1} ${iy1}`,
+                `A ${innerR} ${innerR} 0 ${largeArc} 0 ${ix2} ${iy2}`,
+                'Z'
+              ].join(' ');
+              return (
+                <path key={i} d={d} fill={seg.color} className="transition-all duration-300 hover:opacity-75 cursor-pointer" style={{ filter: 'drop-shadow(0 1px 3px rgba(0,0,0,0.15))' }}>
+                  <title>{seg.label}: {seg.value} ({seg.percent.toFixed(1)}%)</title>
+                </path>
+              );
+            })}
+          </svg>
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="text-center">
+              <div className={`text-xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{total}</div>
+              <div className={`text-[10px] font-medium ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>Total</div>
+            </div>
+          </div>
+        </div>
+        <div className="mt-4 w-full space-y-1.5 max-h-36 overflow-auto">
+          {segments.map((seg, i) => (
+            <div key={i} className={`flex items-center gap-2 text-xs px-2 py-1.5 rounded-lg ${isDarkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-50'} transition-colors cursor-default`}>
+              <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: seg.color }} />
+              <span className={`flex-1 truncate ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>{seg.label}</span>
+              <span className={`font-semibold tabular-nums ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>{seg.percent.toFixed(0)}%</span>
+              <span className={`${isDarkMode ? 'text-gray-600' : 'text-gray-400'} tabular-nums`}>({seg.value})</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Enhanced sparkline for KPI cards — supports multiple mini chart types
+const Sparkline = ({ data = [], width = 120, height = 28, stroke = '#f59e0b', type = 'line' }) => {
   const safe = data.map(d => Number(d.value) || 0);
   const max = Math.max(...safe, 1);
   if (safe.length === 0) return <div className="h-7" />;
@@ -269,7 +363,7 @@ const LogoutModal = ({ isOpen, onClose, onConfirm, loading, isDarkMode = true })
 };
 
 // Completion Confirmation Modal with 5-second countdown
-const CompletionConfirmationModal = ({ isOpen, onClose, appointment, countdown, onConfirm, loading, paymentAmount, paymentType, selectedDiscounts, calculateDiscount, inKindDescription }) => {
+const CompletionConfirmationModal = ({ isOpen, onClose, appointment, countdown, onConfirm, loading, paymentAmount, paymentType, selectedDiscounts, calculateDiscount, inKindDescription, isDarkMode = true }) => {
   if (!isOpen || !appointment) return null;
 
   const isCountdownActive = countdown > 0 && !loading;
@@ -282,13 +376,13 @@ const CompletionConfirmationModal = ({ isOpen, onClose, appointment, countdown, 
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4 animate-fadeIn">
-      <div className="bg-gray-900 border border-amber-500/30 rounded-lg shadow-2xl w-full max-w-md transform animate-scaleIn">
+      <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/30' : 'bg-white border-amber-300/40'} border rounded-lg shadow-2xl w-full max-w-md transform animate-scaleIn`}>
         {/* Header */}
-        <div className="px-6 py-4 border-b border-amber-500/20 bg-gradient-to-r from-gray-800 to-gray-900">
+        <div className={`px-6 py-4 border-b ${isDarkMode ? 'border-amber-500/20 bg-gradient-to-r from-gray-800 to-gray-900' : 'border-amber-200 bg-gradient-to-r from-amber-50 to-white'}`}>
           <div className="flex items-center justify-between">
-            <h3 className="text-lg font-bold text-amber-400">Complete Appointment</h3>
-            <div className="flex items-center justify-center w-12 h-12 rounded-full bg-gray-800 border border-amber-500/30">
-              <span className="text-sm font-bold text-amber-400">{loading ? '✓' : countdown}</span>
+            <h3 className={`text-lg font-bold ${isDarkMode ? 'text-amber-400' : 'text-amber-700'}`}>Complete Appointment</h3>
+            <div className={`flex items-center justify-center w-12 h-12 rounded-full ${isDarkMode ? 'bg-gray-800 border-amber-500/30' : 'bg-amber-50 border-amber-300'} border`}>
+              <span className={`text-sm font-bold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>{loading ? '✓' : countdown}</span>
             </div>
           </div>
         </div>
@@ -297,58 +391,58 @@ const CompletionConfirmationModal = ({ isOpen, onClose, appointment, countdown, 
         <div className="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
           {/* Client Info */}
           <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Client</p>
-            <p className="text-sm font-medium text-amber-50">{appointment.user?.first_name} {appointment.user?.last_name}</p>
-            <p className="text-xs text-gray-400">{appointment.user?.email}</p>
+            <p className={`text-xs font-semibold ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} uppercase tracking-wide mb-2`}>Client</p>
+            <p className={`text-sm font-medium ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>{appointment.user?.first_name} {appointment.user?.last_name}</p>
+            <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>{appointment.user?.email}</p>
           </div>
 
           {/* Appointment Details */}
-          <div className="grid grid-cols-2 gap-4 pt-2 border-t border-gray-700">
+          <div className={`grid grid-cols-2 gap-4 pt-2 border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
             <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Service</p>
-              <p className="text-sm text-amber-50">{appointment.service?.name || 'N/A'}</p>
+              <p className={`text-xs font-semibold ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} uppercase tracking-wide mb-1`}>Service</p>
+              <p className={`text-sm ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>{appointment.service?.name || 'N/A'}</p>
             </div>
             <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Date</p>
-              <p className="text-sm text-amber-50">{new Date(appointment.appointment_date).toLocaleDateString()}</p>
+              <p className={`text-xs font-semibold ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} uppercase tracking-wide mb-1`}>Date</p>
+              <p className={`text-sm ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>{formatDateDisplay(appointment.appointment_date)}</p>
             </div>
           </div>
 
           <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Time</p>
-            <p className="text-sm text-amber-50">{appointment.start_time} - {appointment.end_time}</p>
+            <p className={`text-xs font-semibold ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} uppercase tracking-wide mb-1`}>Time</p>
+            <p className={`text-sm ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>{appointment.start_time} - {appointment.end_time}</p>
           </div>
 
           {/* Payment Summary */}
-          <div className="pt-2 border-t border-gray-700">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Payment Details</p>
-            <div className="bg-gray-800 rounded p-3 space-y-2 text-sm">
+          <div className={`pt-2 border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+            <p className={`text-xs font-semibold ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} uppercase tracking-wide mb-2`}>Payment Details</p>
+            <div className={`${isDarkMode ? 'bg-gray-800' : 'bg-gray-50'} rounded p-3 space-y-2 text-sm`}>
               <div className="flex justify-between">
-                <span className="text-gray-400">Payment Type:</span>
-                <span className="text-amber-50 font-medium capitalize">{paymentType === 'in-kind' ? 'In-kind' : paymentType}</span>
+                <span className={isDarkMode ? 'text-gray-400' : 'text-gray-500'}>Payment Type:</span>
+                <span className={`${isDarkMode ? 'text-amber-50' : 'text-gray-900'} font-medium capitalize`}>{paymentType === 'in-kind' ? 'In-kind' : paymentType}</span>
               </div>
               {paymentType !== 'in-kind' && (
                 <>
                   <div className="flex justify-between">
-                    <span className="text-gray-400">Amount:</span>
-                    <span className="text-amber-50 font-medium">₱{rawSubtotal.toFixed(2)}</span>
+                    <span className={isDarkMode ? 'text-gray-400' : 'text-gray-500'}>Amount:</span>
+                    <span className={`${isDarkMode ? 'text-amber-50' : 'text-gray-900'} font-medium`}>₱{rawSubtotal.toFixed(2)}</span>
                   </div>
                   {discountVal > 0 && (
-                    <div className="flex justify-between text-green-400">
+                    <div className="flex justify-between text-green-500">
                       <span>Discount:</span>
                       <span className="font-medium">-₱{discountVal.toFixed(2)}</span>
                     </div>
                   )}
-                  <div className="flex justify-between pt-2 border-t border-gray-700 font-semibold">
-                    <span className="text-gray-300">Total:</span>
-                    <span className="text-green-400">₱{totalVal.toFixed(2)}</span>
+                  <div className={`flex justify-between pt-2 border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-200'} font-semibold`}>
+                    <span className={isDarkMode ? 'text-gray-300' : 'text-gray-700'}>Total:</span>
+                    <span className="text-green-500">₱{totalVal.toFixed(2)}</span>
                   </div>
                 </>
               )}
               {paymentType === 'in-kind' && inKindDescription && (
-                <div className="text-xs text-gray-300 pt-2 border-t border-gray-700">
-                  <p className="text-gray-400 mb-1">Description:</p>
-                  <p className="text-amber-50">{inKindDescription}</p>
+                <div className={`text-xs pt-2 border-t ${isDarkMode ? 'border-gray-700 text-gray-300' : 'border-gray-200 text-gray-600'}`}>
+                  <p className={isDarkMode ? 'text-gray-400' : 'text-gray-500'}>Description:</p>
+                  <p className={isDarkMode ? 'text-amber-50' : 'text-gray-900'}>{inKindDescription}</p>
                 </div>
               )}
             </div>
@@ -356,11 +450,11 @@ const CompletionConfirmationModal = ({ isOpen, onClose, appointment, countdown, 
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-amber-500/20 bg-gray-800/50 flex gap-3">
+        <div className={`px-6 py-4 border-t ${isDarkMode ? 'border-amber-500/20 bg-gray-800/50' : 'border-amber-200 bg-gray-50'} flex gap-3`}>
           <button
             onClick={onClose}
             disabled={loading || isCountdownActive}
-            className="flex-1 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className={`flex-1 px-4 py-2 ${isDarkMode ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-gray-200 hover:bg-gray-300 text-gray-800'} rounded text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed`}
           >
             Cancel
           </button>
@@ -492,7 +586,10 @@ const ReceiptModal = ({ isOpen, onClose, receiptData, isDarkMode = true }) => {
     win.document.write('<html><head><title>Receipt</title>');
     win.document.write('<style>body{font-family:system-ui,-apple-system,sans-serif;padding:20px;color:#111;background:#fff} .title{font-weight:700;} .receipt-container{max-width:600px;margin:0 auto;}</style>');
     win.document.write('</head><body>');
-    win.document.write(content.innerHTML);
+    // Use textContent and DOM cloning to prevent XSS from user-supplied data
+    const sanitizedContent = content.cloneNode(true);
+    sanitizedContent.querySelectorAll('script').forEach(el => el.remove());
+    win.document.write(sanitizedContent.innerHTML);
     win.document.write('</body></html>');
     win.document.close();
     setTimeout(() => { win.print(); }, 500);
@@ -622,17 +719,17 @@ const ReceiptModal = ({ isOpen, onClose, receiptData, isDarkMode = true }) => {
         </div>
 
         {/* Action Buttons */}
-        <div className="p-4 border-t border-amber-500/20 flex gap-2 no-print bg-gray-800">
+        <div className={`p-4 border-t ${isDarkMode ? 'border-amber-500/20 bg-gray-800' : 'border-amber-200 bg-gray-50'} flex gap-2 no-print`}>
           <button 
             onClick={handlePrint} 
-            className="flex-1 px-3 py-2 bg-gray-700 hover:bg-gray-600 text-gray-100 rounded text-sm flex items-center justify-center gap-2 transition-colors duration-200"
+            className={`flex-1 px-3 py-2 ${isDarkMode ? 'bg-gray-700 hover:bg-gray-600 text-gray-100' : 'bg-gray-200 hover:bg-gray-300 text-gray-800'} rounded text-sm flex items-center justify-center gap-2 transition-colors duration-200`}
           >
             <PrinterIcon className="h-4 w-4" />
             Print
           </button>
           <button 
             onClick={handleSavePdf} 
-            className="flex-1 px-3 py-2 bg-gray-700 hover:bg-gray-600 text-gray-100 rounded text-sm flex items-center justify-center gap-2 transition-colors duration-200"
+            className={`flex-1 px-3 py-2 ${isDarkMode ? 'bg-gray-700 hover:bg-gray-600 text-gray-100' : 'bg-gray-200 hover:bg-gray-300 text-gray-800'} rounded text-sm flex items-center justify-center gap-2 transition-colors duration-200`}
           >
             <DocumentArrowDownIcon className="h-4 w-4" />
             Save PDF
@@ -651,6 +748,121 @@ const ReceiptModal = ({ isOpen, onClose, receiptData, isDarkMode = true }) => {
               'Email Receipt'
             )}
           </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Payment Waiting Modal - shown while waiting for PayMongo online payment completion
+const PaymentWaitingModal = ({ isOpen, onClose, onCancel, appointment, checkoutUrl, paymentStatus, isDarkMode = true }) => {
+  if (!isOpen || !appointment) return null;
+
+  const statusMessages = {
+    active: 'Waiting for client to complete payment...',
+    processing: 'Processing payment...',
+    paid: 'Payment completed successfully!',
+    expired: 'Checkout session has expired.',
+    error: 'An error occurred while checking payment status.',
+  };
+
+  const isPaid = paymentStatus === 'paid';
+  const isExpired = paymentStatus === 'expired';
+  const isError = paymentStatus === 'error';
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4 animate-fadeIn">
+      <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/30' : 'bg-white border-amber-300/40'} border rounded-xl shadow-2xl w-full max-w-md transform animate-scaleIn`}>
+        {/* Header */}
+        <div className={`px-6 py-4 border-b ${isDarkMode ? 'border-amber-500/20 bg-gradient-to-r from-gray-800 to-gray-900' : 'border-amber-200 bg-gradient-to-r from-amber-50 to-white'} rounded-t-xl`}>
+          <div className="flex items-center gap-3">
+            <div className={`w-10 h-10 rounded-full flex items-center justify-center ${isPaid ? 'bg-green-500/20' : isExpired || isError ? 'bg-red-500/20' : 'bg-amber-500/20'}`}>
+              {isPaid ? (
+                <CheckCircleIcon className="h-6 w-6 text-green-400" />
+              ) : isExpired || isError ? (
+                <XCircleIcon className="h-6 w-6 text-red-400" />
+              ) : (
+                <div className="w-5 h-5 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
+              )}
+            </div>
+            <div>
+              <h3 className={`text-lg font-bold ${isDarkMode ? 'text-amber-400' : 'text-amber-700'}`}>Online Payment</h3>
+              <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                {appointment.user?.first_name} {appointment.user?.last_name} • {appointment.service?.name}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Content */}
+        <div className="p-6 space-y-4">
+          {/* Status Message */}
+          <div className={`text-center py-4 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+            <p className="text-sm font-medium">{statusMessages[paymentStatus] || statusMessages.active}</p>
+            {!isPaid && !isExpired && !isError && (
+              <p className={`text-xs mt-2 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                The client can pay via Card, GCash, GrabPay, or Maya
+              </p>
+            )}
+          </div>
+
+          {/* Checkout Link */}
+          {checkoutUrl && !isPaid && !isExpired && (
+            <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'} border rounded-lg p-4`}>
+              <p className={`text-xs font-semibold ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} uppercase tracking-wide mb-2`}>Checkout Link</p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => window.open(checkoutUrl, '_blank')}
+                  className="flex-1 px-3 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded text-sm font-medium transition-colors flex items-center justify-center gap-2"
+                >
+                  💳 Open Checkout Page
+                </button>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(checkoutUrl);
+                    if (window?.showToast) window.showToast('Copied', 'Checkout link copied to clipboard', 'success');
+                  }}
+                  className={`px-3 py-2 ${isDarkMode ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-gray-200 hover:bg-gray-300 text-gray-800'} rounded text-sm transition-colors`}
+                >
+                  📋 Copy
+                </button>
+              </div>
+              <p className={`text-xs mt-2 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                Share this link with the client or open it on their device
+              </p>
+            </div>
+          )}
+
+          {/* Progress indicator */}
+          {!isPaid && !isExpired && !isError && (
+            <div className="flex items-center justify-center gap-3">
+              <div className="flex gap-1">
+                <div className="w-2 h-2 rounded-full bg-amber-500 animate-bounce" style={{ animationDelay: '0ms' }} />
+                <div className="w-2 h-2 rounded-full bg-amber-500 animate-bounce" style={{ animationDelay: '150ms' }} />
+                <div className="w-2 h-2 rounded-full bg-amber-500 animate-bounce" style={{ animationDelay: '300ms' }} />
+              </div>
+              <span className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>Checking every 5 seconds...</span>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className={`px-6 py-4 border-t ${isDarkMode ? 'border-amber-500/20 bg-gray-800/50' : 'border-amber-200 bg-gray-50'} rounded-b-xl flex gap-3`}>
+          {isPaid ? (
+            <button
+              onClick={onClose}
+              className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded text-sm font-medium transition-colors"
+            >
+              ✓ View Receipt
+            </button>
+          ) : (
+            <button
+              onClick={onCancel}
+              className={`flex-1 px-4 py-2 ${isDarkMode ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-gray-200 hover:bg-gray-300 text-gray-800'} rounded text-sm font-medium transition-colors`}
+            >
+              Cancel Payment
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -681,97 +893,107 @@ const buildReceiptFromAppointment = (appointment) => {
 const AppointmentModal = ({ isOpen, onClose, appointment, isViewOnly = false,
   paymentAmount, setPaymentAmount, paymentType, setPaymentType,
   inKindDescription, setInKindDescription, selectedDiscounts, setSelectedDiscounts,
-  calculateDiscount, onComplete
+  calculateDiscount, onComplete, onRequestRefund, isDarkMode = true
 }) => {
   if (!isOpen || !appointment) return null;
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-60 flex items-start justify-center z-50 p-6">
-      <div className="bg-gray-900 border border-gray-800 rounded-lg shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between p-4 border-b border-gray-800">
+      <div className={`${isDarkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'} border rounded-lg shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto`}>
+        <div className={`flex items-center justify-between p-4 border-b ${isDarkMode ? 'border-gray-800' : 'border-gray-200'}`}>
           <div>
-            <h3 className="text-xl font-semibold text-amber-50">Appointment Details</h3>
-            <p className="text-xs text-gray-300 mt-0.5">Reference #{appointment.id} • {appointment.service?.name || 'Service'}</p>
+            <h3 className={`text-xl font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>Appointment Details</h3>
+            <p className={`text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-500'} mt-0.5`}>Reference #{appointment.id} • {appointment.service?.name || 'Service'}</p>
           </div>
           <div>
-            <button onClick={onClose} className="text-gray-400 hover:text-amber-300 p-2 rounded focus:outline-none">
+            <button onClick={onClose} className={`${isDarkMode ? 'text-gray-400 hover:text-amber-300' : 'text-gray-500 hover:text-amber-600'} p-2 rounded focus:outline-none`}>
               <XMarkIcon className="h-5 w-5" />
             </button>
           </div>
         </div>
 
         <div className="p-4 space-y-4">
-          <div className="bg-gray-800 border border-gray-700 rounded-lg p-3">
+          <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'} border rounded-lg p-3`}>
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-xs text-gray-400">Client</p>
-                <p className="text-lg font-medium text-amber-50">{appointment.user?.first_name} {appointment.user?.last_name}</p>
-                <p className="text-sm text-gray-300">{appointment.user?.email}</p>
-                <p className="text-sm text-gray-300">{appointment.user?.phone || 'N/A'}</p>
+                <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Client</p>
+                <p className={`text-lg font-medium ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>{appointment.user?.first_name} {appointment.user?.last_name}</p>
+                <p className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>{appointment.user?.email}</p>
+                <p className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>{appointment.user?.phone || 'N/A'}</p>
               </div>
               <div className="text-right">
-                <p className="text-xs text-gray-400">Date</p>
-                <p className="text-sm text-amber-50">{new Date(appointment.appointment_date).toLocaleDateString()}</p>
-                <p className="text-xs text-gray-400 mt-2">Time</p>
-                <p className="text-sm text-amber-50">{appointment.start_time || '-'} {appointment.end_time ? `- ${appointment.end_time}` : ''}</p>
+                <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Date</p>
+                <p className={`text-sm ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>{formatDateDisplay(appointment.appointment_date)}</p>
+                <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} mt-2`}>Time</p>
+                <p className={`text-sm ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>{appointment.start_time || '-'} {appointment.end_time ? `- ${appointment.end_time}` : ''}</p>
               </div>
             </div>
           </div>
 
           {!isViewOnly && (
             <>
-              <div className="bg-gray-800 border border-gray-700 rounded-lg p-3">
-                <h4 className="text-sm font-semibold text-amber-400 mb-2">Payment</h4>
-                <div className="flex gap-4 mb-3">
-                  <label className="flex items-center gap-2 text-sm text-gray-200">
-                    <input type="radio" name={`paytype-modal-${appointment.id}`} value="cash" checked={paymentType === 'cash'} onChange={() => setPaymentType('cash')} className="mr-1" />
+              <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'} border rounded-lg p-3`}>
+                <h4 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'} mb-2`}>Payment</h4>
+                <div className="flex flex-wrap gap-3 mb-3">
+                  <label className={`flex items-center gap-2 text-sm ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
+                    <input type="radio" name={`paytype-modal-${appointment.id}`} value="cash" checked={paymentType === 'cash'} onChange={() => setPaymentType('cash')} className="mr-1 accent-amber-500" />
                     <span>Cash</span>
                   </label>
-                  <label className="flex items-center gap-2 text-sm text-gray-200">
-                    <input type="radio" name={`paytype-modal-${appointment.id}`} value="partial" checked={paymentType === 'partial'} onChange={() => setPaymentType('partial')} className="mr-1" />
+                  <label className={`flex items-center gap-2 text-sm ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
+                    <input type="radio" name={`paytype-modal-${appointment.id}`} value="partial" checked={paymentType === 'partial'} onChange={() => setPaymentType('partial')} className="mr-1 accent-amber-500" />
                     <span>Partial</span>
                   </label>
-                  <label className="flex items-center gap-2 text-sm text-gray-200">
-                    <input type="radio" name={`paytype-modal-${appointment.id}`} value="in-kind" checked={paymentType === 'in-kind'} onChange={() => setPaymentType('in-kind')} className="mr-1" />
+                  <label className={`flex items-center gap-2 text-sm ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
+                    <input type="radio" name={`paytype-modal-${appointment.id}`} value="in-kind" checked={paymentType === 'in-kind'} onChange={() => setPaymentType('in-kind')} className="mr-1 accent-amber-500" />
                     <span>In-kind</span>
+                  </label>
+                  <label className={`flex items-center gap-2 text-sm px-3 py-1 rounded-lg border transition-colors ${paymentType === 'online' ? (isDarkMode ? 'bg-amber-500/20 border-amber-500/40 text-amber-300 font-semibold' : 'bg-amber-50 border-amber-400 text-amber-700 font-semibold') : (isDarkMode ? 'text-gray-200 border-gray-700 hover:border-amber-500/30' : 'text-gray-700 border-gray-300 hover:border-amber-400')}`}>
+                    <input type="radio" name={`paytype-modal-${appointment.id}`} value="online" checked={paymentType === 'online'} onChange={() => setPaymentType('online')} className="mr-1 accent-amber-500" />
+                    <span>💳 Online</span>
                   </label>
                 </div>
 
+                {paymentType === 'online' && (
+                  <div className={`mb-2 text-xs px-3 py-2 rounded ${isDarkMode ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
+                    💡 Client will pay via Card, GCash, GrabPay, or Maya through a secure PayMongo checkout page.
+                  </div>
+                )}
+
                 {paymentType !== 'in-kind' ? (
-                  <input type="number" step="0.01" value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)} placeholder="Enter payment amount" className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded text-sm text-white" />
+                  <input type="number" step="0.01" value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)} placeholder={paymentType === 'online' ? 'Enter amount to charge' : 'Enter payment amount'} className={`w-full px-3 py-2 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 ${isDarkMode ? 'bg-gray-900 border-gray-700 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'}`} />
                 ) : (
-                  <textarea value={inKindDescription} onChange={(e) => setInKindDescription(e.target.value)} rows={3} placeholder="Describe items received (e.g. 2kg rice)" className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded text-sm text-white"></textarea>
+                  <textarea value={inKindDescription} onChange={(e) => setInKindDescription(e.target.value)} rows={3} placeholder="Describe items received (e.g. 2kg rice)" className={`w-full px-3 py-2 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 ${isDarkMode ? 'bg-gray-900 border-gray-700 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'}`}></textarea>
                 )}
 
                 <div className="mt-3 grid grid-cols-3 gap-2">
-                  <label className="flex items-center gap-2 text-sm text-gray-200 px-2 py-2 bg-gray-800 border border-gray-700 rounded">
-                    <input type="checkbox" checked={selectedDiscounts.includes('pwd')} onChange={(e) => setSelectedDiscounts(e.target.checked ? ['pwd'] : [])} className="mr-1" />
-                    <div className="leading-tight"><div className="font-medium">PWD</div><div className="text-xs text-gray-400">20%</div></div>
+                  <label className={`flex items-center gap-2 text-sm px-2 py-2 border rounded cursor-pointer transition-colors ${selectedDiscounts.includes('pwd') ? (isDarkMode ? 'bg-amber-500/20 border-amber-500/40 text-amber-300' : 'bg-amber-50 border-amber-300 text-amber-700') : (isDarkMode ? 'text-gray-200 bg-gray-800 border-gray-700 hover:border-gray-600' : 'text-gray-700 bg-white border-gray-300 hover:border-gray-400')}`}>
+                    <input type="checkbox" checked={selectedDiscounts.includes('pwd')} onChange={(e) => setSelectedDiscounts(e.target.checked ? ['pwd'] : [])} className="mr-1 accent-amber-500" />
+                    <div className="leading-tight"><div className="font-medium">PWD</div><div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>20%</div></div>
                   </label>
-                  <label className="flex items-center gap-2 text-sm text-gray-200 px-2 py-2 bg-gray-800 border border-gray-700 rounded">
-                    <input type="checkbox" checked={selectedDiscounts.includes('senior')} onChange={(e) => setSelectedDiscounts(e.target.checked ? ['senior'] : [])} className="mr-1" />
-                    <div className="leading-tight"><div className="font-medium">Senior</div><div className="text-xs text-gray-400">20%</div></div>
+                  <label className={`flex items-center gap-2 text-sm px-2 py-2 border rounded cursor-pointer transition-colors ${selectedDiscounts.includes('senior') ? (isDarkMode ? 'bg-amber-500/20 border-amber-500/40 text-amber-300' : 'bg-amber-50 border-amber-300 text-amber-700') : (isDarkMode ? 'text-gray-200 bg-gray-800 border-gray-700 hover:border-gray-600' : 'text-gray-700 bg-white border-gray-300 hover:border-gray-400')}`}>
+                    <input type="checkbox" checked={selectedDiscounts.includes('senior')} onChange={(e) => setSelectedDiscounts(e.target.checked ? ['senior'] : [])} className="mr-1 accent-amber-500" />
+                    <div className="leading-tight"><div className="font-medium">Senior</div><div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>20%</div></div>
                   </label>
-                  <label className="flex items-center gap-2 text-sm text-gray-200 px-2 py-2 bg-gray-800 border border-gray-700 rounded">
-                    <input type="checkbox" checked={selectedDiscounts.includes('student')} onChange={(e) => setSelectedDiscounts(e.target.checked ? ['student'] : [])} className="mr-1" />
-                    <div className="leading-tight"><div className="font-medium">Student</div><div className="text-xs text-gray-400">10%</div></div>
+                  <label className={`flex items-center gap-2 text-sm px-2 py-2 border rounded cursor-pointer transition-colors ${selectedDiscounts.includes('student') ? (isDarkMode ? 'bg-amber-500/20 border-amber-500/40 text-amber-300' : 'bg-amber-50 border-amber-300 text-amber-700') : (isDarkMode ? 'text-gray-200 bg-gray-800 border-gray-700 hover:border-gray-600' : 'text-gray-700 bg-white border-gray-300 hover:border-gray-400')}`}>
+                    <input type="checkbox" checked={selectedDiscounts.includes('student')} onChange={(e) => setSelectedDiscounts(e.target.checked ? ['student'] : [])} className="mr-1 accent-amber-500" />
+                    <div className="leading-tight"><div className="font-medium">Student</div><div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>10%</div></div>
                   </label>
                 </div>
               </div>
 
-              <div className="bg-gray-800 border border-gray-700 rounded-lg p-3">
+              <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'} border rounded-lg p-3`}>
                 <div className="flex items-center justify-between mb-2">
                   <div>
-                    <p className="text-xs text-gray-400">Service</p>
-                    <p className="text-sm text-amber-50">{appointment.service?.name || ''}</p>
+                    <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Service</p>
+                    <p className={`text-sm ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>{appointment.service?.name || ''}</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-xs text-gray-400">Price</p>
-                    <p className="text-sm text-amber-50">₱{(Number(appointment.service?.price) || 0).toFixed(2)}</p>
+                    <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Price</p>
+                    <p className={`text-sm ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>₱{(Number(appointment.service?.price) || 0).toFixed(2)}</p>
                   </div>
                 </div>
 
-                <div className="border-t border-gray-700 pt-3">
+                <div className={`border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-200'} pt-3`}>
                   {(() => {
                     const rawSubtotal = (paymentAmount && !Number.isNaN(parseFloat(paymentAmount))) ? parseFloat(paymentAmount) : (Number(appointment.service?.price) || 0);
                     const discountObj = calculateDiscount(rawSubtotal) || { discount: 0 };
@@ -779,39 +1001,75 @@ const AppointmentModal = ({ isOpen, onClose, appointment, isViewOnly = false,
                     const totalVal = rawSubtotal - discountVal;
                     return (
                       <>
-                        <div className="flex justify-between text-gray-300 text-sm"><span>Subtotal</span><span className="font-medium text-amber-50">₱{rawSubtotal.toFixed(2)}</span></div>
-                        {selectedDiscounts.length > 0 && <div className="flex justify-between text-green-400 text-sm"><span>Discount</span><span>-₱{discountVal.toFixed(2)}</span></div>}
-                        <div className="flex justify-between font-semibold text-base border-t border-gray-700 pt-2"><span>Total</span><span className="text-amber-400">₱{totalVal.toFixed(2)}</span></div>
+                        <div className={`flex justify-between ${isDarkMode ? 'text-gray-300' : 'text-gray-600'} text-sm`}><span>Subtotal</span><span className={`font-medium ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>₱{rawSubtotal.toFixed(2)}</span></div>
+                        {selectedDiscounts.length > 0 && <div className="flex justify-between text-green-500 text-sm"><span>Discount</span><span>-₱{discountVal.toFixed(2)}</span></div>}
+                        <div className={`flex justify-between font-semibold text-base border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-200'} pt-2`}><span className={isDarkMode ? 'text-gray-200' : 'text-gray-700'}>Total</span><span className={isDarkMode ? 'text-amber-400' : 'text-amber-600'}>₱{totalVal.toFixed(2)}</span></div>
                       </>
                     );
                   })()}
                 </div>
 
                 <div className="mt-3 flex gap-2">
-                  <button onClick={onComplete} className="flex-1 px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded text-sm font-medium">Complete & Receipt</button>
-                  <button onClick={onClose} className="px-3 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded text-sm">Close</button>
+                  <button onClick={onComplete} className={`flex-1 px-3 py-2 ${paymentType === 'online' ? 'bg-amber-600 hover:bg-amber-700' : 'bg-green-600 hover:bg-green-700'} text-white rounded text-sm font-medium transition-colors`}>{paymentType === 'online' ? '💳 Create Checkout' : 'Complete & Receipt'}</button>
+                  <button onClick={onClose} className={`px-3 py-2 ${isDarkMode ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-gray-200 hover:bg-gray-300 text-gray-800'} rounded text-sm transition-colors`}>Close</button>
                 </div>
               </div>
             </>
           )}
 
           {isViewOnly && (
-            <div className="bg-gray-800 border border-gray-700 rounded-lg p-3">
+            <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'} border rounded-lg p-3`}>
               <div className="flex items-center justify-between mb-2">
                 <div>
-                  <p className="text-xs text-gray-400">Service</p>
-                  <p className="text-sm text-amber-50">{appointment.service?.name || ''}</p>
+                  <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Service</p>
+                  <p className={`text-sm ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>{appointment.service?.name || ''}</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-xs text-gray-400">Price</p>
-                  <p className="text-sm text-amber-50">₱{(Number(appointment.service?.price) || 0).toFixed(2)}</p>
+                  <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Price</p>
+                  <p className={`text-sm ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>₱{(Number(appointment.service?.price) || 0).toFixed(2)}</p>
                 </div>
               </div>
-              <div className="border-t border-gray-700 pt-3 mb-3">
-                <p className="text-xs text-gray-400 mb-2">Status</p>
-                <p className="text-sm text-green-400 font-semibold">✓ Completed</p>
+
+              {/* Payment breakdown */}
+              {appointment.payment_amount > 0 && (
+                <div className={`border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-200'} pt-2 mb-2 space-y-1`}>
+                  <div className={`flex justify-between text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}><span>Amount Paid</span><span className={`font-medium ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>₱{Number(appointment.payment_amount || 0).toFixed(2)}</span></div>
+                  {appointment.discount_amount > 0 && <div className={`flex justify-between text-sm text-green-500`}><span>Discount ({appointment.discount_type || 'N/A'})</span><span>-₱{Number(appointment.discount_amount || 0).toFixed(2)}</span></div>}
+                  {appointment.payment_type && <div className={`flex justify-between text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}><span>Payment Type</span><span className="capitalize">{appointment.payment_type}</span></div>}
+                  {appointment.payment_date && <div className={`flex justify-between text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}><span>Payment Date</span><span>{new Date(appointment.payment_date).toLocaleDateString()}</span></div>}
+                </div>
+              )}
+
+              <div className={`border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-200'} pt-3 mb-3`}>
+                <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} mb-2`}>Status</p>
+                <p className="text-sm text-green-500 font-semibold">✓ Completed</p>
               </div>
-              <button onClick={onClose} className="w-full px-3 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded text-sm">Close</button>
+
+              {/* Refund status display */}
+              {appointment.active_refund && (
+                <div className={`border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-200'} pt-3 mb-3`}>
+                  <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} mb-2`}>Refund Status</p>
+                  <div className="flex items-center gap-2">
+                    <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                      appointment.active_refund.status === 'completed' ? (isDarkMode ? 'bg-green-500/20 text-green-400' : 'bg-green-100 text-green-700') :
+                      appointment.active_refund.status === 'pending' ? (isDarkMode ? 'bg-yellow-500/20 text-yellow-400' : 'bg-yellow-100 text-yellow-700') :
+                      appointment.active_refund.status === 'approved' ? (isDarkMode ? 'bg-blue-500/20 text-blue-400' : 'bg-blue-100 text-blue-700') :
+                      (isDarkMode ? 'bg-red-500/20 text-red-400' : 'bg-red-100 text-red-700')
+                    }`}>{appointment.active_refund.status}</span>
+                    <span className={`text-sm ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>₱{Number(appointment.active_refund.refund_amount || 0).toFixed(2)}</span>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                {/* Show Request Refund button only if paid and no active refund */}
+                {appointment.payment_status === 'paid' && !appointment.active_refund && onRequestRefund && (
+                  <button onClick={() => onRequestRefund(appointment)} className="flex-1 px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded text-sm font-medium transition-colors flex items-center justify-center gap-1">
+                    <ArrowUturnLeftIcon className="h-4 w-4" /> Request Refund
+                  </button>
+                )}
+                <button onClick={onClose} className={`${appointment.payment_status === 'paid' && !appointment.active_refund && onRequestRefund ? '' : 'w-full'} px-3 py-2 ${isDarkMode ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-gray-200 hover:bg-gray-300 text-gray-800'} rounded text-sm transition-colors`}>Close</button>
+              </div>
             </div>
           )}
         </div>
@@ -847,7 +1105,7 @@ const ConfirmPaymentModal = ({ isOpen, onClose, appointment, onConfirm, paymentA
 
         <div className="mt-4 flex gap-2">
           <button onClick={() => { onConfirm(appointment); onClose(); }} className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded">Confirm Payment</button>
-          <button onClick={onClose} className={`px-4 py-2 ${isDarkMode ? 'bg-gray-800 hover:bg-gray-700' : 'bg-gray-200 hover:bg-gray-300 text-gray-800'} text-white rounded`}>Cancel</button>
+          <button onClick={onClose} className={`px-4 py-2 ${isDarkMode ? 'bg-gray-800 hover:bg-gray-700 text-white' : 'bg-gray-200 hover:bg-gray-300 text-gray-800'} rounded`}>Cancel</button>
         </div>
       </div>
     </div>
@@ -874,12 +1132,13 @@ const ConfirmModal = ({ isOpen, title = 'Confirm', message = '', onCancel, onCon
 // Main Cashier Dashboard Component
 const CashierDashboard = () => {
   const { user, logout, setUser } = useAuth();
+  const { isDarkMode, toggleTheme } = useTheme();
   const { callApi, loading: apiLoading } = useApi();
   
   const [activeSection, setActiveSection] = useState('dashboard');
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
   const [isCollapsedDesktop, setIsCollapsedDesktop] = useState(false);
-  const [openDropdowns, setOpenDropdowns] = useState({});
+  const [openDropdowns, setOpenDropdowns] = useState({ 'Operations': true, 'Communication': true, 'Reports & Analytics': true });
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [currentReceipt, setCurrentReceipt] = useState(null);
@@ -965,7 +1224,46 @@ const CashierDashboard = () => {
   const [shiftRange, setShiftRange] = useState({ from: '', to: '' });
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [confirmModalProps, setConfirmModalProps] = useState({ title: '', message: '', onConfirm: null, loading: false });
-  const [isDarkMode, setIsDarkMode] = useState(true);
+
+  // Password Change State
+  const [passwordData, setPasswordData] = useState({ current_password: '', new_password: '', new_password_confirmation: '' });
+  const [passwordErrors, setPasswordErrors] = useState({});
+  const [passwordSuccess, setPasswordSuccess] = useState('');
+  const [passwordSaving, setPasswordSaving] = useState(false);
+  const [showPassword, setShowPassword] = useState({ current: false, new: false, confirm: false });
+
+  // Refunds State
+  const [refunds, setRefunds] = useState([]);
+  const [refundsLoading, setRefundsLoading] = useState(false);
+  const [refundReasons, setRefundReasons] = useState([]);
+
+  // Cashier Refund Request State
+  const [showRefundRequestModal, setShowRefundRequestModal] = useState(false);
+  const [refundTargetAppointment, setRefundTargetAppointment] = useState(null);
+  const [refundFormData, setRefundFormData] = useState({ refund_amount: '', reason: 'customer_request', description: '' });
+  const [refundRequestLoading, setRefundRequestLoading] = useState(false);
+  const [refundRequestError, setRefundRequestError] = useState('');
+
+  // Online Payment State
+  const [showPaymentWaitingModal, setShowPaymentWaitingModal] = useState(false);
+  const [onlinePaymentStatus, setOnlinePaymentStatus] = useState('active');
+  const [onlineCheckoutUrl, setOnlineCheckoutUrl] = useState('');
+  const [onlinePaymentAppointment, setOnlinePaymentAppointment] = useState(null);
+  const [onlinePaymentPolling, setOnlinePaymentPolling] = useState(null);
+
+  // Messages State
+  const [messages, setMessages] = useState([]);
+  const [messagesLoading, setMessagesLoading] = useState(false);
+  const [messageUsers, setMessageUsers] = useState([]);
+  const [selectedConversation, setSelectedConversation] = useState(null);
+  const [conversationMessages, setConversationMessages] = useState([]);
+  const [newMessage, setNewMessage] = useState('');
+  const [sendingMessage, setSendingMessage] = useState(false);
+
+  // Notifications state for section view
+  const [notificationsTab, setNotificationsTab] = useState('unread');
+  const [notificationsList, setNotificationsList] = useState([]);
+  const [notificationsLoading, setNotificationsLoading] = useState(false);
 
   // Safe toggle for expanding appointment entries (prevents unexpected crashes)
   const toggleExpanded = useCallback((id) => {
@@ -973,7 +1271,7 @@ const CashierDashboard = () => {
       setExpandedAppointment(prev => (prev === id ? null : id));
     } catch (err) {
       console.error('Error toggling expanded appointment:', err);
-      if (window?.sowTohast) window.showToast('Error', 'An unexpected error occurred while opening the appointment. Check console for details.', 'error');
+      if (window?.showToast) window.showToast('Error', 'An unexpected error occurred while opening the appointment. Check console for details.', 'error');
     }
   }, []);
 
@@ -1056,6 +1354,27 @@ const CashierDashboard = () => {
           icon: DocumentTextIcon, 
           key: 'transactions',
           badge: txTotal
+        },
+        { 
+          name: 'Refunds', 
+          icon: ArrowUturnLeftIcon, 
+          key: 'refunds',
+          badge: refunds.length || null
+        }
+      ]
+    },
+    { 
+      section: 'Communication',
+      items: [
+        { 
+          name: 'Messages', 
+          icon: ChatBubbleLeftRightIcon, 
+          key: 'messages'
+        },
+        { 
+          name: 'Notifications', 
+          icon: BellIcon, 
+          key: 'notifications'
         }
       ]
     },
@@ -1089,13 +1408,16 @@ const CashierDashboard = () => {
         axios.get(`/api/cashier/dashboard-stats?timeframe=${timeframe}`, { signal })
       );
       if (response && response.success) {
-        const payload = response.data || {};
+        // Handle both { success: true, stats, revenueTrend, salesByService }
+        // and { data: { stats, revenueTrend, salesByService } } shapes
+        const payload = response.data || response;
 
+        const statsData = payload.stats || {};
         setStats({
-          totalRevenue: payload.stats?.totalRevenue || 0,
-          totalSales: payload.stats?.totalSales || 0,
-          todayRevenue: payload.stats?.todayRevenue || 0,
-          todaySales: payload.stats?.todaySales || 0
+          totalRevenue: statsData.totalRevenue || 0,
+          totalSales: statsData.totalSales || 0,
+          todayRevenue: statsData.todayRevenue || 0,
+          todaySales: statsData.todaySales || 0
         });
 
         // Set revenue data from backend; normalize if monthly timeframe
@@ -1106,7 +1428,7 @@ const CashierDashboard = () => {
         // Set sales by service from backend
         setSalesByService(payload.salesByService || []);
       }
-      } catch (error) {
+    } catch (error) {
         console.error('Error loading dashboard data:', error);
       } finally {
         setLoading(false);
@@ -1244,7 +1566,7 @@ const CashierDashboard = () => {
       );
       
       // Backend returns Laravel paginated response directly
-      if (response && response.data) {
+      if (response && response.success && response.data) {
         const payload = response.data;
         // Extract data from paginated response
         const logs = Array.isArray(payload.data) ? payload.data : [];
@@ -1265,28 +1587,48 @@ const CashierDashboard = () => {
   }, [callApi, logsTab, logsPage, logsPerPage]);
 
   // Load section data - optimized with parallel loading where applicable
+  // Track loaded sections to avoid redundant fetches
+  const [cashierDataLoaded, setCashierDataLoaded] = useState({
+    dashboard: false,
+    appointments: false,
+    calendar: false,
+    'action-logs': false
+  });
+
+  // Load section data based on active section — lazy loading with tracking
   useEffect(() => {
     if (activeSection === 'dashboard') {
-      loadDashboardData();
+      if (!cashierDataLoaded.dashboard) {
+        loadDashboardData().then(() => {
+          setCashierDataLoaded(prev => ({ ...prev, dashboard: true }));
+        });
+      }
     } else if (activeSection === 'appointments') {
-      loadAppointments();
+      if (!cashierDataLoaded.appointments) {
+        loadAppointments().then(() => {
+          setCashierDataLoaded(prev => ({ ...prev, appointments: true }));
+        });
+      }
     } else if (activeSection === 'calendar') {
-      // Load current and adjacent months in parallel for smooth navigation
-      const year = currentMonth.getFullYear();
-      const month = currentMonth.getMonth();
-      const prevMonth = new Date(year, month - 1, 1);
-      const nextMonth = new Date(year, month + 1, 1);
-      
-      // Load all three months in parallel
-      Promise.all([
-        loadCalendarAppointments(month + 1, year),
-        loadCalendarAppointments(prevMonth.getMonth() + 1, prevMonth.getFullYear()),
-        loadCalendarAppointments(nextMonth.getMonth() + 1, nextMonth.getFullYear())
-      ]);
+      if (!cashierDataLoaded.calendar) {
+        // Load current month data into state
+        const year = currentMonth.getFullYear();
+        const month = currentMonth.getMonth();
+        
+        loadCalendarAppointments(month + 1, year).then(() => {
+          setCashierDataLoaded(prev => ({ ...prev, calendar: true }));
+        });
+        
+        // Warm backend cache for adjacent months (don't set state — avoids overwriting current month)
+        const prevMonth = new Date(year, month - 1, 1);
+        const nextMonth = new Date(year, month + 1, 1);
+        axios.get('/api/cashier/calendar/appointments', { params: { month: prevMonth.getMonth() + 1, year: prevMonth.getFullYear() } }).catch(() => {});
+        axios.get('/api/cashier/calendar/appointments', { params: { month: nextMonth.getMonth() + 1, year: nextMonth.getFullYear() } }).catch(() => {});
+      }
     } else if (activeSection === 'action-logs') {
       loadActionLogs();
     }
-  }, [activeSection, currentMonth, logsTab, loadActionLogs, loadAppointments, loadCalendarAppointments, loadDashboardData]);
+  }, [activeSection, currentMonth, logsTab, loadActionLogs, loadAppointments, loadCalendarAppointments, loadDashboardData, cashierDataLoaded]);
 
   // Reset pagination when logs tab changes
   useEffect(() => {
@@ -1299,14 +1641,14 @@ const CashierDashboard = () => {
       const year = currentMonth.getFullYear();
       const month = currentMonth.getMonth();
       
-      // Load current month
+      // Load current month into state
       loadCalendarAppointments(month + 1, year);
       
-      // Preload previous and next months for smooth navigation
+      // Warm backend cache for adjacent months (silent, no state update)
       const prevMonth = new Date(year, month - 1, 1);
       const nextMonth = new Date(year, month + 1, 1);
-      loadCalendarAppointments(prevMonth.getMonth() + 1, prevMonth.getFullYear());
-      loadCalendarAppointments(nextMonth.getMonth() + 1, nextMonth.getFullYear());
+      axios.get('/api/cashier/calendar/appointments', { params: { month: prevMonth.getMonth() + 1, year: prevMonth.getFullYear() } }).catch(() => {});
+      axios.get('/api/cashier/calendar/appointments', { params: { month: nextMonth.getMonth() + 1, year: nextMonth.getFullYear() } }).catch(() => {});
     }
   }, [activeSection, currentMonth, loadCalendarAppointments]);
 
@@ -1340,8 +1682,8 @@ const CashierDashboard = () => {
 
   // Polling fallback for cashier dashboard data (appointments + stats + action logs)
   useEffect(() => {
-    const POLL_INTERVAL_MS = 15000; // 15s
-    const ACTION_LOGS_POLL_INTERVAL_MS = 5000; // 5s for action logs - more frequent for real-time feel
+    const POLL_INTERVAL_MS = 30000; // 30s (reduced from 15s for performance)
+    const ACTION_LOGS_POLL_INTERVAL_MS = 15000; // 15s for action logs (reduced from 5s for performance)
     
     const id = setInterval(() => {
       if (activeSection === 'dashboard') {
@@ -1570,6 +1912,197 @@ const CashierDashboard = () => {
     }
   }, [profileFormData, callApi]);
 
+  // Password Change Handler
+  const handlePasswordSubmit = useCallback(async () => {
+    setPasswordErrors({});
+    setPasswordSuccess('');
+    if (!passwordData.current_password || !passwordData.new_password) {
+      setPasswordErrors({ general: 'All fields are required' });
+      return;
+    }
+    if (passwordData.new_password.length < 8) {
+      setPasswordErrors({ general: 'New password must be at least 8 characters' });
+      return;
+    }
+    if (passwordData.new_password !== passwordData.new_password_confirmation) {
+      setPasswordErrors({ general: 'New password and confirmation do not match' });
+      return;
+    }
+    setPasswordSaving(true);
+    try {
+      const response = await callApi((signal) =>
+        axios.put('/api/cashier/password', passwordData, { signal })
+      );
+      if (response && response.success) {
+        setPasswordData({ current_password: '', new_password: '', new_password_confirmation: '' });
+        setPasswordSuccess('Password changed successfully!');
+        setTimeout(() => setPasswordSuccess(''), 5000);
+      } else {
+        setPasswordErrors({ general: response?.message || 'Failed to change password' });
+      }
+    } catch (error) {
+      const msg = error?.response?.data?.message || 'Failed to change password';
+      setPasswordErrors({ general: msg });
+    } finally {
+      setPasswordSaving(false);
+    }
+  }, [passwordData, callApi]);
+
+  // Load Refunds
+  const loadRefunds = useCallback(async () => {
+    setRefundsLoading(true);
+    try {
+      const [pendingRes, reasonsRes] = await Promise.all([
+        axios.get('/api/cashier/refunds/pending').catch(() => ({ data: { data: [] } })),
+        axios.get('/api/cashier/refund-reasons/active').catch(() => ({ data: { data: [] } }))
+      ]);
+      setRefunds(pendingRes.data?.data || pendingRes.data || []);
+      setRefundReasons(reasonsRes.data?.data || reasonsRes.data || []);
+    } catch (err) {
+      console.error('Error loading refunds:', err);
+    } finally {
+      setRefundsLoading(false);
+    }
+  }, []);
+
+  // Open Refund Request Modal (cashier initiating a refund for a completed appointment)
+  const openCashierRefundModal = useCallback((appointment) => {
+    if (!appointment || appointment.payment_status !== 'paid') {
+      if (window?.showToast) window.showToast('Refund', 'Only paid appointments can be refunded', 'warning');
+      return;
+    }
+    if (!appointment.payment_amount || appointment.payment_amount <= 0) {
+      if (window?.showToast) window.showToast('Refund', 'No payment amount recorded for this appointment', 'error');
+      return;
+    }
+    setRefundTargetAppointment(appointment);
+    setRefundFormData({
+      refund_amount: appointment.payment_amount || '',
+      reason: (refundReasons.length > 0 ? refundReasons[0].key : 'customer_request'),
+      description: ''
+    });
+    setRefundRequestError('');
+    setShowRefundRequestModal(true);
+  }, [refundReasons]);
+
+  // Submit Cashier Refund Request
+  const handleCashierRefundRequest = useCallback(async (e) => {
+    e.preventDefault();
+    setRefundRequestError('');
+    if (!refundTargetAppointment) return;
+
+    const amount = parseFloat(refundFormData.refund_amount);
+    if (!amount || amount <= 0) {
+      setRefundRequestError('Please enter a valid refund amount');
+      return;
+    }
+    if (amount > (refundTargetAppointment.payment_amount || 0)) {
+      setRefundRequestError('Refund amount cannot exceed the payment amount');
+      return;
+    }
+
+    setRefundRequestLoading(true);
+    try {
+      const response = await axios.post('/api/cashier/refunds/request', {
+        appointment_id: refundTargetAppointment.id,
+        refund_amount: amount,
+        reason: refundFormData.reason,
+        description: refundFormData.description
+      });
+
+      if (response.data?.success) {
+        setShowRefundRequestModal(false);
+        setRefundTargetAppointment(null);
+        setRefundFormData({ refund_amount: '', reason: 'customer_request', description: '' });
+        if (window?.showToast) window.showToast('Refund', 'Refund request submitted successfully', 'success');
+        // Refresh refunds list and appointments
+        loadRefunds();
+        loadAppointments();
+      } else {
+        setRefundRequestError(response.data?.message || 'Failed to submit refund request');
+      }
+    } catch (err) {
+      console.error('Cashier refund request error:', err);
+      setRefundRequestError(err.response?.data?.message || 'Failed to submit refund request');
+    } finally {
+      setRefundRequestLoading(false);
+    }
+  }, [refundTargetAppointment, refundFormData, loadRefunds, loadAppointments]);
+
+  // Load Messages (conversation list)
+  const loadMessages = useCallback(async () => {
+    setMessagesLoading(true);
+    try {
+      const response = await axios.get('/api/messages/all/messages');
+      const payload = response.data?.data || response.data || [];
+      setMessages(Array.isArray(payload) ? payload : []);
+    } catch (err) {
+      console.error('Error loading messages:', err);
+    } finally {
+      setMessagesLoading(false);
+    }
+  }, []);
+
+  // Load conversation with a specific user
+  const loadConversation = useCallback(async (userId) => {
+    try {
+      const response = await axios.get(`/api/messages/conversation/user/${userId}`);
+      const msgs = response.data?.data || response.data || [];
+      setConversationMessages(Array.isArray(msgs) ? msgs : []);
+    } catch (err) {
+      console.error('Error loading conversation:', err);
+    }
+  }, []);
+
+  // Send message
+  const handleSendMessage = useCallback(async () => {
+    if (!newMessage.trim() || !selectedConversation) return;
+    setSendingMessage(true);
+    try {
+      await axios.post('/api/messages', {
+        receiver_id: selectedConversation.id || selectedConversation.user_id,
+        message: newMessage.trim()
+      });
+      setNewMessage('');
+      // Reload conversation
+      await loadConversation(selectedConversation.id || selectedConversation.user_id);
+      loadMessages(); // Refresh sidebar list
+    } catch (err) {
+      console.error('Error sending message:', err);
+      if (window?.showToast) window.showToast('Messages', 'Failed to send message', 'error');
+    } finally {
+      setSendingMessage(false);
+    }
+  }, [newMessage, selectedConversation, loadConversation, loadMessages]);
+
+  // Load Notifications for full view
+  const loadNotifications = useCallback(async () => {
+    setNotificationsLoading(true);
+    try {
+      const url = notificationsTab === 'unread' ? '/api/notifications/unread' : '/api/notifications';
+      const response = await axios.get(url);
+      const list = response.data?.data || response.data || [];
+      setNotificationsList(Array.isArray(list) ? list : []);
+    } catch (err) {
+      console.error('Error loading notifications:', err);
+    } finally {
+      setNotificationsLoading(false);
+    }
+  }, [notificationsTab]);
+
+  // Load section-specific data
+  useEffect(() => {
+    if (activeSection === 'refunds') loadRefunds();
+  }, [activeSection, loadRefunds]);
+
+  useEffect(() => {
+    if (activeSection === 'messages') loadMessages();
+  }, [activeSection, loadMessages]);
+
+  useEffect(() => {
+    if (activeSection === 'notifications') loadNotifications();
+  }, [activeSection, notificationsTab, loadNotifications]);
+
   // Shift reports / accounting exports
   const loadShiftReport = useCallback(async (from, to) => {
     setShiftLoading(true);
@@ -1630,7 +2163,7 @@ const CashierDashboard = () => {
       if (appointmentsTab === 'approved') {
         return status === 'approved' && paymentStatus !== 'paid';
       } else if (appointmentsTab === 'completed') {
-        return paymentStatus === 'paid' || status === 'completed';
+        return paymentStatus === 'paid' || paymentStatus === 'refunded' || paymentStatus === 'partially_refunded' || status === 'completed';
       }
       return false;
     });
@@ -1640,9 +2173,9 @@ const CashierDashboard = () => {
   const filteredCalendarAppts = useMemo(() => {
     if (!Array.isArray(calendarAppointments)) return [];
     
-    // If no filters, show approved appointments
+    // Default: show approved and completed appointments (both are relevant to cashier)
     if (!calendarFilters || Object.keys(calendarFilters).length === 0) {
-      return calendarAppointments.filter(a => a.status === 'approved');
+      return calendarAppointments.filter(a => a.status === 'approved' || a.status === 'completed' || a.payment_status === 'paid');
     }
 
     return calendarAppointments.filter(apt => {
@@ -1657,10 +2190,12 @@ const CashierDashboard = () => {
 
   // Get today's approved appointments
   const todayAppointments = useMemo(() => {
-    const today = new Date().toISOString().split('T')[0];
-    return filteredAppointments.filter(apt => 
-      apt.appointment_date === today && apt.status === 'approved'
-    );
+    const _t = new Date();
+    const today = `${_t.getFullYear()}-${String(_t.getMonth()+1).padStart(2,'0')}-${String(_t.getDate()).padStart(2,'0')}`;
+    return filteredAppointments.filter(apt => {
+      const aptDate = (apt.appointment_date || '').match(/^(\d{4}-\d{2}-\d{2})/)?.[1] || '';
+      return aptDate === today && apt.status === 'approved';
+    });
   }, [filteredAppointments]);
 
   // Calculate discount
@@ -1682,6 +2217,99 @@ const CashierDashboard = () => {
     return { discount, discountType };
   }, [selectedDiscounts]);
 
+  // Start online payment polling
+  const startOnlinePaymentPolling = useCallback((appointmentId) => {
+    // Clear any existing polling
+    if (onlinePaymentPolling) {
+      clearInterval(onlinePaymentPolling);
+    }
+
+    const pollId = setInterval(async () => {
+      try {
+        const response = await axios.get(`/api/cashier/paymongo/status/${appointmentId}`);
+        const data = response.data;
+
+        if (data.status === 'paid') {
+          clearInterval(pollId);
+          setOnlinePaymentPolling(null);
+          setOnlinePaymentStatus('paid');
+
+          // Show receipt
+          if (data.receipt) {
+            setCurrentReceipt(data.receipt);
+          }
+
+          if (window?.showToast) window.showToast('Payment', 'Online payment completed successfully!', 'success');
+
+          // Auto-close waiting modal and show receipt after a brief moment
+          setTimeout(() => {
+            setShowPaymentWaitingModal(false);
+            setShowReceiptModal(true);
+
+            // Reset form
+            setExpandedAppointment(null);
+            setViewModalAppointment(null);
+            setPaymentAmount('');
+            setSelectedDiscounts([]);
+            setPaymentType('cash');
+            setInKindDescription('');
+            setShowCompletionConfirmation(false);
+            setCurrentPage(1);
+
+            // Refresh data
+            loadAppointments();
+            if (activeSection === 'dashboard') loadDashboardData();
+            if (activeSection === 'reports') loadShiftReport(shiftRange.from, shiftRange.to);
+
+            setTimeout(() => {
+              if (activeSection !== 'appointments') setActiveSection('appointments');
+              setAppointmentsTab('completed');
+            }, 500);
+          }, 1500);
+        } else if (data.status === 'expired') {
+          clearInterval(pollId);
+          setOnlinePaymentPolling(null);
+          setOnlinePaymentStatus('expired');
+        }
+      } catch (err) {
+        console.error('Payment polling error:', err);
+      }
+    }, 5000); // Poll every 5 seconds
+
+    setOnlinePaymentPolling(pollId);
+  }, [onlinePaymentPolling, activeSection, loadAppointments, loadDashboardData, loadShiftReport, shiftRange]);
+
+  // Cancel online payment
+  const handleCancelOnlinePayment = useCallback(async () => {
+    if (onlinePaymentPolling) {
+      clearInterval(onlinePaymentPolling);
+      setOnlinePaymentPolling(null);
+    }
+
+    if (onlinePaymentAppointment?.id) {
+      try {
+        await axios.post(`/api/cashier/paymongo/expire/${onlinePaymentAppointment.id}`);
+      } catch (err) {
+        console.error('Failed to expire checkout session:', err);
+      }
+    }
+
+    setShowPaymentWaitingModal(false);
+    setOnlinePaymentStatus('active');
+    setOnlineCheckoutUrl('');
+    setOnlinePaymentAppointment(null);
+    if (window?.showToast) window.showToast('Payment', 'Online payment cancelled', 'info');
+  }, [onlinePaymentPolling, onlinePaymentAppointment]);
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (onlinePaymentPolling) {
+        clearInterval(onlinePaymentPolling);
+      }
+    };
+  }, [onlinePaymentPolling]);
+
   // Complete payment
   const handleCompletePayment = useCallback(async (appointment) => {
     const appointmentId = appointment?.id;
@@ -1701,6 +2329,57 @@ const CashierDashboard = () => {
     const { discount, discountType } = calculateDiscount(baseAmount);
     const totalPaid = amount - discount;
 
+    // ===== ONLINE PAYMENT FLOW =====
+    if (paymentType === 'online') {
+      try {
+        setLoading(true);
+
+        const body = {
+          payment_amount: amount,
+          discount_amount: discount,
+          discount_type: discountType,
+        };
+
+        const response = await callApi((signal) =>
+          axios.post(`/api/cashier/paymongo/checkout/${appointmentId}`, body, { signal })
+        );
+
+        if (response && response.success) {
+          const checkoutUrl = response.data?.checkout_url || response.checkout_url;
+
+          // Close the appointment/confirm modals
+          setExpandedAppointment(null);
+          setViewModalAppointment(null);
+          setShowCompletionConfirmation(false);
+          setShowConfirmPaymentModal(false);
+
+          // Open the waiting modal
+          setOnlinePaymentAppointment(appointment);
+          setOnlineCheckoutUrl(checkoutUrl);
+          setOnlinePaymentStatus('active');
+          setShowPaymentWaitingModal(true);
+
+          // Open checkout page in new tab
+          window.open(checkoutUrl, '_blank');
+
+          // Start polling for payment status
+          startOnlinePaymentPolling(appointmentId);
+
+          if (window?.showToast) window.showToast('Payment', 'Checkout page opened. Waiting for payment...', 'info');
+        } else {
+          if (window?.showToast) window.showToast('Payment', response?.error || response?.message || 'Failed to create checkout session', 'error');
+        }
+      } catch (error) {
+        console.error('Error creating online checkout:', error);
+        const msg = error.response?.data?.message || 'Failed to create online checkout. Please try again.';
+        if (window?.showToast) window.showToast('Payment', msg, 'error');
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    // ===== STANDARD PAYMENT FLOW (Cash, Partial, In-kind) =====
     try {
       setLoading(true);
 
@@ -1765,118 +2444,289 @@ const CashierDashboard = () => {
     } finally {
       setLoading(false);
     }
-  }, [paymentAmount, selectedDiscounts, calculateDiscount, callApi, paymentType, inKindDescription, activeSection, loadShiftReport, shiftRange]);
+  }, [paymentAmount, selectedDiscounts, calculateDiscount, callApi, paymentType, inKindDescription, activeSection, loadShiftReport, shiftRange, startOnlinePaymentPolling]);
 
   // Render Dashboard Section
-  const renderDashboard = () => (
-    <div className="space-y-6">
-      {/* Redesigned analytics + charts */}
-      <div className="space-y-4">
-        {/* Analytics quick cards */}
-        {/* header-level controls relocated to top header */}
+  const renderDashboard = () => {
+    const avgSale = stats.totalSales > 0 ? stats.totalRevenue / stats.totalSales : 0;
+    const hour = new Date().getHours();
+    const greeting = hour < 12 ? 'Good Morning' : hour < 17 ? 'Good Afternoon' : 'Good Evening';
+    const todayStr = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg p-4`}>
-            <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Total Revenue</p>
-            <p className="text-2xl font-bold text-amber-400 transition-all duration-500">{formatPrice(stats.totalRevenue)}</p>
-            <p className="text-xs text-gray-500 mt-1">{revenueData.length} periods</p>
-            <div className="mt-3"><Sparkline data={revenueData.slice(-12)} width={140} height={28} type="area" stroke="#f59e0b" /></div>
-          </div>
-
-          <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg p-4`}>
-            <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Total Sales</p>
-            <p className="text-2xl font-bold text-amber-400 transition-all duration-500">{stats.totalSales}</p>
-            <p className="text-xs text-gray-500 mt-1">Paid orders in timeframe</p>
-            <div className="mt-3"><Sparkline data={revenueData.slice(-12)} width={140} height={28} type="bars" stroke="#60a5fa" /></div>
-          </div>
-
-          <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg p-4`}>
-            <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Avg. Sale</p>
-            <p className="text-2xl font-bold text-amber-400 transition-all duration-500">{formatPrice(stats.totalSales ? (stats.totalRevenue / stats.totalSales) : 0)}</p>
-            <p className="text-xs text-gray-500 mt-1">Revenue / Sale</p>
-            <div className="mt-3"><Sparkline data={revenueData.slice(-12)} width={140} height={28} type="dots" stroke="#34d399" /></div>
-          </div>
-
-          <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg p-4`}>
-            <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Today's Revenue</p>
-            <p className="text-2xl font-bold text-amber-400 transition-all duration-500">{formatPrice(stats.todayRevenue)}</p>
-            <p className="text-xs text-gray-500 mt-1">Today: {stats.todaySales} sales</p>
-            <div className="mt-3"><Sparkline data={revenueData.slice(-12)} width={140} height={28} type="line" stroke="#f97316" /></div>
-          </div>
-        </div>
-
-        {/* Charts area: large line chart + side widgets */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <div className={`lg:col-span-2 ${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg p-4`}>
-            <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-3`}>Revenue Trend (Last periods)</h3>
-            <LineChart data={revenueData} title="Revenue Trend" height={120} embedded variant="bars" responsive maxHeight={260} />
-          </div>
-
-          <div className="space-y-4">
-            <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg p-4`}>
-              <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-3`}>Sales by Service</h3>
-              <PieChart data={salesByService} title="Sales by Service" />
+    return (
+      <div className="space-y-6">
+        {/* Welcome Banner */}
+        <div className={`relative overflow-hidden rounded-2xl ${isDarkMode ? 'bg-gradient-to-br from-amber-600/20 via-gray-900 to-gray-900 border-amber-500/20' : 'bg-gradient-to-br from-amber-50 via-white to-amber-50/50 border-amber-200'} border p-6`}>
+          <div className="absolute top-0 right-0 w-64 h-64 bg-amber-500/5 rounded-full -translate-y-1/2 translate-x-1/3 pointer-events-none" />
+          <div className="absolute bottom-0 left-0 w-40 h-40 bg-amber-500/5 rounded-full translate-y-1/2 -translate-x-1/4 pointer-events-none" />
+          <div className="relative flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div>
+              <h2 className={`text-xl lg:text-2xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                {greeting}, {user?.first_name || 'Cashier'}
+              </h2>
+              <p className={`text-sm mt-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>{todayStr}</p>
+              {todayAppointments.length > 0 && (
+                <div className="mt-3 flex items-center gap-2">
+                  <span className="relative flex h-2.5 w-2.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
+                  </span>
+                  <span className={`text-sm font-medium ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
+                    {todayAppointments.length} appointment{todayAppointments.length !== 1 ? 's' : ''} scheduled today
+                  </span>
+                </div>
+              )}
             </div>
-
-            <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg p-4`}>
-              <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-3`}>Monthly Breakdown</h3>
-              <BarChart data={revenueData} title="Monthly Revenue" height={120} />
+            <div className="flex items-center gap-3">
+              <button onClick={() => setActiveSection('appointments')} className="px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-medium transition-all shadow-lg shadow-amber-500/20 hover:shadow-amber-500/30 hover:-translate-y-0.5">
+                Process Payments
+              </button>
+              <button onClick={() => { loadDashboardData(); setCashierDataLoaded(prev => ({...prev, dashboard: false})); }} className={`p-2.5 rounded-xl transition-all ${isDarkMode ? 'bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-500 hover:text-gray-700'}`} title="Refresh data">
+                <ArrowPathIcon className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+              </button>
             </div>
           </div>
         </div>
 
-        {/* Top services removed: simplified view to avoid overwhelming layout */}
+        {/* KPI Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+          {/* Total Revenue */}
+          <div className={`group relative overflow-hidden rounded-xl ${isDarkMode ? 'bg-gray-900/80 border-gray-800 hover:border-amber-500/30' : 'bg-white border-gray-200 hover:border-amber-300'} border p-5 transition-all duration-300 hover:shadow-lg hover:shadow-amber-500/5`}>
+            <div className="absolute top-0 right-0 w-24 h-24 bg-amber-500/5 rounded-full -translate-y-1/2 translate-x-1/2 group-hover:scale-150 transition-transform duration-500" />
+            <div className="relative flex items-start justify-between">
+              <div>
+                <p className={`text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>Total Revenue</p>
+                <p className={`text-2xl font-bold mt-1.5 ${isDarkMode ? 'text-white' : 'text-gray-900'} tabular-nums`}>{formatPrice(stats.totalRevenue)}</p>
+                <p className={`text-xs mt-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>{timeframe} period</p>
+              </div>
+              <div className={`p-2.5 rounded-xl ${isDarkMode ? 'bg-amber-500/10' : 'bg-amber-50'} group-hover:scale-110 transition-transform`}>
+                <CurrencyDollarIcon className="h-5 w-5 text-amber-500" />
+              </div>
+            </div>
+            <div className="mt-4"><Sparkline data={revenueData.slice(-12)} width={160} height={32} type="area" stroke="#f59e0b" /></div>
+          </div>
+
+          {/* Total Sales */}
+          <div className={`group relative overflow-hidden rounded-xl ${isDarkMode ? 'bg-gray-900/80 border-gray-800 hover:border-blue-500/30' : 'bg-white border-gray-200 hover:border-blue-300'} border p-5 transition-all duration-300 hover:shadow-lg hover:shadow-blue-500/5`}>
+            <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500/5 rounded-full -translate-y-1/2 translate-x-1/2 group-hover:scale-150 transition-transform duration-500" />
+            <div className="relative flex items-start justify-between">
+              <div>
+                <p className={`text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>Total Sales</p>
+                <p className={`text-2xl font-bold mt-1.5 ${isDarkMode ? 'text-white' : 'text-gray-900'} tabular-nums`}>{stats.totalSales}</p>
+                <p className={`text-xs mt-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>Completed transactions</p>
+              </div>
+              <div className={`p-2.5 rounded-xl ${isDarkMode ? 'bg-blue-500/10' : 'bg-blue-50'} group-hover:scale-110 transition-transform`}>
+                <DocumentTextIcon className="h-5 w-5 text-blue-500" />
+              </div>
+            </div>
+            <div className="mt-4"><Sparkline data={revenueData.slice(-12)} width={160} height={32} type="bars" stroke="#3b82f6" /></div>
+          </div>
+
+          {/* Average Sale */}
+          <div className={`group relative overflow-hidden rounded-xl ${isDarkMode ? 'bg-gray-900/80 border-gray-800 hover:border-emerald-500/30' : 'bg-white border-gray-200 hover:border-emerald-300'} border p-5 transition-all duration-300 hover:shadow-lg hover:shadow-emerald-500/5`}>
+            <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/5 rounded-full -translate-y-1/2 translate-x-1/2 group-hover:scale-150 transition-transform duration-500" />
+            <div className="relative flex items-start justify-between">
+              <div>
+                <p className={`text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>Average Sale</p>
+                <p className={`text-2xl font-bold mt-1.5 ${isDarkMode ? 'text-white' : 'text-gray-900'} tabular-nums`}>{formatPrice(avgSale)}</p>
+                <p className={`text-xs mt-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>Per transaction</p>
+              </div>
+              <div className={`p-2.5 rounded-xl ${isDarkMode ? 'bg-emerald-500/10' : 'bg-emerald-50'} group-hover:scale-110 transition-transform`}>
+                <ChartBarIcon className="h-5 w-5 text-emerald-500" />
+              </div>
+            </div>
+            <div className="mt-4"><Sparkline data={revenueData.slice(-12)} width={160} height={32} type="area" stroke="#10b981" /></div>
+          </div>
+
+          {/* Today's Revenue */}
+          <div className={`group relative overflow-hidden rounded-xl ${isDarkMode ? 'bg-gray-900/80 border-gray-800 hover:border-purple-500/30' : 'bg-white border-gray-200 hover:border-purple-300'} border p-5 transition-all duration-300 hover:shadow-lg hover:shadow-purple-500/5`}>
+            <div className="absolute top-0 right-0 w-24 h-24 bg-purple-500/5 rounded-full -translate-y-1/2 translate-x-1/2 group-hover:scale-150 transition-transform duration-500" />
+            <div className="relative flex items-start justify-between">
+              <div>
+                <p className={`text-xs font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>Today's Revenue</p>
+                <p className={`text-2xl font-bold mt-1.5 ${isDarkMode ? 'text-white' : 'text-gray-900'} tabular-nums`}>{formatPrice(stats.todayRevenue)}</p>
+                <p className={`text-xs mt-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>{stats.todaySales} sale{stats.todaySales !== 1 ? 's' : ''} today</p>
+              </div>
+              <div className={`p-2.5 rounded-xl ${isDarkMode ? 'bg-purple-500/10' : 'bg-purple-50'} group-hover:scale-110 transition-transform`}>
+                <CalendarIcon className="h-5 w-5 text-purple-500" />
+              </div>
+            </div>
+            <div className="mt-4"><Sparkline data={revenueData.slice(-7)} width={160} height={32} type="line" stroke="#8b5cf6" /></div>
+          </div>
+        </div>
+
+        {/* Charts Row */}
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+          {/* Revenue Trend - Large Chart */}
+          <div className={`xl:col-span-2 ${isDarkMode ? 'bg-gray-900/80 border-gray-800' : 'bg-white border-gray-200'} border rounded-xl p-5 hover:shadow-lg hover:shadow-amber-500/5 transition-all duration-300`}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-gray-200' : 'text-gray-800'} flex items-center gap-2`}>
+                <div className="w-1 h-4 bg-amber-500 rounded-full" />
+                Revenue Trend
+              </h3>
+              <button onClick={exportRevenueCSV} className={`text-xs px-3 py-1.5 rounded-lg transition-colors font-medium ${isDarkMode ? 'text-gray-400 hover:text-white hover:bg-gray-800' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}>
+                Export CSV
+              </button>
+            </div>
+            <LineChart data={revenueData} title="" height={180} embedded variant="bars" responsive maxHeight={280} />
+          </div>
+
+          {/* Service Distribution */}
+          <div className={`${isDarkMode ? 'bg-gray-900/80 border-gray-800' : 'bg-white border-gray-200'} border rounded-xl p-5 hover:shadow-lg hover:shadow-amber-500/5 transition-all duration-300`}>
+            <DonutChart data={salesByService} title="Service Distribution" isDarkMode={isDarkMode} />
+          </div>
+        </div>
+
+        {/* Bottom Widgets Row */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Today's Schedule */}
+          <div className={`${isDarkMode ? 'bg-gray-900/80 border-gray-800' : 'bg-white border-gray-200'} border rounded-xl p-5 hover:shadow-lg hover:shadow-amber-500/5 transition-all duration-300`}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-gray-200' : 'text-gray-800'} flex items-center gap-2`}>
+                <div className="w-1 h-4 bg-blue-500 rounded-full" />
+                Today's Schedule
+              </h3>
+              <button onClick={() => setActiveSection('calendar')} className={`text-xs ${isDarkMode ? 'text-amber-400 hover:text-amber-300' : 'text-amber-600 hover:text-amber-700'} font-medium transition-colors`}>
+                View Calendar &rarr;
+              </button>
+            </div>
+            <div className="space-y-2 max-h-[280px] overflow-auto">
+              {todayAppointments.length === 0 ? (
+                <div className={`text-center py-8 ${isDarkMode ? 'text-gray-600' : 'text-gray-400'}`}>
+                  <CalendarIcon className="h-10 w-10 mx-auto mb-2 opacity-40" />
+                  <p className="text-sm">No appointments today</p>
+                  <p className={`text-xs mt-1 ${isDarkMode ? 'text-gray-700' : 'text-gray-300'}`}>Enjoy the quiet day!</p>
+                </div>
+              ) : (
+                todayAppointments.map((apt) => (
+                  <div key={apt.id} onClick={() => setViewModalAppointment(apt)} className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all ${isDarkMode ? 'bg-gray-800/50 hover:bg-gray-800 border border-gray-800 hover:border-gray-700' : 'bg-gray-50 hover:bg-gray-100 border border-gray-100 hover:border-gray-200'}`}>
+                    <div className="flex-shrink-0 w-1 h-10 bg-amber-500 rounded-full" />
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm font-medium truncate ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                        {apt.user?.first_name} {apt.user?.last_name}
+                      </p>
+                      <p className={`text-xs truncate ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                        {apt.service?.name || 'Service'} &middot; {apt.start_time}
+                      </p>
+                    </div>
+                    <span className={`text-xs font-semibold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'} tabular-nums`}>
+                      {formatPrice(apt.service?.price)}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Quick Actions */}
+          <div className={`${isDarkMode ? 'bg-gray-900/80 border-gray-800' : 'bg-white border-gray-200'} border rounded-xl p-5 hover:shadow-lg hover:shadow-amber-500/5 transition-all duration-300`}>
+            <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-gray-200' : 'text-gray-800'} mb-4 flex items-center gap-2`}>
+              <div className="w-1 h-4 bg-emerald-500 rounded-full" />
+              Quick Actions
+            </h3>
+            <div className="grid grid-cols-2 gap-3">
+              <button onClick={() => setActiveSection('appointments')} className={`flex flex-col items-center gap-2.5 p-4 rounded-xl transition-all ${isDarkMode ? 'bg-gray-800/50 hover:bg-amber-500/10 border border-gray-800 hover:border-amber-500/30 text-gray-400 hover:text-amber-400' : 'bg-gray-50 hover:bg-amber-50 border border-gray-100 hover:border-amber-200 text-gray-500 hover:text-amber-600'}`}>
+                <CurrencyDollarIcon className="h-6 w-6" />
+                <span className="text-xs font-medium">Payment</span>
+              </button>
+              <button onClick={() => setActiveSection('calendar')} className={`flex flex-col items-center gap-2.5 p-4 rounded-xl transition-all ${isDarkMode ? 'bg-gray-800/50 hover:bg-blue-500/10 border border-gray-800 hover:border-blue-500/30 text-gray-400 hover:text-blue-400' : 'bg-gray-50 hover:bg-blue-50 border border-gray-100 hover:border-blue-200 text-gray-500 hover:text-blue-600'}`}>
+                <CalendarIcon className="h-6 w-6" />
+                <span className="text-xs font-medium">Calendar</span>
+              </button>
+              <button onClick={() => setActiveSection('transactions')} className={`flex flex-col items-center gap-2.5 p-4 rounded-xl transition-all ${isDarkMode ? 'bg-gray-800/50 hover:bg-emerald-500/10 border border-gray-800 hover:border-emerald-500/30 text-gray-400 hover:text-emerald-400' : 'bg-gray-50 hover:bg-emerald-50 border border-gray-100 hover:border-emerald-200 text-gray-500 hover:text-emerald-600'}`}>
+                <DocumentTextIcon className="h-6 w-6" />
+                <span className="text-xs font-medium">Sales</span>
+              </button>
+              <button onClick={() => setActiveSection('reports')} className={`flex flex-col items-center gap-2.5 p-4 rounded-xl transition-all ${isDarkMode ? 'bg-gray-800/50 hover:bg-purple-500/10 border border-gray-800 hover:border-purple-500/30 text-gray-400 hover:text-purple-400' : 'bg-gray-50 hover:bg-purple-50 border border-gray-100 hover:border-purple-200 text-gray-500 hover:text-purple-600'}`}>
+                <ChartBarIcon className="h-6 w-6" />
+                <span className="text-xs font-medium">Reports</span>
+              </button>
+            </div>
+            <button onClick={() => setActiveSection('refunds')} className={`w-full mt-3 flex items-center justify-center gap-2 p-3 rounded-xl text-sm font-medium transition-all ${isDarkMode ? 'bg-gray-800/50 hover:bg-red-500/10 border border-gray-800 hover:border-red-500/30 text-gray-400 hover:text-red-400' : 'bg-gray-50 hover:bg-red-50 border border-gray-100 hover:border-red-200 text-gray-500 hover:text-red-600'}`}>
+              <ArrowUturnLeftIcon className="h-4 w-4" />
+              Manage Refunds
+            </button>
+          </div>
+
+          {/* Revenue Breakdown */}
+          <div className={`${isDarkMode ? 'bg-gray-900/80 border-gray-800' : 'bg-white border-gray-200'} border rounded-xl p-5 hover:shadow-lg hover:shadow-amber-500/5 transition-all duration-300`}>
+            <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-gray-200' : 'text-gray-800'} mb-4 flex items-center gap-2`}>
+              <div className="w-1 h-4 bg-purple-500 rounded-full" />
+              Revenue Breakdown
+            </h3>
+            <div className="space-y-3 max-h-[280px] overflow-auto">
+              {revenueData.slice(-8).map((item, index) => {
+                const maxVal = Math.max(...revenueData.slice(-8).map(d => Number(d.value) || 0), 1);
+                const pct = ((Number(item.value) || 0) / maxVal) * 100;
+                return (
+                  <div key={index} className="group">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className={`text-xs font-medium ${isDarkMode ? 'text-gray-400 group-hover:text-gray-200' : 'text-gray-500 group-hover:text-gray-700'} transition-colors`}>{item.label}</span>
+                      <span className={`text-xs font-bold tabular-nums ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>{formatPrice(item.value)}</span>
+                    </div>
+                    <div className={`w-full h-2 rounded-full ${isDarkMode ? 'bg-gray-800' : 'bg-gray-100'} overflow-hidden`}>
+                      <div className="h-full rounded-full bg-gradient-to-r from-amber-500 to-amber-400 transition-all duration-700 ease-out group-hover:from-amber-400 group-hover:to-yellow-400" style={{ width: `${Math.max(2, pct)}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+              {revenueData.length === 0 && (
+                <div className={`text-center py-6 ${isDarkMode ? 'text-gray-600' : 'text-gray-400'}`}>
+                  <ChartBarIcon className="h-8 w-8 mx-auto mb-2 opacity-40" />
+                  <p className="text-xs">No revenue data yet</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
-
-      {/* Dev debug: show raw payload returned from API */}
-      {/* debug panel removed */}
-    </div>
-  );
+    );
+  };
 
   // Render Appointments Section
   const renderAppointments = () => (
     <div className="space-y-4">
       {/* Tabs */}
-      <div className="flex items-center gap-2 border-b border-gray-700">
+      <div className={`flex items-center gap-2 border-b ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
         <button
           onClick={() => setAppointmentsTab('approved')}
           className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
             appointmentsTab === 'approved'
-              ? 'border-amber-500 text-amber-400'
-              : 'border-transparent text-gray-400 hover:text-amber-300'
+              ? `border-amber-500 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`
+              : `border-transparent ${isDarkMode ? 'text-gray-400 hover:text-amber-300' : 'text-gray-500 hover:text-amber-500'}`
           }`}
         >
-          Approved Appointments ({appointmentsTab === 'approved' ? filteredAppointments.filter(apt => apt.status === 'approved' && (apt.payment_status !== 'paid')).length : ''})
+          Approved ({appointmentsTab === 'approved' ? filteredAppointments.filter(apt => apt.status === 'approved' && (apt.payment_status !== 'paid')).length : ''})
         </button>
         <button
           onClick={() => setAppointmentsTab('completed')}
           className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
             appointmentsTab === 'completed'
-              ? 'border-amber-500 text-amber-400'
-              : 'border-transparent text-gray-400 hover:text-amber-300'
+              ? `border-amber-500 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`
+              : `border-transparent ${isDarkMode ? 'text-gray-400 hover:text-amber-300' : 'text-gray-500 hover:text-amber-500'}`
           }`}
         >
-          Completed Appointments ({appointmentsTab === 'completed' ? filteredAppointments.filter(apt => apt.payment_status === 'paid' || apt.status === 'completed').length : ''})
+          Completed ({appointmentsTab === 'completed' ? filteredAppointments.filter(apt => ['paid', 'refunded', 'partially_refunded'].includes(apt.payment_status) || apt.status === 'completed').length : ''})
         </button>
         <div className="ml-auto flex items-center gap-2">
-          <label className="text-xs text-gray-400 mr-1">Rows</label>
-          <select value={perPage} onChange={(e) => { setPerPage(Number(e.target.value)); setCurrentPage(1); }} className="bg-gray-800 border border-gray-700 text-xs text-gray-200 px-2 py-1 rounded">
+          <label className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} mr-1`}>Rows</label>
+          <select value={perPage} onChange={(e) => { setPerPage(Number(e.target.value)); setCurrentPage(1); }} className={`border text-xs px-2 py-1 rounded ${isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-200' : 'bg-white border-gray-300 text-gray-800'}`}>
             <option value={5}>5</option>
             <option value={10}>10</option>
             <option value={20}>20</option>
           </select>
-          <button onClick={() => setIsDense(d => !d)} className={`px-2 py-1 text-xs rounded ${isDense ? 'bg-amber-600 text-white' : 'bg-gray-800 text-gray-300'}`} title="Toggle dense view">{isDense ? 'Dense' : 'Comfort'}</button>
+          <button onClick={() => setIsDense(d => !d)} className={`px-2 py-1 text-xs rounded transition-colors ${isDense ? 'bg-amber-600 text-white' : (isDarkMode ? 'bg-gray-800 text-gray-300' : 'bg-gray-200 text-gray-600')}`} title="Toggle dense view">{isDense ? 'Dense' : 'Comfort'}</button>
         </div>
       </div>
 
       {/* Today's Appointments Notice */}
       {appointmentsTab === 'approved' && todayAppointments.length > 0 && (
-        <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4 space-y-2">
+        <div className={`${isDarkMode ? 'bg-amber-500/10 border-amber-500/30' : 'bg-amber-50 border-amber-200'} border rounded-lg p-4 space-y-2`}>
             <div className="flex items-center justify-between">
-            <p className="text-amber-400 text-sm font-medium">📅 You have {todayAppointments.length} appointment(s) scheduled for today</p>
+            <p className={`${isDarkMode ? 'text-amber-400' : 'text-amber-700'} text-sm font-medium`}>📅 You have {todayAppointments.length} appointment(s) scheduled for today</p>
             <button
               onClick={() => toggleExpanded('today-list')}
-              className="px-2 py-1 text-xs bg-amber-600 text-white rounded"
+              className="px-2 py-1 text-xs bg-amber-600 text-white rounded hover:bg-amber-700 transition-colors"
             >
               {expandedAppointment === 'today-list' ? 'Collapse' : 'View Today'}
             </button>
@@ -1885,15 +2735,15 @@ const CashierDashboard = () => {
           {expandedAppointment === 'today-list' && (
             <div className="mt-2 space-y-2">
                     {todayAppointments.map((apt) => (
-                      <div key={apt.id} className="bg-gray-800 border border-gray-700 rounded p-2 flex items-center justify-between text-xs">
+                      <div key={apt.id} className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} border rounded p-2 flex items-center justify-between text-xs`}>
                         <div>
-                          <div className="font-medium text-amber-50">{apt.user?.first_name} {apt.user?.last_name}</div>
-                          <div className="text-gray-400">{apt.service?.name || 'N/A'} — {apt.start_time}</div>
+                          <div className={`font-medium ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>{apt.user?.first_name} {apt.user?.last_name}</div>
+                          <div className={isDarkMode ? 'text-gray-400' : 'text-gray-500'}>{apt.service?.name || 'N/A'} — {apt.start_time}</div>
                         </div>
                         <div>
                           <button
                             onClick={() => setViewModalAppointment(apt)}
-                            className="px-2 py-1 text-xs bg-amber-600 text-white rounded"
+                            className="px-2 py-1 text-xs bg-amber-600 text-white rounded hover:bg-amber-700 transition-colors"
                           >Open</button>
                         </div>
                       </div>
@@ -1923,21 +2773,21 @@ const CashierDashboard = () => {
                 {displayed.map((appointment) => (
             <div
               key={appointment.id}
-              className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg overflow-hidden hover:border-amber-500/40 transition-all ${isDense ? 'p-2 text-sm' : ''}`}
+              className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20 hover:border-amber-500/40' : 'bg-white border-gray-200 hover:border-amber-300'} border rounded-lg overflow-hidden transition-all ${isDense ? 'p-2 text-sm' : ''}`}
             >
               <div className={`${isDense ? 'p-2' : 'p-3'} text-sm`}>
                 <div className="flex justify-between items-start">
                   <div className="flex-1">
-                    <h3 className="text-sm font-semibold text-amber-50">
+                    <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>
                       {appointment.user?.first_name} {appointment.user?.last_name}
                     </h3>
-                    <p className="text-xs text-gray-400 mt-1">
+                    <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} mt-1`}>
                       Service: {appointment.service?.name || 'N/A'}
                     </p>
-                    <p className="text-xs text-gray-400">
-                      Date: {new Date(appointment.appointment_date).toLocaleDateString()}
+                    <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                      Date: {formatDateDisplay(appointment.appointment_date)}
                     </p>
-                    <p className="text-xs text-gray-400">
+                    <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                       Time: {appointment.start_time} - {appointment.end_time}
                     </p>
                   </div>
@@ -1946,7 +2796,7 @@ const CashierDashboard = () => {
                       {appointmentsTab === 'approved' && (
                         <button
                           onClick={() => setViewModalAppointment(appointment)}
-                          className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-xs flex items-center gap-1"
+                          className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white rounded text-xs flex items-center gap-1 transition-colors"
                         >
                           <EyeIcon className="h-3 w-3" />
                           Complete
@@ -1954,13 +2804,35 @@ const CashierDashboard = () => {
                       )}
 
                       {appointmentsTab === 'completed' && (
-                        <button
-                          onClick={() => setViewModalAppointment({ ...appointment, _viewOnly: true })}
-                          className="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white rounded text-xs flex items-center gap-1"
-                        >
-                          <EyeIcon className="h-3 w-3" />
-                          View
-                        </button>
+                        <>
+                          {/* Show refund status badge if refund exists */}
+                          {appointment.active_refund && (
+                            <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                              appointment.active_refund.status === 'completed' ? (isDarkMode ? 'bg-green-500/20 text-green-400' : 'bg-green-100 text-green-700') :
+                              appointment.active_refund.status === 'pending' ? (isDarkMode ? 'bg-yellow-500/20 text-yellow-400' : 'bg-yellow-100 text-yellow-700') :
+                              appointment.active_refund.status === 'approved' ? (isDarkMode ? 'bg-blue-500/20 text-blue-400' : 'bg-blue-100 text-blue-700') :
+                              (isDarkMode ? 'bg-red-500/20 text-red-400' : 'bg-red-100 text-red-700')
+                            }`}>Refund: {appointment.active_refund.status}</span>
+                          )}
+                          {/* Request Refund button - only if paid and no active refund */}
+                          {appointment.payment_status === 'paid' && !appointment.active_refund && (
+                            <button
+                              onClick={() => openCashierRefundModal(appointment)}
+                              className="px-2 py-1 bg-red-600 hover:bg-red-700 text-white rounded text-xs flex items-center gap-1 transition-colors"
+                              title="Request refund for this appointment"
+                            >
+                              <ArrowUturnLeftIcon className="h-3 w-3" />
+                              Refund
+                            </button>
+                          )}
+                          <button
+                            onClick={() => setViewModalAppointment({ ...appointment, _viewOnly: true })}
+                            className={`px-3 py-1 ${isDarkMode ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-gray-200 hover:bg-gray-300 text-gray-800'} rounded text-xs flex items-center gap-1 transition-colors`}
+                          >
+                            <EyeIcon className="h-3 w-3" />
+                            View
+                          </button>
+                        </>
                       )}
                     </div>
                 </div>
@@ -1972,18 +2844,18 @@ const CashierDashboard = () => {
 
                 {/* Pagination Controls */}
                 <div className="flex items-center gap-4 mt-3">
-                  <div className="text-xs text-gray-400">Showing {start} - {end} of {totalAppointments || filteredAppointments.length}</div>
+                  <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Showing {start} - {end} of {totalAppointments || filteredAppointments.length}</div>
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => setCurrentPage(p => Math.max(1, p-1))}
                       disabled={currentPage === 1}
-                      className="px-2 py-1 text-xs bg-gray-800 rounded disabled:opacity-50"
+                      className={`px-2 py-1 text-xs rounded disabled:opacity-50 transition-colors ${isDarkMode ? 'bg-gray-800 text-gray-300 hover:bg-gray-700' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
                     >Prev</button>
-                    <div className="text-xs text-gray-300">Page {currentPage} / {Math.max(1, totalPages)}</div>
+                    <div className={`text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>Page {currentPage} / {Math.max(1, totalPages)}</div>
                     <button
                       onClick={() => setCurrentPage(p => Math.min(totalPages, p+1))}
                       disabled={currentPage >= totalPages}
-                      className="px-2 py-1 text-xs bg-gray-800 rounded disabled:opacity-50"
+                      className={`px-2 py-1 text-xs rounded disabled:opacity-50 transition-colors ${isDarkMode ? 'bg-gray-800 text-gray-300 hover:bg-gray-700' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
                     >Next</button>
                   </div>
                 </div>
@@ -2025,6 +2897,7 @@ const CashierDashboard = () => {
             setViewModalAppointment(apt);
           }}
           isLoading={calendarLoading}
+          isDarkMode={isDarkMode}
         />
       </div>
     );
@@ -2034,15 +2907,15 @@ const CashierDashboard = () => {
   const renderActionLogs = () => (
     <div className="space-y-4">
       {/* Tabs */}
-      <div className="flex gap-2 border-b border-gray-700">
+      <div className={`flex gap-2 border-b ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
         <button
           onClick={() => {
             setLogsTab('admin');
           }}
           className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
             logsTab === 'admin'
-              ? 'border-amber-500 text-amber-400'
-              : 'border-transparent text-gray-400 hover:text-amber-300'
+              ? `border-amber-500 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`
+              : `border-transparent ${isDarkMode ? 'text-gray-400 hover:text-amber-300' : 'text-gray-500 hover:text-amber-500'}`
           }`}
         >
           Admin Logs
@@ -2053,8 +2926,8 @@ const CashierDashboard = () => {
           }}
           className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
             logsTab === 'cashier'
-              ? 'border-amber-500 text-amber-400'
-              : 'border-transparent text-gray-400 hover:text-amber-300'
+              ? `border-amber-500 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`
+              : `border-transparent ${isDarkMode ? 'text-gray-400 hover:text-amber-300' : 'text-gray-500 hover:text-amber-500'}`
           }`}
         >
           My Logs
@@ -2064,14 +2937,14 @@ const CashierDashboard = () => {
       {/* Pagination Controls on Left */}
       <div className="flex items-center gap-4 mb-4">
         <div className="flex items-center gap-2">
-          <label className="text-xs text-gray-400 mr-1">Rows</label>
+          <label className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} mr-1`}>Rows</label>
           <select 
             value={logsPerPage} 
             onChange={(e) => { 
               setLogsPerPage(Number(e.target.value)); 
               setLogsPage(1); 
             }} 
-            className="bg-gray-800 border border-gray-700 text-xs text-gray-200 px-2 py-1 rounded"
+            className={`border text-xs px-2 py-1 rounded ${isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-200' : 'bg-white border-gray-300 text-gray-800'}`}
           >
             <option value={5}>5</option>
             <option value={10}>10</option>
@@ -2080,7 +2953,7 @@ const CashierDashboard = () => {
           </select>
         </div>
 
-        <div className="text-xs text-gray-400">
+        <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
           {actionLogs.length > 0 ? (
             <>
               Showing {((logsPage - 1) * logsPerPage) + 1} - {Math.min(logsPage * logsPerPage, totalLogs)} of {totalLogs}
@@ -2096,7 +2969,7 @@ const CashierDashboard = () => {
             <button
               onClick={() => setLogsPage(1)}
               disabled={logsPage === 1}
-              className="px-2 py-1 text-xs bg-gray-800 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-gray-300 hover:text-white rounded transition-colors"
+              className={`px-2 py-1 text-xs rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors ${isDarkMode ? 'bg-gray-800 hover:bg-amber-600 text-gray-300 hover:text-white' : 'bg-gray-200 hover:bg-amber-500 text-gray-600 hover:text-white'}`}
               title="First page"
             >
               «
@@ -2104,18 +2977,18 @@ const CashierDashboard = () => {
             <button
               onClick={() => setLogsPage(prev => Math.max(1, prev - 1))}
               disabled={logsPage === 1}
-              className="px-2 py-1 text-xs bg-gray-800 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-gray-300 hover:text-white rounded transition-colors"
+              className={`px-2 py-1 text-xs rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors ${isDarkMode ? 'bg-gray-800 hover:bg-amber-600 text-gray-300 hover:text-white' : 'bg-gray-200 hover:bg-amber-500 text-gray-600 hover:text-white'}`}
               title="Previous page"
             >
               ‹
             </button>
-            <span className="text-xs text-gray-400 px-2">
+            <span className={`text-xs px-2 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
               {logsPage} / {totalLogPages}
             </span>
             <button
               onClick={() => setLogsPage(prev => Math.min(totalLogPages, prev + 1))}
               disabled={logsPage === totalLogPages}
-              className="px-2 py-1 text-xs bg-gray-800 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-gray-300 hover:text-white rounded transition-colors"
+              className={`px-2 py-1 text-xs rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors ${isDarkMode ? 'bg-gray-800 hover:bg-amber-600 text-gray-300 hover:text-white' : 'bg-gray-200 hover:bg-amber-500 text-gray-600 hover:text-white'}`}
               title="Next page"
             >
               ›
@@ -2123,7 +2996,7 @@ const CashierDashboard = () => {
             <button
               onClick={() => setLogsPage(totalLogPages)}
               disabled={logsPage === totalLogPages}
-              className="px-2 py-1 text-xs bg-gray-800 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-gray-300 hover:text-white rounded transition-colors"
+              className={`px-2 py-1 text-xs rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors ${isDarkMode ? 'bg-gray-800 hover:bg-amber-600 text-gray-300 hover:text-white' : 'bg-gray-200 hover:bg-amber-500 text-gray-600 hover:text-white'}`}
               title="Last page"
             >
               »
@@ -2133,16 +3006,16 @@ const CashierDashboard = () => {
       </div>
 
       {/* Logs Table */}
-      <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg overflow-hidden`}>
+      <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-gray-200'} border rounded-lg overflow-hidden`}>
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'} border-b`}>
               <tr>
-                <th className="px-4 py-3 text-left text-amber-400 font-semibold">Date & Time</th>
-                <th className="px-4 py-3 text-left text-amber-400 font-semibold">User</th>
-                <th className="px-4 py-3 text-left text-amber-400 font-semibold">Action</th>
-                <th className="px-4 py-3 text-left text-amber-400 font-semibold">Details</th>
-                <th className="px-4 py-3 text-left text-amber-400 font-semibold">Actions</th>
+                <th className={`px-4 py-3 text-left font-semibold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>Date & Time</th>
+                <th className={`px-4 py-3 text-left font-semibold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>User</th>
+                <th className={`px-4 py-3 text-left font-semibold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>Action</th>
+                <th className={`px-4 py-3 text-left font-semibold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>Details</th>
+                <th className={`px-4 py-3 text-left font-semibold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -2154,30 +3027,30 @@ const CashierDashboard = () => {
                 </tr>
               ) : actionLogs.length === 0 ? (
                 <tr>
-                  <td colSpan="5" className="px-4 py-8 text-center text-gray-400">
+                  <td colSpan="5" className={`px-4 py-8 text-center ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                     No {logsTab === 'admin' ? 'admin' : 'cashier'} logs found
                   </td>
                 </tr>
               ) : (
                 actionLogs.map((log) => (
-                  <tr key={log.id} className="border-b border-gray-800 hover:bg-gray-800/50 transition-colors">
-                    <td className="px-4 py-3 text-gray-300">
+                  <tr key={log.id} className={`border-b ${isDarkMode ? 'border-gray-800 hover:bg-gray-800/50' : 'border-gray-100 hover:bg-gray-50'} transition-colors`}>
+                    <td className={`px-4 py-3 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
                       {new Date(log.created_at).toLocaleString()}
                     </td>
-                    <td className="px-4 py-3 text-amber-50 font-medium">
+                    <td className={`px-4 py-3 ${isDarkMode ? 'text-amber-50' : 'text-gray-900'} font-medium`}>
                       {log.user ? `${log.user.first_name || ''} ${log.user.last_name || ''}`.trim() : 'Unknown'}
                     </td>
                     <td className="px-4 py-3">
-                      <span className="px-2 py-1 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-400">
+                      <span className={`px-2 py-1 rounded-full text-xs font-semibold ${isDarkMode ? 'bg-amber-500/20 text-amber-400' : 'bg-amber-100 text-amber-700'}`}>
                         {log.action}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-gray-300">
+                    <td className={`px-4 py-3 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
                       <div className="max-w-xs truncate" title={log.description}>
                         {log.description}
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-gray-300">
+                    <td className="px-4 py-3">
                       <button
                         onClick={() => {
                           setSelectedActionLog(log);
@@ -2238,45 +3111,45 @@ const CashierDashboard = () => {
           <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs text-gray-400 mb-2 font-semibold">First Name</label>
+                <label className={`block text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} mb-2 font-semibold`}>First Name</label>
                 <input
                   type="text"
                   value={profileFormData.first_name}
                   onChange={(e) => setProfileFormData(prev => ({ ...prev, first_name: e.target.value }))}
-                  className="w-full bg-gray-800 border border-gray-700 px-3 py-2 rounded text-sm text-gray-200 focus:border-amber-500 focus:outline-none"
+                  className={`w-full border px-3 py-2 rounded text-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 ${isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-200' : 'bg-white border-gray-300 text-gray-900'}`}
                   placeholder="Enter first name"
                 />
               </div>
               <div>
-                <label className="block text-xs text-gray-400 mb-2 font-semibold">Last Name</label>
+                <label className={`block text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} mb-2 font-semibold`}>Last Name</label>
                 <input
                   type="text"
                   value={profileFormData.last_name}
                   onChange={(e) => setProfileFormData(prev => ({ ...prev, last_name: e.target.value }))}
-                  className="w-full bg-gray-800 border border-gray-700 px-3 py-2 rounded text-sm text-gray-200 focus:border-amber-500 focus:outline-none"
+                  className={`w-full border px-3 py-2 rounded text-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 ${isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-200' : 'bg-white border-gray-300 text-gray-900'}`}
                   placeholder="Enter last name"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs text-gray-400 mb-2 font-semibold">Email</label>
+              <label className={`block text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} mb-2 font-semibold`}>Email</label>
               <input
                 type="email"
                 value={profileFormData.email}
                 onChange={(e) => setProfileFormData(prev => ({ ...prev, email: e.target.value }))}
-                className="w-full bg-gray-800 border border-gray-700 px-3 py-2 rounded text-sm text-gray-200 focus:border-amber-500 focus:outline-none"
+                className={`w-full border px-3 py-2 rounded text-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 ${isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-200' : 'bg-white border-gray-300 text-gray-900'}`}
                 placeholder="Enter email address"
               />
             </div>
 
             <div>
-              <label className="block text-xs text-gray-400 mb-2 font-semibold">Phone</label>
+              <label className={`block text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} mb-2 font-semibold`}>Phone</label>
               <input
                 type="tel"
                 value={profileFormData.phone}
                 onChange={(e) => setProfileFormData(prev => ({ ...prev, phone: e.target.value }))}
-                className="w-full bg-gray-800 border border-gray-700 px-3 py-2 rounded text-sm text-gray-200 focus:border-amber-500 focus:outline-none"
+                className={`w-full border px-3 py-2 rounded text-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 ${isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-200' : 'bg-white border-gray-300 text-gray-900'}`}
                 placeholder="Enter phone number"
               />
             </div>
@@ -2284,7 +3157,7 @@ const CashierDashboard = () => {
             <div className="pt-4 flex gap-3 justify-end">
               <button
                 onClick={handleCancelEdit}
-                className="px-4 py-2 bg-gray-700 text-gray-200 rounded text-sm font-medium hover:bg-gray-600 transition-all"
+                className={`px-4 py-2 rounded text-sm font-medium transition-all ${isDarkMode ? 'bg-gray-700 text-gray-200 hover:bg-gray-600' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
               >
                 Cancel
               </button>
@@ -2308,23 +3181,23 @@ const CashierDashboard = () => {
           // Display Mode
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-4">
-              <div className="bg-gray-800/50 rounded p-4 border border-gray-700/50">
-                <p className="text-xs text-gray-400 mb-1">First Name</p>
-                <p className="text-sm text-amber-50 font-medium">{user?.first_name || 'Not set'}</p>
+              <div className={`${isDarkMode ? 'bg-gray-800/50 border-gray-700/50' : 'bg-gray-50 border-gray-200'} rounded p-4 border`}>
+                <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} mb-1`}>First Name</p>
+                <p className={`text-sm ${isDarkMode ? 'text-amber-50' : 'text-gray-900'} font-medium`}>{user?.first_name || 'Not set'}</p>
               </div>
-              <div className="bg-gray-800/50 rounded p-4 border border-gray-700/50">
-                <p className="text-xs text-gray-400 mb-1">Last Name</p>
-                <p className="text-sm text-amber-50 font-medium">{user?.last_name || 'Not set'}</p>
+              <div className={`${isDarkMode ? 'bg-gray-800/50 border-gray-700/50' : 'bg-gray-50 border-gray-200'} rounded p-4 border`}>
+                <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} mb-1`}>Last Name</p>
+                <p className={`text-sm ${isDarkMode ? 'text-amber-50' : 'text-gray-900'} font-medium`}>{user?.last_name || 'Not set'}</p>
               </div>
             </div>
             <div className="space-y-4">
-              <div className="bg-gray-800/50 rounded p-4 border border-gray-700/50">
-                <p className="text-xs text-gray-400 mb-1">Email Address</p>
-                <p className="text-sm text-amber-50 font-medium break-all">{user?.email || 'Not set'}</p>
+              <div className={`${isDarkMode ? 'bg-gray-800/50 border-gray-700/50' : 'bg-gray-50 border-gray-200'} rounded p-4 border`}>
+                <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} mb-1`}>Email Address</p>
+                <p className={`text-sm ${isDarkMode ? 'text-amber-50' : 'text-gray-900'} font-medium break-all`}>{user?.email || 'Not set'}</p>
               </div>
-              <div className="bg-gray-800/50 rounded p-4 border border-gray-700/50">
-                <p className="text-xs text-gray-400 mb-1">Phone Number</p>
-                <p className="text-sm text-amber-50 font-medium">{user?.phone || 'Not set'}</p>
+              <div className={`${isDarkMode ? 'bg-gray-800/50 border-gray-700/50' : 'bg-gray-50 border-gray-200'} rounded p-4 border`}>
+                <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} mb-1`}>Phone Number</p>
+                <p className={`text-sm ${isDarkMode ? 'text-amber-50' : 'text-gray-900'} font-medium`}>{user?.phone || 'Not set'}</p>
               </div>
             </div>
           </div>
@@ -2338,35 +3211,95 @@ const CashierDashboard = () => {
           Account Information
         </h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="bg-gray-800/50 rounded p-4 border border-gray-700/50">
-            <p className="text-xs text-gray-400 mb-1">User ID</p>
-            <p className="text-sm font-mono text-amber-50">#{user?.id || 'N/A'}</p>
+          <div className={`${isDarkMode ? 'bg-gray-800/50 border-gray-700/50' : 'bg-gray-50 border-gray-200'} rounded p-4 border`}>
+            <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} mb-1`}>User ID</p>
+            <p className={`text-sm font-mono ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>#{user?.id || 'N/A'}</p>
           </div>
-          <div className="bg-gray-800/50 rounded p-4 border border-gray-700/50">
-            <p className="text-xs text-gray-400 mb-1">Role</p>
-            <p className="text-sm text-amber-50 capitalize font-medium">{user?.role || 'N/A'}</p>
+          <div className={`${isDarkMode ? 'bg-gray-800/50 border-gray-700/50' : 'bg-gray-50 border-gray-200'} rounded p-4 border`}>
+            <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} mb-1`}>Role</p>
+            <p className={`text-sm capitalize font-medium ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>{user?.role || 'N/A'}</p>
           </div>
-          <div className="bg-gray-800/50 rounded p-4 border border-gray-700/50">
-            <p className="text-xs text-gray-400 mb-1">Account Status</p>
-            <p className="text-sm text-green-400 font-medium">✓ Active</p>
+          <div className={`${isDarkMode ? 'bg-gray-800/50 border-gray-700/50' : 'bg-gray-50 border-gray-200'} rounded p-4 border`}>
+            <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} mb-1`}>Account Status</p>
+            <p className="text-sm text-green-500 font-medium">✓ Active</p>
           </div>
-          <div className="bg-gray-800/50 rounded p-4 border border-gray-700/50">
-            <p className="text-xs text-gray-400 mb-1">Member Since</p>
-            <p className="text-sm text-amber-50">{user?.created_at ? new Date(user.created_at).toLocaleDateString() : 'N/A'}</p>
+          <div className={`${isDarkMode ? 'bg-gray-800/50 border-gray-700/50' : 'bg-gray-50 border-gray-200'} rounded p-4 border`}>
+            <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} mb-1`}>Member Since</p>
+            <p className={`text-sm ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>{user?.created_at ? new Date(user.created_at).toLocaleDateString() : 'N/A'}</p>
           </div>
         </div>
       </div>
 
-      {/* Security Section */}
+      {/* Security Section - Password Change */}
       <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg p-6`}>
         <h3 className={`text-lg font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-4 flex items-center`}>
           <LockClosedIcon className="h-5 w-5 mr-2" />
-          Security
-        </h3>
-        <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-600'} text-sm mb-4`}>Manage your account security settings</p>
-        <button className="px-4 py-2 bg-gray-700 text-gray-200 rounded text-sm font-medium hover:bg-gray-600 transition-all">
           Change Password
-        </button>
+        </h3>
+        {passwordSuccess && (
+          <div className="mb-4 p-3 bg-green-500/10 border border-green-500/30 rounded text-green-500 text-sm">{passwordSuccess}</div>
+        )}
+        {passwordErrors.general && (
+          <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded text-red-500 text-sm">{passwordErrors.general}</div>
+        )}
+        <div className="space-y-4 max-w-md">
+          <div>
+            <label className={`block text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} mb-2 font-semibold`}>Current Password</label>
+            <div className="relative">
+              <input
+                type={showPassword.current ? 'text' : 'password'}
+                value={passwordData.current_password}
+                onChange={(e) => setPasswordData(prev => ({ ...prev, current_password: e.target.value }))}
+                className={`w-full border px-3 py-2 rounded text-sm pr-10 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 ${isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-200' : 'bg-white border-gray-300 text-gray-900'}`}
+                placeholder="Enter current password"
+              />
+              <button type="button" onClick={() => setShowPassword(p => ({ ...p, current: !p.current }))} className={`absolute right-2 top-2 p-1 rounded ${isDarkMode ? 'text-gray-400 hover:text-amber-400' : 'text-gray-500 hover:text-amber-600'}`}>
+                <EyeSlashIcon className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+          <div>
+            <label className={`block text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} mb-2 font-semibold`}>New Password</label>
+            <div className="relative">
+              <input
+                type={showPassword.new ? 'text' : 'password'}
+                value={passwordData.new_password}
+                onChange={(e) => setPasswordData(prev => ({ ...prev, new_password: e.target.value }))}
+                className={`w-full border px-3 py-2 rounded text-sm pr-10 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 ${isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-200' : 'bg-white border-gray-300 text-gray-900'}`}
+                placeholder="Min 8 characters"
+              />
+              <button type="button" onClick={() => setShowPassword(p => ({ ...p, new: !p.new }))} className={`absolute right-2 top-2 p-1 rounded ${isDarkMode ? 'text-gray-400 hover:text-amber-400' : 'text-gray-500 hover:text-amber-600'}`}>
+                <EyeSlashIcon className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+          <div>
+            <label className={`block text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} mb-2 font-semibold`}>Confirm New Password</label>
+            <div className="relative">
+              <input
+                type={showPassword.confirm ? 'text' : 'password'}
+                value={passwordData.new_password_confirmation}
+                onChange={(e) => setPasswordData(prev => ({ ...prev, new_password_confirmation: e.target.value }))}
+                className={`w-full border px-3 py-2 rounded text-sm pr-10 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 ${isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-200' : 'bg-white border-gray-300 text-gray-900'}`}
+                placeholder="Confirm new password"
+              />
+              <button type="button" onClick={() => setShowPassword(p => ({ ...p, confirm: !p.confirm }))} className={`absolute right-2 top-2 p-1 rounded ${isDarkMode ? 'text-gray-400 hover:text-amber-400' : 'text-gray-500 hover:text-amber-600'}`}>
+                <EyeSlashIcon className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+          <button
+            onClick={handlePasswordSubmit}
+            disabled={passwordSaving}
+            className="px-4 py-2 bg-gradient-to-r from-amber-600 to-amber-700 text-white rounded text-sm font-medium hover:from-amber-700 hover:to-amber-800 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+          >
+            {passwordSaving ? (
+              <><div className="animate-spin">⟳</div> Changing...</>
+            ) : (
+              'Change Password'
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -2400,29 +3333,29 @@ const CashierDashboard = () => {
                 <th className={`px-4 py-3 text-left font-semibold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>Amount</th>
                 <th className={`px-4 py-3 text-left font-semibold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>Cashier</th>
                 <th className={`px-4 py-3 text-left font-semibold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>Status</th>
-                <th className="px-4 py-3 text-left text-amber-400 font-semibold">Actions</th>
+                <th className={`px-4 py-3 text-left font-semibold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {txLoading ? (
                 <tr><td colSpan="8" className="px-4 py-8 text-center"><LoadingSpinner /></td></tr>
               ) : transactions.length === 0 ? (
-                <tr><td colSpan="8" className="px-4 py-8 text-center text-gray-400">No transactions found</td></tr>
+                <tr><td colSpan="8" className={`px-4 py-8 text-center ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>No transactions found</td></tr>
               ) : (
                 transactions.map(tx => (
-                  <tr key={tx.id} className="border-b border-gray-800 hover:bg-gray-800/50">
-                    <td className="px-4 py-3 text-gray-300">{new Date(tx.payment_date || tx.created_at).toLocaleString()}</td>
-                    <td className="px-4 py-3 text-amber-50">#{tx.id}</td>
-                    <td className="px-4 py-3 text-gray-300">{`${tx.user?.first_name || ''} ${tx.user?.last_name || ''}`.trim()}</td>
-                    <td className="px-4 py-3 text-gray-300">{tx.service?.name || '—'}</td>
-                    <td className="px-4 py-3 text-amber-400">{formatPrice(tx.payment_amount || 0)}</td>
-                    <td className="px-4 py-3 text-gray-300">
+                  <tr key={tx.id} className={`border-b ${isDarkMode ? 'border-gray-800 hover:bg-gray-800/50' : 'border-gray-100 hover:bg-gray-50'} transition-colors`}>
+                    <td className={`px-4 py-3 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>{new Date(tx.payment_date || tx.created_at).toLocaleString()}</td>
+                    <td className={`px-4 py-3 ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>#{tx.id}</td>
+                    <td className={`px-4 py-3 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>{`${tx.user?.first_name || ''} ${tx.user?.last_name || ''}`.trim()}</td>
+                    <td className={`px-4 py-3 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>{tx.service?.name || '—'}</td>
+                    <td className={`px-4 py-3 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>{formatPrice(tx.payment_amount || 0)}</td>
+                    <td className={`px-4 py-3 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
                       {tx.processedBy ? `${tx.processedBy.first_name || ''} ${tx.processedBy.last_name || ''}`.trim() : '—'}
                     </td>
                     <td className="px-4 py-3">
-                      <span className="px-2 py-1 rounded bg-green-500/20 text-green-400 font-medium">Paid</span>
+                      <span className={`px-2 py-1 rounded font-medium ${isDarkMode ? 'bg-green-500/20 text-green-400' : 'bg-green-100 text-green-700'}`}>Paid</span>
                     </td>
-                    <td className="px-4 py-3 text-gray-300">
+                    <td className={`px-4 py-3 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
                       <div className="flex gap-2">
                         <button
                           onClick={() => reprintReceipt(tx.id, tx)}
@@ -2446,11 +3379,11 @@ const CashierDashboard = () => {
       </div>
 
       <div className="flex items-center gap-4 mt-3">
-        <div className="text-xs text-gray-400">Showing page {txPage} of {txTotalPages} — {txTotal} transactions</div>
+        <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Showing page {txPage} of {txTotalPages} — {txTotal} transactions</div>
         <div className="flex items-center gap-2">
-          <button onClick={() => loadTransactions(Math.max(1, txPage - 1))} disabled={txPage === 1} className="px-2 py-1 text-xs bg-gray-800 rounded disabled:opacity-50">Prev</button>
-          <div className="text-xs text-gray-300">Page {txPage} / {txTotalPages}</div>
-          <button onClick={() => loadTransactions(Math.min(txTotalPages, txPage + 1))} disabled={txPage >= txTotalPages} className="px-2 py-1 text-xs bg-gray-800 rounded disabled:opacity-50">Next</button>
+          <button onClick={() => loadTransactions(Math.max(1, txPage - 1))} disabled={txPage === 1} className={`px-2 py-1 text-xs rounded disabled:opacity-50 transition-colors ${isDarkMode ? 'bg-gray-800 text-gray-300 hover:bg-gray-700' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}>Prev</button>
+          <div className={`text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>Page {txPage} / {txTotalPages}</div>
+          <button onClick={() => loadTransactions(Math.min(txTotalPages, txPage + 1))} disabled={txPage >= txTotalPages} className={`px-2 py-1 text-xs rounded disabled:opacity-50 transition-colors ${isDarkMode ? 'bg-gray-800 text-gray-300 hover:bg-gray-700' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}>Next</button>
         </div>
       </div>
     </div>
@@ -2462,8 +3395,8 @@ const CashierDashboard = () => {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h2 className="text-lg font-bold text-amber-50">Reports & Analytics</h2>
-          <p className="text-gray-400 text-sm">View your cashier performance and shift reports</p>
+          <h2 className={`text-lg font-bold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>Reports & Analytics</h2>
+          <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'} text-sm`}>View your cashier performance and shift reports</p>
         </div>
       </div>
 
@@ -2475,14 +3408,14 @@ const CashierDashboard = () => {
             type="date" 
             value={shiftRange.from} 
             onChange={(e) => setShiftRange(r => ({ ...r, from: e.target.value }))} 
-            className="bg-gray-800 border border-gray-700 px-3 py-2 rounded text-sm text-gray-200 focus:border-amber-500 focus:outline-none"
+            className={`border px-3 py-2 rounded text-sm focus:border-amber-500 focus:outline-none ${isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-200' : 'bg-white border-gray-300 text-gray-900'}`}
           />
-          <span className="text-gray-400">to</span>
+          <span className={isDarkMode ? 'text-gray-400' : 'text-gray-500'}>to</span>
           <input 
             type="date" 
             value={shiftRange.to} 
             onChange={(e) => setShiftRange(r => ({ ...r, to: e.target.value }))} 
-            className="bg-gray-800 border border-gray-700 px-3 py-2 rounded text-sm text-gray-200 focus:border-amber-500 focus:outline-none"
+            className={`border px-3 py-2 rounded text-sm focus:border-amber-500 focus:outline-none ${isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-200' : 'bg-white border-gray-300 text-gray-900'}`}
           />
           <button 
             onClick={() => loadShiftReport(shiftRange.from, shiftRange.to)} 
@@ -2552,7 +3485,7 @@ const CashierDashboard = () => {
               <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} mt-1`}>{stats.todaySales} sales</p>
             </div>
             <div className="bg-gradient-to-br from-blue-500/10 to-blue-600/10 border border-blue-500/20 rounded p-3 hover:border-blue-500/40 transition-all">
-              <p className="text-gray-400 text-xs mb-1">Total Sales (Period)</p>
+              <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'} text-xs mb-1`}>Total Sales (Period)</p>
               <p className="text-xl font-bold text-blue-400">{stats.totalSales}</p>
               <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} mt-1`}>transactions</p>
             </div>
@@ -2612,7 +3545,7 @@ const CashierDashboard = () => {
               setShiftRange({ from: today, to: today });
               loadShiftReport(today, today);
             }}
-            className={`px-4 py-2 ${isDarkMode ? 'bg-gray-700 hover:bg-gray-600' : 'bg-gray-200 text-gray-800 hover:bg-gray-300'} text-white rounded text-sm transition-all font-medium flex items-center justify-center gap-2 shadow`}
+            className={`px-4 py-2 rounded text-sm transition-all font-medium flex items-center justify-center gap-2 shadow ${isDarkMode ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-gray-200 hover:bg-gray-300 text-gray-800'}`}
           >
             <ArrowPathIcon className="h-4 w-4" />
             Today's Report
@@ -2621,17 +3554,312 @@ const CashierDashboard = () => {
       </div>
 
       {/* Report Information */}
-      <div className="bg-gray-900 border border-amber-500/20 rounded-lg p-4">
-        <h3 className="text-sm font-semibold text-amber-50 mb-3 flex items-center">
+      <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-gray-200'} border rounded-lg p-4`}>
+        <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-3 flex items-center`}>
           <InformationCircleIcon className="h-4 w-4 mr-2" />
           Report Information
         </h3>
-        <div className="space-y-2 text-xs text-gray-400">
+        <div className={`space-y-2 text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
           <p>📊 <strong>Shift Reports:</strong> Detailed breakdown of your daily/custom period transactions including revenue, sales count, and payment methods.</p>
           <p>💾 <strong>CSV Export:</strong> Download raw data in CSV format for use in spreadsheet applications.</p>
           <p>🏢 <strong>Accounting Export:</strong> Send data directly to Xero or QuickBooks for accounting purposes.</p>
           <p>📈 <strong>Dashboard Stats:</strong> Real-time overview of monthly and daily performance metrics.</p>
         </div>
+      </div>
+    </div>
+  );
+
+  // Render Refunds Section
+  const renderRefunds = () => (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className={`text-lg font-bold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>Refund Management</h2>
+          <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'} text-sm`}>View and manage pending refund requests</p>
+        </div>
+        <button onClick={loadRefunds} className="px-3 py-2 bg-amber-600 text-white rounded text-sm hover:bg-amber-700 transition-colors flex items-center gap-1">
+          <ArrowPathIcon className="h-4 w-4" /> Refresh
+        </button>
+      </div>
+
+      <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-gray-200'} border rounded-lg overflow-hidden`}>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'} border-b`}>
+              <tr>
+                <th className={`px-4 py-3 text-left font-semibold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>ID</th>
+                <th className={`px-4 py-3 text-left font-semibold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>Client</th>
+                <th className={`px-4 py-3 text-left font-semibold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>Amount</th>
+                <th className={`px-4 py-3 text-left font-semibold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>Reason</th>
+                <th className={`px-4 py-3 text-left font-semibold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>Status</th>
+                <th className={`px-4 py-3 text-left font-semibold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              {refundsLoading ? (
+                <tr><td colSpan="6" className="px-4 py-8 text-center"><LoadingSpinner /></td></tr>
+              ) : !Array.isArray(refunds) || refunds.length === 0 ? (
+                <tr><td colSpan="6" className={`px-4 py-8 text-center ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                  <ArrowUturnLeftIcon className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                  No pending refund requests
+                </td></tr>
+              ) : (
+                refunds.map(refund => (
+                  <tr key={refund.id} className={`border-b ${isDarkMode ? 'border-gray-800 hover:bg-gray-800/50' : 'border-gray-100 hover:bg-gray-50'} transition-colors`}>
+                    <td className={`px-4 py-3 ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>#{refund.id}</td>
+                    <td className={`px-4 py-3 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                      {refund.appointment?.user ? `${refund.appointment.user.first_name} ${refund.appointment.user.last_name}` : 'N/A'}
+                    </td>
+                    <td className={`px-4 py-3 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'} font-medium`}>{formatPrice(refund.refund_amount || 0)}</td>
+                    <td className={`px-4 py-3 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                      <div className="max-w-xs truncate" title={refund.reason || refund.refund_reason?.name || ''}>{refund.reason || refund.refund_reason?.name || '—'}</div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                        refund.status === 'approved' ? (isDarkMode ? 'bg-green-500/20 text-green-400' : 'bg-green-100 text-green-700') :
+                        refund.status === 'pending' ? (isDarkMode ? 'bg-yellow-500/20 text-yellow-400' : 'bg-yellow-100 text-yellow-700') :
+                        (isDarkMode ? 'bg-red-500/20 text-red-400' : 'bg-red-100 text-red-700')
+                      }`}>{refund.status}</span>
+                    </td>
+                    <td className={`px-4 py-3 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>{new Date(refund.created_at).toLocaleDateString()}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+
+  // Render Messages Section
+  const renderMessages = () => (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className={`text-lg font-bold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>Messages</h2>
+          <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'} text-sm`}>Communicate with clients and admins</p>
+        </div>
+        <button onClick={loadMessages} className="px-3 py-2 bg-amber-600 text-white rounded text-sm hover:bg-amber-700 transition-colors flex items-center gap-1">
+          <ArrowPathIcon className="h-4 w-4" /> Refresh
+        </button>
+      </div>
+
+      <div className={`grid grid-cols-1 lg:grid-cols-3 gap-4 ${selectedConversation ? '' : ''}`}>
+        {/* Conversation List */}
+        <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-gray-200'} border rounded-lg overflow-hidden ${selectedConversation ? 'hidden lg:block' : ''}`}>
+          <div className={`px-4 py-3 border-b ${isDarkMode ? 'border-gray-800' : 'border-gray-200'}`}>
+            <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>Conversations</h3>
+          </div>
+          <div className="max-h-[60vh] overflow-y-auto">
+            {messagesLoading ? (
+              <div className="py-8 text-center"><LoadingSpinner /></div>
+            ) : messages.length === 0 ? (
+              <div className="py-8 text-center">
+                <ChatBubbleLeftRightIcon className={`h-8 w-8 mx-auto mb-2 ${isDarkMode ? 'text-gray-600' : 'text-gray-300'}`} />
+                <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>No conversations yet</p>
+              </div>
+            ) : (
+              messages.map((msg, idx) => {
+                const otherUser = msg.sender_id === user?.id ? msg.receiver : msg.sender;
+                const otherUserId = otherUser?.id || (msg.sender_id === user?.id ? msg.receiver_id : msg.sender_id);
+                return (
+                  <button
+                    key={idx}
+                    onClick={() => {
+                      setSelectedConversation({ id: otherUserId, ...otherUser });
+                      loadConversation(otherUserId);
+                    }}
+                    className={`w-full text-left px-4 py-3 border-b transition-colors ${
+                      selectedConversation?.id === otherUserId
+                        ? (isDarkMode ? 'bg-amber-500/10 border-amber-500/20' : 'bg-amber-50 border-amber-200')
+                        : (isDarkMode ? 'border-gray-800 hover:bg-gray-800/50' : 'border-gray-100 hover:bg-gray-50')
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 bg-gradient-to-br from-amber-500 to-amber-600 rounded-full flex items-center justify-center text-white text-xs font-bold">
+                        {otherUser?.first_name?.[0] || '?'}{otherUser?.last_name?.[0] || ''}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-sm font-medium truncate ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>
+                          {otherUser ? `${otherUser.first_name || ''} ${otherUser.last_name || ''}`.trim() : 'Unknown'}
+                        </p>
+                        <p className={`text-xs truncate ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                          {msg.message?.substring(0, 40) || '...'}
+                        </p>
+                      </div>
+                      {!msg.read && msg.receiver_id === user?.id && (
+                        <div className="w-2 h-2 bg-amber-500 rounded-full flex-shrink-0"></div>
+                      )}
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        {/* Conversation Detail */}
+        <div className={`lg:col-span-2 ${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-gray-200'} border rounded-lg overflow-hidden flex flex-col`} style={{ minHeight: '400px' }}>
+          {!selectedConversation ? (
+            <div className="flex-1 flex items-center justify-center">
+              <div className="text-center">
+                <EnvelopeIcon className={`h-12 w-12 mx-auto mb-3 ${isDarkMode ? 'text-gray-600' : 'text-gray-300'}`} />
+                <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Select a conversation to start messaging</p>
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* Conversation Header */}
+              <div className={`px-4 py-3 border-b ${isDarkMode ? 'border-gray-800' : 'border-gray-200'} flex items-center gap-2`}>
+                <button onClick={() => setSelectedConversation(null)} className="lg:hidden p-1 rounded hover:bg-gray-700">
+                  <ChevronLeftIcon className="h-5 w-5" />
+                </button>
+                <div className="w-8 h-8 bg-gradient-to-br from-amber-500 to-amber-600 rounded-full flex items-center justify-center text-white text-xs font-bold">
+                  {selectedConversation?.first_name?.[0] || '?'}
+                </div>
+                <div>
+                  <p className={`text-sm font-medium ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>
+                    {selectedConversation?.first_name || ''} {selectedConversation?.last_name || ''}
+                  </p>
+                  <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>{selectedConversation?.role || ''}</p>
+                </div>
+              </div>
+
+              {/* Messages */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-3 max-h-[50vh]">
+                {conversationMessages.length === 0 ? (
+                  <p className={`text-xs text-center ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>No messages yet. Start the conversation!</p>
+                ) : (
+                  conversationMessages.map((msg, i) => {
+                    const isOwn = msg.sender_id === user?.id;
+                    return (
+                      <div key={i} className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
+                        <div className={`max-w-[75%] rounded-lg px-3 py-2 text-sm ${
+                          isOwn
+                            ? 'bg-amber-600 text-white'
+                            : (isDarkMode ? 'bg-gray-800 text-gray-200' : 'bg-gray-100 text-gray-800')
+                        }`}>
+                          <p className="whitespace-pre-wrap break-words">{msg.message}</p>
+                          <p className={`text-[10px] mt-1 ${isOwn ? 'text-amber-200' : (isDarkMode ? 'text-gray-500' : 'text-gray-400')}`}>
+                            {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Message Input */}
+              <div className={`px-4 py-3 border-t ${isDarkMode ? 'border-gray-800' : 'border-gray-200'}`}>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSendMessage()}
+                    placeholder="Type a message..."
+                    className={`flex-1 border px-3 py-2 rounded text-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 ${isDarkMode ? 'bg-gray-800 border-gray-700 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'}`}
+                  />
+                  <button
+                    onClick={handleSendMessage}
+                    disabled={sendingMessage || !newMessage.trim()}
+                    className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                  >
+                    {sendingMessage ? (
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    ) : (
+                      <PaperAirplaneIcon className="h-4 w-4" />
+                    )}
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+  // Render Notifications Section
+  const renderNotifications = () => (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className={`text-lg font-bold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>Notifications</h2>
+          <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'} text-sm`}>Stay updated on appointments, payments, and system alerts</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={async () => {
+              try {
+                await axios.put('/api/notifications/mark-all-read');
+                loadNotifications();
+                if (window?.showToast) window.showToast('Notifications', 'All marked as read', 'success');
+              } catch (err) { console.error(err); }
+            }}
+            className={`px-3 py-2 rounded text-xs font-medium transition-colors ${isDarkMode ? 'bg-gray-800 text-gray-300 hover:bg-gray-700' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+          >
+            Mark All Read
+          </button>
+          <button onClick={loadNotifications} className="px-3 py-2 bg-amber-600 text-white rounded text-sm hover:bg-amber-700 transition-colors flex items-center gap-1">
+            <ArrowPathIcon className="h-4 w-4" /> Refresh
+          </button>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className={`flex gap-2 border-b ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+        {['unread', 'all'].map(tab => (
+          <button
+            key={tab}
+            onClick={() => setNotificationsTab(tab)}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors capitalize ${
+              notificationsTab === tab
+                ? `border-amber-500 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`
+                : `border-transparent ${isDarkMode ? 'text-gray-400 hover:text-amber-300' : 'text-gray-500 hover:text-amber-500'}`
+            }`}
+          >{tab}</button>
+        ))}
+      </div>
+
+      {/* Notifications List */}
+      <div className="space-y-2">
+        {notificationsLoading ? (
+          <div className="py-8 text-center"><LoadingSpinner /></div>
+        ) : notificationsList.length === 0 ? (
+          <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-gray-200'} border rounded-lg p-8 text-center`}>
+            <BellIcon className={`h-10 w-10 mx-auto mb-3 ${isDarkMode ? 'text-gray-600' : 'text-gray-300'}`} />
+            <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>No {notificationsTab === 'unread' ? 'unread ' : ''}notifications</p>
+          </div>
+        ) : (
+          notificationsList.map(notification => (
+            <div key={notification.id} className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20 hover:border-amber-500/40' : 'bg-white border-gray-200 hover:border-amber-300'} border rounded-lg p-4 transition-all flex items-start gap-3`}>
+              <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${isDarkMode ? 'bg-amber-500/10' : 'bg-amber-50'}`}>
+                <BellIcon className={`h-4 w-4 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className={`text-sm font-medium ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>{notification.title}</p>
+                <p className={`text-xs mt-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>{notification.message}</p>
+                <p className={`text-[10px] mt-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>{new Date(notification.created_at).toLocaleString()}</p>
+              </div>
+              {!notification.read_at && (
+                <button
+                  onClick={async () => {
+                    try {
+                      await axios.put(`/api/notifications/${notification.id}/read`);
+                      loadNotifications();
+                    } catch (err) { console.error(err); }
+                  }}
+                  className={`flex-shrink-0 px-2 py-1 rounded text-xs transition-colors ${isDarkMode ? 'text-green-400 hover:bg-green-500/10' : 'text-green-600 hover:bg-green-50'}`}
+                >
+                  Mark read
+                </button>
+              )}
+            </div>
+          ))
+        )}
       </div>
     </div>
   );
@@ -2653,23 +3881,37 @@ const CashierDashboard = () => {
         return renderActionLogs();
       case 'profile':
         return renderProfile();
+      case 'refunds':
+        return renderRefunds();
+      case 'messages':
+        return renderMessages();
+      case 'notifications':
+        return renderNotifications();
       default:
         return renderDashboard();
     }
   };
 
   return (
-    <div className={`min-h-screen ${isDarkMode ? 'bg-gradient-to-br from-gray-900 to-black' : 'bg-gradient-to-br from-gray-50 to-gray-100'} flex flex-col lg:h-screen transition-colors duration-300`}>
+    <div className={`min-h-screen ${isDarkMode ? 'bg-gray-950' : 'bg-gray-50'} flex flex-col lg:h-screen transition-colors duration-300`}>
       {/* Mobile Header */}
-      <div className={`lg:hidden fixed top-0 left-0 right-0 z-40 flex items-center justify-between px-4 py-3 ${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-gray-50 border-amber-300/40'} border-b shadow transition-colors duration-300`}>
+      <div className={`lg:hidden fixed top-0 left-0 right-0 z-40 flex items-center justify-between px-4 py-3 ${isDarkMode ? 'bg-gray-950/95 backdrop-blur-sm border-gray-800' : 'bg-white/95 backdrop-blur-sm border-gray-200'} border-b transition-colors duration-300`}>
         <div className="w-10"></div>
-        <span className={`${isDarkMode ? 'text-amber-50' : 'text-amber-900'} font-bold text-base`}>Cashier Portal</span>
-        <button
-          onClick={() => setShowMobileSidebar(!showMobileSidebar)}
-          className="text-amber-500 hover:text-amber-400 transition-colors p-2 rounded-lg hover:bg-amber-500/10"
-        >
-          <Bars3Icon className="h-6 w-6" />
-        </button>
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 bg-gradient-to-br from-amber-500 to-amber-600 rounded-lg flex items-center justify-center">
+            <BuildingLibraryIcon className="h-3.5 w-3.5 text-white" />
+          </div>
+          <span className={`${isDarkMode ? 'text-white' : 'text-gray-900'} font-bold text-base`}>Cashier Portal</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <NotificationBell onViewAll={() => { setActiveSection('notifications'); setShowMobileSidebar(false); }} />
+          <button
+            onClick={() => setShowMobileSidebar(!showMobileSidebar)}
+            className="text-amber-500 hover:text-amber-400 transition-colors p-2 rounded-lg hover:bg-amber-500/10"
+          >
+            <Bars3Icon className="h-6 w-6" />
+          </button>
+        </div>
       </div>
 
       {/* Mobile Sidebar Overlay */}
@@ -2681,16 +3923,16 @@ const CashierDashboard = () => {
       )}
 
       {/* Sidebar */}
-      <div className={`fixed inset-y-0 right-0 lg:right-auto lg:left-0 z-40 h-screen lg:h-screen ${isDarkMode ? 'bg-gradient-to-b from-gray-900 to-black border-amber-500/20' : 'bg-gradient-to-b from-gray-50 to-gray-100 border-amber-300/40'} border-l lg:border-l-0 lg:border-r shadow-xl flex-shrink-0 transition-all duration-300 lg:translate-x-0 ${
+      <div className={`fixed inset-y-0 right-0 lg:right-auto lg:left-0 z-40 h-screen lg:h-screen ${isDarkMode ? 'bg-gray-950 border-gray-800' : 'bg-white border-gray-200'} border-l lg:border-l-0 lg:border-r shadow-xl flex-shrink-0 transition-all duration-300 lg:translate-x-0 ${
         showMobileSidebar ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'
       } ${isCollapsedDesktop ? 'lg:w-20' : 'w-64'}`}>
         <div className="flex flex-col h-full overflow-hidden">
-          <div className={`flex items-center justify-between h-16 shadow-md ${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-gray-50 border-amber-300/40'} px-3 border-b transition-colors duration-300 flex-shrink-0`}>
-            <div className="flex items-center space-x-2">
-              <div className="w-8 h-8 bg-gradient-to-r from-amber-500 to-amber-600 rounded-lg flex items-center justify-center shadow">
-                <BuildingLibraryIcon className="h-4 w-4 text-white" />
+          <div className={`flex items-center justify-between h-16 ${isDarkMode ? 'bg-gray-950 border-gray-800' : 'bg-white border-gray-200'} px-3 border-b transition-colors duration-300 flex-shrink-0`}>
+            <div className="flex items-center space-x-2.5">
+              <div className="w-9 h-9 bg-gradient-to-br from-amber-500 to-amber-600 rounded-xl flex items-center justify-center shadow-lg shadow-amber-500/20">
+                <BuildingLibraryIcon className="h-4.5 w-4.5 text-white" />
               </div>
-              <span className={`text-sm lg:text-base font-bold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} transition-colors duration-300 truncate hidden lg:inline ${isCollapsedDesktop ? 'lg:hidden' : ''}`}>CASHIER</span>
+              <span className={`text-sm lg:text-base font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'} transition-colors duration-300 truncate hidden lg:inline ${isCollapsedDesktop ? 'lg:hidden' : ''}`}>CASHIER</span>
             </div>
             <div className="flex items-center space-x-1">
               <button
@@ -2750,13 +3992,15 @@ const CashierDashboard = () => {
                             className={`w-full flex items-center justify-center lg:justify-start px-2 lg:px-2.5 py-1.5 text-xs font-medium rounded-lg transition-all duration-200 border group ${
                               activeSection === subItem.key
                                 ? 'bg-amber-500/10 text-amber-400 border-amber-500/40 shadow shadow-amber-500/10'
-                                : 'text-gray-400 border-transparent hover:bg-amber-500/5 hover:text-amber-300 hover:border-amber-500/20'
+                                : isDarkMode
+                                  ? 'text-gray-400 border-transparent hover:bg-amber-500/5 hover:text-amber-300 hover:border-amber-500/20'
+                                  : 'text-gray-500 border-transparent hover:bg-amber-50 hover:text-amber-600 hover:border-amber-200'
                             } ${isCollapsedDesktop ? 'lg:justify-center lg:px-2' : ''}`}
                             title={isCollapsedDesktop ? subItem.name : ''}
                           >
                             <div className="flex items-center min-w-0">
                               <subItem.icon className={`h-4 w-4 flex-shrink-0 transition-colors ${
-                                activeSection === subItem.key ? 'text-amber-400' : 'text-gray-500 group-hover:text-amber-400'
+                                activeSection === subItem.key ? 'text-amber-400' : isDarkMode ? 'text-gray-500 group-hover:text-amber-400' : 'text-gray-400 group-hover:text-amber-500'
                               } ${!isCollapsedDesktop ? 'mr-2' : ''}`} />
                               {!isCollapsedDesktop && (
                                 <span className="flex items-center justify-between flex-1 min-w-0">
@@ -2783,13 +4027,15 @@ const CashierDashboard = () => {
                   className={`w-full flex items-center justify-center lg:justify-start px-2 lg:px-2.5 py-1.5 text-xs font-medium rounded-lg transition-all duration-200 border group ${
                     activeSection === item.key
                       ? 'bg-amber-500/10 text-amber-400 border-amber-500/40 shadow shadow-amber-500/10'
-                      : 'text-gray-400 border-transparent hover:bg-amber-500/5 hover:text-amber-300 hover:border-amber-500/20'
+                      : isDarkMode
+                        ? 'text-gray-400 border-transparent hover:bg-amber-500/5 hover:text-amber-300 hover:border-amber-500/20'
+                        : 'text-gray-500 border-transparent hover:bg-amber-50 hover:text-amber-600 hover:border-amber-200'
                   } ${isCollapsedDesktop ? 'lg:justify-center lg:px-2' : ''}`}
                   title={isCollapsedDesktop ? item.name : ''}
                 >
                   <div className="flex items-center min-w-0">
                     <item.icon className={`h-4 w-4 flex-shrink-0 transition-colors ${
-                      activeSection === item.key ? 'text-amber-400' : 'text-gray-500 group-hover:text-amber-400'
+                      activeSection === item.key ? 'text-amber-400' : isDarkMode ? 'text-gray-500 group-hover:text-amber-400' : 'text-gray-400 group-hover:text-amber-500'
                     } ${!isCollapsedDesktop ? 'mr-2' : ''}`} />
                     {!isCollapsedDesktop && <span className="truncate">{item.name}</span>}
                   </div>
@@ -2810,10 +4056,22 @@ const CashierDashboard = () => {
             </button>
           </nav>
 
-          <div className={`p-2 lg:p-3 border-t border-amber-500/20 flex-shrink-0 transition-all duration-300 ${isCollapsedDesktop ? 'lg:flex lg:items-center lg:justify-center' : ''}`}>
-              {/* sidebar profile removed per request (SA / System Administrator / admin) */}
-              
-              {/* sidebar logout removed per request - header will show confirmation-only logout */}
+          <div className={`p-2 lg:p-3 border-t ${isDarkMode ? 'border-gray-800' : 'border-gray-200'} flex-shrink-0 transition-all duration-300 ${isCollapsedDesktop ? 'lg:flex lg:items-center lg:justify-center' : ''}`}>
+              {/* Theme toggle */}
+              <button
+                onClick={toggleTheme}
+                className={`w-full flex items-center justify-center lg:justify-start px-2 lg:px-2.5 py-1.5 text-xs font-medium rounded-lg transition-all duration-200 border group ${isDarkMode ? 'text-gray-400 border-transparent hover:bg-amber-500/5 hover:text-amber-300 hover:border-amber-500/20' : 'text-gray-500 border-transparent hover:bg-amber-50 hover:text-amber-600 hover:border-amber-200'} ${isCollapsedDesktop ? 'lg:justify-center lg:px-2' : ''}`}
+                title={isCollapsedDesktop ? (isDarkMode ? 'Light Mode' : 'Dark Mode') : ''}
+              >
+                <div className="flex items-center min-w-0">
+                  {isDarkMode ? (
+                    <SunIcon className={`h-4 w-4 flex-shrink-0 ${!isCollapsedDesktop ? 'mr-2' : ''}`} />
+                  ) : (
+                    <MoonIcon className={`h-4 w-4 flex-shrink-0 ${!isCollapsedDesktop ? 'mr-2' : ''}`} />
+                  )}
+                  {!isCollapsedDesktop && <span className="truncate">{isDarkMode ? 'Light Mode' : 'Dark Mode'}</span>}
+                </div>
+              </button>
             </div>
         </div>
       </div>
@@ -2821,45 +4079,36 @@ const CashierDashboard = () => {
       {/* Main Content */}
       <div className={`flex-1 flex flex-col min-w-0 mt-16 lg:mt-0 lg:h-screen lg:overflow-y-auto scrollbar-hide transition-all duration-300 ${isCollapsedDesktop ? 'lg:ml-20' : 'lg:ml-64'}`}>
         {/* Header */}
-        <header className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-gray-50 border-amber-300/40'} border-b shadow-md flex-shrink-0 sticky top-0 z-30 transition-colors duration-300`}>
-          <div className="flex justify-between items-center px-3 sm:px-4 lg:px-6 py-2 lg:py-3">
-            <div className="flex items-center space-x-2 lg:space-x-3 min-w-0">
+        <header className={`${isDarkMode ? 'bg-gray-900/95 backdrop-blur-sm border-gray-800' : 'bg-white/95 backdrop-blur-sm border-gray-200'} border-b flex-shrink-0 sticky top-0 z-30 transition-colors duration-300`}>
+          <div className="flex justify-between items-center px-4 sm:px-5 lg:px-6 py-3 lg:py-3.5">
+            <div className="flex items-center space-x-3 min-w-0">
               <div>
-                <h1 className={`text-base lg:text-lg font-bold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} transition-colors duration-300 capitalize truncate`}>
+                <h1 className={`text-base lg:text-lg font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'} transition-colors duration-300 capitalize truncate`}>
                   {activeSection.replace('-', ' ')}
                 </h1>
-                <p className={`${isDarkMode ? 'text-amber-400/70' : 'text-amber-700/70'} mt-0.5 text-xs lg:text-sm transition-colors duration-300 hidden sm:block`}>
-                  Welcome back, {user?.first_name}
+                <p className={`${isDarkMode ? 'text-gray-500' : 'text-gray-400'} mt-0.5 text-xs transition-colors duration-300 hidden sm:block`}>
+                  {new Date().toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}
                 </p>
               </div>
             </div>
-            <div className="flex-shrink-0 flex items-center space-x-3">
-              <div className={`text-xs lg:text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} transition-colors duration-300 hidden sm:block text-right`}>
-                {new Date().toLocaleDateString('en-US', { 
-                  weekday: 'short', 
-                  year: 'numeric', 
-                  month: 'short', 
-                  day: 'numeric' 
-                })}
-              </div>
-              <div className="flex items-center gap-2">
-                <select
-                  value={timeframe}
-                  onChange={(e) => setTimeframe(e.target.value)}
-                  className={`${isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-200' : 'bg-gray-100 border-gray-300 text-gray-800'} border text-xs px-2 py-1 rounded transition-colors duration-300`}
-                >
-                  <option value="daily">Daily</option>
-                  <option value="weekly">Weekly</option>
-                  <option value="monthly">Monthly</option>
-                  <option value="yearly">Yearly</option>
-                </select>
-              </div>
+            <div className="flex-shrink-0 flex items-center gap-3">
+              <NotificationBell onViewAll={() => setActiveSection('notifications')} />
+              <select
+                value={timeframe}
+                onChange={(e) => setTimeframe(e.target.value)}
+                className={`${isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-300' : 'bg-gray-50 border-gray-200 text-gray-700'} border text-xs px-3 py-1.5 rounded-lg transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500`}
+              >
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+                <option value="yearly">Yearly</option>
+              </select>
             </div>
           </div>
         </header>
 
         {/* Main Content Area */}
-        <main className="flex-1 p-3 lg:p-6 scrollbar-hide text-sm">
+        <main className="flex-1 p-4 lg:p-6 scrollbar-hide text-sm">
           {renderContent()}
         </main>
       </div>
@@ -2877,12 +4126,27 @@ const CashierDashboard = () => {
         isOpen={showReceiptModal}
         onClose={() => setShowReceiptModal(false)}
         receiptData={currentReceipt}
+        isDarkMode={isDarkMode}
+      />
+
+      <PaymentWaitingModal
+        isOpen={showPaymentWaitingModal}
+        onClose={() => {
+          setShowPaymentWaitingModal(false);
+          setShowReceiptModal(true);
+        }}
+        onCancel={handleCancelOnlinePayment}
+        appointment={onlinePaymentAppointment}
+        checkoutUrl={onlineCheckoutUrl}
+        paymentStatus={onlinePaymentStatus}
+        isDarkMode={isDarkMode}
       />
 
       <ActionLogModal
         isOpen={showActionLogModal}
         onClose={() => setShowActionLogModal(false)}
         logData={selectedActionLog}
+        isDarkMode={isDarkMode}
       />
       
       <CompletionConfirmationModal
@@ -2915,6 +4179,7 @@ const CashierDashboard = () => {
         selectedDiscounts={selectedDiscounts}
         calculateDiscount={calculateDiscount}
         inKindDescription={inKindDescription}
+        isDarkMode={isDarkMode}
       />
       
       <ConfirmPaymentModal
@@ -2927,6 +4192,7 @@ const CashierDashboard = () => {
         selectedDiscounts={selectedDiscounts}
         calculateDiscount={calculateDiscount}
         inKindDescription={inKindDescription}
+        isDarkMode={isDarkMode}
       />
       <ConfirmModal
         isOpen={showConfirmModal}
@@ -2937,6 +4203,7 @@ const CashierDashboard = () => {
         onConfirm={() => {
           if (typeof confirmModalProps.onConfirm === 'function') confirmModalProps.onConfirm();
         }}
+        isDarkMode={isDarkMode}
       />
       
           {/* Appointment View Modal */}
@@ -2955,6 +4222,11 @@ const CashierDashboard = () => {
               selectedDiscounts={selectedDiscounts}
               setSelectedDiscounts={setSelectedDiscounts}
               calculateDiscount={calculateDiscount}
+              isDarkMode={isDarkMode}
+              onRequestRefund={(apt) => {
+                setViewModalAppointment(null);
+                openCashierRefundModal(apt);
+              }}
               onComplete={() => {
                 setConfirmAppointment(viewModalAppointment);
                 setShowCompletionConfirmation(true);
@@ -2962,6 +4234,106 @@ const CashierDashboard = () => {
                 setViewModalAppointment(null);
               }}
             />
+          )}
+
+          {/* Cashier Refund Request Modal */}
+          {showRefundRequestModal && refundTargetAppointment && (
+            <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
+              <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-gray-200'} border rounded-lg shadow-xl w-full max-w-md`}>
+                <div className={`flex items-center justify-between p-4 border-b ${isDarkMode ? 'border-gray-800' : 'border-gray-200'}`}>
+                  <h3 className={`text-lg font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>Request Refund</h3>
+                  <button onClick={() => { setShowRefundRequestModal(false); setRefundTargetAppointment(null); }} className={`p-1 rounded ${isDarkMode ? 'text-gray-400 hover:text-amber-300' : 'text-gray-500 hover:text-amber-600'}`}>
+                    <XMarkIcon className="h-5 w-5" />
+                  </button>
+                </div>
+                <form onSubmit={handleCashierRefundRequest} className="p-4 space-y-4">
+                  <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'} border rounded p-3 text-sm`}>
+                    <div className={`flex justify-between ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                      <span>Client</span>
+                      <span className={isDarkMode ? 'text-amber-50' : 'text-gray-900'}>{refundTargetAppointment.user?.first_name} {refundTargetAppointment.user?.last_name}</span>
+                    </div>
+                    <div className={`flex justify-between mt-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                      <span>Service</span>
+                      <span className={isDarkMode ? 'text-amber-50' : 'text-gray-900'}>{refundTargetAppointment.service?.name || 'N/A'}</span>
+                    </div>
+                    <div className={`flex justify-between mt-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                      <span>Amount Paid</span>
+                      <span className={`font-medium ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>₱{Number(refundTargetAppointment.payment_amount || 0).toFixed(2)}</span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className={`block text-sm font-medium mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>Refund Amount</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      max={refundTargetAppointment.payment_amount || 0}
+                      value={refundFormData.refund_amount}
+                      onChange={(e) => setRefundFormData(prev => ({ ...prev, refund_amount: e.target.value }))}
+                      className={`w-full px-3 py-2 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 ${isDarkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className={`block text-sm font-medium mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>Reason</label>
+                    <select
+                      value={refundFormData.reason}
+                      onChange={(e) => setRefundFormData(prev => ({ ...prev, reason: e.target.value }))}
+                      className={`w-full px-3 py-2 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 ${isDarkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
+                    >
+                      {refundReasons.length > 0 ? (
+                        refundReasons.filter(r => r.type === 'request').map(r => (
+                          <option key={r.key} value={r.key}>{r.label}</option>
+                        ))
+                      ) : (
+                        <>
+                          <option value="customer_request">Customer Request</option>
+                          <option value="service_not_provided">Service Not Provided</option>
+                          <option value="duplicate_payment">Duplicate Payment</option>
+                          <option value="service_cancellation">Service Cancellation</option>
+                          <option value="poor_service">Poor Service Quality</option>
+                          <option value="other">Other Reason</option>
+                        </>
+                      )}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className={`block text-sm font-medium mb-1 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>Description (optional)</label>
+                    <textarea
+                      value={refundFormData.description}
+                      onChange={(e) => setRefundFormData(prev => ({ ...prev, description: e.target.value }))}
+                      rows={3}
+                      placeholder="Additional details about the refund..."
+                      className={`w-full px-3 py-2 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 ${isDarkMode ? 'bg-gray-800 border-gray-700 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'}`}
+                    />
+                  </div>
+
+                  {refundRequestError && (
+                    <div className="text-red-500 text-sm bg-red-500/10 border border-red-500/20 rounded p-2">{refundRequestError}</div>
+                  )}
+
+                  <div className="flex gap-2">
+                    <button
+                      type="submit"
+                      disabled={refundRequestLoading}
+                      className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded text-sm font-medium transition-colors"
+                    >
+                      {refundRequestLoading ? 'Submitting...' : 'Submit Refund Request'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setShowRefundRequestModal(false); setRefundTargetAppointment(null); }}
+                      className={`px-4 py-2 ${isDarkMode ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-gray-200 hover:bg-gray-300 text-gray-800'} rounded text-sm transition-colors`}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
           )}
           
           {/* Completion Countdown Effect */}

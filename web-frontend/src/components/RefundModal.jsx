@@ -55,7 +55,7 @@ const RefundModal = ({ isOpen, onClose, transaction, onSuccess }) => {
 
     setLoading(true);
     try {
-      const response = await axios.post('/api/cashier/refunds/request', {
+      const response = await axios.post('/api/refunds/request', {
         appointment_id: transaction?.id,
         refund_amount: parseFloat(refundAmount),
         reason,

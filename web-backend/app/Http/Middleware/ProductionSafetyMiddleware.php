@@ -45,8 +45,8 @@ class ProductionSafetyMiddleware
         $host = request()->getHost();
         $isLocalhost = in_array($host, ['localhost', '127.0.0.1', '::1']);
         
-        // Also check for production indicators
-        $hasProductionUrl = !empty(env('APP_URL')) && !str_contains(env('APP_URL'), 'localhost');
+        // Also check for production indicators (use config() not env() - env() returns null after config:cache)
+        $hasProductionUrl = !empty(config('app.url')) && !str_contains(config('app.url'), 'localhost');
         
         return !$isLocalhost || $hasProductionUrl;
     }

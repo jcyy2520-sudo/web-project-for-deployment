@@ -95,7 +95,7 @@ class SystemMetrics extends Model
             COUNT(*) as sample_count
         ')
             ->where('timestamp', '>=', now()->subMinutes($minutes))
-            ->groupRaw('DATE(timestamp), HOUR(timestamp)');
+            ->groupByRaw('DATE(timestamp), HOUR(timestamp)');
     }
 
     /**

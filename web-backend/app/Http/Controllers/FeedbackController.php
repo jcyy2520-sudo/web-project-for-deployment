@@ -11,6 +11,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
+use App\Models\ActionLog;
 
 class FeedbackController extends Controller
 {
@@ -94,13 +95,20 @@ class FeedbackController extends Controller
             if (Feedback::hasReachedRateLimit($userId, $validated['email'])) {
                 $settings = FeedbackSettings::getSettings();
                 $nextAvailableAt = Feedback::getNextAvailableDate($userId, $validated['email'], $settings->cooldown_days);
+                $cooldownLabel = $settings->cooldown_days == 1 ? 'day' :
+                    ($settings->cooldown_days == 7 ? 'week' :
+                    ($settings->cooldown_days == 30 ? 'month' : "{$settings->cooldown_days} days"));
+                $formattedDate = $nextAvailableAt ? $nextAvailableAt->format('M j, Y \a\t g:i A') : null;
+
                 return response()->json([
-                    'message' => "You have reached your feedback limit of {$settings->rate_limit} per {$settings->cooldown_days} days.",
+                    'message' => "You have reached your feedback limit of {$settings->rate_limit} per {$cooldownLabel}.",
                     'error' => 'rate_limit_reached',
                     'data' => [
                         'limit' => $settings->rate_limit,
                         'cooldown_days' => $settings->cooldown_days,
-                        'next_available_at' => $nextAvailableAt ? $nextAvailableAt->toISOString() : null
+                        'cooldown_label' => $cooldownLabel,
+                        'next_available_at' => $nextAvailableAt ? $nextAvailableAt->toISOString() : null,
+                        'next_available_formatted' => $formattedDate
                     ]
                 ], 429);
             }
@@ -147,7 +155,7 @@ class FeedbackController extends Controller
 
             // Send confirmation email to user (synchronous for immediate delivery)
             try {
-                Mail::to($feedback->email)->send(new FeedbackConfirmation($feedback));
+                Mail::to($feedback->email)->queue(new FeedbackConfirmation($feedback));
                 Log::info('Feedback confirmation email sent successfully', [
                     'feedback_id' => $feedback->id,
                     'email' => $feedback->email
@@ -156,10 +164,12 @@ class FeedbackController extends Controller
                 Log::warning('Failed to send feedback confirmation email', [
                     'feedback_id' => $feedback->id,
                     'email' => $feedback->email,
-                    'error' => $e->getMessage()
+                    'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred'
                 ]);
                 // Don't fail the request if email fails - feedback is still saved
             }
+
+            ActionLog::log('create', "Submitted feedback (rating: {$feedback->rating})", 'Feedback', $feedback->id);
 
             return response()->json([
                 'message' => 'Thank you for your feedback!',
@@ -168,13 +178,13 @@ class FeedbackController extends Controller
 
         } catch (\Exception $e) {
             Log::error('Feedback store error', [
-                'error' => $e->getMessage(),
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred',
                 'trace' => $e->getTraceAsString()
             ]);
 
             return response()->json([
                 'message' => 'Failed to save feedback',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred'
             ], 500);
         }
     }
@@ -260,13 +270,13 @@ class FeedbackController extends Controller
 
         } catch (\Exception $e) {
             Log::error('Feedback index error', [
-                'error' => $e->getMessage(),
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred',
                 'trace' => $e->getTraceAsString()
             ]);
 
             return response()->json([
                 'message' => 'Failed to fetch feedback',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred'
             ], 500);
         }
     }
@@ -295,12 +305,12 @@ class FeedbackController extends Controller
 
         } catch (\Exception $e) {
             Log::error('Feedback stats error', [
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred'
             ]);
 
             return response()->json([
                 'message' => 'Failed to fetch statistics',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred'
             ], 500);
         }
     }
@@ -326,7 +336,7 @@ class FeedbackController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 'message' => 'Failed to fetch feedback',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred'
             ], 500);
         }
     }
@@ -348,11 +358,12 @@ class FeedbackController extends Controller
             $isTestimonial = $request->get('is_testimonial', true);
             
             // Set featured_at to current time when marking as testimonial (so it appears first)
-            // Clear featured_at when unmarking
-            $feedback->update([
-                'is_testimonial' => $isTestimonial,
-                'featured_at' => $isTestimonial ? now() : null
-            ]);
+            // Clear featured_at when unmarking (set explicitly — admin-only fields)
+            $feedback->is_testimonial = $isTestimonial;
+            $feedback->featured_at = $isTestimonial ? now() : null;
+            $feedback->save();
+
+            ActionLog::log('update', ($isTestimonial ? 'Marked' : 'Unmarked') . " feedback #{$id} as testimonial", 'Feedback', $id);
 
             return response()->json([
                 'message' => $isTestimonial ? 'Marked as testimonial' : 'Unmarked as testimonial',
@@ -362,12 +373,12 @@ class FeedbackController extends Controller
         } catch (\Exception $e) {
             Log::error('Feedback testimonial update error', [
                 'id' => $id,
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred'
             ]);
 
             return response()->json([
                 'message' => 'Failed to update feedback',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred'
             ], 500);
         }
     }
@@ -393,13 +404,12 @@ class FeedbackController extends Controller
 
             $adminId = Auth::id();
 
-            // Update feedback as reported
-            $feedback->update([
-                'is_reported' => true,
-                'reported_reason' => $validated['reason'],
-                'reported_explanation' => $validated['explanation'] ?? null,
-                'reported_by_admin' => $adminId
-            ]);
+            // Update feedback as reported (set explicitly — admin-only fields)
+            $feedback->is_reported = true;
+            $feedback->reported_reason = $validated['reason'];
+            $feedback->reported_explanation = $validated['explanation'] ?? null;
+            $feedback->reported_by_admin = $adminId;
+            $feedback->save();
 
             // Send email to user
             try {
@@ -408,9 +418,11 @@ class FeedbackController extends Controller
                 Log::warning('Failed to queue feedback reported email', [
                     'feedback_id' => $feedback->id,
                     'email' => $feedback->email,
-                    'error' => $e->getMessage()
+                    'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred'
                 ]);
             }
+
+            ActionLog::log('report', "Reported feedback #{$id} as {$validated['reason']}", 'Feedback', $id);
 
             return response()->json([
                 'message' => 'Feedback reported successfully',
@@ -420,12 +432,12 @@ class FeedbackController extends Controller
         } catch (\Exception $e) {
             Log::error('Feedback report error', [
                 'id' => $id,
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred'
             ]);
 
             return response()->json([
                 'message' => 'Failed to report feedback',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred'
             ], 500);
         }
     }
@@ -458,7 +470,7 @@ class FeedbackController extends Controller
                 'is_blocked' => true,
                 'blocked_until' => $blockUntil
             ]);
-
+            ActionLog::log('block_user', "Blocked user from feedback (via feedback #{$id})" . ($blockUntil ? " until {$blockUntil}" : ' permanently'), 'Feedback', $id);
             return response()->json([
                 'message' => 'User blocked successfully',
                 'data' => [
@@ -469,12 +481,12 @@ class FeedbackController extends Controller
         } catch (\Exception $e) {
             Log::error('User block error', [
                 'id' => $id,
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred'
             ]);
 
             return response()->json([
                 'message' => 'Failed to block user',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred'
             ], 500);
         }
     }
@@ -500,12 +512,12 @@ class FeedbackController extends Controller
 
         } catch (\Exception $e) {
             Log::error('Testimonials fetch error', [
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred'
             ]);
 
             return response()->json([
                 'message' => 'Failed to fetch testimonials',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred'
             ], 500);
         }
     }
@@ -539,12 +551,12 @@ class FeedbackController extends Controller
 
         } catch (\Exception $e) {
             Log::error('All testimonials fetch error', [
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred'
             ]);
 
             return response()->json([
                 'message' => 'Failed to fetch testimonials',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred'
             ], 500);
         }
     }
@@ -597,6 +609,15 @@ class FeedbackController extends Controller
             $feedbackCount = Feedback::getFeedbackCount($userId, auth()->user()->email, $settings->cooldown_days);
             $canSubmit = $feedbackCount < $settings->rate_limit;
 
+            $nextAvailableAt = null;
+            if (!$canSubmit) {
+                $nextAvailableAt = Feedback::getNextAvailableDate($userId, auth()->user()->email, $settings->cooldown_days);
+            }
+
+            $cooldownLabel = $settings->cooldown_days == 1 ? 'day' :
+                ($settings->cooldown_days == 7 ? 'week' :
+                ($settings->cooldown_days == 30 ? 'month' : "{$settings->cooldown_days} days"));
+
             return response()->json([
                 'data' => $feedback->items(),
                 'pagination' => [
@@ -609,18 +630,22 @@ class FeedbackController extends Controller
                     'can_submit' => $canSubmit,
                     'used' => $feedbackCount,
                     'limit' => $settings->rate_limit,
-                    'cooldown_days' => $settings->cooldown_days
+                    'remaining' => max(0, $settings->rate_limit - $feedbackCount),
+                    'cooldown_days' => $settings->cooldown_days,
+                    'cooldown_label' => $cooldownLabel,
+                    'next_available_at' => $nextAvailableAt ? $nextAvailableAt->toISOString() : null,
+                    'next_available_formatted' => $nextAvailableAt ? $nextAvailableAt->format('M j, Y \a\t g:i A') : null
                 ]
             ]);
 
         } catch (\Exception $e) {
             Log::error('User feedback fetch error', [
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred'
             ]);
 
             return response()->json([
                 'message' => 'Failed to fetch feedback',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred'
             ], 500);
         }
     }
@@ -644,25 +669,33 @@ class FeedbackController extends Controller
                 $nextAvailableAt = Feedback::getNextAvailableDate($userId, $email, $settings->cooldown_days);
             }
 
+            // Build a human-friendly cooldown label
+            $cooldownLabel = $settings->cooldown_days == 1 ? 'day' :
+                ($settings->cooldown_days == 7 ? 'week' :
+                ($settings->cooldown_days == 30 ? 'month' : "{$settings->cooldown_days} days"));
+
             return response()->json([
                 'data' => [
                     'can_submit' => $canSubmit,
                     'used' => $feedbackCount,
                     'limit' => $settings->rate_limit,
+                    'remaining' => max(0, $settings->rate_limit - $feedbackCount),
                     'cooldown_days' => $settings->cooldown_days,
+                    'cooldown_label' => $cooldownLabel,
                     'is_blocked' => $this->isUserBlocked($userId, $email),
-                    'next_available_at' => $nextAvailableAt ? $nextAvailableAt->toISOString() : null
+                    'next_available_at' => $nextAvailableAt ? $nextAvailableAt->toISOString() : null,
+                    'next_available_formatted' => $nextAvailableAt ? $nextAvailableAt->format('M j, Y \a\t g:i A') : null
                 ]
             ]);
 
         } catch (\Exception $e) {
             Log::error('Rate limit check error', [
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred'
             ]);
 
             return response()->json([
                 'message' => 'Failed to check rate limit',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred'
             ], 500);
         }
     }
@@ -683,6 +716,8 @@ class FeedbackController extends Controller
 
             $feedback->delete();
 
+            ActionLog::log('delete', "Deleted feedback #{$id}", 'Feedback', $id);
+
             return response()->json([
                 'message' => 'Feedback deleted successfully'
             ]);
@@ -690,12 +725,12 @@ class FeedbackController extends Controller
         } catch (\Exception $e) {
             Log::error('Feedback delete error', [
                 'id' => $id,
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred'
             ]);
 
             return response()->json([
                 'message' => 'Failed to delete feedback',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred'
             ], 500);
         }
     }

@@ -64,9 +64,22 @@ export const formatTime12Hour = (militaryTime) => {
   return `${hour}:${min} ${period}`;
 };
 
+/**
+ * Display an appointment date without timezone shift issues.
+ * Extracts the YYYY-MM-DD portion and creates a local Date for display,
+ * avoiding UTC→local conversion that can shift dates by ±1 day.
+ */
+export const formatDateDisplay = (dateVal) => {
+  if (!dateVal) return '';
+  const match = String(dateVal).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return '';
+  return new Date(+match[1], +match[2] - 1, +match[3]).toLocaleDateString();
+};
+
 export default {
   formatServiceName,
   formatPrice,
   formatAppointmentPrice,
-  formatTime12Hour
+  formatTime12Hour,
+  formatDateDisplay
 };

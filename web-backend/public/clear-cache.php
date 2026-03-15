@@ -6,8 +6,14 @@
  * Access via: https://legaleaase.site/clear-cache.php?key=notary2024clear
  */
 
+// SECURITY: Block access in production unless explicitly enabled
+if (getenv('APP_ENV') === 'production' && !getenv('ALLOW_CACHE_CLEAR')) {
+    http_response_code(404);
+    die('Not Found');
+}
+
 // Simple security key to prevent unauthorized access
-$securityKey = 'notary2024clear';
+$securityKey = getenv('CACHE_CLEAR_KEY') ?: 'notary2024clear';
 
 if (!isset($_GET['key']) || $_GET['key'] !== $securityKey) {
     http_response_code(403);

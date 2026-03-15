@@ -23,30 +23,33 @@ class CashierController extends Controller
     public function getDashboardStats(Request $request)
     {
         $timeframe = $request->get('timeframe', 'monthly');
+        if (!in_array($timeframe, ['daily', 'weekly', 'monthly', 'yearly'], true)) {
+            $timeframe = 'monthly';
+        }
         $cacheKey = "cashier_dashboard_stats_{$timeframe}";
         $ttl = 30; // Cache for 30 seconds
 
         $data = Cache::remember($cacheKey, $ttl, function () use ($timeframe) {
             $dateRange = $this->getDateRange($timeframe);
 
-            // Get revenue and sales statistics using raw queries for speed
+            // Get revenue and sales statistics - combined queries for speed
+            $periodStats = DB::table('appointments')
+                ->where('payment_status', 'paid')
+                ->whereBetween('payment_date', $dateRange)
+                ->selectRaw('COUNT(*) as total_sales, COALESCE(SUM(payment_amount), 0) as total_revenue')
+                ->first();
+
+            $todayStats = DB::table('appointments')
+                ->where('payment_status', 'paid')
+                ->whereDate('payment_date', now())
+                ->selectRaw('COUNT(*) as today_sales, COALESCE(SUM(payment_amount), 0) as today_revenue')
+                ->first();
+
             $stats = [
-                'totalRevenue' => (float) DB::table('appointments')
-                    ->where('payment_status', 'paid')
-                    ->whereBetween('payment_date', $dateRange)
-                    ->sum('payment_amount'),
-                'totalSales' => DB::table('appointments')
-                    ->where('payment_status', 'paid')
-                    ->whereBetween('payment_date', $dateRange)
-                    ->count(),
-                'todayRevenue' => (float) DB::table('appointments')
-                    ->where('payment_status', 'paid')
-                    ->whereDate('payment_date', now())
-                    ->sum('payment_amount'),
-                'todaySales' => DB::table('appointments')
-                    ->where('payment_status', 'paid')
-                    ->whereDate('payment_date', now())
-                    ->count(),
+                'totalRevenue' => (float) ($periodStats->total_revenue ?? 0),
+                'totalSales' => (int) ($periodStats->total_sales ?? 0),
+                'todayRevenue' => (float) ($todayStats->today_revenue ?? 0),
+                'todaySales' => (int) ($todayStats->today_sales ?? 0),
             ];
 
             // Get revenue trend data
@@ -71,7 +74,9 @@ class CashierController extends Controller
      */
     public function getApprovedAppointments(Request $request)
     {
-        $query = Appointment::with(['user:id,email,first_name,last_name,phone,address', 'service:id,name,price'])
+        // No caching — approved appointments are volatile and change frequently
+        // when admin approves or cashier processes payments
+        $query = Appointment::with(['user:id,email,first_name,last_name,phone,address', 'service:id,name,price', 'activeRefund'])
             ->where('status', 'approved')
             ->where('payment_status', '!=', 'paid');
 
@@ -86,9 +91,8 @@ class CashierController extends Controller
         }
 
         // support server-side pagination
-        $perPage = (int) $request->get('per_page', 20);
-        $appointments = $query->orderBy('appointment_date', 'asc')
-            ->orderBy('appointment_time', 'asc')
+        $perPage = min((int) $request->get('per_page', 20), 100);
+        $appointments = $query->orderBy('created_at', 'desc')
             ->paginate($perPage);
 
         return response()->json($appointments);
@@ -144,12 +148,12 @@ class CashierController extends Controller
     }
 
     /**
-     * Get completed appointments (paid) - with search and filtering
+     * Get completed appointments (paid, refunded, partially_refunded) - with search and filtering
      */
     public function getCompletedAppointments(Request $request)
     {
-        $query = Appointment::with(['user:id,email,first_name,last_name,phone', 'service:id,name,price', 'processedBy:id,first_name,last_name'])
-            ->where('payment_status', 'paid');
+        $query = Appointment::with(['user:id,email,first_name,last_name,phone', 'service:id,name,price', 'processedBy:id,first_name,last_name', 'activeRefund'])
+            ->whereIn('payment_status', ['paid', 'refunded', 'partially_refunded']);
 
         // Filter by date range
         if ($request->has('from') && $request->from) {
@@ -166,7 +170,7 @@ class CashierController extends Controller
 
         // Search by client name or email
         if ($request->has('search') && $request->search) {
-            $search = $request->search;
+            $search = str_replace(['%', '_'], ['\%', '\_'], $request->search);
             $query->whereHas('user', function ($q) use ($search) {
                 $q->where('first_name', 'like', "%{$search}%")
                   ->orWhere('last_name', 'like', "%{$search}%")
@@ -185,7 +189,7 @@ class CashierController extends Controller
         }
 
         $appointments = $query->orderBy('payment_date', 'desc')
-            ->paginate($request->get('per_page', 20));
+            ->paginate(min((int) $request->get('per_page', 20), 100));
 
         return response()->json($appointments);
     }
@@ -196,21 +200,32 @@ class CashierController extends Controller
     public function processPayment(Request $request, $appointmentId)
     {
         $request->validate([
-            'payment_amount' => 'required|numeric|min:0',
+            'payment_amount' => 'required|numeric|min:0.01',
             'discount_amount' => 'nullable|numeric|min:0',
             'discount_type' => 'nullable|string|max:255',
-            'payment_notes' => 'nullable|string|max:1000'
+            'payment_notes' => 'nullable|string|max:1000',
+            'payment_type' => 'nullable|string|in:cash,partial,in-kind,card,online'
         ]);
 
         try {
             DB::beginTransaction();
 
-            $appointment = Appointment::with(['user', 'service'])->findOrFail($appointmentId);
+            $appointment = Appointment::lockForUpdate()->with(['user', 'service'])->findOrFail($appointmentId);
 
             // Verify appointment is approved
             if ($appointment->status !== 'approved') {
+                DB::rollBack();
                 return response()->json([
                     'message' => 'Only approved appointments can be processed for payment',
+                    'success' => false
+                ], 422);
+            }
+
+            // Prevent double payment
+            if ($appointment->payment_status === 'paid') {
+                DB::rollBack();
+                return response()->json([
+                    'message' => 'This appointment has already been paid',
                     'success' => false
                 ], 422);
             }
@@ -220,24 +235,51 @@ class CashierController extends Controller
             $discountAmount = $request->discount_amount ?? 0;
             $totalPaid = $paymentAmount - $discountAmount;
 
-            // Update appointment
+            // Update appointment (set protected fields explicitly, mass-assign safe fields)
             $appointment->update([
-                'payment_status' => 'paid',
-                'payment_amount' => $totalPaid,
                 'discount_amount' => $discountAmount,
                 'discount_type' => $request->discount_type,
-                'processed_by' => $request->user()->id,
+                'payment_type' => $request->payment_type ?? 'cash',
                 'payment_date' => now(),
                 'payment_notes' => $request->payment_notes,
-                'status' => 'completed',
                 'completed_at' => now(),
-                'completed_by' => $request->user()->id
             ]);
+            // Protected fields set explicitly (not mass-assignable)
+            $appointment->payment_status = 'paid';
+            $appointment->payment_amount = $totalPaid;
+            $appointment->processed_by = $request->user()->id;
+            $appointment->status = 'completed';
+            $appointment->completed_by = $request->user()->id;
+            $appointment->save();
+
+            // Also create a Payment record for consistency with PaymentController
+            // This ensures both the appointment fields AND the payments table stay in sync
+            try {
+                $existingPayment = Payment::where('appointment_id', $appointment->id)->first();
+                if (!$existingPayment) {
+                    $newPayment = Payment::create([
+                        'appointment_id' => $appointment->id,
+                        'recorded_by' => $request->user()->id,
+                        'service_price' => $appointment->service->price ?? $paymentAmount,
+                        'amount_paid' => $totalPaid,
+                        'discount_amount' => $discountAmount,
+                        'payment_date' => now(),
+                        'notes' => $request->payment_notes,
+                    ]);
+                    // Set protected fields explicitly (not mass-assignable)
+                    $newPayment->shortfall = 0;
+                    $newPayment->payment_status = 'paid';
+                    $newPayment->save();
+                }
+            } catch (\Exception $e) {
+                \Log::warning('Failed to create Payment record during cashier processPayment: ' . $e->getMessage());
+                // Don't fail the entire operation — appointment fields are the primary source of truth
+            }
 
             // Log the action
             ActionLog::log(
                 'process_payment',
-                "Processed payment of ₱{$totalPaid} for {$appointment->user->first_name} {$appointment->user->last_name} - {$appointment->service->name}",
+                "Processed payment of ₱{$totalPaid} for " . ($appointment->user ? "{$appointment->user->first_name} {$appointment->user->last_name}" : "User #{$appointment->user_id}") . " - " . ($appointment->service->name ?? 'N/A'),
                 'Appointment',
                 $appointment->id
             );
@@ -282,7 +324,7 @@ class CashierController extends Controller
             \Log::error('Payment processing error: ' . $e->getMessage());
             
             return response()->json([
-                'message' => 'Failed to process payment: ' . $e->getMessage(),
+                'message' => config('app.debug') ? 'Failed to process payment: ' . $e->getMessage() : 'Failed to process payment',
                 'success' => false
             ], 500);
         }
@@ -304,7 +346,8 @@ class CashierController extends Controller
 
         $query = Appointment::with([
             'user:id,first_name,last_name,email',
-            'service:id,name,price'
+            'service:id,name,price',
+            'activeRefund'
         ])
         ->whereBetween('appointment_date', [$startDate, $endDate]);
 
@@ -361,6 +404,8 @@ class CashierController extends Controller
                 'payment_date' => $apt->payment_date,
                 'processed_by' => $apt->processed_by ?? null,
                 'outcome_status' => $apt->outcome_status ?? null,
+                'refund_status' => $apt->activeRefund ? $apt->activeRefund->status : null,
+                'refund_amount' => $apt->activeRefund ? (float)$apt->activeRefund->refund_amount : null,
             ];
         });
 
@@ -399,7 +444,7 @@ class CashierController extends Controller
             });
         }
 
-        $logs = $query->paginate($request->get('per_page', 50));
+        $logs = $query->paginate(min((int) $request->get('per_page', 50), 100));
 
         return response()->json($logs);
     }
@@ -466,7 +511,7 @@ class CashierController extends Controller
             \Log::error('Profile update error: ' . $e->getMessage());
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to update profile: ' . $e->getMessage()
+                'message' => config('app.debug') ? 'Failed to update profile: ' . $e->getMessage() : 'Failed to update profile'
             ], 500);
         }
     }
@@ -626,12 +671,27 @@ class CashierController extends Controller
         $totalSales = $appointments->count();
         $totalDiscounts = $appointments->sum('discount_amount');
         
-        // Group by payment type (if available)
-        $cashCollected = $appointments->where('payment_notes', 'like', '%cash%')->sum('payment_amount');
-        $cardCollected = $appointments->where('payment_notes', 'like', '%card%')->sum('payment_amount');
-        // If no payment type info, calculate based on availability
-        if ($cashCollected == 0 && $cardCollected == 0) {
-            $cashCollected = $totalRevenue; // Assume all cash if no payment type specified
+        // Group by payment type using the dedicated payment_type column
+        $cashCollected = $appointments->where('payment_type', 'cash')->sum('payment_amount');
+        $cardCollected = $appointments->where('payment_type', 'card')->sum('payment_amount');
+        $partialCollected = $appointments->where('payment_type', 'partial')->sum('payment_amount');
+        $inKindCount = $appointments->where('payment_type', 'in-kind')->count();
+        // Fallback: if no payment_type data is present, assume all cash
+        if ($cashCollected == 0 && $cardCollected == 0 && $partialCollected == 0 && $inKindCount == 0) {
+            $cashCollected = $totalRevenue;
+        }
+
+        // Calculate actual refund amounts for this cashier's appointments in the period
+        $appointmentIds = $appointments->pluck('id')->toArray();
+        $totalRefunds = 0;
+        $refundCount = 0;
+        if (!empty($appointmentIds)) {
+            $refundData = \App\Models\Refund::whereIn('appointment_id', $appointmentIds)
+                ->where('status', 'completed')
+                ->selectRaw('COUNT(*) as count, COALESCE(SUM(refund_amount), 0) as total')
+                ->first();
+            $totalRefunds = (float) ($refundData->total ?? 0);
+            $refundCount = (int) ($refundData->count ?? 0);
         }
 
         // Log the action
@@ -651,9 +711,56 @@ class CashierController extends Controller
             'total_discounts' => $totalDiscounts,
             'cash_collected' => $cashCollected,
             'card_collected' => $cardCollected,
-            'total_refunds' => 0, // Would need refund tracking in appointments
+            'partial_collected' => $partialCollected,
+            'in_kind_count' => $inKindCount,
+            'total_refunds' => $totalRefunds,
+            'refund_count' => $refundCount,
+            'net_revenue' => $totalRevenue - $totalRefunds,
             'appointments' => $appointments->toArray()
         ]);
+    }
+
+    /**
+     * Change cashier password
+     */
+    public function changePassword(Request $request)
+    {
+        $request->validate([
+            'current_password' => 'required|string',
+            'new_password' => 'required|string|min:8|confirmed',
+        ]);
+
+        $user = $request->user();
+
+        if (!\Hash::check($request->current_password, $user->password)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Current password is incorrect'
+            ], 422);
+        }
+
+        try {
+            $user->password = \Hash::make($request->new_password);
+            $user->save();
+
+            ActionLog::log(
+                'change_password',
+                "Changed account password",
+                'User',
+                $user->id
+            );
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Password changed successfully'
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Password change error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to change password'
+            ], 500);
+        }
     }
 
     /**
@@ -703,11 +810,17 @@ class CashierController extends Controller
             // Try to flush tagged cache if supported
             Cache::tags(['stats', 'appointments'])->flush();
         } catch (\Exception $e) {
-            // If tags not supported, fall back to general flush for specific keys
-            \Log::debug('Cache tagging not supported, using fallback: ' . $e->getMessage());
+            // If tags not supported, clear known cashier cache keys by pattern
+            \Log::debug('Cache tagging not supported, using key-based fallback: ' . $e->getMessage());
+            foreach (['daily', 'weekly', 'monthly', 'yearly'] as $timeframe) {
+                Cache::forget("cashier_dashboard_stats_{$timeframe}");
+            }
+            // Clear approved appointments cache (pattern-based keys)
+            // Since keys are hashed, we clear the most common patterns
             Cache::forget('cashier:stats');
             Cache::forget('cashier:appointments');
             Cache::forget('dashboard:stats');
+            Cache::forget('public_init_data');
         }
     }
 }

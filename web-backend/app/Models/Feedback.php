@@ -17,14 +17,9 @@ class Feedback extends Model
         'message',
         'rating',
         'feedback_type',
-        'is_testimonial',
-        'featured_at',
-        'is_reported',
-        'reported_reason',
-        'reported_explanation',
-        'reported_by_admin',
-        'is_blocked',
-        'blocked_until'
+        // 'is_testimonial', 'featured_at' excluded — admin-only promotion fields.
+        // 'is_reported', 'reported_reason', 'reported_explanation', 'reported_by_admin',
+        // 'is_blocked', 'blocked_until' excluded — admin moderation fields, set explicitly.
     ];
 
     protected $casts = [
@@ -72,8 +67,10 @@ class Feedback extends Model
      */
     public function scopeSearch($query, $searchTerm)
     {
-        return $query->where('email', 'like', "%{$searchTerm}%")
-                     ->orWhere('message', 'like', "%{$searchTerm}%");
+        return $query->where(function ($q) use ($searchTerm) {
+            $q->where('email', 'like', "%{$searchTerm}%")
+              ->orWhere('message', 'like', "%{$searchTerm}%");
+        });
     }
 
     /**
@@ -89,6 +86,9 @@ class Feedback extends Model
      */
     public function scopeSortBy($query, $sortBy = 'created_at', $direction = 'desc')
     {
+        $allowedColumns = ['created_at', 'updated_at', 'rating', 'email', 'feedback_type'];
+        $sortBy = in_array($sortBy, $allowedColumns, true) ? $sortBy : 'created_at';
+        $direction = in_array(strtolower($direction), ['asc', 'desc'], true) ? $direction : 'desc';
         return $query->orderBy($sortBy, $direction);
     }
 
@@ -137,7 +137,7 @@ class Feedback extends Model
             $query->where('user_id', $userId)
                   ->orWhere('email', $email);
         })
-        ->where('created_at', '>=', now()->subDays($cooldownDays))
+        ->where('created_at', '>', now()->subDays($cooldownDays))
         ->count();
 
         return $lastWeekFeedback >= $rateLimit;
@@ -152,26 +152,44 @@ class Feedback extends Model
             $query->where('user_id', $userId)
                   ->orWhere('email', $email);
         })
-        ->where('created_at', '>=', now()->subDays($days))
+        ->where('created_at', '>', now()->subDays($days))
         ->count();
     }
 
     /**
-     * Get the oldest feedback in the current cooldown period
-     * Returns the date when the rate limit will reset
+     * Get the date when the next feedback slot opens up.
+     * When the user has reached the rate limit, the earliest slot opens
+     * when the oldest feedback in the window expires out of the cooldown period.
      */
     public static function getNextAvailableDate($userId, $email, $days = 7)
     {
-        $oldestFeedback = self::where(function ($query) use ($userId, $email) {
+        $settings = FeedbackSettings::first();
+        $rateLimit = $settings->rate_limit ?? 2;
+
+        // Get all feedback in the cooldown window, ordered oldest first
+        $feedbackInWindow = self::where(function ($query) use ($userId, $email) {
             $query->where('user_id', $userId)
                   ->orWhere('email', $email);
         })
-        ->where('created_at', '>=', now()->subDays($days))
+        ->where('created_at', '>', now()->subDays($days))
         ->orderBy('created_at', 'asc')
-        ->first();
+        ->get();
 
-        if ($oldestFeedback) {
-            return $oldestFeedback->created_at->addDays($days);
+        $count = $feedbackInWindow->count();
+
+        // If under the limit, user can submit now
+        if ($count < $rateLimit) {
+            return null;
+        }
+
+        // The slot opens when the oldest feedback exits the cooldown window
+        // With limit N, the Nth-oldest feedback's expiry frees the Nth slot
+        // Index 0 = oldest, so when that expires, count drops below limit
+        $pivotIndex = $count - $rateLimit; // how many need to expire
+        $pivotFeedback = $feedbackInWindow->values()->get($pivotIndex);
+
+        if ($pivotFeedback) {
+            return $pivotFeedback->created_at->addDays($days);
         }
 
         return null;
@@ -182,10 +200,8 @@ class Feedback extends Model
      */
     public function getPrivacySafeUsernameAttribute()
     {
-        if ($this->user && $this->user->name) {
-            // Extract first name only
-            $nameParts = explode(' ', trim($this->user->name));
-            return $nameParts[0];
+        if ($this->user && $this->user->first_name) {
+            return $this->user->first_name;
         }
 
         // Extract first name from email

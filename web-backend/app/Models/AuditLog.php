@@ -37,18 +37,23 @@ class AuditLog extends Model
 
     public static function log($action, $entityType, $entityId = null, $description = null, $oldValues = null, $newValues = null, $status = 'success', $errorMessage = null)
     {
-        return self::create([
-            'user_id' => auth()->id(),
-            'action' => $action,
-            'entity_type' => $entityType,
-            'entity_id' => $entityId,
-            'description' => $description,
-            'old_values' => $oldValues,
-            'new_values' => $newValues,
-            'ip_address' => request()->ip(),
-            'user_agent' => request()->userAgent(),
-            'status' => $status,
-            'error_message' => $errorMessage
-        ]);
+        try {
+            return self::create([
+                'user_id' => auth()->id(),
+                'action' => $action,
+                'entity_type' => $entityType,
+                'entity_id' => $entityId,
+                'description' => $description,
+                'old_values' => $oldValues,
+                'new_values' => $newValues,
+                'ip_address' => request()->ip(),
+                'user_agent' => request()->userAgent(),
+                'status' => $status,
+                'error_message' => $errorMessage
+            ]);
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::warning('AuditLog::log failed (non-blocking): ' . $e->getMessage());
+            return null;
+        }
     }
 }

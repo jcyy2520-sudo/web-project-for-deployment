@@ -79,15 +79,29 @@ const UserFeedback = ({ user }) => {
           sort_order: sortOrder
         };
         const response = await axios.get('/api/user/feedback', { params, timeout: 10000 });
-        return response.data;
+        return response;
       });
 
-      if (result.success || result.data) {
-        const data = result.data || result;
-        setFeedback(data.data || []);
-        setTotal(data.pagination?.total || 0);
+      if (result.success) {
+        const responseBody = result.data || {};
+        
+        // Handle multiple possible response shapes from callApi unwrapping
+        let feedbackItems = [];
+        let paginationData = {};
+        let rateLimitData = null;
+
+        if (Array.isArray(responseBody)) {
+          feedbackItems = responseBody;
+        } else if (responseBody && typeof responseBody === 'object') {
+          feedbackItems = Array.isArray(responseBody.data) ? responseBody.data : [];
+          paginationData = responseBody.pagination || responseBody.meta || {};
+          rateLimitData = responseBody.rate_limit || null;
+        }
+
+        setFeedback(feedbackItems);
+        setTotal(paginationData.total || feedbackItems.length || 0);
         setCurrentPage(page);
-        if (data.rate_limit) setRateLimit(data.rate_limit);
+        if (rateLimitData) setRateLimit(rateLimitData);
       }
       setLoading(false);
     } catch (error) {

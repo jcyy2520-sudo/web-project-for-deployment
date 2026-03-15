@@ -37,10 +37,11 @@ const AppointmentSettingsManagement = ({ isDarkMode = true }) => {
       });
 
       if (result.success && result.data) {
-        setSettings(result.data);
-        setDailyLimit(result.data.daily_booking_limit_per_user);
-        setIsActive(result.data.is_active);
-        setDescription(result.data.description || '');
+        const settingsData = result.data?.data || result.data;
+        setSettings(settingsData);
+        setDailyLimit(settingsData.daily_booking_limit_per_user);
+        setIsActive(settingsData.is_active);
+        setDescription(settingsData.description || '');
       }
     } catch (err) {
       console.error('Failed to load appointment settings:', err);
@@ -56,7 +57,8 @@ const AppointmentSettingsManagement = ({ isDarkMode = true }) => {
       });
 
       if (result.success && result.data) {
-        setHistory(result.data);
+        const historyData = result.data?.data || result.data;
+        setHistory(Array.isArray(historyData) ? historyData : []);
       }
     } catch (err) {
       console.error('Failed to load settings history:', err);
@@ -74,26 +76,32 @@ const AppointmentSettingsManagement = ({ isDarkMode = true }) => {
     setError(null);
     setSuccess(null);
 
+    // Safety timeout to prevent stuck loading state
+    const safetyTimeout = setTimeout(() => {
+      setSaving(false);
+      setError('Request timed out. Please try again.');
+    }, 20000);
+
     try {
-      const result = await callApi(async () => {
-        const response = await axios.put('/api/admin/appointment-settings', {
-          daily_booking_limit_per_user: parseInt(dailyLimit),
-          is_active: isActive,
-          description: description.trim(),
-        });
-        return response.data;
-      });
+      const response = await axios.put('/api/admin/appointment-settings', {
+        daily_booking_limit_per_user: parseInt(dailyLimit),
+        is_active: isActive,
+        description: description.trim(),
+      }, { timeout: 10000 });
+
+      const result = response.data;
 
       if (result.success) {
-        setSettings(result.data);
+        const updatedSettings = result.data || result;
+        setSettings(updatedSettings);
         setSuccess('Appointment settings updated successfully! Changes will be reflected immediately for all users.');
         
         // Notify all clients about the settings change
         window.dispatchEvent(new CustomEvent('appointmentSettingsChanged', {
           detail: {
-            limit: result.data.daily_booking_limit_per_user,
-            isActive: result.data.is_active,
-            updatedAt: result.data.updated_at
+            limit: updatedSettings.daily_booking_limit_per_user,
+            isActive: updatedSettings.is_active,
+            updatedAt: updatedSettings.updated_at
           }
         }));
         
@@ -104,8 +112,13 @@ const AppointmentSettingsManagement = ({ isDarkMode = true }) => {
       }
     } catch (err) {
       console.error('Error saving settings:', err);
-      setError(err.message || 'Failed to save appointment settings');
+      if (err.code === 'ECONNABORTED' || err.message?.includes('timeout')) {
+        setError('Request timed out. The server took too long to respond. Please try again.');
+      } else {
+        setError(err.response?.data?.message || err.message || 'Failed to save appointment settings');
+      }
     } finally {
+      clearTimeout(safetyTimeout);
       setSaving(false);
     }
   };
@@ -336,7 +349,7 @@ const AppointmentSettingsManagement = ({ isDarkMode = true }) => {
           <div className="border-t border-gray-700 pt-6">
             <button
               onClick={handleSave}
-              disabled={saving || loading}
+              disabled={saving}
               className="w-full px-6 py-3 bg-amber-600 text-white rounded-lg font-semibold hover:bg-amber-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {saving ? (

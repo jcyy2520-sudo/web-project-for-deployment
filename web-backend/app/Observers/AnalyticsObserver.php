@@ -5,38 +5,50 @@ namespace App\Observers;
 use App\Events\AnalyticsUpdated;
 use App\Models\Appointment;
 use App\Models\Refund;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Cache;
 
 class AnalyticsObserver
 {
     /**
-     * Clear analytics cache when an appointment is created, updated, or deleted
+     * Clear analytics cache when an appointment or refund is created
      */
-    public function created(Appointment $appointment)
-    {
-        $this->invalidateAnalyticsCache();
-    }
-
-    public function updated(Appointment $appointment)
-    {
-        // Only invalidate if status changed (as that affects analytics)
-        if ($appointment->isDirty('status')) {
-            $this->invalidateAnalyticsCache();
-        }
-    }
-
-    public function deleted(Appointment $appointment)
+    public function created(Model $model)
     {
         $this->invalidateAnalyticsCache();
     }
 
     /**
-     * Clear analytics cache when a refund is created, updated, or completed
+     * Clear analytics cache when an appointment or refund is updated
      */
-    public function saved(Refund $refund)
+    public function updated(Model $model)
     {
-        // Invalidate on any refund change (status updates affect revenue)
+        // For appointments, only invalidate if status changed (as that affects analytics)
+        if ($model instanceof Appointment && !$model->isDirty('status')) {
+            return;
+        }
         $this->invalidateAnalyticsCache();
+    }
+
+    /**
+     * Clear analytics cache when an appointment or refund is deleted
+     */
+    public function deleted(Model $model)
+    {
+        $this->invalidateAnalyticsCache();
+    }
+
+    /**
+     * Clear analytics cache when a model is saved (covers both create and update)
+     * This is particularly important for refund status changes that affect revenue
+     */
+    public function saved(Model $model)
+    {
+        // For refunds, always invalidate (status updates affect revenue)
+        if ($model instanceof Refund) {
+            $this->invalidateAnalyticsCache();
+        }
+        // For appointments, the created/updated hooks already handle invalidation
     }
 
     /**
@@ -58,6 +70,7 @@ class AnalyticsObserver
             Cache::forget('analytics_quality_report_90');
             Cache::forget('analytics_auto_alerts');
             Cache::forget('analytics_dashboard_comprehensive');
+            Cache::forget('analytics_dashboard_realtime');
 
             // Broadcast update event to all connected admin clients
             broadcast(new AnalyticsUpdated([

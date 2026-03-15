@@ -21,6 +21,11 @@ class RoleMiddleware
             return response()->json(['message' => 'Unauthenticated'], 401);
         }
 
+        // Block deactivated/blocked users even if their token is still valid
+        if (!$user->is_active || in_array($user->account_status ?? 'active', ['blocked', 'deactivated', 'deleted'])) {
+            return response()->json(['message' => 'Account is deactivated or blocked'], 403);
+        }
+
         // Check if user has any of the required roles
         if (!in_array($user->role, $roles)) {
             return response()->json(['message' => 'Unauthorized'], 403);

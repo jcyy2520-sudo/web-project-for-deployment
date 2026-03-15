@@ -26,33 +26,49 @@ class AdminController extends Controller
                 // This is extremely fast compared to loading relationship data
                 
                 $stats = DB::table('appointments')
+                    ->whereNull('deleted_at')
                     ->selectRaw('
                         COUNT(*) as total_appointments,
                         SUM(CASE WHEN status = \'pending\' THEN 1 ELSE 0 END) as pending_appointments,
-                        SUM(CASE WHEN status = \'completed\' THEN 1 ELSE 0 END) as completed_appointments
+                        SUM(CASE WHEN status = \'approved\' THEN 1 ELSE 0 END) as approved_appointments,
+                        SUM(CASE WHEN status = \'completed\' THEN 1 ELSE 0 END) as completed_appointments,
+                        SUM(CASE WHEN status = \'cancelled\' THEN 1 ELSE 0 END) as cancelled_appointments
                     ')
                     ->first();
 
                 // Use count() for users - it's optimized for counting
                 $totalUsers = User::count();
                 $activeUsers = User::where('is_active', true)->count();
+                $totalStaff = User::where('role', 'staff')->count();
                 
                 $totalAppointments = $stats->total_appointments ?? 0;
                 $pendingAppointments = $stats->pending_appointments ?? 0;
+                $approvedAppointments = $stats->approved_appointments ?? 0;
                 $completedAppointments = $stats->completed_appointments ?? 0;
+                $cancelledAppointments = $stats->cancelled_appointments ?? 0;
                 
-                // Calculate revenue - based on completed appointments with their service prices
+                // Calculate revenue - prefer actual payment_amount, fallback to service catalog price
                 $revenue = DB::table('appointments')
-                    ->join('services', 'appointments.service_id', '=', 'services.id')
-                    ->where('appointments.status', 'completed')
-                    ->sum(DB::raw('COALESCE(services.price, 0)'));
+                    ->leftJoin('services', 'appointments.service_id', '=', 'services.id')
+                    ->whereNull('appointments.deleted_at')
+                    ->where(function($query) {
+                        $query->where('appointments.payment_status', 'paid')
+                              ->orWhere(function($q) {
+                                  $q->where('appointments.status', 'completed')
+                                    ->whereNull('appointments.payment_status');
+                              });
+                    })
+                    ->sum(DB::raw('COALESCE(appointments.payment_amount, services.price, 0)'));
 
                 return [
                     'totalUsers' => $totalUsers,
                     'activeUsers' => $activeUsers,
+                    'totalStaff' => $totalStaff,
                     'totalAppointments' => $totalAppointments,
                     'pendingAppointments' => $pendingAppointments,
+                    'approvedAppointments' => $approvedAppointments,
                     'completedAppointments' => $completedAppointments,
+                    'cancelledAppointments' => $cancelledAppointments,
                     'revenue' => (float) ($revenue ?? 0),
                 ];
             });
@@ -65,7 +81,7 @@ class AdminController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to fetch stats',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred'
             ], 500);
         }
     }
@@ -93,7 +109,7 @@ class AdminController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to fetch appointments',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred'
             ], 500);
         }
     }
@@ -101,8 +117,8 @@ class AdminController extends Controller
     // Helper method to fetch appointments (refactored for caching)
     private function fetchAppointments($request)
     {
-        // Only get appointments with existing users (eager load with whereHas to ensure user exists)
-        $query = Appointment::whereHas('user')->with(['user', 'staff', 'service']);
+        // Only get appointments with existing users (eager load with has to ensure user exists)
+        $query = Appointment::has('user')->with(['user', 'staff', 'service']);
 
         // Apply filters
         if ($request->has('status')) {
@@ -146,6 +162,114 @@ class AdminController extends Controller
                 'last_page' => $appointments->lastPage()
             ]
         ];
+    }
+
+    /**
+     * Get monthly appointment summary for the admin calendar modal.
+     * Returns appointment counts per date and blocked/unavailable dates for a given month.
+     * Read-only — no database writes.
+     */
+    public function getMonthlyAppointmentSummary(Request $request)
+    {
+        try {
+            $request->validate([
+                'year' => 'required|integer|min:2020|max:2099',
+                'month' => 'required|integer|min:1|max:12',
+            ]);
+
+            $year = (int) $request->year;
+            $month = (int) $request->month;
+
+            $startDate = Carbon::create($year, $month, 1)->startOfDay();
+            $endDate = $startDate->copy()->endOfMonth()->endOfDay();
+
+            // Cache for 60 seconds keyed by year-month
+            $cacheKey = "admin_monthly_summary_{$year}_{$month}";
+
+            $data = Cache::remember($cacheKey, 60, function () use ($startDate, $endDate, $year, $month) {
+                // 1. Appointment counts grouped by date
+                $appointmentCounts = Appointment::whereHas('user')
+                    ->whereBetween('appointment_date', [$startDate->toDateString(), $endDate->toDateString()])
+                    ->select('appointment_date', DB::raw('COUNT(*) as total'))
+                    ->groupBy('appointment_date')
+                    ->get()
+                    ->keyBy(function ($item) {
+                        return Carbon::parse($item->appointment_date)->format('Y-m-d');
+                    })
+                    ->map(function ($item) {
+                        return (int) $item->total;
+                    })
+                    ->toArray();
+
+                // 2. Appointment counts by status per date
+                $statusCounts = Appointment::whereHas('user')
+                    ->whereBetween('appointment_date', [$startDate->toDateString(), $endDate->toDateString()])
+                    ->select('appointment_date', 'status', DB::raw('COUNT(*) as total'))
+                    ->groupBy('appointment_date', 'status')
+                    ->get()
+                    ->groupBy(function ($item) {
+                        return Carbon::parse($item->appointment_date)->format('Y-m-d');
+                    })
+                    ->map(function ($group) {
+                        $statuses = [];
+                        foreach ($group as $item) {
+                            $statuses[$item->status] = (int) $item->total;
+                        }
+                        return $statuses;
+                    })
+                    ->toArray();
+
+                // 3. Unavailable/blocked dates with reasons
+                $unavailableDates = UnavailableDate::whereBetween('date', [$startDate->toDateString(), $endDate->toDateString()])
+                    ->get()
+                    ->map(function ($item) {
+                        return [
+                            'date' => Carbon::parse($item->date)->format('Y-m-d'),
+                            'reason' => $item->reason ?: 'Unavailable',
+                        ];
+                    })
+                    ->toArray();
+
+                // Also get BlackoutDate entries if the model exists
+                $blackoutDates = [];
+                if (class_exists(\App\Models\BlackoutDate::class)) {
+                    $blackoutDates = \App\Models\BlackoutDate::whereBetween('date', [$startDate->toDateString(), $endDate->toDateString()])
+                        ->get()
+                        ->map(function ($item) {
+                            return [
+                                'date' => Carbon::parse($item->date)->format('Y-m-d'),
+                                'reason' => $item->reason ?: 'Blocked',
+                            ];
+                        })
+                        ->toArray();
+                }
+
+                // Merge unavailable + blackout into a single keyed array
+                $blockedMap = [];
+                foreach (array_merge($unavailableDates, $blackoutDates) as $entry) {
+                    $blockedMap[$entry['date']] = $entry['reason'];
+                }
+
+                return [
+                    'appointment_counts' => $appointmentCounts,
+                    'status_counts' => $statusCounts,
+                    'blocked_dates' => $blockedMap,
+                ];
+            });
+
+            return response()->json([
+                'success' => true,
+                'data' => $data,
+                'year' => $year,
+                'month' => $month,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to fetch monthly summary',
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred',
+            ], 500);
+        }
     }
 
     public function generateReport(Request $request)
@@ -195,7 +319,7 @@ class AdminController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to generate report',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred'
             ], 500);
         }
     }
@@ -229,7 +353,7 @@ class AdminController extends Controller
             // Send email ONLY for appointment-related messages
             if ($request->type === 'appointment') {
                 try {
-                    Mail::to($user->email)->send(new AdminMessageMail(
+                    Mail::to($user->email)->queue(new AdminMessageMail(
                         $user,
                         $request->subject,
                         $request->message,
@@ -268,7 +392,7 @@ class AdminController extends Controller
             ], 422);
         } catch (\Exception $e) {
             \Log::error('Failed to send admin message', [
-                'error' => $e->getMessage(),
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred',
                 'user_id' => $request->userId ?? null,
                 'admin_id' => $request->user()->id,
                 'file' => $e->getFile(),
@@ -277,7 +401,7 @@ class AdminController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to send message: ' . $e->getMessage()
+                'message' => config('app.debug') ? 'Failed to send message: ' . $e->getMessage() : 'Failed to send message'
             ], 500);
         }
     }
@@ -286,38 +410,75 @@ class AdminController extends Controller
     public function getDetailedStats()
     {
         try {
-            // User statistics
+            // PERFORMANCE FIX: Replace 30+ individual COUNT queries with 2 aggregated queries
+
+            // User statistics — single query with conditional aggregation
+            $userAgg = DB::table('users')->selectRaw("
+                COUNT(*) as total,
+                SUM(CASE WHEN role='client' THEN 1 ELSE 0 END) as clients,
+                SUM(CASE WHEN role='staff' THEN 1 ELSE 0 END) as staff,
+                SUM(CASE WHEN role='admin' THEN 1 ELSE 0 END) as admins,
+                SUM(CASE WHEN is_active=1 THEN 1 ELSE 0 END) as active,
+                SUM(CASE WHEN is_active=0 THEN 1 ELSE 0 END) as inactive,
+                SUM(CASE WHEN DATE(created_at) = CURDATE() THEN 1 ELSE 0 END) as new_today,
+                SUM(CASE WHEN created_at BETWEEN ? AND ? THEN 1 ELSE 0 END) as new_week,
+                SUM(CASE WHEN created_at BETWEEN ? AND ? THEN 1 ELSE 0 END) as new_month
+            ", [
+                now()->startOfWeek(), now()->endOfWeek(),
+                now()->startOfMonth(), now()->endOfMonth()
+            ])->first();
+
             $userStats = [
-                'total' => User::count(),
-                'clients' => User::where('role', 'client')->count(),
-                'staff' => User::where('role', 'staff')->count(),
-                'admins' => User::where('role', 'admin')->count(),
-                'active' => User::where('is_active', true)->count(),
-                'inactive' => User::where('is_active', false)->count(),
-                'new_today' => User::whereDate('created_at', today())->count(),
-                'new_week' => User::whereBetween('created_at', [now()->startOfWeek(), now()->endOfWeek()])->count(),
-                'new_month' => User::whereBetween('created_at', [now()->startOfMonth(), now()->endOfMonth()])->count(),
+                'total' => (int) $userAgg->total,
+                'clients' => (int) $userAgg->clients,
+                'staff' => (int) $userAgg->staff,
+                'admins' => (int) $userAgg->admins,
+                'active' => (int) $userAgg->active,
+                'inactive' => (int) $userAgg->inactive,
+                'new_today' => (int) $userAgg->new_today,
+                'new_week' => (int) $userAgg->new_week,
+                'new_month' => (int) $userAgg->new_month,
             ];
 
-            // Appointment statistics
+            // Appointment statistics — single query with conditional aggregation
+            $aptAgg = DB::table('appointments')->selectRaw("
+                COUNT(*) as total,
+                SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END) as pending,
+                SUM(CASE WHEN status='approved' THEN 1 ELSE 0 END) as approved,
+                SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) as completed,
+                SUM(CASE WHEN status='cancelled' THEN 1 ELSE 0 END) as cancelled,
+                SUM(CASE WHEN status='declined' THEN 1 ELSE 0 END) as declined,
+                SUM(CASE WHEN appointment_date = CURDATE() THEN 1 ELSE 0 END) as today_count,
+                SUM(CASE WHEN appointment_date BETWEEN ? AND ? THEN 1 ELSE 0 END) as week_count,
+                SUM(CASE WHEN appointment_date BETWEEN ? AND ? THEN 1 ELSE 0 END) as month_count
+            ", [
+                now()->startOfWeek()->toDateString(), now()->endOfWeek()->toDateString(),
+                now()->startOfMonth()->toDateString(), now()->endOfMonth()->toDateString()
+            ])->first();
+
             $appointmentStats = [
-                'total' => Appointment::count(),
-                'pending' => Appointment::where('status', 'pending')->count(),
-                'approved' => Appointment::where('status', 'approved')->count(),
-                'completed' => Appointment::where('status', 'completed')->count(),
-                'cancelled' => Appointment::where('status', 'cancelled')->count(),
-                'declined' => Appointment::where('status', 'declined')->count(),
-                'today' => Appointment::whereDate('appointment_date', today())->count(),
-                'week' => Appointment::whereBetween('appointment_date', [now()->startOfWeek(), now()->endOfWeek()])->count(),
-                'month' => Appointment::whereBetween('appointment_date', [now()->startOfMonth(), now()->endOfMonth()])->count(),
+                'total' => (int) $aptAgg->total,
+                'pending' => (int) $aptAgg->pending,
+                'approved' => (int) $aptAgg->approved,
+                'completed' => (int) $aptAgg->completed,
+                'cancelled' => (int) $aptAgg->cancelled,
+                'declined' => (int) $aptAgg->declined,
+                'today' => (int) $aptAgg->today_count,
+                'week' => (int) $aptAgg->week_count,
+                'month' => (int) $aptAgg->month_count,
             ];
 
-            // Appointment type breakdown
-            $appointmentTypes = Appointment::getTypes();
-            $typeBreakdown = [];
-            foreach ($appointmentTypes as $key => $label) {
-                $typeBreakdown[$label] = Appointment::where('type', $key)->count();
-            }
+            // Appointment type breakdown — single GROUP BY query
+            $typeBreakdown = DB::table('appointments')
+                ->select('type', DB::raw('COUNT(*) as count'))
+                ->groupBy('type')
+                ->pluck('count', 'type')
+                ->mapWithKeys(function ($count, $key) {
+                    $types = Appointment::getTypes();
+                    $label = $types[$key] ?? $key;
+                    return [$label => $count];
+                })
+                ->toArray();
 
             // Revenue calculation (based on paid appointments)
             $revenue = Appointment::where('payment_status', 'paid')->sum('payment_amount');
@@ -344,12 +505,12 @@ class AdminController extends Controller
             ]);
 
         } catch (\Exception $e) {
-            \Log::error('Failed to fetch detailed stats', ['error' => $e->getMessage()]);
+            \Log::error('Failed to fetch detailed stats', ['error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred']);
             
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to fetch detailed statistics',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred'
             ], 500);
         }
     }
@@ -357,6 +518,29 @@ class AdminController extends Controller
     // NEW METHOD: Get monthly trends for charts
     private function getMonthlyTrends()
     {
+        // PERFORMANCE FIX: Replace 18 queries (6 months × 3 queries) with 3 GROUP BY queries
+        $sixMonthsAgo = now()->subMonths(5)->startOfMonth();
+        $endDate = now()->endOfMonth();
+
+        $usersByMonth = DB::table('users')
+            ->selectRaw("DATE_FORMAT(created_at, '%Y-%m') as ym, COUNT(*) as cnt")
+            ->whereBetween('created_at', [$sixMonthsAgo, $endDate])
+            ->groupByRaw("DATE_FORMAT(created_at, '%Y-%m')")
+            ->pluck('cnt', 'ym');
+
+        $aptsByMonth = DB::table('appointments')
+            ->selectRaw("DATE_FORMAT(created_at, '%Y-%m') as ym, COUNT(*) as cnt")
+            ->whereBetween('created_at', [$sixMonthsAgo, $endDate])
+            ->groupByRaw("DATE_FORMAT(created_at, '%Y-%m')")
+            ->pluck('cnt', 'ym');
+
+        $revenueByMonth = DB::table('appointments')
+            ->selectRaw("DATE_FORMAT(payment_date, '%Y-%m') as ym, SUM(payment_amount) as total")
+            ->where('payment_status', 'paid')
+            ->whereBetween('payment_date', [$sixMonthsAgo, $endDate])
+            ->groupByRaw("DATE_FORMAT(payment_date, '%Y-%m')")
+            ->pluck('total', 'ym');
+
         $months = [];
         $userCounts = [];
         $appointmentCounts = [];
@@ -364,19 +548,11 @@ class AdminController extends Controller
 
         for ($i = 5; $i >= 0; $i--) {
             $date = now()->subMonths($i);
-            $month = $date->format('M Y');
-            $startOfMonth = $date->copy()->startOfMonth();
-            $endOfMonth = $date->copy()->endOfMonth();
-
-            $months[] = $month;
-            $userCounts[] = User::whereBetween('created_at', [$startOfMonth, $endOfMonth])->count();
-            $appointmentCounts[] = Appointment::whereBetween('created_at', [$startOfMonth, $endOfMonth])->count();
-            
-            // Revenue based on paid appointments that month
-            $monthlyRevenue = Appointment::where('payment_status', 'paid')
-                ->whereBetween('payment_date', [$startOfMonth, $endOfMonth])
-                ->sum('payment_amount');
-            $revenueData[] = (float) $monthlyRevenue;
+            $key = $date->format('Y-m');
+            $months[] = $date->format('M Y');
+            $userCounts[] = (int) ($usersByMonth[$key] ?? 0);
+            $appointmentCounts[] = (int) ($aptsByMonth[$key] ?? 0);
+            $revenueData[] = (float) ($revenueByMonth[$key] ?? 0);
         }
 
         return [
@@ -418,39 +594,78 @@ class AdminController extends Controller
                     $startDate = now()->startOfYear();
                     $endDate = now()->endOfYear();
                     break;
+                case 'all':
+                    // Use custom start_date/end_date if provided, otherwise use full range
+                    if (!$request->start_date || !$request->end_date) {
+                        $startDate = Carbon::parse('2020-01-01');
+                        $endDate = now()->endOfDay();
+                    }
+                    break;
             }
 
-            $appointments = Appointment::with(['user', 'staff'])
-                ->whereBetween('appointment_date', [$startDate, $endDate])
-                ->get();
+            // PERFORMANCE FIX: Use aggregated queries instead of loading all records into memory
 
-            $statusBreakdown = $appointments->groupBy('status')->map->count();
-            $typeBreakdown = $appointments->groupBy('type')->map->count();
+            // Summary counts — single query with conditional aggregation
+            $summary = DB::table('appointments')
+                ->selectRaw("
+                    COUNT(*) as total,
+                    SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) as completed,
+                    SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END) as pending,
+                    COALESCE(SUM(CASE WHEN payment_status='paid' THEN payment_amount ELSE 0 END), 0) as revenue
+                ")
+                ->whereBetween('appointment_date', [$startDate->toDateString(), $endDate->toDateString()])
+                ->first();
 
-            // Daily appointment counts for the period
+            // Status breakdown — GROUP BY
+            $statusBreakdown = DB::table('appointments')
+                ->select('status', DB::raw('COUNT(*) as count'))
+                ->whereBetween('appointment_date', [$startDate->toDateString(), $endDate->toDateString()])
+                ->groupBy('status')
+                ->pluck('count', 'status');
+
+            // Type breakdown — GROUP BY
+            $typeBreakdown = DB::table('appointments')
+                ->select('type', DB::raw('COUNT(*) as count'))
+                ->whereBetween('appointment_date', [$startDate->toDateString(), $endDate->toDateString()])
+                ->groupBy('type')
+                ->pluck('count', 'type');
+
+            // Daily appointment counts — single GROUP BY query instead of per-day loop
+            $dailyRaw = DB::table('appointments')
+                ->selectRaw("DATE(appointment_date) as day, COUNT(*) as cnt")
+                ->whereBetween('appointment_date', [$startDate->toDateString(), $endDate->toDateString()])
+                ->groupByRaw("DATE(appointment_date)")
+                ->pluck('cnt', 'day');
+
             $dailyCounts = [];
             $currentDate = $startDate->copy();
             while ($currentDate <= $endDate) {
-                $count = Appointment::whereDate('appointment_date', $currentDate)->count();
-                $dailyCounts[$currentDate->format('M j')] = $count;
+                $key = $currentDate->format('Y-m-d');
+                $dailyCounts[$currentDate->format('M j')] = (int) ($dailyRaw[$key] ?? 0);
                 $currentDate->addDay();
             }
 
-            // Staff performance
-            $staffPerformance = Appointment::with('staff')
-                ->whereBetween('appointment_date', [$startDate, $endDate])
-                ->whereNotNull('staff_id')
+            // Staff performance — single aggregated query
+            $staffPerformance = DB::table('appointments')
+                ->join('users', 'appointments.staff_id', '=', 'users.id')
+                ->selectRaw("
+                    appointments.staff_id,
+                    CONCAT(users.first_name, ' ', users.last_name) as staff_name,
+                    COUNT(*) as total_appointments,
+                    SUM(CASE WHEN appointments.status='completed' THEN 1 ELSE 0 END) as completed
+                ")
+                ->whereBetween('appointments.appointment_date', [$startDate->toDateString(), $endDate->toDateString()])
+                ->whereNotNull('appointments.staff_id')
+                ->groupBy('appointments.staff_id', 'users.first_name', 'users.last_name')
                 ->get()
-                ->groupBy('staff_id')
-                ->map(function ($appointments, $staffId) {
-                    $staff = $appointments->first()->staff;
+                ->map(function ($row) {
                     return [
-                        'staff_name' => $staff->full_name,
-                        'total_appointments' => $appointments->count(),
-                        'completed' => $appointments->where('status', 'completed')->count(),
-                        'completion_rate' => $appointments->count() > 0 
-                            ? round(($appointments->where('status', 'completed')->count() / $appointments->count()) * 100, 2)
-                            : 0
+                        'staff_name' => $row->staff_name,
+                        'total_appointments' => (int) $row->total_appointments,
+                        'completed' => (int) $row->completed,
+                        'completion_rate' => $row->total_appointments > 0
+                            ? round(($row->completed / $row->total_appointments) * 100, 2)
+                            : 0,
                     ];
                 })
                 ->values();
@@ -462,10 +677,10 @@ class AdminController extends Controller
                     'label' => $period
                 ],
                 'summary' => [
-                    'total' => $appointments->count(),
-                    'completed' => $appointments->where('status', 'completed')->count(),
-                    'pending' => $appointments->where('status', 'pending')->count(),
-                    'revenue' => $appointments->where('status', 'completed')->count() * 100
+                    'total' => (int) $summary->total,
+                    'completed' => (int) $summary->completed,
+                    'pending' => (int) $summary->pending,
+                    'revenue' => round((float) $summary->revenue, 2)
                 ],
                 'breakdown' => [
                     'status' => $statusBreakdown,
@@ -482,12 +697,12 @@ class AdminController extends Controller
             ]);
 
         } catch (\Exception $e) {
-            \Log::error('Failed to fetch appointment analytics', ['error' => $e->getMessage()]);
+            \Log::error('Failed to fetch appointment analytics', ['error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred']);
             
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to fetch appointment analytics',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred'
             ], 500);
         }
     }
@@ -508,19 +723,32 @@ class AdminController extends Controller
                 ->take(5)
                 ->get(['id', 'user_id', 'staff_id', 'type', 'appointment_date', 'status', 'created_at']);
 
-            // System health indicators
+            // System health indicators (dynamic checks)
+            $dbHealthy = true;
+            try {
+                DB::select('SELECT 1');
+            } catch (\Exception $e) {
+                $dbHealthy = false;
+            }
+
             $systemHealth = [
-                'database' => 'healthy',
-                'mail' => 'operational',
-                'storage' => 'normal',
-                'performance' => 'optimal'
+                'database' => $dbHealthy ? 'healthy' : 'unhealthy',
+                'mail' => config('mail.mailers.' . config('mail.default') . '.host') ? 'operational' : 'not_configured',
+                'storage' => is_writable(storage_path()) ? 'normal' : 'read_only',
+                'performance' => $appointmentCount < 50000 ? 'optimal' : 'high_load'
             ];
 
-            // Pending actions
+            // Pending actions - single query with conditional aggregation
+            $pendingCounts = DB::table('appointments')
+                ->selectRaw("
+                    SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending_appointments,
+                    SUM(CASE WHEN staff_id IS NULL AND status = 'approved' THEN 1 ELSE 0 END) as unassigned_appointments
+                ")
+                ->first();
+
             $pendingActions = [
-                'pending_appointments' => Appointment::where('status', 'pending')->count(),
-                'unassigned_appointments' => Appointment::whereNull('staff_id')->where('status', 'approved')->count(),
-                'pending_reviews' => 0, // Placeholder
+                'pending_appointments' => (int) ($pendingCounts->pending_appointments ?? 0),
+                'unassigned_appointments' => (int) ($pendingCounts->unassigned_appointments ?? 0),
             ];
 
             $overview = [
@@ -544,12 +772,12 @@ class AdminController extends Controller
             ]);
 
         } catch (\Exception $e) {
-            \Log::error('Failed to fetch system overview', ['error' => $e->getMessage()]);
+            \Log::error('Failed to fetch system overview', ['error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred']);
             
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to fetch system overview',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred'
             ], 500);
         }
     }
@@ -613,15 +841,46 @@ class AdminController extends Controller
             ->whereBetween('appointment_date', [$startDate, $endDate])
             ->count();
 
+        // Calculate actual revenue from payment records
+        $totalRevenue = (float) DB::table('appointments')
+            ->leftJoin('services', 'appointments.service_id', '=', 'services.id')
+            ->where(function($query) {
+                $query->where('appointments.payment_status', 'paid')
+                      ->orWhere(function($q) {
+                          $q->where('appointments.status', 'completed')
+                            ->whereNull('appointments.payment_status');
+                      });
+            })
+            ->whereBetween('appointments.appointment_date', [$startDate, $endDate])
+            ->sum(DB::raw('COALESCE(appointments.payment_amount, services.price, 0)'));
+
+        $avgRevenue = $completedAppointments > 0
+            ? round($totalRevenue / $completedAppointments, 2)
+            : 0;
+
+        // Revenue grouped by service type from actual data
+        $revenueByType = DB::table('appointments')
+            ->leftJoin('services', 'appointments.service_id', '=', 'services.id')
+            ->where(function($query) {
+                $query->where('appointments.payment_status', 'paid')
+                      ->orWhere(function($q) {
+                          $q->where('appointments.status', 'completed')
+                            ->whereNull('appointments.payment_status');
+                      });
+            })
+            ->whereBetween('appointments.appointment_date', [$startDate, $endDate])
+            ->select('services.name', DB::raw('COALESCE(SUM(COALESCE(appointments.payment_amount, services.price, 0)), 0) as total'))
+            ->groupBy('services.name')
+            ->orderByDesc('total')
+            ->get()
+            ->pluck('total', 'name')
+            ->toArray();
+
         return [
-            'totalRevenue' => $completedAppointments * 100,
+            'totalRevenue' => $totalRevenue,
             'completedAppointments' => $completedAppointments,
-            'averageRevenuePerAppointment' => 100,
-            'revenueByType' => [
-                'consultation' => 5000,
-                'document_review' => 3000,
-                'notary_services' => 2000
-            ]
+            'averageRevenuePerAppointment' => $avgRevenue,
+            'revenueByType' => $revenueByType
         ];
     }
 
@@ -631,6 +890,17 @@ class AdminController extends Controller
         $totalAppointments = Appointment::whereBetween('created_at', [$startDate, $endDate])->count();
         $unavailableDates = UnavailableDate::whereBetween('date', [$startDate, $endDate])->count();
 
+        // Compute basic performance metrics from available data
+        $failedJobs = 0;
+        $totalJobs = 0;
+        try {
+            $failedJobs = DB::table('failed_jobs')->count();
+            $totalJobs = DB::table('jobs')->count() + $failedJobs;
+        } catch (\Exception $e) {
+            // Tables may not exist in all environments
+        }
+        $errorRate = $totalJobs > 0 ? round(($failedJobs / max($totalJobs, 1)) * 100, 2) . '%' : '0%';
+
         return [
             'systemUsage' => [
                 'newUsers' => $totalUsers,
@@ -638,9 +908,10 @@ class AdminController extends Controller
                 'unavailableDates' => $unavailableDates
             ],
             'performance' => [
-                'uptime' => '99.9%',
-                'averageResponseTime' => '120ms',
-                'errorRate' => '0.1%'
+                'php_version' => phpversion(),
+                'laravel_version' => app()->version(),
+                'error_rate' => $errorRate,
+                'failed_jobs' => $failedJobs
             ]
         ];
     }
@@ -653,12 +924,13 @@ class AdminController extends Controller
     {
         try {
             $request->validate([
-                'appointment_ids' => 'required|array|min:1',
+                'appointment_ids' => 'required|array|min:1|max:500',
                 'appointment_ids.*' => 'integer|exists:appointments,id',
                 'cancellation_reason' => 'required|string|max:500',
                 'message_type' => 'required|in:individual,group',
                 'include_reason_in_message' => 'boolean',
-                'unavailable_date' => 'required|array'
+                'unavailable_date' => 'required|array',
+                'unavailable_date.date' => 'required|date_format:Y-m-d'
             ]);
 
             $appointmentIds = $request->input('appointment_ids');
@@ -667,48 +939,59 @@ class AdminController extends Controller
             $includeReason = $request->boolean('include_reason_in_message', true);
             $unavailableDate = $request->input('unavailable_date');
 
-            // Fetch all appointments to be cancelled
-            $appointments = Appointment::with(['user', 'staff', 'service'])
-                ->whereIn('id', $appointmentIds)
-                ->get();
+            // Wrap cancellation + logging in a DB transaction for atomicity
+            $result = DB::transaction(function () use ($appointmentIds, $cancellationReason, $unavailableDate) {
+                // Only cancel appointments that are in cancellable states
+                $appointments = Appointment::with(['user', 'staff', 'service'])
+                    ->whereIn('id', $appointmentIds)
+                    ->whereIn('status', ['pending', 'approved'])
+                    ->lockForUpdate()
+                    ->get();
 
-            if ($appointments->isEmpty()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'No appointments found to cancel'
-                ], 404);
-            }
+                if ($appointments->isEmpty()) {
+                    return ['appointments' => collect(), 'cancelled_count' => 0, 'skipped' => count($appointmentIds)];
+                }
 
-            // Cancel all appointments
-            $cancelledCount = Appointment::whereIn('id', $appointmentIds)
-                ->update(['status' => 'cancelled']);
+                // Cancel only the fetched (cancellable) appointments
+                $cancelledCount = Appointment::whereIn('id', $appointments->pluck('id'))
+                    ->update(['status' => 'cancelled']);
 
-            // Log the action
-            \App\Models\ActionLog::log(
-                'bulk_cancel_appointments',
-                "Cancelled {$cancelledCount} appointments due to unavailable date ({$unavailableDate['date']}). Reason: {$cancellationReason}",
-                'Appointment',
-                null
-            );
+                // Log the action
+                \App\Models\ActionLog::log(
+                    'bulk_cancel_appointments',
+                    "Cancelled {$cancelledCount} appointments due to unavailable date ({$unavailableDate['date']}). Reason: {$cancellationReason}",
+                    'Appointment',
+                    null
+                );
 
-            // Send notifications based on message type
-            if ($messageType === 'individual') {
-                // Send individual messages to each user
-                foreach ($appointments as $appointment) {
-                    $this->sendAppointmentCancellationMessage(
-                        $appointment,
+                return [
+                    'appointments' => $appointments,
+                    'cancelled_count' => $cancelledCount,
+                    'skipped' => count($appointmentIds) - $appointments->count()
+                ];
+            });
+
+            $appointments = $result['appointments'];
+            $cancelledCount = $result['cancelled_count'];
+
+            // Send notifications OUTSIDE the transaction (non-critical)
+            if ($appointments->isNotEmpty()) {
+                if ($messageType === 'individual') {
+                    foreach ($appointments as $appointment) {
+                        $this->sendAppointmentCancellationMessage(
+                            $appointment,
+                            $cancellationReason,
+                            $includeReason
+                        );
+                    }
+                } else {
+                    $this->sendGroupCancellationMessage(
+                        $appointments,
                         $cancellationReason,
-                        $includeReason
+                        $includeReason,
+                        $unavailableDate['date']
                     );
                 }
-            } else {
-                // Send one group message to all affected users
-                $this->sendGroupCancellationMessage(
-                    $appointments,
-                    $cancellationReason,
-                    $includeReason,
-                    $unavailableDate['date']
-                );
             }
 
             // Clear relevant caches
@@ -721,12 +1004,19 @@ class AdminController extends Controller
                 Cache::forget('admin_stats_' . auth()->id());
             }
 
-            return response()->json([
+            $response = [
                 'success' => true,
                 'message' => "Successfully cancelled {$cancelledCount} appointment(s) and sent notifications",
                 'cancelled_count' => $cancelledCount,
                 'message_type' => $messageType
-            ]);
+            ];
+
+            if ($result['skipped'] > 0) {
+                $response['skipped_count'] = $result['skipped'];
+                $response['skipped_note'] = 'Some appointments were already completed/cancelled and were skipped.';
+            }
+
+            return response()->json($response);
 
         } catch (\Illuminate\Validation\ValidationException $e) {
             return response()->json([
@@ -739,7 +1029,7 @@ class AdminController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to cancel appointments',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred'
             ], 500);
         }
     }
@@ -773,7 +1063,7 @@ class AdminController extends Controller
             // Send email notification
             if ($appointment->user && $appointment->user->email) {
                 try {
-                    Mail::to($appointment->user->email)->send(
+                    Mail::to($appointment->user->email)->queue(
                         new \App\Mail\AppointmentStatusMail($appointment)
                     );
                 } catch (\Exception $e) {
@@ -825,7 +1115,7 @@ class AdminController extends Controller
             foreach ($appointments as $appointment) {
                 if ($appointment->user && $appointment->user->email) {
                     try {
-                        Mail::to($appointment->user->email)->send(
+                        Mail::to($appointment->user->email)->queue(
                             new \App\Mail\AppointmentStatusMail($appointment)
                         );
                     } catch (\Exception $e) {
@@ -869,7 +1159,7 @@ class AdminController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Error reserving suggested slot: ' . $e->getMessage(),
+                'message' => config('app.debug') ? 'Error reserving suggested slot: ' . $e->getMessage() : 'Error reserving suggested slot',
             ], 500);
         }
     }
@@ -909,7 +1199,7 @@ class AdminController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to fetch sales data',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred'
             ], 500);
         }
     }
@@ -967,7 +1257,8 @@ class AdminController extends Controller
 
             $collectionRate = 0;
             if ($stats && $stats->total_transactions > 0) {
-                $collectionRate = round(($stats->total_received / ($stats->total_received + $stats->total_discounts)) * 100, 2);
+                $denominator = $stats->total_received + $stats->total_discounts;
+                $collectionRate = $denominator > 0 ? round(($stats->total_received / $denominator) * 100, 2) : 0;
             }
 
             // Payment status breakdown
@@ -1011,7 +1302,7 @@ class AdminController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to fetch sales data',
-                'error' => $e->getMessage(),
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred',
                 'data' => []
             ], 500);
         }
@@ -1094,7 +1385,7 @@ class AdminController extends Controller
                     $user = User::find($userId);
                     if ($user && $user->email) {
                         try {
-                            Mail::to($user->email)->send(
+                            Mail::to($user->email)->queue(
                                 new AdminMessageMail($user, $subject, $messageContent, 'notification')
                             );
                         } catch (\Exception $e) {
@@ -1135,7 +1426,7 @@ class AdminController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to send message',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred'
             ], 500);
         }
     }

@@ -71,13 +71,26 @@ class FrontendErrorLogController
     {
         $hours = (int) $request->query('hours', 24);
 
+        // Single aggregation query instead of 6 separate COUNT queries
+        $counts = FrontendErrorLog::recent($hours)
+            ->selectRaw("
+                COUNT(*) as total,
+                SUM(CASE WHEN severity = 'critical' THEN 1 ELSE 0 END) as critical,
+                SUM(CASE WHEN severity = 'warning' THEN 1 ELSE 0 END) as warning,
+                SUM(CASE WHEN severity = 'info' THEN 1 ELSE 0 END) as info,
+                SUM(CASE WHEN status = 'reported' THEN 1 ELSE 0 END) as reported,
+                SUM(CASE WHEN status = 'unreported' THEN 1 ELSE 0 END) as unreported,
+                COUNT(DISTINCT CASE WHEN user_id IS NOT NULL THEN user_id END) as affected_users
+            ")
+            ->first();
+
         $stats = [
-            'total' => FrontendErrorLog::recent($hours)->count(),
-            'critical' => FrontendErrorLog::recent($hours)->where('severity', 'critical')->count(),
-            'warning' => FrontendErrorLog::recent($hours)->where('severity', 'warning')->count(),
-            'info' => FrontendErrorLog::recent($hours)->where('severity', 'info')->count(),
-            'reported' => FrontendErrorLog::recent($hours)->where('status', 'reported')->count(),
-            'unreported' => FrontendErrorLog::recent($hours)->where('status', 'unreported')->count(),
+            'total' => (int) $counts->total,
+            'critical' => (int) $counts->critical,
+            'warning' => (int) $counts->warning,
+            'info' => (int) $counts->info,
+            'reported' => (int) $counts->reported,
+            'unreported' => (int) $counts->unreported,
             'by_type' => FrontendErrorLog::recent($hours)
                 ->groupBy('error_type')
                 ->selectRaw('error_type, count(*) as count')
@@ -88,10 +101,7 @@ class FrontendErrorLogController
                 ->selectRaw('browser, count(*) as count')
                 ->get()
                 ->pluck('count', 'browser'),
-            'affected_users' => FrontendErrorLog::recent($hours)
-                ->whereNotNull('user_id')
-                ->distinct('user_id')
-                ->count(),
+            'affected_users' => (int) $counts->affected_users,
         ];
 
         return response()->json($stats);

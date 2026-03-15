@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import useChatbot from '../../hooks/useChatbot';
 import ChatbotMessage from './ChatbotMessage';
 import ChatbotInput from './ChatbotInput';
 
 const ChatbotModal = ({ onClose, isDarkMode = true }) => {
+  const navigate = useNavigate();
   const {
     messages,
     loading,
@@ -32,6 +34,21 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
     // Language and sentiment
     detectedLanguage,
     lastSentiment,
+    // Feedback
+    submitFeedback,
+    // Proactive tips
+    proactiveTips,
+    // Retry
+    lastFailedMessage,
+    retryLastMessage,
+    // Role context
+    roleContext,
+    // Error recovery
+    errorRecovery,
+    // Confirmation
+    pendingConfirmation,
+    confirmAction,
+    denyAction,
   } = useChatbot();
 
   const [inputValue, setInputValue] = useState('');
@@ -42,10 +59,12 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
 
   // Fallback questions for when API fails or returns empty
   const FALLBACK_QUESTIONS = [
+    "What services do you offer and how much do they cost?",
+    "Where is your office located?",
     "How do I book an appointment?",
-    "What services do you offer?",
-    "How do I register?",
-    "What are your business hours?"
+    "What are your business hours?",
+    "What documents do I need to bring?",
+    "How do I register for an account?"
   ];
 
   // Format date for conversation list
@@ -87,6 +106,13 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
   const [dynamicUpdates, setDynamicUpdates] = useState([]);
   const [userRole, setUserRole] = useState('guest');
 
+  // Update userRole when roleContext changes from backend responses
+  useEffect(() => {
+    if (roleContext?.role) {
+      setUserRole(roleContext.role);
+    }
+  }, [roleContext?.role]);
+
   // Fetch suggested questions on mount
   useEffect(() => {
     fetchSuggestedQuestions();
@@ -110,14 +136,28 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
     const handleNavigation = (event) => {
       const { route } = event.detail || {};
       if (route) {
-        // Close chatbot and navigate
-        onClose();
-        window.location.href = route;
+        // Security: validate route is a safe internal path (not external URL or javascript:)
+        const isSafeRoute = typeof route === 'string' && route.startsWith('/') && !route.startsWith('//');
+        if (isSafeRoute) {
+          onClose();
+          navigate(route);
+        }
       }
     };
 
     window.addEventListener('chatbot-navigate', handleNavigation);
     return () => window.removeEventListener('chatbot-navigate', handleNavigation);
+  }, [onClose]);
+
+  // Escape key to close modal
+  useEffect(() => {
+    const handleEscape = (e) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
   }, [onClose]);
 
   const fetchSuggestedQuestions = async () => {
@@ -169,10 +209,16 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
   };
 
   // Handle clicking on a dynamic update
+  const safeNavigate = (route) => {
+    if (typeof route === 'string' && route.startsWith('/') && !route.startsWith('//')) {
+      onClose();
+      navigate(route);
+    }
+  };
+
   const handleDynamicUpdateClick = (update) => {
     if (update.route) {
-      onClose();
-      window.location.href = update.route;
+      safeNavigate(update.route);
     } else if (update.text) {
       sendMessage(update.text);
     }
@@ -207,12 +253,12 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
     <>
       {/* Modal Backdrop */}
       <div
-        className="fixed inset-0 bg-black/20 backdrop-blur-sm z-50 transition-all"
+        className="fixed inset-0 bg-black/20 backdrop-blur-sm z-[9998] transition-all"
         onClick={onClose}
       />
 
-      {/* Modal - Responsive: larger on mobile, positioned on desktop */}
-      <div className={`fixed bottom-6 right-6 left-6 w-auto sm:inset-auto sm:bottom-24 sm:right-6 sm:w-[400px] sm:max-w-[calc(100vw-3rem)] rounded-xl shadow-2xl flex flex-col h-[82vh] sm:h-[600px] sm:max-h-[calc(100vh-8rem)] z-50 overflow-hidden border ${isDarkMode ? 'bg-gray-900 border-amber-500/30' : 'bg-white border-slate-200'}`}>
+      {/* Modal - Responsive: full-screen on mobile, positioned on desktop */}
+      <div className={`fixed inset-2 top-2 bottom-2 w-auto sm:inset-auto sm:bottom-24 sm:right-6 sm:w-[400px] sm:max-w-[calc(100vw-3rem)] rounded-xl shadow-2xl flex flex-col sm:h-[600px] sm:max-h-[calc(100vh-8rem)] z-[9999] overflow-hidden border ${isDarkMode ? 'bg-gray-900 border-amber-500/30' : 'bg-white border-slate-200'}`}>
         {/* Header */}
         <div className={`px-5 py-4 flex justify-between items-center flex-shrink-0 ${isDarkMode ? 'bg-gray-900 border-b border-amber-500/20 text-gray-100' : 'bg-slate-50 border-b border-slate-200 text-slate-900'}`}>
           <div className="flex items-center gap-3">
@@ -223,7 +269,14 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
             </div>
             <div>
               <h2 className={`font-semibold text-base ${isDarkMode ? 'text-gray-100' : 'text-slate-900'}`}>Chat Assistant</h2>
-              <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>AI-powered support</p>
+              <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>
+                {roleContext?.roleDisplay
+                  ? `Assisting as ${roleContext.roleDisplay}`
+                  : (userRole && userRole !== 'guest')
+                    ? `Logged in as ${userRole}`
+                    : 'AI-powered support'
+                }
+              </p>
             </div>
           </div>
           <div className="flex gap-1">
@@ -313,6 +366,36 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
         )}
 
         {/* Conversation History Panel (Slide-in sidebar) */}
+
+        {/* Pending Items Banner — shows role-based action items */}
+        {roleContext?.pendingItems?.length > 0 && roleContext.pendingItems.some(i => i.count > 0) && !showHistory && (
+          <div className={`px-4 py-2 flex-shrink-0 border-b ${isDarkMode ? 'bg-amber-500/5 border-amber-500/10' : 'bg-amber-50 border-amber-100'}`}>
+            <div className="flex items-center gap-2 overflow-x-auto scrollbar-none">
+              <span className={`text-[10px] uppercase tracking-wide whitespace-nowrap ${isDarkMode ? 'text-amber-400/70' : 'text-amber-600'}`}>📋 Pending:</span>
+              {roleContext.pendingItems.filter(i => i.count > 0).map((item, idx) => (
+                <button
+                  key={`hdr-pi-${idx}`}
+                  onClick={() => {
+                    if (item.route) {
+                      safeNavigate(item.route);
+                    } else {
+                      sendMessage(`Show me ${item.label?.toLowerCase()}`);
+                    }
+                  }}
+                  className={`text-[11px] px-2 py-0.5 rounded-full whitespace-nowrap flex items-center gap-1 transition-all ${
+                    isDarkMode
+                      ? 'bg-gray-800 border border-amber-500/20 text-gray-300 hover:border-amber-500/40 hover:text-amber-300'
+                      : 'bg-white border border-amber-200 text-slate-600 hover:bg-amber-50'
+                  }`}
+                >
+                  <span className={`font-bold ${item.count >= 5 ? (isDarkMode ? 'text-red-400' : 'text-red-600') : (isDarkMode ? 'text-amber-400' : 'text-amber-600')}`}>{item.count}</span>
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {showHistory && (
           <div className={`absolute inset-0 top-[73px] z-10 flex flex-col border-t ${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-slate-200'}`}>
             {/* History Header */}
@@ -388,6 +471,14 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
                               <span className={`text-xs ${isDarkMode ? 'text-gray-600' : 'text-slate-500'}`}>
                                 {conv.message_count} messages
                               </span>
+                              {conv.is_at_limit && (
+                                <>
+                                  <span className={`text-xs ${isDarkMode ? 'text-gray-600' : 'text-slate-500'}`}>•</span>
+                                  <span className={`text-xs font-medium ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
+                                    Limit reached
+                                  </span>
+                                </>
+                              )}
                             </div>
                           </div>
                             {conversationId === conv.conversation_id && (
@@ -427,7 +518,41 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
                 </svg>
               </div>
               <h3 className={`text-base font-medium ${isDarkMode ? 'text-gray-200' : 'text-slate-900'} mb-2`}>Start a conversation</h3>
-              <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-slate-700'} mb-6`}>Ask me anything about your appointments</p>
+              <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-slate-700'} mb-6`}>Ask me about services, location, hours, or anything else!</p>
+
+              {/* Proactive Tips Section */}
+              {proactiveTips && proactiveTips.length > 0 && (
+                <div className="w-full space-y-2 mb-4">
+                  <p className={`text-xs font-medium uppercase tracking-wide mb-2 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>💡 For You</p>
+                  {proactiveTips.slice(0, 3).map((tip, idx) => (
+                    <button
+                      key={`tip-${idx}`}
+                      onClick={() => {
+                        if (tip.action?.route) {
+                          safeNavigate(tip.action.route);
+                        } else if (tip.action?.message) {
+                          sendMessage(tip.action.message);
+                        }
+                      }}
+                      className={`w-full text-left px-4 py-3 rounded-lg transition-all text-sm border ${
+                        tip.type === 'warning'
+                          ? (isDarkMode ? 'bg-amber-500/10 border-amber-500/30 hover:bg-amber-500/20' : 'bg-amber-50 border-amber-200')
+                          : tip.type === 'reminder'
+                          ? (isDarkMode ? 'bg-blue-500/10 border-blue-500/30 hover:bg-blue-500/20' : 'bg-blue-50 border-blue-200')
+                          : (isDarkMode ? 'bg-gray-900/50 border-amber-500/20 hover:bg-gray-900' : 'bg-gray-50 border-slate-100')
+                      }`}
+                    >
+                      <span className="flex items-center gap-2">
+                        <span>{tip.icon || '💡'}</span>
+                        <span className={isDarkMode ? 'text-gray-300' : 'text-slate-700'}>{tip.message}</span>
+                      </span>
+                      {tip.action?.label && (
+                        <span className={`text-xs mt-1 block ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>{tip.action.label} →</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
 
               {/* Suggested Questions (dynamic from assistant or default suggestions) */}
               {lastSuggestions && Array.isArray(lastSuggestions) && lastSuggestions.length > 0 ? (
@@ -521,18 +646,26 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
             </div>
           ) : (
             <>
-              {messages.map((message) => (
-                <ChatbotMessage key={message.id} message={message} isDarkMode={isDarkMode} />
+              {messages.map((message, index) => (
+                <ChatbotMessage
+                  key={message.id}
+                  message={message}
+                  isDarkMode={isDarkMode}
+                  onFeedback={submitFeedback}
+                  isLastMessage={index === messages.length - 1}
+                />
               ))}
               {loading && (
                 <div className="flex justify-start">
-                  <div className="bg-gray-900 border border-amber-500/20 rounded-xl px-4 py-3 flex items-center gap-2">
+                  <div className={`rounded-xl px-4 py-3 flex items-center gap-2 ${isDarkMode ? 'bg-gray-900 border border-amber-500/20' : 'bg-white border border-slate-200'}`}>
                     <div className="flex space-x-1">
-                      <div className="w-2 h-2 bg-amber-500 rounded-full animate-bounce" />
-                      <div className="w-2 h-2 bg-amber-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />
-                      <div className="w-2 h-2 bg-amber-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
+                      <div className={`w-2 h-2 rounded-full animate-bounce ${isDarkMode ? 'bg-amber-500' : 'bg-amber-600'}`} />
+                      <div className={`w-2 h-2 rounded-full animate-bounce ${isDarkMode ? 'bg-amber-500' : 'bg-amber-600'}`} style={{ animationDelay: '0.1s' }} />
+                      <div className={`w-2 h-2 rounded-full animate-bounce ${isDarkMode ? 'bg-amber-500' : 'bg-amber-600'}`} style={{ animationDelay: '0.2s' }} />
                     </div>
-                    <span className="text-xs text-gray-400">Typing...</span>
+                    <span className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-500'}`}>
+                      {pendingConfirmation ? 'Processing action...' : 'Thinking...'}
+                    </span>
                   </div>
                 </div>
               )}
@@ -541,23 +674,147 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
           )}
         </div>
 
-        {/* Error Message */}
+        {/* Error Message with Recovery Guidance */}
         {error && (
-          <div className="px-5 py-3 bg-red-500/10 border-b border-red-500/20 flex-shrink-0">
+          <div className={`px-5 py-3 flex-shrink-0 border-b ${isDarkMode ? 'bg-red-500/10 border-red-500/20' : 'bg-red-50 border-red-100'}`}>
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <svg className="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="flex items-center gap-2 flex-1 min-w-0">
+                <svg className={`w-4 h-4 flex-shrink-0 ${isDarkMode ? 'text-red-400' : 'text-red-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <p className="text-sm text-red-300">{error}</p>
+                <p className={`text-sm truncate ${isDarkMode ? 'text-red-300' : 'text-red-700'}`}>{error}</p>
               </div>
+              <div className="flex items-center gap-1 flex-shrink-0">
+                {lastFailedMessage && (
+                  <button
+                    onClick={() => {
+                      setError(null);
+                      retryLastMessage();
+                    }}
+                    className={`text-xs px-2 py-1 rounded transition-colors ${isDarkMode ? 'bg-red-500/20 text-red-300 hover:bg-red-500/30' : 'bg-red-100 text-red-700 hover:bg-red-200'}`}
+                    title="Retry last message"
+                  >
+                    ↻ Retry
+                  </button>
+                )}
+                <button
+                  onClick={() => setError(null)}
+                  className={`transition-colors p-1 ${isDarkMode ? 'text-red-400 hover:text-red-300' : 'text-red-500 hover:text-red-700'}`}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            {/* Recovery Steps */}
+            {errorRecovery?.steps?.length > 0 && (
+              <div className={`mt-2 pl-6 space-y-1 ${isDarkMode ? 'text-red-300/70' : 'text-red-600'}`}>
+                {errorRecovery.steps.map((step, idx) => (
+                  <p key={idx} className="text-xs flex items-start gap-1.5">
+                    <span className="mt-0.5 flex-shrink-0">{idx === 0 ? '💡' : '•'}</span>
+                    {step}
+                  </p>
+                ))}
+              </div>
+            )}
+
+            {/* Recovery Suggestions */}
+            {errorRecovery?.suggestions?.length > 0 && (
+              <div className="mt-2 pl-6 flex flex-wrap gap-1.5">
+                {errorRecovery.suggestions.map((suggestion, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => {
+                      setError(null);
+                      sendMessage(suggestion);
+                    }}
+                    className={`text-xs px-2.5 py-1 rounded-full transition-all ${
+                      isDarkMode
+                        ? 'bg-gray-800 border border-red-500/20 text-gray-300 hover:border-amber-500/40 hover:text-amber-300'
+                        : 'bg-white border border-red-200 text-slate-600 hover:border-amber-300 hover:text-amber-700'
+                    }`}
+                  >
+                    {suggestion}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Quick Actions Bar — role-based shortcut buttons */}
+        {roleContext?.quickActions?.length > 0 && messages.length > 0 && !showHistory && (
+          <div className={`px-4 py-2 flex-shrink-0 border-t ${isDarkMode ? 'bg-gray-900/80 border-amber-500/10' : 'bg-gray-50/80 border-slate-100'}`}>
+            <div className="flex gap-1.5 overflow-x-auto scrollbar-none pb-0.5">
+              {roleContext.quickActions.slice(0, 6).map((action, idx) => (
+                <button
+                  key={`qa-bar-${idx}`}
+                  onClick={() => {
+                    if (action.route) {
+                      safeNavigate(action.route);
+                    } else if (action.message || action.command) {
+                      sendMessage(action.message || action.command);
+                    }
+                  }}
+                  className={`text-[11px] px-2.5 py-1.5 rounded-lg whitespace-nowrap flex items-center gap-1 transition-all flex-shrink-0 ${
+                    isDarkMode
+                      ? 'bg-gray-800 border border-amber-500/15 text-gray-400 hover:bg-amber-500/10 hover:border-amber-500/30 hover:text-amber-400'
+                      : 'bg-white border border-slate-200 text-slate-600 hover:bg-amber-50 hover:border-amber-300 hover:text-amber-700'
+                  }`}
+                  title={action.label}
+                >
+                  {action.icon && <span>{action.icon}</span>}
+                  <span>{action.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Confirmation Banner — shown when chatbot awaits user confirmation for a destructive action */}
+        {pendingConfirmation && (
+          <div className={`px-5 py-3 flex-shrink-0 border-t ${isDarkMode ? 'bg-amber-500/5 border-amber-500/20' : 'bg-amber-50 border-amber-100'}`}>
+            <div className="flex items-center gap-2 mb-2">
+              <svg className={`w-4 h-4 flex-shrink-0 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <div>
+                <p className={`text-sm font-medium ${isDarkMode ? 'text-amber-300' : 'text-amber-700'}`}>Action requires your confirmation</p>
+                {pendingConfirmation.tool && (
+                  <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-500'}`}>
+                    {pendingConfirmation.tool.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="flex gap-2">
               <button
-                onClick={() => setError(null)}
-                className="text-red-400 hover:text-red-300 transition-colors"
+                onClick={() => confirmAction()}
+                disabled={loading}
+                className={`flex-1 px-4 py-2 text-sm font-medium rounded-lg transition-all ${
+                  loading
+                    ? 'opacity-50 cursor-not-allowed'
+                    : isDarkMode
+                      ? 'bg-green-500/20 border border-green-500/30 text-green-300 hover:bg-green-500/30 hover:border-green-500/50'
+                      : 'bg-green-50 border border-green-200 text-green-700 hover:bg-green-100'
+                }`}
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
+                ✓ Confirm
+              </button>
+              <button
+                onClick={() => denyAction()}
+                disabled={loading}
+                className={`flex-1 px-4 py-2 text-sm font-medium rounded-lg transition-all ${
+                  loading
+                    ? 'opacity-50 cursor-not-allowed'
+                    : isDarkMode
+                      ? 'bg-red-500/20 border border-red-500/30 text-red-300 hover:bg-red-500/30 hover:border-red-500/50'
+                      : 'bg-red-50 border border-red-200 text-red-700 hover:bg-red-100'
+                }`}
+              >
+                ✗ Cancel
               </button>
             </div>
           </div>
@@ -571,12 +828,14 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
           onKeyPress={handleKeyDown}
           isLoading={loading}
           isDarkMode={isDarkMode}
+          disabled={isRateLimited && rateLimitInfo.mustStartNew}
+          disabledMessage={rateLimitMessage || 'Message limit reached — start a new conversation'}
         />
       </div>
 
       {/* Clear Confirmation Modal */}
       {showClearConfirm && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[10000] flex items-center justify-center p-4">
           <div className="bg-gray-900 border border-amber-500/30 rounded-xl p-6 max-w-sm w-full shadow-2xl">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center flex-shrink-0">
@@ -610,7 +869,7 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
 
       {/* Delete Conversation Confirmation Modal */}
       {deleteConfirmId && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[10000] flex items-center justify-center p-4">
           <div className="bg-gray-900 border border-amber-500/30 rounded-xl p-6 max-w-sm w-full shadow-2xl">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center flex-shrink-0">

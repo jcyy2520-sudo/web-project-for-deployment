@@ -33,7 +33,7 @@ class AnalyticsController extends Controller
 
             $days = $request->query('days', 30);
             $cacheKey = "analytics_slot_utilization_{$days}";
-            $ttl = 3600; // Cache for 1 hour
+            $ttl = 120; // Cache for 2 minutes
 
             $data = Cache::remember($cacheKey, $ttl, function () use ($days) {
                 return $this->analyticsService->getSlotUtilization($days);
@@ -61,7 +61,7 @@ class AnalyticsController extends Controller
 
             $days = $request->query('days', 90);
             $cacheKey = "analytics_no_show_patterns_{$days}";
-            $ttl = 3600; // Cache for 1 hour
+            $ttl = 300; // Cache for 5 minutes
 
             try {
                 $data = Cache::remember($cacheKey, $ttl, function () use ($days) {
@@ -76,7 +76,7 @@ class AnalyticsController extends Controller
             } catch (\Exception $e) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Error retrieving no-show patterns: ' . $e->getMessage(),
+                    'message' => config('app.debug') ? 'Error retrieving no-show patterns: ' . $e->getMessage() : 'Error retrieving no-show patterns',
                 ], 500);
             }
         }, 'analytics.no_show_patterns');
@@ -95,7 +95,7 @@ class AnalyticsController extends Controller
 
             $daysAhead = $request->query('days_ahead', 30);
             $cacheKey = "analytics_demand_forecast_{$daysAhead}";
-            $ttl = 3600; // Cache for 1 hour
+            $ttl = 300; // Cache for 5 minutes
 
             try {
                 $data = Cache::remember($cacheKey, $ttl, function () use ($daysAhead) {
@@ -110,7 +110,7 @@ class AnalyticsController extends Controller
             } catch (\Exception $e) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Error retrieving demand forecast: ' . $e->getMessage(),
+                    'message' => config('app.debug') ? 'Error retrieving demand forecast: ' . $e->getMessage() : 'Error retrieving demand forecast',
                 ], 500);
             }
         }, 'analytics.demand_forecast');
@@ -129,7 +129,7 @@ class AnalyticsController extends Controller
 
             $days = $request->query('days', 90);
             $cacheKey = "analytics_quality_report_{$days}";
-            $ttl = 3600; // Cache for 1 hour
+            $ttl = 300; // Cache for 5 minutes
 
             try {
                 $data = Cache::remember($cacheKey, $ttl, function () use ($days) {
@@ -144,7 +144,7 @@ class AnalyticsController extends Controller
             } catch (\Exception $e) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Error retrieving quality report: ' . $e->getMessage(),
+                    'message' => config('app.debug') ? 'Error retrieving quality report: ' . $e->getMessage() : 'Error retrieving quality report',
                 ], 500);
             }
         }, 'analytics.quality_report');
@@ -173,7 +173,7 @@ class AnalyticsController extends Controller
             } catch (\Exception $e) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Error retrieving alerts: ' . $e->getMessage(),
+                    'message' => config('app.debug') ? 'Error retrieving alerts: ' . $e->getMessage() : 'Error retrieving alerts',
                 ], 500);
             }
         }, 'analytics.auto_alerts');
@@ -185,39 +185,48 @@ class AnalyticsController extends Controller
      */
     public function dashboard(Request $request)
     {
-        return $this->wrapExperimental(function () use ($request) {
-            // Don't validate the realtime parameter - just extract it safely
-            $realtimeParam = $request->query('realtime', 'false');
-            $realtime = filter_var($realtimeParam, FILTER_VALIDATE_BOOLEAN);
-            $cacheKey = "analytics_dashboard_comprehensive";
-            $ttl = $realtime ? 60 : 3600; // 1 min if realtime, 1 hour otherwise
+        // Don't validate the realtime parameter - just extract it safely
+        $realtimeParam = $request->query('realtime', 'false');
+        $realtime = filter_var($realtimeParam, FILTER_VALIDATE_BOOLEAN);
+        $cacheKey = $realtime ? "analytics_dashboard_realtime" : "analytics_dashboard_comprehensive";
+        $ttl = $realtime ? 15 : 60; // 15s if realtime, 60s otherwise
 
-            try {
-                $data = Cache::remember($cacheKey, $ttl, function () {
-                    return [
-                        'slot_utilization' => $this->analyticsService->getSlotUtilization(30),
-                        'no_show_patterns' => $this->analyticsService->getNoShowPatterns(90),
-                        'demand_forecast' => $this->analyticsService->getDemandForecast(30),
-                        'quality_report' => $this->analyticsService->getQualityReport(90),
-                        'auto_alerts' => $this->analyticsService->getAutoAlerts(),
-                        'generated_at' => now(),
-                    ];
-                });
+        try {
+            // Build each section individually with fallbacks so one failure doesn't break all
+            $data = Cache::remember($cacheKey, $ttl, function () {
+                $sections = [
+                    'slot_utilization' => fn() => $this->analyticsService->getSlotUtilization(30),
+                    'no_show_patterns' => fn() => $this->analyticsService->getNoShowPatterns(90),
+                    'demand_forecast' => fn() => $this->analyticsService->getDemandForecast(30),
+                    'quality_report' => fn() => $this->analyticsService->getQualityReport(90),
+                    'auto_alerts' => fn() => $this->analyticsService->getAutoAlerts(),
+                ];
 
-                return response()->json([
-                    'success' => true,
-                    'data' => $data,
-                    'cached' => !$realtime,
-                    'timestamp' => now(),
-                ]);
-            } catch (\Exception $e) {
-                \Log::error('Analytics dashboard error: ' . $e->getMessage());
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Error retrieving analytics dashboard: ' . $e->getMessage(),
-                ], 500);
-            }
-        }, 'analytics.dashboard');
+                $result = ['generated_at' => now()];
+                foreach ($sections as $key => $callback) {
+                    try {
+                        $result[$key] = $callback();
+                    } catch (\Throwable $e) {
+                        \Log::warning("Analytics section '$key' failed: " . $e->getMessage());
+                        $result[$key] = ['error' => 'Data temporarily unavailable', 'available' => false];
+                    }
+                }
+                return $result;
+            });
+
+            return response()->json([
+                'success' => true,
+                'data' => $data,
+                'cached' => !$realtime,
+                'timestamp' => now(),
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Analytics dashboard error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => config('app.debug') ? 'Error retrieving analytics dashboard: ' . $e->getMessage() : 'Error retrieving analytics dashboard',
+            ], 500);
+        }
     }
 
     /**
@@ -245,7 +254,7 @@ class AnalyticsController extends Controller
             } catch (\Exception $e) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Error retrieving risk notice: ' . $e->getMessage(),
+                    'message' => config('app.debug') ? 'Error retrieving risk notice: ' . $e->getMessage() : 'Error retrieving risk notice',
                 ], 500);
             }
         }, 'analytics.cancellation_risk');
@@ -276,7 +285,7 @@ class AnalyticsController extends Controller
             } catch (\Exception $e) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Error retrieving alternative slots: ' . $e->getMessage(),
+                    'message' => config('app.debug') ? 'Error retrieving alternative slots: ' . $e->getMessage() : 'Error retrieving alternative slots',
                 ], 500);
             }
         }, 'analytics.alternative_slots');
@@ -288,41 +297,53 @@ class AnalyticsController extends Controller
      */
     public function clearCache()
     {
-        return $this->wrapExperimental(function () {
-            try {
-                // Clear all analytics caches
-                Cache::forget('analytics_slot_utilization_30');
-                Cache::forget('analytics_slot_utilization_7');
-                Cache::forget('analytics_no_show_patterns_90');
-                Cache::forget('analytics_demand_forecast_30');
-                Cache::forget('analytics_quality_report_90');
-                Cache::forget('analytics_auto_alerts');
-                Cache::forget('analytics_dashboard_comprehensive');
+        try {
+            // Clear all analytics caches
+            Cache::forget('analytics_slot_utilization_30');
+            Cache::forget('analytics_slot_utilization_7');
+            Cache::forget('analytics_no_show_patterns_90');
+            Cache::forget('analytics_demand_forecast_30');
+            Cache::forget('analytics_quality_report_90');
+            Cache::forget('analytics_auto_alerts');
+            Cache::forget('analytics_dashboard_comprehensive');
 
-                // Fetch fresh data
-                $freshData = [
-                    'slot_utilization' => $this->analyticsService->getSlotUtilization(30),
-                    'no_show_patterns' => $this->analyticsService->getNoShowPatterns(90),
-                    'demand_forecast' => $this->analyticsService->getDemandForecast(30),
-                    'quality_report' => $this->analyticsService->getQualityReport(90),
-                    'auto_alerts' => $this->analyticsService->getAutoAlerts(),
-                    'generated_at' => now(),
-                ];
+            // Fetch fresh data with per-section fallbacks
+            $sections = [
+                'slot_utilization' => fn() => $this->analyticsService->getSlotUtilization(30),
+                'no_show_patterns' => fn() => $this->analyticsService->getNoShowPatterns(90),
+                'demand_forecast' => fn() => $this->analyticsService->getDemandForecast(30),
+                'quality_report' => fn() => $this->analyticsService->getQualityReport(90),
+                'auto_alerts' => fn() => $this->analyticsService->getAutoAlerts(),
+            ];
 
-                // Broadcast the update to all connected admin clients
-                broadcast(new AnalyticsUpdated($freshData))->toOthers();
-
-                return response()->json([
-                    'success' => true,
-                    'message' => 'Analytics cache cleared and data refreshed',
-                    'data' => $freshData,
-                ]);
-            } catch (\Exception $e) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Error clearing cache: ' . $e->getMessage(),
-                ], 500);
+            $freshData = ['generated_at' => now()];
+            foreach ($sections as $key => $callback) {
+                try {
+                    $freshData[$key] = $callback();
+                } catch (\Throwable $e) {
+                    \Log::warning("Analytics clearCache section '$key' failed: " . $e->getMessage());
+                    $freshData[$key] = ['error' => 'Data temporarily unavailable', 'available' => false];
+                }
             }
-        }, 'analytics.clear_cache');
+
+            // Try to broadcast update, but don't fail if broadcasting isn't configured
+            try {
+                broadcast(new AnalyticsUpdated($freshData))->toOthers();
+            } catch (\Throwable $e) {
+                \Log::info('Analytics broadcast skipped (broadcasting may not be configured): ' . $e->getMessage());
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Analytics cache cleared and data refreshed',
+                'data' => $freshData,
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Analytics clearCache error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => config('app.debug') ? 'Error clearing cache: ' . $e->getMessage() : 'Error clearing cache',
+            ], 500);
+        }
     }
 }

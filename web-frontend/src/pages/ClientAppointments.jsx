@@ -9,6 +9,7 @@ import UnavailableDatesViewer from '../components/UnavailableDatesViewer';
 import BookingDecisionSupport from '../components/BookingDecisionSupport';
 import CancellationRiskNotice from '../components/CancellationRiskNotice';
 import UnavailabilityMessage from '../components/UnavailabilityMessage';
+import AlternativeSlotSuggestion from '../components/AlternativeSlotSuggestion';
 import AppointmentRefundStatus from '../components/AppointmentRefundStatus';
 import UserRefundRequest from '../components/UserRefundRequest';
 import UserRefundHistory from '../components/UserRefundHistory';
@@ -28,6 +29,8 @@ import {
 } from '@heroicons/react/24/outline';
 import axios from 'axios';
 
+import { formatDateDisplay } from '../utils/format';
+
 const ClientAppointments = () => {
   const { user } = useAuth();
   const { callApi, loading } = useApi();
@@ -46,6 +49,8 @@ const ClientAppointments = () => {
   const appointmentsPerPage = 8;
   const [slotUnavailabilityReason, setSlotUnavailabilityReason] = useState(null);
   const [slotAlternatives, setSlotAlternatives] = useState([]);
+  const [showAlternativeSlots, setShowAlternativeSlots] = useState(false);
+  const [unavailableSelectedTime, setUnavailableSelectedTime] = useState(null);
   const [dailyLimitInfo, setDailyLimitInfo] = useState({
     limit: null,
     used: 0,
@@ -115,7 +120,8 @@ const ClientAppointments = () => {
     }
   }, [callApi]);
 
-  const checkDailyLimit = useCallback(async (dateToCheck = null) => {
+  // Always checks today's date - counts how many appointments booked today regardless of appointment date
+  const checkDailyLimit = useCallback(async () => {
     try {
       // Guard: user must be loaded
       if (!user?.id) {
@@ -123,7 +129,8 @@ const ClientAppointments = () => {
         return;
       }
       
-      const checkDate = dateToCheck || selectedDate || new Date().toISOString().split('T')[0];
+      // Always use today's date
+      const checkDate = new Date().toISOString().split('T')[0];
       console.log('[checkDailyLimit] Fetching limit for user', user.id, 'date', checkDate);
       
       const res = await callApi((signal) =>
@@ -156,7 +163,7 @@ const ClientAppointments = () => {
     } catch (err) {
       console.error('[checkDailyLimit] Error:', err);
     }
-  }, [user?.id, selectedDate, callApi]);
+  }, [user?.id, callApi]);
 
   useEffect(() => {
     if (!user?.id) {
@@ -202,8 +209,7 @@ const ClientAppointments = () => {
   useEffect(() => {
     const handler = (e) => {
       console.log('Appointment settings changed, refreshing daily limit...');
-      const dateToCheck = selectedDate || new Date().toISOString().split('T')[0];
-      checkDailyLimit(dateToCheck);
+      checkDailyLimit();
     };
 
     window.addEventListener('appointmentSettingsChanged', handler);
@@ -337,23 +343,50 @@ const ClientAppointments = () => {
   const handleDateChange = (date) => {
     console.log('[handleDateChange] Date selected:', date);
     setSelectedDate(date);
-    setFormData(prev => ({ ...prev, appointment_date: date }));
+    setFormData(prev => ({ ...prev, appointment_date: date, appointment_time: '' }));
+    setSelectedTime('');
     loadAvailableSlots(date);
     // Clear any prior alternatives when changing date
     setSlotAlternatives([]);
-    console.log('[handleDateChange] Calling checkDailyLimit for date:', date);
-    checkDailyLimit(date);
+    setShowAlternativeSlots(false);
+    setUnavailableSelectedTime(null);
+    setSlotUnavailabilityReason(null);
+    console.log('[handleDateChange] Calling checkDailyLimit');
+    checkDailyLimit();
   };
+
+  // Refresh daily limit info when modal opens and whenever checkDailyLimit changes
+  useEffect(() => {
+    if (isBookModalOpen) {
+      console.log('[useEffect] Modal opened, refreshing daily limit');
+      checkDailyLimit();
+    }
+  }, [isBookModalOpen, checkDailyLimit]);
 
   const handleBookAppointment = async (e) => {
     e.preventDefault();
     console.log('[handleBookAppointment] Submit clicked. Current limit info:', dailyLimitInfo);
-    // Prevent booking if user has reached their daily limit
-    if (dailyLimitInfo.hasReachedLimit) {
+    
+    // Capture the appointment date BEFORE anything else changes
+    const bookedDate = formData.appointment_date;
+    console.log('[handleBookAppointment] Captured booked date:', bookedDate);
+    
+    // GUARD 1: Double-check if user has reached their daily limit before allowing submission
+    if (dailyLimitInfo.hasReachedLimit === true) {
       console.log('[handleBookAppointment] User has reached limit, preventing booking');
-      alert(dailyLimitInfo.message || `You have reached your daily booking limit of ${dailyLimitInfo.limit}.`);
+      window.showToast?.('Warning', dailyLimitInfo.message || `You have reached your daily booking limit of ${dailyLimitInfo.limit} appointments.`, 'warning');
       return;
     }
+    
+    // GUARD 2: Additional safety check - if used >= limit, prevent booking
+    if (dailyLimitInfo.used !== undefined && dailyLimitInfo.limit !== undefined) {
+      if (dailyLimitInfo.used >= dailyLimitInfo.limit) {
+        console.log('[handleBookAppointment] User bookings (' + dailyLimitInfo.used + ') >= limit (' + dailyLimitInfo.limit + '), preventing');
+        window.showToast?.('Warning', `You have reached your daily booking limit of ${dailyLimitInfo.limit} appointments. Please try again tomorrow.`, 'warning');
+        return;
+      }
+    }
+    
     console.log('[handleBookAppointment] Limit check passed, submitting booking for date:', formData.appointment_date);
     const result = await callApi((signal) =>
       axios.post('/api/appointments', formData, { signal })
@@ -361,7 +394,6 @@ const ClientAppointments = () => {
 
     if (result.success) {
       setIsBookModalOpen(false);
-      const bookedDate = formData.appointment_date || new Date().toISOString().split('T')[0];
       setFormData({
         appointment_date: '',
         appointment_time: '',
@@ -369,9 +401,10 @@ const ClientAppointments = () => {
         notes: ''
       });
       loadAppointments();
-      alert('Appointment booked successfully!');
-      // Refresh daily limit after booking
-      checkDailyLimit(bookedDate);
+      window.showToast?.('Success', result.data?.email_warning ? ('Appointment booked! ⚠️ ' + result.data.email_warning) : 'Appointment booked successfully!', result.data?.email_warning ? 'warning' : 'success');
+      // Refresh daily limit after booking with the captured date (await to ensure state updates before closing)
+      console.log('[handleBookAppointment] Refreshing daily limit after booking');
+      await checkDailyLimit();
     } else {
       // Handle booking failure (e.g., limit reached)
       const errMsg = result.error || (result.data && result.data.message) || 'Failed to book appointment';
@@ -391,7 +424,7 @@ const ClientAppointments = () => {
       }
 
       // Show inline message in modal rather than popup if possible
-      alert(errMsg);
+      window.showToast?.('Error', errMsg, 'error');
     }
   };
 
@@ -406,7 +439,7 @@ const ClientAppointments = () => {
       setIsCancelModalOpen(false);
       setSelectedAppointmentToCancel(null);
       await loadAppointments();
-      alert('Appointment cancelled successfully!');
+      window.showToast?.('Success', 'Appointment cancelled successfully!', 'success');
     }
   };
 
@@ -440,7 +473,7 @@ const ClientAppointments = () => {
 
     setRefundLoading(true);
     try {
-      const response = await axios.post('/api/cashier/refunds/request', {
+      const response = await axios.post('/api/refunds/request', {
         appointment_id: selectedAppointmentForRefund.id,
         refund_amount: parseFloat(refundFormData.refund_amount),
         reason: refundFormData.reason,
@@ -452,11 +485,7 @@ const ClientAppointments = () => {
         setSelectedAppointmentForRefund(null);
         setRefundFormData({ refund_amount: '', reason: 'customer_request', description: '' });
         await loadAppointments();
-        if (window?.showToast) {
-          window.showToast('Refund Request', 'Your refund request has been submitted successfully', 'success');
-        } else {
-          alert('Refund request submitted successfully!');
-        }
+        window.showToast?.('Refund Request', 'Your refund request has been submitted successfully', 'success');
       } else {
         setRefundError(response.data?.message || 'Failed to submit refund request');
       }
@@ -471,20 +500,12 @@ const ClientAppointments = () => {
   const openRefundModal = (appointment) => {
     // Validate before opening modal
     if (appointment.payment_status !== 'paid') {
-      if (window?.showToast) {
-        window.showToast('Cannot Request Refund', 'This appointment is not marked as paid. Only paid appointments can be refunded.', 'error');
-      } else {
-        alert('Cannot Request Refund: This appointment is not marked as paid.');
-      }
+      window.showToast?.('Cannot Request Refund', 'This appointment is not marked as paid. Only paid appointments can be refunded.', 'error');
       return;
     }
 
     if (!appointment.payment_amount || appointment.payment_amount <= 0) {
-      if (window?.showToast) {
-        window.showToast('Cannot Request Refund', 'This appointment has no payment amount recorded. Please contact support.', 'error');
-      } else {
-        alert('Cannot Request Refund: This appointment has no payment amount recorded. Please contact support.');
-      }
+      window.showToast?.('Cannot Request Refund', 'This appointment has no payment amount recorded. Please contact support.', 'error');
       return;
     }
 
@@ -501,20 +522,12 @@ const ClientAppointments = () => {
   const openRefundDetailsModal = (appointment) => {
     // Validate before opening modal
     if (appointment.payment_status !== 'paid') {
-      if (window?.showToast) {
-        window.showToast('Cannot Request Refund', 'This appointment is not marked as paid. Only paid appointments can be refunded.', 'error');
-      } else {
-        alert('Cannot Request Refund: This appointment is not marked as paid.');
-      }
+      window.showToast?.('Cannot Request Refund', 'This appointment is not marked as paid. Only paid appointments can be refunded.', 'error');
       return;
     }
 
     if (!appointment.payment_amount || appointment.payment_amount <= 0) {
-      if (window?.showToast) {
-        window.showToast('Cannot Request Refund', 'This appointment has no payment amount recorded. Please contact support.', 'error');
-      } else {
-        alert('Cannot Request Refund: This appointment has no payment amount recorded. Please contact support.');
-      }
+      window.showToast?.('Cannot Request Refund', 'This appointment has no payment amount recorded. Please contact support.', 'error');
       return;
     }
 
@@ -560,10 +573,14 @@ const ClientAppointments = () => {
               <p className="text-gray-600">Manage your notarization appointments</p>
             </div>
             <button
-              onClick={() => setIsBookModalOpen(true)}
+              onClick={() => {
+                setIsBookModalOpen(true);
+                // Refresh the daily limit when opening the modal
+                checkDailyLimit();
+              }}
               className="btn-primary"
               disabled={dailyLimitInfo.hasReachedLimit}
-              title={dailyLimitInfo.hasReachedLimit ? (dailyLimitInfo.message || 'Daily booking limit reached') : 'Book New Appointment'}
+              title={dailyLimitInfo.hasReachedLimit ? (dailyLimitInfo.message || 'Booking limit reached') : 'Book New Appointment'}
             >
               {dailyLimitInfo.hasReachedLimit ? '✓ Limit Reached' : 'Book New Appointment'}
             </button>
@@ -576,11 +593,11 @@ const ClientAppointments = () => {
         {/* Daily limit banner (non-popup) */}
         {dailyLimitInfo.hasReachedLimit && (
           <div className="mb-6 rounded-lg border p-4 bg-blue-50 border-blue-200">
-            <h3 className="font-semibold text-blue-700">📅 Daily Booking Limit Reached</h3>
-            <p className="text-sm text-blue-600 mt-1">{dailyLimitInfo.message || `You have reached your daily booking limit of ${dailyLimitInfo.limit}.`}</p>
+            <h3 className="font-semibold text-blue-700">📅 Booking Limit Reached</h3>
+            <p className="text-sm text-blue-600 mt-1">{dailyLimitInfo.message || `You have reached your booking limit of ${dailyLimitInfo.limit} appointments per 24 hours.`}</p>
             {dailyLimitInfo.bookingsToday?.length > 0 && (
               <div className="mt-3 text-sm text-blue-600">
-                <p className="font-medium">Your appointments today:</p>
+                <p className="font-medium">Your recent bookings (last 24h):</p>
                 <ul className="ml-4 mt-1">
                   {dailyLimitInfo.bookingsToday.map((b, i) => (
                     <li key={i}>• {formatTime12Hour(b.time)} — {b.service}</li>
@@ -691,7 +708,7 @@ const ClientAppointments = () => {
                           {getStatusIcon(appointment.status)}
                           <div>
                             <h4 className="font-semibold text-gray-900">
-                              {new Date(appointment.appointment_date).toLocaleDateString()} at {appointment.appointment_time}
+                              {formatDateDisplay(appointment.appointment_date)} at {appointment.appointment_time}
                             </h4>
                             {appointment.staff_notes && (
                               <p className="text-sm text-gray-500 mt-1">
@@ -709,11 +726,6 @@ const ClientAppointments = () => {
                           <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(appointment.status)}`}>
                             {appointment.status}
                           </span>
-                          {appointment.staff && (
-                            <span className="text-sm text-gray-600">
-                              Assignee: {appointment.staff.first_name} {appointment.staff.last_name}
-                            </span>
-                          )}
                           {(appointment.status === 'pending' || appointment.status === 'approved') && (
                             <button
                               onClick={() => openCancelModal(appointment)}
@@ -845,13 +857,8 @@ const ClientAppointments = () => {
 
             <div className="bg-gray-50 rounded p-4 space-y-2">
               <div className="text-sm">
-                <strong>Date:</strong> {new Date(selectedAppointmentToCancel.appointment_date).toLocaleDateString()} at {selectedAppointmentToCancel.appointment_time}
+                <strong>Date:</strong> {formatDateDisplay(selectedAppointmentToCancel.appointment_date)} at {selectedAppointmentToCancel.appointment_time}
               </div>
-              {selectedAppointmentToCancel.staff && (
-                <div className="text-sm">
-                  <strong>Assignee:</strong> {selectedAppointmentToCancel.staff.first_name} {selectedAppointmentToCancel.staff.last_name}
-                </div>
-              )}
             </div>
 
             <p className="text-sm text-gray-600">
@@ -914,47 +921,75 @@ const ClientAppointments = () => {
               <p className="text-sm text-blue-600 mt-2">{dailyLimitInfo.message}</p>
             </div>
           )}
+
+          {/* Daily Appointment Limit Indicator */}
+          {dailyLimitInfo.limit && (
+            <div className="p-3 rounded-lg bg-amber-50 border border-amber-200">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-semibold text-gray-700">Daily Bookings</span>
+                <span className="text-lg font-bold text-amber-600">
+                  {dailyLimitInfo.used} / {dailyLimitInfo.limit}
+                </span>
+              </div>
+              <div className="w-full bg-amber-100 rounded-full h-2">
+                <div
+                  className={`h-2 rounded-full transition-all duration-300 ${
+                    dailyLimitInfo.hasReachedLimit ? 'bg-red-500' : 'bg-amber-500'
+                  }`}
+                  style={{ width: `${Math.min((dailyLimitInfo.used / dailyLimitInfo.limit) * 100, 100)}%` }}
+                ></div>
+              </div>
+              <p className="text-xs text-gray-600 mt-2">
+                {dailyLimitInfo.remaining > 0 
+                  ? `You can book ${dailyLimitInfo.remaining} more appointment${dailyLimitInfo.remaining !== 1 ? 's' : ''} today`
+                  : 'You have reached your daily limit for today'
+                }
+              </p>
+            </div>
+          )}
           
           {/* Calendar Picker */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold text-gray-700">Select Date</h3>
-              <div className="flex gap-2">
+              <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1))}
-                  className="p-1 border border-gray-300 rounded hover:bg-gray-100"
+                  className="p-2 border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors"
                   disabled={dailyLimitInfo.hasReachedLimit}
+                  aria-label="Previous month"
                 >
-                  <ChevronLeftIcon className="h-4 w-4" />
+                  <ChevronLeftIcon className="h-5 w-5" />
                 </button>
-                <span className="text-xs font-medium text-gray-700 min-w-[120px] text-center">
+                <span className="text-sm font-semibold text-gray-700 min-w-[140px] text-center select-none">
                   {calendarMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
                 </span>
                 <button
                   type="button"
                   onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1))}
-                  className="p-1 border border-gray-300 rounded hover:bg-gray-100"
+                  className="p-2 border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors"
                   disabled={dailyLimitInfo.hasReachedLimit}
+                  aria-label="Next month"
                 >
-                  <ChevronRightIcon className="h-4 w-4" />
+                  <ChevronRightIcon className="h-5 w-5" />
                 </button>
               </div>
             </div>
 
             {/* Calendar Grid */}
-            <div className="border rounded-lg p-4 bg-gray-50">
+            <div className="border rounded-xl p-3 sm:p-4 bg-gray-50">
               {/* Day headers */}
-              <div className="grid grid-cols-7 gap-2 mb-2">
+              <div className="grid grid-cols-7 gap-1.5 sm:gap-2 mb-2">
                 {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
-                  <div key={day} className="text-center text-xs font-semibold text-gray-600 py-2">
+                  <div key={day} className="text-center text-xs font-semibold text-gray-500 py-1 sm:py-2 select-none">
                     {day}
                   </div>
                 ))}
               </div>
 
               {/* Days */}
-              <div className="grid grid-cols-7 gap-2">
+              <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
                 {(() => {
                   const firstDay = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 1).getDay();
                   const daysInMonth = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 0).getDate();
@@ -962,7 +997,7 @@ const ClientAppointments = () => {
 
                   // Empty cells
                   for (let i = 0; i < firstDay; i++) {
-                    days.push(<div key={`empty-${i}`}></div>);
+                    days.push(<div key={`empty-${i}`} className="aspect-square"></div>);
                   }
 
                   // Days
@@ -985,18 +1020,19 @@ const ClientAppointments = () => {
                         type="button"
                         onClick={() => !isPast && !isUnavail && !dailyLimitInfo.hasReachedLimit && handleDateChange(dateStr)}
                         disabled={isPast || isUnavail || dailyLimitInfo.hasReachedLimit}
-                        className={`p-2 text-sm font-medium rounded transition-all ${
+                        className={`aspect-square flex items-center justify-center text-sm sm:text-base font-medium rounded-lg transition-all duration-150 select-none ${
                           isSelected
-                            ? 'bg-amber-500 text-white'
+                            ? 'bg-amber-500 text-white shadow-md shadow-amber-500/30'
                             : isPast
                             ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
                             : isUnavail
-                            ? 'bg-red-100 text-red-600 cursor-not-allowed'
+                            ? 'bg-red-100 text-red-500 cursor-not-allowed'
                             : isToday
-                            ? 'bg-blue-100 text-blue-700 border-2 border-blue-400'
-                            : 'bg-white text-gray-700 border border-gray-300 hover:border-amber-500'
+                            ? 'bg-blue-100 text-blue-700 ring-2 ring-blue-400 ring-offset-1 font-bold'
+                            : 'bg-white text-gray-700 border border-gray-300 hover:border-amber-500 hover:bg-amber-50 active:bg-amber-100'
                         }`}
-                        title={isPast ? 'Past date' : isUnavail ? getUnavailableReason(date) : ''}
+                        title={isPast ? 'Past date' : isUnavail ? getUnavailableReason(date) : isToday ? 'Today' : ''}
+                        aria-label={`${dateStr}${isToday ? ' (today)' : ''}${isUnavail ? ' — unavailable' : ''}`}
                       >
                         {day}
                       </button>
@@ -1008,22 +1044,22 @@ const ClientAppointments = () => {
               </div>
 
               {/* Legend */}
-              <div className="mt-4 pt-3 border-t grid grid-cols-2 gap-2 text-xs">
+              <div className="mt-4 pt-3 border-t border-gray-200 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-amber-500 rounded"></div>
-                  <span>Selected</span>
+                  <div className="w-3 h-3 bg-amber-500 rounded shadow-sm"></div>
+                  <span className="text-gray-600">Selected</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-red-100 border border-red-600 rounded"></div>
-                  <span>Unavailable</span>
+                  <div className="w-3 h-3 bg-red-100 border border-red-400 rounded"></div>
+                  <span className="text-gray-600">Unavailable</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 bg-blue-100 border-2 border-blue-400 rounded"></div>
-                  <span>Today</span>
+                  <div className="w-3 h-3 bg-blue-100 ring-2 ring-blue-400 ring-offset-1 rounded"></div>
+                  <span className="text-gray-600">Today</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="w-3 h-3 bg-gray-200 rounded"></div>
-                  <span>Past</span>
+                  <span className="text-gray-600">Past</span>
                 </div>
               </div>
             </div>
@@ -1049,8 +1085,38 @@ const ClientAppointments = () => {
                 }}
               />
 
-              {/* Unavailability Message - Shows when time is not available */}
-              {selectedTime && slotUnavailabilityReason && (
+              {/* AI Alternative Slot Suggestions - Shows when time is not available */}
+              <AlternativeSlotSuggestion
+                preferredDate={selectedDate}
+                preferredTime={unavailableSelectedTime}
+                isVisible={showAlternativeSlots && !!unavailableSelectedTime}
+                isDarkMode={false}
+                onSelectSlot={(date, time) => {
+                  setSelectedDate(date);
+                  setSelectedTime(time);
+                  setFormData(prev => ({
+                    ...prev,
+                    appointment_date: date,
+                    appointment_time: time
+                  }));
+                  setSlotUnavailabilityReason(null);
+                  setShowAlternativeSlots(false);
+                  setUnavailableSelectedTime(null);
+                  setSlotAlternatives([]);
+                  // Reload available slots if date changed
+                  if (date !== selectedDate) {
+                    loadAvailableSlots(date);
+                    checkDailyLimit();
+                  }
+                }}
+                onDismiss={() => {
+                  setShowAlternativeSlots(false);
+                  setUnavailableSelectedTime(null);
+                }}
+              />
+
+              {/* Legacy Unavailability Message - fallback */}
+              {selectedTime && slotUnavailabilityReason && !showAlternativeSlots && (
                 <UnavailabilityMessage
                   selectedDate={selectedDate}
                   selectedTime={selectedTime}
@@ -1115,46 +1181,37 @@ const ClientAppointments = () => {
                             setFormData(prev => ({ ...prev, appointment_time: time }));
                             setSlotUnavailabilityReason(null);
                             setSlotAlternatives([]);
+                            setShowAlternativeSlots(false);
+                            setUnavailableSelectedTime(null);
                           } else {
+                            // Unavailable slot clicked — trigger AI alternative suggestions
                             setSelectedTime(time);
+                            setUnavailableSelectedTime(time);
+                            setShowAlternativeSlots(true);
                             setSlotUnavailabilityReason({
                               type: 'capacity',
-                              message: 'This time slot is fully booked. Please choose another time or date.'
+                              message: 'This time slot is fully booked. See AI recommendations below.'
                             });
-
-                            // Request alternative suggestions for this date
-                            (async () => {
-                              try {
-                                const res = await callApi(() => axios.post('/api/appointments/suggest-alternative', { preferred_date: selectedDate, days_ahead: 14 }));
-                                if (res.success) {
-                                  const alts = res.data.alternatives || [];
-                                  // Normalize some fields for UnavailabilityMessage
-                                  const normalized = alts.map(a => ({
-                                    date: a.date,
-                                    time: a.first_available_time || (a.available_times && a.available_times[0]) || (a.available_times ? a.available_times[0] : null),
-                                    available_slots: a.available_slots ?? a.available_slots_count ?? a.available_capacity ?? (a.available_times ? a.available_times.length : 0),
-                                    ...a
-                                  }));
-                                  setSlotAlternatives(normalized);
-                                }
-                              } catch (err) {
-                                console.error('Failed to fetch slot alternatives:', err);
-                                setSlotAlternatives([]);
-                              }
-                            })();
                           }
                         }}
-                        disabled={!isAvailable || dailyLimitInfo.hasReachedLimit}
+                        disabled={dailyLimitInfo.hasReachedLimit}
                         className={`p-2 text-xs font-medium rounded transition-all ${
-                          !isAvailable || dailyLimitInfo.hasReachedLimit
-                            ? 'bg-red-100 text-red-600 cursor-not-allowed'
+                          dailyLimitInfo.hasReachedLimit
+                            ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                            : !isAvailable
+                            ? 'bg-red-50 text-red-500 border border-red-200 cursor-pointer hover:bg-red-100 hover:border-red-300'
                             : isSelected
                             ? 'bg-amber-500 text-white border border-amber-600'
                             : 'bg-white text-gray-700 border border-gray-300 hover:border-amber-500 hover:bg-amber-50'
                         }`}
-                        title={!isAvailable ? 'This slot is fully booked' : 'Click to select'}
+                        title={!isAvailable ? 'Click to see alternative suggestions' : 'Click to select'}
                       >
-                        {time}
+                        <span className="flex items-center justify-center gap-1">
+                          {time}
+                          {!isAvailable && !dailyLimitInfo.hasReachedLimit && (
+                            <span className="text-[9px] opacity-70">🔍</span>
+                          )}
+                        </span>
                       </button>
                     );
                   })}
@@ -1234,6 +1291,9 @@ const ClientAppointments = () => {
                 setSelectedDate('');
                 setSelectedTime('');
                 setSlotUnavailabilityReason(null);
+                setSlotAlternatives([]);
+                setShowAlternativeSlots(false);
+                setUnavailableSelectedTime(null);
                 setFormData({ appointment_date: '', appointment_time: '', type: 'consultation', notes: '' });
                 setCalendarMonth(new Date());
               }}

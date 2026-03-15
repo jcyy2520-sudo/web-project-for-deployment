@@ -60,10 +60,11 @@ def cosine(a, b):
 
 # Quick smoke test using first summary
 if items:
-    q_text = summaries[0].get('concise_summary')[:200]
-    q_emb = deterministic_embedding(q_text)
-    sims = [(itm['path'], cosine(q_emb, itm['embedding'])) for itm in items]
-    sims.sort(key=lambda x: x[1], reverse=True)
-    print('\nTop 3 matches for first summary:')
-    for p,score in sims[:3]:
-        print(f"- {p}  score={score:.6f}")
+    q_text = (summaries[0].get('concise_summary') or summaries[0].get('content') or '')[:200]
+    if q_text:
+        q_emb = deterministic_embedding(q_text)
+        sims = [(itm['path'], cosine(q_emb, itm['embedding'])) for itm in items]
+        sims.sort(key=lambda x: x[1], reverse=True)
+        print('\nTop 3 matches for first summary:')
+        for p,score in sims[:3]:
+            print(f"- {p}  score={score:.6f}")

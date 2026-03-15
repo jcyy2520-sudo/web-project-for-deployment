@@ -38,11 +38,11 @@ class EmbeddingService
     public function __construct()
     {
         $this->config = [
-            'openai_key' => env('OPENAI_API_KEY'),
-            'voyage_key' => env('VOYAGE_API_KEY'),
-            'use_ollama' => env('USE_OLLAMA_EMBEDDINGS', false),
-            'ollama_model' => env('OLLAMA_EMBEDDING_MODEL', 'nomic-embed-text'),
-            'default_model' => env('EMBEDDING_MODEL', 'text-embedding-3-small'),
+            'openai_key' => config('services.openai.api_key'),
+            'voyage_key' => config('services.voyage.api_key'),
+            'use_ollama' => config('services.ollama.embeddings_enabled', false),
+            'ollama_model' => config('services.ollama.embedding_model', 'nomic-embed-text'),
+            'default_model' => config('services.embedding.model', 'text-embedding-3-small'),
         ];
 
         $this->provider = $this->determineProvider();

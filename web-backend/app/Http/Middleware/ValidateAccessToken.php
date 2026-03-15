@@ -10,8 +10,8 @@ class ValidateAccessToken
 {
     public function handle(Request $request, Closure $next, $purpose = null)
     {
-        $token = $request->query('token') || $request->header('X-Access-Token');
-        $uuid = $request->query('uuid') || $request->route('uuid');
+        $token = $request->query('token') ?? $request->header('X-Access-Token');
+        $uuid = $request->query('uuid') ?? $request->route('uuid');
 
         if (!$token && !$uuid) {
             return response()->json(['error' => 'Missing token or UUID'], 401);

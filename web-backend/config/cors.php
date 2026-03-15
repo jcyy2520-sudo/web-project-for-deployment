@@ -19,10 +19,11 @@ return [
     
     'allowed_methods' => ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     
-    // Environment-aware allowed origins - CRITICAL SECURITY FIX
-    'allowed_origins' => env('APP_ENV') === 'production' 
-        ? ['https://web-project-for-deployment255.vercel.app']
-        : ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:5173', 'http://127.0.0.1:5173'],
+    // Allowed origins — set CORS_ALLOWED_ORIGINS in .env as comma-separated list
+    // Uses config('app.env') so it works correctly after config:cache
+    'allowed_origins' => array_filter(array_map('trim', explode(',',
+        env('CORS_ALLOWED_ORIGINS', 'http://localhost:3000,http://localhost:3001,http://localhost:5173,http://127.0.0.1:5173,https://web-project-for-deployment255.vercel.app')
+    ))),
     
     'allowed_origins_patterns' => [],
     
@@ -32,7 +33,7 @@ return [
     'exposed_headers' => ['Authorization', 'X-Total-Count', 'X-Page-Count'],
     
     // Cache preflight for 24 hours (production) or 1 hour (dev)
-    'max_age' => env('APP_ENV') === 'production' ? 86400 : 3600,
+    'max_age' => (int) env('CORS_MAX_AGE', 3600),
     
     'supports_credentials' => true,
 

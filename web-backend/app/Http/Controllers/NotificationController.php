@@ -109,6 +109,46 @@ class NotificationController extends Controller
         ]);
     }
 
+    public function batchDelete(Request $request)
+    {
+        $request->validate([
+            'ids' => 'required|array|min:1',
+            'ids.*' => 'integer',
+        ]);
+
+        $user = Auth::user();
+        $deleted = $user->notifications()->whereIn('id', $request->ids)->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => "{$deleted} notifications deleted",
+            'deleted_count' => $deleted,
+        ]);
+    }
+
+    public function clearRead()
+    {
+        $user = Auth::user();
+        $deleted = $user->notifications()->where('is_read', true)->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => "$deleted read notifications cleared",
+            'deleted_count' => $deleted,
+        ]);
+    }
+
+    public function unreadCount()
+    {
+        $user = Auth::user();
+        $count = $user->notifications()->where('is_read', false)->count();
+
+        return response()->json([
+            'success' => true,
+            'unread_count' => $count,
+        ]);
+    }
+
     public function getPreferences()
     {
         $user = Auth::user();

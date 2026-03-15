@@ -17,16 +17,20 @@ class User extends Authenticatable
         'uuid',
         'username',
         'email',
-        'password',
-        'role',
+        // 'password' excluded — set explicitly via $user->password = Hash::make(...) to prevent mass-assignment.
+        // 'role' intentionally excluded from $fillable to prevent mass-assignment privilege escalation.
+        // Use $user->role = 'value' explicitly when role changes are needed.
         'first_name',
         'last_name',
         'phone',
         'address',
-        'verification_code',
-        'verification_code_expires_at',
-        'is_active',
-        'profile_picture'
+        // 'is_active', 'account_status' excluded — set explicitly to prevent users from reactivating their own accounts.
+        'account_status_reason',
+        'profile_picture',
+        'google_id',
+        'profile_completed',
+        'verification_method',
+        'password_login_enabled'
     ];
 
     protected $hidden = [
@@ -38,7 +42,10 @@ class User extends Authenticatable
     protected $casts = [
         'email_verified_at' => 'datetime',
         'verification_code_expires_at' => 'datetime',
-        'is_active' => 'boolean'
+        'last_activity_at' => 'datetime',
+        'is_active' => 'boolean',
+        'profile_completed' => 'boolean',
+        'password_login_enabled' => 'boolean'
     ];
 
     public function sentMessages()
@@ -54,11 +61,6 @@ class User extends Authenticatable
     public function appointments()
     {
         return $this->hasMany(Appointment::class);
-    }
-
-    public function staffAppointments()
-    {
-        return $this->hasMany(Appointment::class, 'staff_id');
     }
 
     public function notifications()
@@ -91,6 +93,11 @@ class User extends Authenticatable
         return $this->hasMany(CompletionRecord::class, 'completed_by');
     }
 
+    public function accountAppeals()
+    {
+        return $this->hasMany(AccountAppeal::class);
+    }
+
     public function isAdmin()
     {
         return $this->role === 'admin';
@@ -99,6 +106,11 @@ class User extends Authenticatable
     public function isStaff()
     {
         return $this->role === 'staff';
+    }
+
+    public function isCashier()
+    {
+        return $this->role === 'cashier';
     }
 
     public function isClient()
@@ -110,6 +122,20 @@ class User extends Authenticatable
     {
         return $this->first_name . ' ' . $this->last_name;
     }
+
+    /**
+     * Get the full URL of the profile picture.
+     * Appended to all JSON serializations so the frontend always gets a usable URL.
+     */
+    public function getProfilePictureUrlAttribute()
+    {
+        if ($this->profile_picture) {
+            return asset('storage/' . $this->profile_picture);
+        }
+        return null;
+    }
+
+    protected $appends = ['profile_picture_url'];
 
     public function accessTokens()
     {

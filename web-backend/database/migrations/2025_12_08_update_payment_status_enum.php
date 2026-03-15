@@ -15,7 +15,9 @@ return new class extends Migration
         // Change the enum to include refund statuses
         Schema::table('appointments', function (Blueprint $table) {
             // Drop the old enum and recreate with new values
-            DB::statement("ALTER TABLE appointments MODIFY payment_status ENUM('unpaid', 'paid', 'partial', 'refunded', 'partially_refunded') DEFAULT 'unpaid'");
+            if (DB::getDriverName() !== 'sqlite') {
+                DB::statement("ALTER TABLE appointments MODIFY payment_status ENUM('unpaid', 'paid', 'partial', 'refunded', 'partially_refunded') DEFAULT 'unpaid'");
+            }
         });
     }
 
@@ -26,7 +28,9 @@ return new class extends Migration
     {
         // Revert to original enum values
         Schema::table('appointments', function (Blueprint $table) {
-            DB::statement("ALTER TABLE appointments MODIFY payment_status ENUM('unpaid', 'paid', 'partial') DEFAULT 'unpaid'");
+            if (DB::getDriverName() !== 'sqlite') {
+                DB::statement("ALTER TABLE appointments MODIFY payment_status ENUM('unpaid', 'paid', 'partial') DEFAULT 'unpaid'");
+            }
         });
     }
 };

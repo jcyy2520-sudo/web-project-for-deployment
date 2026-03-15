@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { CheckCircleIcon, XCircleIcon, ClockIcon, ExclamationTriangleIcon, ChevronLeftIcon, ChevronRightIcon, XMarkIcon, ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline';
+import { CheckCircleIcon, XCircleIcon, ClockIcon, ExclamationTriangleIcon, ChevronLeftIcon, ChevronRightIcon, XMarkIcon, ChevronDownIcon, ChevronUpIcon, Cog6ToothIcon, PlusIcon, TrashIcon, PencilIcon } from '@heroicons/react/24/outline';
 import LoadingSpinner from '../LoadingSpinner';
+import { formatDateDisplay } from '../../utils/format';
 
 const AdminRefundManagement = ({ isUserLight: isUserLightProp } = {}) => {
   const [refunds, setRefunds] = useState([]);
@@ -10,6 +11,7 @@ const AdminRefundManagement = ({ isUserLight: isUserLightProp } = {}) => {
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
   const [perPage, setPerPage] = useState(20);
+  const [activeTab, setActiveTab] = useState('refunds'); // 'refunds' or 'settings'
   
   const [filters, setFilters] = useState({
     status: 'all',
@@ -25,6 +27,17 @@ const AdminRefundManagement = ({ isUserLight: isUserLightProp } = {}) => {
   const [rejectionReason, setRejectionReason] = useState('');
   const [transactionId, setTransactionId] = useState('');
   const [actionInProgress, setActionInProgress] = useState(null);
+  
+  // Reasons state - loaded from API
+  const [requestReasons, setRequestReasons] = useState([]);
+  const [declineReasons, setDeclineReasons] = useState([]);
+  const [allReasons, setAllReasons] = useState([]);
+  const [reasonsLoading, setReasonsLoading] = useState(false);
+  const [newReasonLabel, setNewReasonLabel] = useState('');
+  const [newReasonType, setNewReasonType] = useState('request');
+  const [editingReason, setEditingReason] = useState(null);
+  const [editLabel, setEditLabel] = useState('');
+  
   const [expandedSections, setExpandedSections] = useState({
     appointmentDetails: true,
     paymentBreakdown: true,
@@ -68,16 +81,32 @@ const AdminRefundManagement = ({ isUserLight: isUserLightProp } = {}) => {
   const headBg = isUserLight ? 'bg-gray-50' : 'bg-gray-800';
   const rowHoverClass = isUserLight ? 'hover:bg-gray-100' : 'hover:bg-gray-700';
 
-  const presetDeclineReasons = [
-    { value: 'duplicate_refund', label: 'Duplicate Refund Request' },
-    { value: 'outside_policy', label: 'Outside Refund Policy' },
-    { value: 'no_service_issue', label: 'No Service Issue Found' },
-    { value: 'insufficient_documentation', label: 'Insufficient Documentation' },
-    { value: 'request_too_late', label: 'Request Too Late (30 days)' },
-    { value: 'service_completed', label: 'Service Completed Successfully' },
-    { value: 'user_fault', label: 'Refund Not Due to Business Fault' },
-    { value: 'other', label: 'Other Reason' }
-  ];
+  const presetDeclineReasons = declineReasons.filter(r => r.is_active).map(r => ({
+    value: r.key,
+    label: r.label
+  }));
+
+  // Load reasons from API
+  const loadReasons = useCallback(async () => {
+    try {
+      setReasonsLoading(true);
+      const response = await axios.get('/api/admin/refund-reasons');
+      if (response.data?.success) {
+        const reasons = response.data.data || [];
+        setAllReasons(reasons);
+        setRequestReasons(reasons.filter(r => r.type === 'request'));
+        setDeclineReasons(reasons.filter(r => r.type === 'decline'));
+      }
+    } catch (err) {
+      console.error('Failed to load refund reasons:', err);
+    } finally {
+      setReasonsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadReasons();
+  }, []);
 
   const loadRefunds = useCallback(async (pageNum = 1) => {
     setLoading(true);
@@ -116,7 +145,9 @@ const AdminRefundManagement = ({ isUserLight: isUserLightProp } = {}) => {
   }, [filters]);
 
   useEffect(() => {
-    loadRefunds(page);
+    if (page !== 1) {
+      loadRefunds(page);
+    }
   }, [page, perPage]);
 
   const handleApprove = async (refund) => {
@@ -139,9 +170,7 @@ const AdminRefundManagement = ({ isUserLight: isUserLightProp } = {}) => {
           window.showToast('Success', 'Refund approved successfully. Processing...', 'success');
         }
         
-        // Wait 5 seconds to ensure email is sent and data is updated
-        await new Promise(resolve => setTimeout(resolve, 5000));
-        
+        // Reload data immediately without blocking
         setSelectedRefund(null);
         setApprovalNotes('');
         setRefundMethod('original_method');
@@ -218,6 +247,69 @@ const AdminRefundManagement = ({ isUserLight: isUserLightProp } = {}) => {
     }
   };
 
+  // CRUD handlers for refund reasons
+  const handleAddReason = async () => {
+    if (!newReasonLabel.trim()) return;
+    try {
+      const response = await axios.post('/api/admin/refund-reasons', {
+        type: newReasonType,
+        label: newReasonLabel.trim()
+      });
+      if (response.data?.success) {
+        setNewReasonLabel('');
+        loadReasons();
+        if (window?.showToast) {
+          window.showToast('Success', 'Reason added successfully', 'success');
+        }
+      }
+    } catch (err) {
+      console.error('Add reason error:', err);
+      if (window?.showToast) {
+        window.showToast('Error', err.response?.data?.message || 'Failed to add reason', 'error');
+      }
+    }
+  };
+
+  const handleUpdateReason = async (id, data) => {
+    try {
+      const response = await axios.put(`/api/admin/refund-reasons/${id}`, data);
+      if (response.data?.success) {
+        loadReasons();
+        setEditingReason(null);
+        if (window?.showToast) {
+          window.showToast('Success', 'Reason updated successfully', 'success');
+        }
+      }
+    } catch (err) {
+      console.error('Update reason error:', err);
+      if (window?.showToast) {
+        window.showToast('Error', err.response?.data?.message || 'Failed to update reason', 'error');
+      }
+    }
+  };
+
+  const handleDeleteReason = async (id) => {
+    if (!confirm('Are you sure you want to delete this reason?')) return;
+    try {
+      const response = await axios.delete(`/api/admin/refund-reasons/${id}`);
+      if (response.data?.success) {
+        loadReasons();
+        if (window?.showToast) {
+          window.showToast('Success', 'Reason deleted successfully', 'success');
+        }
+      }
+    } catch (err) {
+      console.error('Delete reason error:', err);
+      if (window?.showToast) {
+        window.showToast('Error', err.response?.data?.message || 'Failed to delete reason', 'error');
+      }
+    }
+  };
+
+  const handleToggleActive = async (reason) => {
+    await handleUpdateReason(reason.id, { is_active: !reason.is_active });
+  };
+
   const toggleSection = (section) => {
     setExpandedSections(prev => ({
       ...prev,
@@ -278,10 +370,38 @@ const AdminRefundManagement = ({ isUserLight: isUserLightProp } = {}) => {
     <div className="space-y-4">
       {/* Header */}
       <div className={`bg-gradient-to-r ${isUserLight ? 'from-white to-white' : 'from-gray-900 to-gray-800'} ${borderColor} rounded-lg p-4`}>
-        <h2 className={`text-xl font-bold ${textPrimary} transition-colors duration-300`}>💰 Refund Management Dashboard</h2>
-        <p className={`text-sm ${isUserLight ? 'text-gray-600' : 'text-amber-400/70'} mt-1 transition-colors duration-300`}>Manage and process refund requests from all users</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className={`text-xl font-bold ${textPrimary} transition-colors duration-300`}>💰 Refund Management Dashboard</h2>
+            <p className={`text-sm ${isUserLight ? 'text-gray-600' : 'text-amber-400/70'} mt-1 transition-colors duration-300`}>Manage and process refund requests from all users</p>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setActiveTab('refunds')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-200 ${
+                activeTab === 'refunds'
+                  ? isUserLight ? 'bg-amber-100 text-amber-800' : 'bg-amber-500/20 text-amber-400'
+                  : isUserLight ? 'text-gray-600 hover:bg-gray-100' : 'text-gray-400 hover:bg-gray-800'
+              }`}
+            >
+              Refunds
+            </button>
+            <button
+              onClick={() => setActiveTab('settings')}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-200 flex items-center gap-1 ${
+                activeTab === 'settings'
+                  ? isUserLight ? 'bg-amber-100 text-amber-800' : 'bg-amber-500/20 text-amber-400'
+                  : isUserLight ? 'text-gray-600 hover:bg-gray-100' : 'text-gray-400 hover:bg-gray-800'
+              }`}
+            >
+              <Cog6ToothIcon className="h-4 w-4" /> Settings
+            </button>
+          </div>
+        </div>
       </div>
 
+      {activeTab === 'refunds' ? (
+      <>
       {/* Filters */}
       <div className={`${panelBg} ${borderColor} rounded-lg shadow p-4 space-y-3 transition-colors duration-300`}>
         <h3 className="font-semibold text-amber-400 flex items-center gap-2 transition-colors duration-300">
@@ -312,12 +432,9 @@ const AdminRefundManagement = ({ isUserLight: isUserLightProp } = {}) => {
             className={`px-3 py-2 ${inputBg} border border-gray-200 ${inputText} rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-amber-500 transition-all duration-200`}
           >
             <option value="all">All Reasons</option>
-            <option value="customer_request">Customer Request</option>
-            <option value="service_not_provided">Service Not Provided</option>
-            <option value="duplicate_payment">Duplicate Payment</option>
-            <option value="service_cancellation">Service Cancellation</option>
-            <option value="poor_service">Poor Service</option>
-            <option value="other">Other</option>
+            {requestReasons.filter(r => r.is_active).map(r => (
+              <option key={r.key} value={r.key}>{r.label}</option>
+            ))}
           </select>
           <input
             type="date"
@@ -433,22 +550,189 @@ const AdminRefundManagement = ({ isUserLight: isUserLightProp } = {}) => {
           </div>
         )}
       </div>
+      </>
+      ) : (
+        /* Settings Tab */
+        <div className="space-y-4">
+          {/* Add New Reason */}
+          <div className={`${panelBg} ${borderColor} rounded-lg shadow p-4 transition-colors duration-300`}>
+            <h3 className={`font-semibold ${isUserLight ? 'text-gray-800' : 'text-amber-400'} mb-3`}>➕ Add New Reason</h3>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <select
+                value={newReasonType}
+                onChange={(e) => setNewReasonType(e.target.value)}
+                className={`px-3 py-2 ${inputBg} border border-gray-200 ${inputText} rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-amber-500 w-full sm:w-40`}
+              >
+                <option value="request">Request Reason</option>
+                <option value="decline">Decline Reason</option>
+              </select>
+              <input
+                type="text"
+                placeholder="Enter reason label..."
+                value={newReasonLabel}
+                onChange={(e) => setNewReasonLabel(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleAddReason()}
+                className={`flex-1 px-3 py-2 ${inputBg} border border-gray-200 ${inputText} placeholder-gray-400 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-amber-500`}
+              />
+              <button
+                onClick={handleAddReason}
+                disabled={!newReasonLabel.trim()}
+                className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700 disabled:opacity-50 flex items-center gap-1 whitespace-nowrap transition-colors duration-200"
+              >
+                <PlusIcon className="h-4 w-4" /> Add
+              </button>
+            </div>
+          </div>
+
+          {/* Request Reasons */}
+          <div className={`${panelBg} ${borderColor} rounded-lg shadow overflow-hidden transition-colors duration-300`}>
+            <div className={`px-4 py-3 ${headBg} border-b ${borderColor}`}>
+              <h3 className={`font-semibold ${isUserLight ? 'text-gray-800' : 'text-amber-400'}`}>📋 Refund Request Reasons</h3>
+              <p className={`text-xs ${mutedText} mt-1`}>Reasons users can select when requesting a refund</p>
+            </div>
+            <div className="divide-y divide-gray-700">
+              {reasonsLoading ? (
+                <div className="p-4 text-center"><LoadingSpinner /></div>
+              ) : requestReasons.length === 0 ? (
+                <div className={`p-4 text-center ${mutedText} text-sm`}>No request reasons configured</div>
+              ) : (
+                requestReasons.map(reason => (
+                  <div key={reason.id} className={`px-4 py-3 flex items-center justify-between gap-3 ${rowHoverClass} transition-colors duration-200`}>
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <button
+                        onClick={() => handleToggleActive(reason)}
+                        className={`w-10 h-5 rounded-full relative transition-colors duration-200 flex-shrink-0 ${reason.is_active ? 'bg-green-500' : 'bg-gray-600'}`}
+                        title={reason.is_active ? 'Active - click to deactivate' : 'Inactive - click to activate'}
+                      >
+                        <div className={`w-4 h-4 bg-white rounded-full absolute top-0.5 transition-all duration-200 ${reason.is_active ? 'left-5' : 'left-0.5'}`} />
+                      </button>
+                      {editingReason === reason.id ? (
+                        <input
+                          type="text"
+                          value={editLabel}
+                          onChange={(e) => setEditLabel(e.target.value)}
+                          onBlur={() => { handleUpdateReason(reason.id, { label: editLabel }); }}
+                          onKeyDown={(e) => { if (e.key === 'Enter') { handleUpdateReason(reason.id, { label: editLabel }); } if (e.key === 'Escape') setEditingReason(null); }}
+                          autoFocus
+                          className={`flex-1 px-2 py-1 ${inputBg} border border-amber-500 ${inputText} rounded text-sm focus:outline-none`}
+                        />
+                      ) : (
+                        <div className="flex-1 min-w-0">
+                          <span className={`text-sm ${reason.is_active ? textPrimary : mutedText} ${!reason.is_active ? 'line-through' : ''}`}>
+                            {reason.label}
+                          </span>
+                          <span className={`text-xs ${mutedText} ml-2`}>({reason.key})</span>
+                          {reason.is_default && <span className={`text-xs ml-2 px-1.5 py-0.5 rounded ${isUserLight ? 'bg-blue-100 text-blue-600' : 'bg-blue-500/20 text-blue-400'}`}>Default</span>}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <button
+                        onClick={() => { setEditingReason(reason.id); setEditLabel(reason.label); }}
+                        className={`p-1.5 rounded ${isUserLight ? 'hover:bg-gray-100 text-gray-600' : 'hover:bg-gray-700 text-gray-400'} transition-colors duration-200`}
+                        title="Edit label"
+                      >
+                        <PencilIcon className="h-3.5 w-3.5" />
+                      </button>
+                      {!reason.is_default && (
+                        <button
+                          onClick={() => handleDeleteReason(reason.id)}
+                          className="p-1.5 rounded hover:bg-red-500/20 text-red-400 transition-colors duration-200"
+                          title="Delete reason"
+                        >
+                          <TrashIcon className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Decline Reasons */}
+          <div className={`${panelBg} ${borderColor} rounded-lg shadow overflow-hidden transition-colors duration-300`}>
+            <div className={`px-4 py-3 ${headBg} border-b ${borderColor}`}>
+              <h3 className={`font-semibold ${isUserLight ? 'text-gray-800' : 'text-amber-400'}`}>❌ Refund Decline Reasons</h3>
+              <p className={`text-xs ${mutedText} mt-1`}>Preset reasons when declining a refund request</p>
+            </div>
+            <div className="divide-y divide-gray-700">
+              {reasonsLoading ? (
+                <div className="p-4 text-center"><LoadingSpinner /></div>
+              ) : declineReasons.length === 0 ? (
+                <div className={`p-4 text-center ${mutedText} text-sm`}>No decline reasons configured</div>
+              ) : (
+                declineReasons.map(reason => (
+                  <div key={reason.id} className={`px-4 py-3 flex items-center justify-between gap-3 ${rowHoverClass} transition-colors duration-200`}>
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <button
+                        onClick={() => handleToggleActive(reason)}
+                        className={`w-10 h-5 rounded-full relative transition-colors duration-200 flex-shrink-0 ${reason.is_active ? 'bg-green-500' : 'bg-gray-600'}`}
+                        title={reason.is_active ? 'Active - click to deactivate' : 'Inactive - click to activate'}
+                      >
+                        <div className={`w-4 h-4 bg-white rounded-full absolute top-0.5 transition-all duration-200 ${reason.is_active ? 'left-5' : 'left-0.5'}`} />
+                      </button>
+                      {editingReason === reason.id ? (
+                        <input
+                          type="text"
+                          value={editLabel}
+                          onChange={(e) => setEditLabel(e.target.value)}
+                          onBlur={() => { handleUpdateReason(reason.id, { label: editLabel }); }}
+                          onKeyDown={(e) => { if (e.key === 'Enter') { handleUpdateReason(reason.id, { label: editLabel }); } if (e.key === 'Escape') setEditingReason(null); }}
+                          autoFocus
+                          className={`flex-1 px-2 py-1 ${inputBg} border border-amber-500 ${inputText} rounded text-sm focus:outline-none`}
+                        />
+                      ) : (
+                        <div className="flex-1 min-w-0">
+                          <span className={`text-sm ${reason.is_active ? textPrimary : mutedText} ${!reason.is_active ? 'line-through' : ''}`}>
+                            {reason.label}
+                          </span>
+                          <span className={`text-xs ${mutedText} ml-2`}>({reason.key})</span>
+                          {reason.is_default && <span className={`text-xs ml-2 px-1.5 py-0.5 rounded ${isUserLight ? 'bg-blue-100 text-blue-600' : 'bg-blue-500/20 text-blue-400'}`}>Default</span>}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <button
+                        onClick={() => { setEditingReason(reason.id); setEditLabel(reason.label); }}
+                        className={`p-1.5 rounded ${isUserLight ? 'hover:bg-gray-100 text-gray-600' : 'hover:bg-gray-700 text-gray-400'} transition-colors duration-200`}
+                        title="Edit label"
+                      >
+                        <PencilIcon className="h-3.5 w-3.5" />
+                      </button>
+                      {!reason.is_default && (
+                        <button
+                          onClick={() => handleDeleteReason(reason.id)}
+                          className="p-1.5 rounded hover:bg-red-500/20 text-red-400 transition-colors duration-200"
+                          title="Delete reason"
+                        >
+                          <TrashIcon className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Detail Modal */}
       {selectedRefund && (
         <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4 animate-fadeIn">
-          <div className="bg-gray-900 rounded-lg shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto border border-amber-500/20">
+          <div className={`${isUserLight ? 'bg-white' : 'bg-gray-900'} rounded-lg shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto border ${isUserLight ? 'border-gray-200' : 'border-amber-500/20'}`}>
             {/* Header */}
-            <div className="sticky top-0 bg-gradient-to-r from-gray-900 to-gray-800 border-b border-amber-500/20 p-6 flex items-center justify-between z-10">
+            <div className={`sticky top-0 ${isUserLight ? 'bg-white border-b border-gray-200' : 'bg-gradient-to-r from-gray-900 to-gray-800 border-b border-amber-500/20'} p-6 flex items-center justify-between z-10`}>
               <div>
-                <h2 className="text-2xl font-bold text-amber-50 transition-colors duration-300">💰 Refund Request #{selectedRefund.id}</h2>
-                <p className="text-sm text-amber-400/70 mt-1 transition-colors duration-300">
+                <h2 className={`text-2xl font-bold ${isUserLight ? 'text-gray-900' : 'text-amber-50'} transition-colors duration-300`}>💰 Refund Request #{selectedRefund.id}</h2>
+                <p className={`text-sm ${isUserLight ? 'text-gray-500' : 'text-amber-400/70'} mt-1 transition-colors duration-300`}>
                   {new Date(selectedRefund.created_at).toLocaleString()}
                 </p>
               </div>
               <button
                 onClick={() => setSelectedRefund(null)}
-                className="text-amber-400 hover:text-amber-300 p-2 rounded hover:bg-amber-500/10 transition-colors duration-200"
+                className={`${isUserLight ? 'text-gray-600 hover:text-gray-900 hover:bg-gray-100' : 'text-amber-400 hover:text-amber-300 hover:bg-amber-500/10'} p-2 rounded transition-colors duration-200`}
               >
                 <XMarkIcon className="h-6 w-6" />
               </button>
@@ -468,12 +752,12 @@ const AdminRefundManagement = ({ isUserLight: isUserLightProp } = {}) => {
               </div>
 
               {/* Appointment Details Section */}
-              <div className="border border-gray-700 rounded-lg overflow-hidden">
+              <div className={`border ${isUserLight ? 'border-gray-200' : 'border-gray-700'} rounded-lg overflow-hidden`}>
                 <button
                   onClick={() => toggleSection('appointmentDetails')}
-                  className="w-full px-4 py-3 bg-gray-800 hover:bg-gray-700 transition-colors duration-200 flex items-center justify-between"
+                  className={`w-full px-4 py-3 ${isUserLight ? 'bg-gray-50 hover:bg-gray-100' : 'bg-gray-800 hover:bg-gray-700'} transition-colors duration-200 flex items-center justify-between`}
                 >
-                  <h3 className="font-semibold text-amber-50 transition-colors duration-300">📅 Appointment Details</h3>
+                  <h3 className={`font-semibold ${isUserLight ? 'text-gray-900' : 'text-amber-50'} transition-colors duration-300`}>📅 Appointment Details</h3>
                   {expandedSections.appointmentDetails ? (
                     <ChevronUpIcon className="h-5 w-5 text-gray-400" />
                   ) : (
@@ -482,23 +766,23 @@ const AdminRefundManagement = ({ isUserLight: isUserLightProp } = {}) => {
                 </button>
 
                 {expandedSections.appointmentDetails && (
-                  <div className="px-4 py-3 space-y-3 border-t border-gray-700">
+                  <div className={`px-4 py-3 space-y-3 border-t ${isUserLight ? 'border-gray-200' : 'border-gray-700'}`}>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <p className="text-xs font-medium text-gray-400 uppercase">Date & Time</p>
-                        <p className="text-sm font-semibold text-amber-50 mt-1 transition-colors duration-300">
-                          {new Date(selectedRefund.appointment?.appointment_date).toLocaleDateString()} at {selectedRefund.appointment?.appointment_time}
+                        <p className={`text-xs font-medium ${isUserLight ? 'text-gray-500' : 'text-gray-400'} uppercase`}>Date & Time</p>
+                        <p className={`text-sm font-semibold ${isUserLight ? 'text-gray-900' : 'text-amber-50'} mt-1 transition-colors duration-300`}>
+                          {formatDateDisplay(selectedRefund.appointment?.appointment_date)} at {selectedRefund.appointment?.appointment_time}
                         </p>
                       </div>
                       <div>
-                        <p className="text-xs font-medium text-gray-400 uppercase">Service</p>
-                        <p className="text-sm font-semibold text-amber-50 mt-1 transition-colors duration-300">
+                        <p className={`text-xs font-medium ${isUserLight ? 'text-gray-500' : 'text-gray-400'} uppercase`}>Service</p>
+                        <p className={`text-sm font-semibold ${isUserLight ? 'text-gray-900' : 'text-amber-50'} mt-1 transition-colors duration-300`}>
                           {selectedRefund.appointment?.service?.name || 'N/A'}
                         </p>
                       </div>
                     </div>
 
-                    <div className="bg-gray-800 p-3 rounded border border-blue-500/30">
+                    <div className={`${isUserLight ? 'bg-blue-50 border-blue-200' : 'bg-gray-800 border-blue-500/30'} p-3 rounded border`}>
                       <h4 className="text-sm font-semibold text-blue-400 mb-2">👤 User Information</h4>
                       <div className="space-y-1 text-sm">
                         <p className="text-blue-300"><strong>Name:</strong> {selectedRefund.appointment?.user?.first_name} {selectedRefund.appointment?.user?.last_name}</p>
@@ -513,12 +797,12 @@ const AdminRefundManagement = ({ isUserLight: isUserLightProp } = {}) => {
               </div>
 
               {/* Payment Breakdown Section */}
-              <div className="border border-gray-700 rounded-lg overflow-hidden">
+              <div className={`border ${isUserLight ? 'border-gray-200' : 'border-gray-700'} rounded-lg overflow-hidden`}>
                 <button
                   onClick={() => toggleSection('paymentBreakdown')}
-                  className="w-full px-4 py-3 bg-gray-800 hover:bg-gray-700 transition-colors duration-200 flex items-center justify-between"
+                  className={`w-full px-4 py-3 ${isUserLight ? 'bg-gray-50 hover:bg-gray-100' : 'bg-gray-800 hover:bg-gray-700'} transition-colors duration-200 flex items-center justify-between`}
                 >
-                  <h3 className="font-semibold text-amber-50 transition-colors duration-300">💳 Payment Breakdown</h3>
+                  <h3 className={`font-semibold ${isUserLight ? 'text-gray-900' : 'text-amber-50'} transition-colors duration-300`}>💳 Payment Breakdown</h3>
                   {expandedSections.paymentBreakdown ? (
                     <ChevronUpIcon className="h-5 w-5 text-gray-400" />
                   ) : (
@@ -559,12 +843,12 @@ const AdminRefundManagement = ({ isUserLight: isUserLightProp } = {}) => {
               </div>
 
               {/* Refund Details Section */}
-              <div className="border border-gray-700 rounded-lg overflow-hidden">
+              <div className={`border ${isUserLight ? 'border-gray-200' : 'border-gray-700'} rounded-lg overflow-hidden`}>
                 <button
                   onClick={() => toggleSection('refundDetails')}
-                  className="w-full px-4 py-3 bg-gray-800 hover:bg-gray-700 transition-colors duration-200 flex items-center justify-between"
+                  className={`w-full px-4 py-3 ${isUserLight ? 'bg-gray-50 hover:bg-gray-100' : 'bg-gray-800 hover:bg-gray-700'} transition-colors duration-200 flex items-center justify-between`}
                 >
-                  <h3 className="font-semibold text-amber-50 transition-colors duration-300">📋 Refund Request Details</h3>
+                  <h3 className={`font-semibold ${isUserLight ? 'text-gray-900' : 'text-amber-50'} transition-colors duration-300`}>📋 Refund Request Details</h3>
                   {expandedSections.refundDetails ? (
                     <ChevronUpIcon className="h-5 w-5 text-gray-400" />
                   ) : (
@@ -598,12 +882,12 @@ const AdminRefundManagement = ({ isUserLight: isUserLightProp } = {}) => {
 
               {/* Actions Section */}
               {selectedRefund.status === 'pending' && (
-                <div className="border border-gray-700 rounded-lg overflow-hidden">
+                <div className={`border ${isUserLight ? 'border-gray-200' : 'border-gray-700'} rounded-lg overflow-hidden`}>
                   <button
                     onClick={() => toggleSection('actions')}
-                    className="w-full px-4 py-3 bg-gray-800 hover:bg-gray-700 transition-colors duration-200 flex items-center justify-between"
+                    className={`w-full px-4 py-3 ${isUserLight ? 'bg-gray-50 hover:bg-gray-100' : 'bg-gray-800 hover:bg-gray-700'} transition-colors duration-200 flex items-center justify-between`}
                   >
-                    <h3 className="font-semibold text-amber-50 transition-colors duration-300">⚡ Actions</h3>
+                    <h3 className={`font-semibold ${isUserLight ? 'text-gray-900' : 'text-amber-50'} transition-colors duration-300`}>⚡ Actions</h3>
                     {expandedSections.actions ? (
                       <ChevronUpIcon className="h-5 w-5 text-gray-400" />
                     ) : (
@@ -655,7 +939,7 @@ const AdminRefundManagement = ({ isUserLight: isUserLightProp } = {}) => {
                             {actionInProgress === 'approve' ? (
                               <>
                                 <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></div>
-                                Processing (5 sec)...
+                                Processing...
                               </>
                             ) : (
                               '✅ Approve Refund'
@@ -673,8 +957,11 @@ const AdminRefundManagement = ({ isUserLight: isUserLightProp } = {}) => {
                               Decline Reason
                             </label>
                             <select
-                              value={rejectionReason}
-                              onChange={(e) => setRejectionReason(e.target.value)}
+                              value=""
+                              onChange={(e) => {
+                                const selected = presetDeclineReasons.find(r => r.value === e.target.value);
+                                setRejectionReason(selected ? selected.label : e.target.value);
+                              }}
                               className="w-full px-3 py-2 bg-gray-700 border border-gray-600 text-white rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-red-500 mb-2 transition-all duration-200"
                             >
                               <option value="">Select a reason...</option>

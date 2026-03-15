@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Carbon\Carbon;
 
 class AppointmentSettings extends Model
 {
@@ -39,59 +40,107 @@ class AppointmentSettings extends Model
     }
 
     /**
-     * Check if a user has reached their daily booking limit
+     * Cache for bookings found in the last 24h to avoid redundant DB queries in same request
+     */
+    protected static $bookingsCache = [];
+
+    /**
+     * Check if a user has reached their booking limit in the rolling 24-hour window.
      */
     public static function userHasReachedDailyLimit($userId, $date = null)
     {
-        $date = $date ?? now()->format('Y-m-d');
         $settings = self::getCurrent();
 
         if (!$settings || !$settings->is_active) {
             return false;
         }
 
-        $todayBookings = Appointment::where('user_id', $userId)
-            ->where('appointment_date', $date)
-            ->whereIn('status', ['pending', 'approved'])
-            ->count();
+        $count = self::getBookingsInLast24Hours($userId)->count();
 
-        return $todayBookings >= $settings->daily_booking_limit_per_user;
+        return $count >= $settings->daily_booking_limit_per_user;
     }
 
     /**
-     * Get remaining bookings for user today
+     * Get remaining bookings for user in the rolling 24-hour window.
      */
     public static function getRemainingBookingsForUser($userId, $date = null)
     {
-        $date = $date ?? now()->format('Y-m-d');
         $settings = self::getCurrent();
 
         if (!$settings || !$settings->is_active) {
             return null;
         }
 
-        $todayBookings = Appointment::where('user_id', $userId)
-            ->where('appointment_date', $date)
-            ->whereIn('status', ['pending', 'approved'])
-            ->count();
-
-        $remaining = $settings->daily_booking_limit_per_user - $todayBookings;
+        $count = self::getBookingsInLast24Hours($userId)->count();
+        $remaining = $settings->daily_booking_limit_per_user - $count;
 
         return max(0, $remaining);
     }
 
     /**
-     * Get all bookings for a user on a specific date
+     * Get all bookings created by a user in the rolling 24-hour window.
      */
     public static function getUserBookingsForDate($userId, $date = null)
     {
-        $date = $date ?? now()->format('Y-m-d');
+        return self::getBookingsInLast24Hours($userId);
+    }
 
-        return Appointment::where('user_id', $userId)
-            ->where('appointment_date', $date)
-            ->whereIn('status', ['pending', 'approved'])
-            ->select('id', 'appointment_date', 'appointment_time', 'status', 'service_id')
+    /**
+     * Clear the request-level cache (e.g. after a new booking)
+     */
+    public static function clearRequestCache($userId)
+    {
+        unset(self::$bookingsCache[$userId]);
+    }
+
+    /**
+     * Core query: get all pending/approved/completed bookings created in the last 24 hours.
+     * Uses request-level caching to avoid repeated DB calls.
+     */
+    private static function getBookingsInLast24Hours($userId)
+    {
+        if (isset(self::$bookingsCache[$userId])) {
+            return self::$bookingsCache[$userId];
+        }
+
+        $since = now()->subHours(24);
+
+        $bookings = Appointment::where('user_id', $userId)
+            ->where('created_at', '>=', $since)
+            ->whereIn('status', ['pending', 'approved', 'completed'])
+            ->select('id', 'appointment_date', 'appointment_time', 'status', 'service_id', 'created_at')
             ->with('service')
+            ->orderBy('created_at', 'asc')
             ->get();
+        
+        self::$bookingsCache[$userId] = $bookings;
+        
+        return $bookings;
+    }
+
+    /**
+     * Calculate the exact datetime when the user can book again.
+     */
+    public static function getNextAvailableTime($userId)
+    {
+        $settings = self::getCurrent();
+
+        if (!$settings || !$settings->is_active) {
+            return null;
+        }
+
+        $bookings = self::getBookingsInLast24Hours($userId);
+
+        if ($bookings->count() < $settings->daily_booking_limit_per_user) {
+            return null; // not at limit
+        }
+
+        // The oldest booking's created_at + 24h = when it falls out of the window
+        $oldest = $bookings->first();
+        if (!$oldest) {
+            return null;
+        }
+
+        return Carbon::parse($oldest->created_at)->addHours(24);
     }
 }

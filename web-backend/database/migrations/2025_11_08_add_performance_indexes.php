@@ -16,14 +16,12 @@ return new class extends Migration
         Schema::table('appointments', function (Blueprint $table) {
             // Check if service_id column exists before adding index
             if (Schema::hasColumn('appointments', 'service_id')) {
-                $indexes = DB::select("SHOW INDEXES FROM appointments WHERE Column_name = 'service_id'");
-                if (empty($indexes)) {
+                if (!Schema::hasIndex('appointments', ['service_id'])) {
                     $table->index('service_id');
                 }
             }
             
-            $indexes = DB::select("SHOW INDEXES FROM appointments WHERE Column_name = 'created_at'");
-            if (empty($indexes)) {
+            if (!Schema::hasIndex('appointments', ['created_at'])) {
                 $table->index('created_at');
             }
         });
@@ -31,8 +29,7 @@ return new class extends Migration
         // Add indexes to users table for growth tracking
         Schema::table('users', function (Blueprint $table) {
             // Index for date range queries (user growth)
-            $indexes = DB::select("SHOW INDEXES FROM users WHERE Column_name = 'created_at'");
-            if (empty($indexes)) {
+            if (!Schema::hasIndex('users', ['created_at'])) {
                 $table->index('created_at');
             }
         });

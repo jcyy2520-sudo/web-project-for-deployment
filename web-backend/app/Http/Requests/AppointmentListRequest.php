@@ -15,7 +15,6 @@ class AppointmentListRequest extends ApiFormRequest
             'per_page' => 'nullable|integer|min:1|max:100',
             'status' => 'nullable|string|in:pending,approved,completed,cancelled,no_show',
             'user_id' => 'nullable|integer|exists:users,id',
-            'staff_id' => 'nullable|integer|exists:users,id',
             'date_from' => 'nullable|date',
             'date_to' => 'nullable|date|after_or_equal:date_from',
             'sort_by' => 'nullable|string|in:date,status,user,created_at',

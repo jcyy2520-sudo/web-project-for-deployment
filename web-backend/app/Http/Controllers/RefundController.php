@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Appointment;
 use App\Models\Refund;
+use App\Models\RefundReason;
 use App\Models\ActionLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -17,10 +18,14 @@ class RefundController extends Controller
      */
     public function requestRefund(Request $request)
     {
+        // Get valid reason keys from database
+        $validKeys = RefundReason::getActiveRequestKeys();
+        $validKeysStr = implode(',', $validKeys);
+
         $request->validate([
             'appointment_id' => 'required|integer|exists:appointments,id',
             'refund_amount' => 'required|numeric|min:0.01',
-            'reason' => 'required|string|in:customer_request,service_not_provided,duplicate_payment,service_cancellation,poor_service,other',
+            'reason' => "required|string|in:{$validKeysStr}",
             'description' => 'nullable|string|max:1000'
         ]);
 
@@ -28,6 +33,15 @@ class RefundController extends Controller
             DB::beginTransaction();
 
             $appointment = Appointment::with(['user', 'service'])->findOrFail($request->appointment_id);
+
+            // Ownership check: only the appointment owner, cashiers, or admins can request refunds
+            $user = $request->user();
+            if ($appointment->user_id !== $user->id && !in_array($user->role, ['cashier', 'admin'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'You are not authorized to request a refund for this appointment'
+                ], 403);
+            }
 
             // Validate appointment is paid
             if ($appointment->payment_status !== 'paid') {
@@ -61,20 +75,31 @@ class RefundController extends Controller
                 ], 422);
             }
 
-            // Check if there's already an active refund request
-            $existingRefund = $appointment->refunds()
-                ->whereIn('status', ['pending', 'approved'])
-                ->first();
+            // Check cumulative refund total doesn't exceed original payment (prevents serial partial refund abuse)
+            $cumulativeRefunded = $appointment->refunds()
+                ->whereIn('status', ['pending', 'approved', 'completed'])
+                ->lockForUpdate()
+                ->sum('refund_amount');
 
-            if ($existingRefund) {
+            $remainingRefundable = $appointment->payment_amount - $cumulativeRefunded;
+
+            if ($remainingRefundable <= 0) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'This appointment already has an active refund request'
+                    'message' => 'This appointment has already been fully refunded or has pending/approved refunds covering the full amount.'
                 ], 422);
             }
 
-            // Determine if partial refund
-            $isPartial = $request->refund_amount < $appointment->payment_amount;
+            if ($request->refund_amount > $remainingRefundable) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "Refund amount exceeds the remaining refundable balance. Maximum refundable: ₱" . number_format($remainingRefundable, 2)
+                ], 422);
+            }
+
+            // Determine if partial refund (based on cumulative total, not just this request)
+            $totalAfterThisRefund = $cumulativeRefunded + $request->refund_amount;
+            $isPartial = $totalAfterThisRefund < $appointment->payment_amount;
 
             // Create refund record
             $refund = Refund::create([
@@ -85,8 +110,10 @@ class RefundController extends Controller
                 'reason' => $request->reason,
                 'description' => $request->description,
                 'is_partial' => $isPartial,
-                'status' => 'pending'
             ]);
+            // Set status explicitly (not via mass assignment)
+            $refund->status = 'pending';
+            $refund->save();
 
             // Log the action
             ActionLog::log(
@@ -106,7 +133,7 @@ class RefundController extends Controller
                     \Log::warning('Cannot send refund request email: User email is missing for appointment #' . $appointment->id);
                 } else {
                     \Log::info('Attempting to send refund request email to: ' . $userEmail);
-                    Mail::to($userEmail)->send(new \App\Mail\RefundRequestedMail($refund));
+                    Mail::to($userEmail)->queue(new \App\Mail\RefundRequestedMail($refund));
                     \Log::info('✅ Refund request email sent successfully to: ' . $userEmail);
                 }
             } catch (\Exception $e) {
@@ -133,10 +160,36 @@ class RefundController extends Controller
     }
 
     /**
-     * Get refunds for an appointment
+     * Get refunds for an appointment (cashier/admin - no ownership check)
      */
     public function getAppointmentRefunds($appointmentId)
     {
+        $refunds = Refund::where('appointment_id', $appointmentId)
+            ->with(['requestedBy:id,first_name,last_name', 'approvedBy:id,first_name,last_name'])
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'refunds' => $refunds
+        ]);
+    }
+
+    /**
+     * Get refunds for an appointment (user-facing - verifies ownership)
+     */
+    public function getAppointmentRefundsForUser(Request $request, $appointmentId)
+    {
+        $appointment = Appointment::findOrFail($appointmentId);
+
+        // SECURITY: Verify the authenticated user owns this appointment
+        if ($appointment->user_id !== $request->user()->id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthorized to view refunds for this appointment'
+            ], 403);
+        }
+
         $refunds = Refund::where('appointment_id', $appointmentId)
             ->with(['requestedBy:id,first_name,last_name', 'approvedBy:id,first_name,last_name'])
             ->orderBy('created_at', 'desc')
@@ -188,47 +241,35 @@ class RefundController extends Controller
         try {
             DB::beginTransaction();
 
-            $refund = Refund::with('appointment', 'appointment.user')->findOrFail($refundId);
+            $refund = Refund::with('appointment', 'appointment.user')->lockForUpdate()->findOrFail($refundId);
 
             // Verify status is pending
             if ($refund->status !== 'pending') {
+                DB::rollBack();
                 return response()->json([
                     'success' => false,
                     'message' => 'Only pending refunds can be approved'
                 ], 422);
             }
 
-            // Update refund to approved AND completed
-            $refund->update([
-                'status' => 'completed',
-                'approved_by' => $request->user()->id,
-                'approved_at' => now(),
-                'completed_at' => now(),
-                'approval_notes' => $request->approval_notes,
-                'refund_method' => $request->refund_method
-            ]);
-
-            // Update appointment payment status if full refund
-            if (!$refund->is_partial) {
-                $refund->appointment->update([
-                    'payment_status' => 'refunded'
-                ]);
-            } else {
-                $refund->appointment->update([
-                    'payment_status' => 'partially_refunded'
-                ]);
-            }
+            // Update refund to approved (completion is a separate step)
+            $refund->status = 'approved';
+            $refund->approved_by = $request->user()->id;
+            $refund->approved_at = now();
+            $refund->approval_notes = $request->approval_notes;
+            $refund->refund_method = $request->refund_method;
+            $refund->save();
 
             // Log the action
             ActionLog::log(
                 'approve_refund',
-                "Approved and completed refund for appointment #{$refund->appointment_id} - Amount: ₱{$refund->refund_amount}",
+                "Approved refund for appointment #{$refund->appointment_id} - Amount: ₱{$refund->refund_amount}",
                 'Refund',
                 $refund->id
             );
 
             // Notify user with email and system message
-            $this->sendRefundNotification($refund, 'completed');
+            $this->sendRefundNotification($refund, 'approved');
             
             // Create in-app notification
             \App\Services\NotificationService::refundApproved($refund);
@@ -237,7 +278,7 @@ class RefundController extends Controller
 
             return response()->json([
                 'success' => true,
-                'message' => 'Refund approved and completed successfully',
+                'message' => 'Refund approved successfully. It can now be completed by a cashier.',
                 'refund' => $refund
             ]);
         } catch (\Exception $e) {
@@ -262,21 +303,21 @@ class RefundController extends Controller
         try {
             DB::beginTransaction();
 
-            $refund = Refund::with('appointment', 'appointment.user')->findOrFail($refundId);
+            $refund = Refund::with('appointment', 'appointment.user')->lockForUpdate()->findOrFail($refundId);
 
             if ($refund->status !== 'pending') {
+                DB::rollBack();
                 return response()->json([
                     'success' => false,
                     'message' => 'Only pending refunds can be rejected'
                 ], 422);
             }
 
-            $refund->update([
-                'status' => 'rejected',
-                'approved_by' => $request->user()->id,
-                'approved_at' => now(),
-                'rejection_reason' => $request->rejection_reason
-            ]);
+            $refund->status = 'rejected';
+            $refund->approved_by = $request->user()->id;
+            $refund->approved_at = now();
+            $refund->rejection_reason = $request->rejection_reason;
+            $refund->save();
 
             // Log the action
             ActionLog::log(
@@ -321,7 +362,7 @@ class RefundController extends Controller
         try {
             DB::beginTransaction();
 
-            $refund = Refund::with('appointment')->findOrFail($refundId);
+            $refund = Refund::with('appointment')->lockForUpdate()->findOrFail($refundId);
 
             if ($refund->status !== 'approved') {
                 return response()->json([
@@ -330,11 +371,19 @@ class RefundController extends Controller
                 ], 422);
             }
 
-            $refund->update([
-                'status' => 'completed',
-                'completed_at' => now(),
-                'transaction_id' => $request->transaction_id
-            ]);
+            $refund->status = 'completed';
+            $refund->completed_at = now();
+            $refund->transaction_id = $request->transaction_id;
+            $refund->save();
+
+            // Update appointment payment status now that refund is actually completed
+            if (!$refund->is_partial) {
+                $refund->appointment->payment_status = 'refunded';
+                $refund->appointment->save();
+            } else {
+                $refund->appointment->payment_status = 'partially_refunded';
+                $refund->appointment->save();
+            }
 
             // Log the action
             ActionLog::log(
@@ -397,8 +446,10 @@ class RefundController extends Controller
     public function getAllRefunds(Request $request)
     {
         $query = Refund::with([
-            'appointment:id,user_id,payment_amount,service_id,payment_date',
-            'appointment.user:id,first_name,last_name,email',
+            'appointment' => function($q) {
+                $q->select('id', 'user_id', 'payment_amount', 'service_id', 'payment_date', 'appointment_date', 'appointment_time');
+            },
+            'appointment.user:id,first_name,last_name,email,phone',
             'appointment.service:id,name',
             'requestedBy:id,first_name,last_name',
             'approvedBy:id,first_name,last_name'
@@ -440,6 +491,34 @@ class RefundController extends Controller
     }
 
     /**
+     * Get a single refund by ID (admin)
+     */
+    public function getRefund($refundId)
+    {
+        try {
+            $refund = Refund::with([
+                'appointment' => function($q) {
+                    $q->select('id', 'user_id', 'payment_amount', 'service_id', 'payment_date', 'appointment_date', 'appointment_time');
+                },
+                'appointment.user:id,first_name,last_name,email,phone',
+                'appointment.service:id,name',
+                'requestedBy:id,first_name,last_name',
+                'approvedBy:id,first_name,last_name'
+            ])->findOrFail($refundId);
+
+            return response()->json([
+                'success' => true,
+                'refund' => $refund
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Refund not found'
+            ], 404);
+        }
+    }
+
+    /**
      * Send refund notification to user
      */
     private function sendRefundNotification($refund, $status)
@@ -469,11 +548,11 @@ class RefundController extends Controller
 
                 if ($status === 'completed') {
                     \Log::info('Attempting to send refund completed email to: ' . $user->email . ' for refund #' . $refund->id);
-                    \Mail::to($user->email)->send(new \App\Mail\RefundCompletedMail($refund));
+                    \Mail::to($user->email)->queue(new \App\Mail\RefundCompletedMail($refund));
                     \Log::info('✅ Successfully sent refund completed email to: ' . $user->email);
                 } elseif ($status === 'rejected') {
                     \Log::info('Attempting to send refund rejected email to: ' . $user->email . ' for refund #' . $refund->id);
-                    \Mail::to($user->email)->send(new \App\Mail\RefundRejectedMail($refund));
+                    \Mail::to($user->email)->queue(new \App\Mail\RefundRejectedMail($refund));
                     \Log::info('✅ Successfully sent refund rejected email to: ' . $user->email);
                 }
             } catch (\Exception $mailException) {
@@ -495,8 +574,10 @@ class RefundController extends Controller
             };
 
             // Create message notification in system
+            // Use the admin who processed the refund, fallback to first admin
+            $adminId = request()->user()?->id ?? \App\Models\User::where('role', 'admin')->first()?->id ?? 1;
             \App\Models\Message::create([
-                'sender_id' => 1, // System message
+                'sender_id' => $adminId,
                 'receiver_id' => $user->id,
                 'subject' => $subject,
                 'message' => $body,
@@ -532,12 +613,15 @@ class RefundController extends Controller
     private function calculateApprovalRate($dateRange)
     {
         $total = Refund::whereBetween('created_at', $dateRange)
-            ->whereIn('status', ['approved', 'rejected'])
+            ->whereIn('status', ['approved', 'completed', 'rejected'])
             ->count();
 
         if ($total === 0) return 0;
 
-        $approved = Refund::approved()->whereBetween('created_at', $dateRange)->count();
+        // Count both 'approved' and 'completed' as approved (since approve sets status directly to completed)
+        $approved = Refund::whereBetween('created_at', $dateRange)
+            ->whereIn('status', ['approved', 'completed'])
+            ->count();
         return round(($approved / $total) * 100, 2);
     }
 

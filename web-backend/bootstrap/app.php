@@ -23,11 +23,21 @@ return Application::configure(basePath: dirname(__DIR__))
             ->dailyAt('02:00');
     })
     ->withMiddleware(function (Middleware $middleware) {
+        // Apply SecurityHeaders globally to all responses
+        $middleware->append(\App\Http\Middleware\SecurityHeaders::class);
+
         $middleware->alias([
             'role' => \App\Http\Middleware\RoleMiddleware::class,
+            // 'admin' alias resolves Phase 3 routes that use middleware('admin')
+            // It maps to RoleMiddleware which will receive 'admin' as the role parameter
+            // from route definitions like: middleware(['auth:sanctum', 'admin'])
+            'admin' => \App\Http\Middleware\AdminMiddleware::class,
             'chatbot.rate-limit' => \App\Http\Middleware\ChatbotRateLimitMiddleware::class,
             'abuse.detect' => \App\Http\Middleware\AbuseDetectionMiddleware::class,
             'production.safety' => \App\Http\Middleware\ProductionSafetyMiddleware::class,
+            'custom.rate-limit' => \App\Http\Middleware\RateLimitingMiddleware::class,
+            'performance.monitor' => \App\Http\Middleware\PerformanceMonitoring::class,
+            'profile.completed' => \App\Http\Middleware\EnsureProfileCompleted::class,
         ]);
         
         // Configure unauthenticated redirect for API requests
@@ -43,13 +53,22 @@ return Application::configure(basePath: dirname(__DIR__))
         // Custom exception handling
         $exceptions->render(function (Throwable $e, $request) {
             // Log all exceptions with detailed context
+            // Wrap auth()->id() in try-catch to prevent cascading failures
+            // (e.g. when the encryption key itself is the problem)
+            $userId = null;
+            try {
+                $userId = auth()->id();
+            } catch (\Throwable $authException) {
+                // Silently ignore — auth is unavailable during this error
+            }
+
             \Illuminate\Support\Facades\Log::error('API Exception', [
                 'exception' => get_class($e),
                 'message' => $e->getMessage(),
                 'code' => $e->getCode(),
                 'method' => $request->method(),
                 'path' => $request->path(),
-                'user_id' => auth()->id(),
+                'user_id' => $userId,
                 'ip' => $request->ip(),
             ]);
 
@@ -75,6 +94,9 @@ return Application::configure(basePath: dirname(__DIR__))
                 } elseif ($e instanceof \Illuminate\Database\Eloquent\ModelNotFoundException) {
                     $status = 404;
                     $message = 'Resource not found';
+                } elseif ($e instanceof \Symfony\Component\HttpKernel\Exception\HttpException) {
+                    $status = $e->getStatusCode();
+                    $message = $e->getMessage() ?: 'HTTP Exception';
                 }
 
                 return response()->json([

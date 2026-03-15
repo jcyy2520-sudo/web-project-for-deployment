@@ -10,7 +10,8 @@ import {
   ArrowPathIcon,
   TrashIcon,
   EllipsisVerticalIcon,
-  ClockIcon
+  ClockIcon,
+  Cog6ToothIcon
 } from '@heroicons/react/24/outline';
 
 // Message Details Modal
@@ -157,7 +158,7 @@ const MessageThread = ({ messages, currentUserId, isDarkMode }) => {
                 <div className="flex flex-col items-center gap-1">
                   <button
                     onClick={() => setSelectedMessage(msg)}
-                    className={`flex-shrink-0 p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity ${
+                    className={`flex-shrink-0 p-1 rounded opacity-100 lg:opacity-0 group-hover:opacity-100 transition-opacity ${
                       isOwn
                         ? 'text-amber-100 hover:bg-amber-600/30'
                         : isDarkMode
@@ -184,6 +185,212 @@ const MessageThread = ({ messages, currentUserId, isDarkMode }) => {
   );
 };
 
+// Message Settings Modal
+const MessageSettingsModal = ({ isOpen, onClose, isDarkMode, callApi }) => {
+  const [messageLimit, setMessageLimit] = useState(2);
+  const [originalLimit, setOriginalLimit] = useState(2);
+  const [loading, setLoading] = useState(false);
+  const [loadingSettings, setLoadingSettings] = useState(true);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      loadSettings();
+    }
+  }, [isOpen]);
+
+  const loadSettings = async () => {
+    try {
+      setLoadingSettings(true);
+      setError(null);
+      const result = await callApi(() =>
+        axios.get('/api/admin/message-settings', { timeout: 10000 }),
+        { skipCache: true }
+      );
+
+      if (result.success) {
+        const data = result.data?.data || result.data || {};
+        const limit = data.user_message_limit || 2;
+        setMessageLimit(limit);
+        setOriginalLimit(limit);
+      }
+    } catch (err) {
+      console.error('Error loading message settings:', err);
+      setError('Failed to load settings');
+    } finally {
+      setLoadingSettings(false);
+    }
+  };
+
+  const handleSave = async () => {
+    if (messageLimit < 1 || messageLimit > 50) {
+      setError('Message limit must be between 1 and 50');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+      setSaveSuccess(false);
+
+      const result = await callApi(() =>
+        axios.put('/api/admin/message-settings', {
+          user_message_limit: messageLimit
+        }, { timeout: 10000 })
+      );
+
+      if (result.success) {
+        setOriginalLimit(messageLimit);
+        setSaveSuccess(true);
+        setTimeout(() => setSaveSuccess(false), 3000);
+      } else {
+        setError(result.data?.message || 'Failed to save settings');
+      }
+    } catch (err) {
+      console.error('Error saving message settings:', err);
+      setError(err.response?.data?.message || 'Failed to save settings');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  const hasChanges = messageLimit !== originalLimit;
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4">
+      <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'} border rounded-lg shadow-xl w-full max-w-md`}>
+        {/* Header */}
+        <div className={`p-4 border-b ${isDarkMode ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-gray-50'} flex items-center justify-between rounded-t-lg`}>
+          <div className="flex items-center gap-2">
+            <Cog6ToothIcon className={`h-5 w-5 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`} />
+            <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>Message Settings</h3>
+          </div>
+          <button onClick={onClose} className={`p-1 rounded ${isDarkMode ? 'hover:bg-gray-700 text-gray-400' : 'hover:bg-gray-200 text-gray-500'}`}>
+            <XMarkIcon className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="p-5">
+          {loadingSettings ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="w-5 h-5 border-2 border-amber-500 border-t-transparent rounded-full animate-spin"></div>
+              <span className={`ml-2 text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Loading settings...</span>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {/* User Message Limit */}
+              <div>
+                <label className={`block text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
+                  User Message Limit
+                </label>
+                <p className={`text-xs mb-3 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                  Maximum number of consecutive messages a user can send before the admin replies. 
+                  Each admin reply resets the counter, allowing the user to send more messages.
+                </p>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setMessageLimit(prev => Math.max(1, prev - 1))}
+                    disabled={messageLimit <= 1}
+                    className={`w-9 h-9 flex items-center justify-center rounded-lg text-lg font-bold border transition-colors
+                      ${isDarkMode 
+                        ? 'border-gray-600 text-gray-300 hover:bg-gray-700 disabled:opacity-30 disabled:hover:bg-transparent' 
+                        : 'border-gray-300 text-gray-700 hover:bg-gray-100 disabled:opacity-30 disabled:hover:bg-transparent'}`}
+                  >
+                    −
+                  </button>
+                  <input
+                    type="number"
+                    min="1"
+                    max="50"
+                    value={messageLimit}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value);
+                      if (!isNaN(val) && val >= 1 && val <= 50) setMessageLimit(val);
+                      else if (e.target.value === '') setMessageLimit('');
+                    }}
+                    onBlur={(e) => {
+                      if (e.target.value === '' || parseInt(e.target.value) < 1) setMessageLimit(1);
+                      if (parseInt(e.target.value) > 50) setMessageLimit(50);
+                    }}
+                    className={`w-20 text-center px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 
+                      ${isDarkMode ? 'bg-gray-700 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
+                  />
+                  <button
+                    onClick={() => setMessageLimit(prev => Math.min(50, (typeof prev === 'number' ? prev : 1) + 1))}
+                    disabled={messageLimit >= 50}
+                    className={`w-9 h-9 flex items-center justify-center rounded-lg text-lg font-bold border transition-colors
+                      ${isDarkMode 
+                        ? 'border-gray-600 text-gray-300 hover:bg-gray-700 disabled:opacity-30 disabled:hover:bg-transparent' 
+                        : 'border-gray-300 text-gray-700 hover:bg-gray-100 disabled:opacity-30 disabled:hover:bg-transparent'}`}
+                  >
+                    +
+                  </button>
+                  <span className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                    messages
+                  </span>
+                </div>
+              </div>
+
+              {/* Info box */}
+              <div className={`p-3 rounded-lg text-xs ${isDarkMode ? 'bg-blue-900/20 text-blue-300 border border-blue-800/30' : 'bg-blue-50 text-blue-700 border border-blue-200'}`}>
+                <p className="font-medium mb-1">How it works:</p>
+                <ul className="list-disc list-inside space-y-0.5">
+                  <li>Users can send up to <strong>{messageLimit}</strong> consecutive message{messageLimit !== 1 ? 's' : ''}</li>
+                  <li>After reaching the limit, they must wait for your reply</li>
+                  <li>Your reply resets their counter, allowing {messageLimit} more</li>
+                  <li>Changes apply immediately to all users</li>
+                </ul>
+              </div>
+
+              {/* Success message */}
+              {saveSuccess && (
+                <div className={`p-3 rounded-lg text-xs ${isDarkMode ? 'bg-green-900/20 text-green-300 border border-green-800/30' : 'bg-green-50 text-green-700 border border-green-200'}`}>
+                  Settings saved successfully! All users will see the updated limit.
+                </div>
+              )}
+
+              {/* Error message */}
+              {error && (
+                <div className={`p-3 rounded-lg text-xs ${isDarkMode ? 'bg-red-900/20 text-red-300 border border-red-800/30' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+                  {error}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className={`p-4 border-t ${isDarkMode ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-gray-50'} flex justify-end gap-3 rounded-b-lg`}>
+          <button
+            onClick={onClose}
+            className={`px-4 py-2 text-sm font-medium rounded-lg border transition-colors ${isDarkMode ? 'border-gray-600 text-gray-300 hover:bg-gray-700' : 'border-gray-300 text-gray-700 hover:bg-gray-100'}`}
+          >
+            Close
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={loading || !hasChanges || loadingSettings}
+            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-2
+              ${hasChanges && !loading
+                ? 'bg-amber-600 text-white hover:bg-amber-700'
+                : isDarkMode 
+                  ? 'bg-gray-700 text-gray-500 cursor-not-allowed' 
+                  : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+              }`}
+          >
+            {loading && <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>}
+            {loading ? 'Saving...' : 'Save Changes'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // Main Admin Messages Component
 const AdminMessages = forwardRef(({ isDarkMode }, ref) => {
   const { user } = useAuth();
@@ -197,13 +404,20 @@ const AdminMessages = forwardRef(({ isDarkMode }, ref) => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [loading, setLoading] = useState(false);
   const [initialLoadDone, setInitialLoadDone] = useState(false);
+  const [loadingConversations, setLoadingConversations] = useState(true);
+  const [loadingMessages, setLoadingMessages] = useState(false);
+  const [error, setError] = useState(null);
   const [showConversationsList, setShowConversationsList] = useState(true);
+  const [showSettings, setShowSettings] = useState(false);
   const messagesEndRef = useRef(null);
 
-  const loadConversations = useCallback(async () => {
+  const loadConversations = useCallback(async (silent = false) => {
     try {
+      if (!silent) setLoadingConversations(true);
+      setError(null);
       const result = await callApi(() =>
-        axios.get('/api/messages', { timeout: 10000 })
+        axios.get('/api/messages', { timeout: 10000 }),
+        { skipCache: true, showLoading: false, abortPrevious: false }
       );
 
       if (result.success) {
@@ -229,13 +443,18 @@ const AdminMessages = forwardRef(({ isDarkMode }, ref) => {
       }
     } catch (error) {
       console.error('Error loading conversations:', error);
+      setError('Failed to load conversations. Please try again.');
+    } finally {
+      if (!silent) setLoadingConversations(false);
     }
   }, [callApi]);
 
-  const loadMessages = useCallback(async (userId) => {
+  const loadMessages = useCallback(async (userId, silent = false) => {
     try {
+      if (!silent) setLoadingMessages(true);
       const result = await callApi(() =>
-        axios.get(`/api/messages/conversation/user/${userId}`, { timeout: 10000 })
+        axios.get(`/api/messages/conversation/user/${userId}`, { timeout: 10000 }),
+        { skipCache: true, showLoading: false, abortPrevious: false }
       );
 
       if (result.success) {
@@ -247,6 +466,8 @@ const AdminMessages = forwardRef(({ isDarkMode }, ref) => {
       }
     } catch (error) {
       console.error('Error loading messages:', error);
+    } finally {
+      if (!silent) setLoadingMessages(false);
     }
   }, [callApi]);
 
@@ -264,6 +485,25 @@ const AdminMessages = forwardRef(({ isDarkMode }, ref) => {
       loadMessages(selectedConversation.user.id);
     }
   }, [selectedConversation?.user?.id]);
+
+  // Poll for new messages every 15 seconds when a conversation is active
+  useEffect(() => {
+    if (!selectedConversation?.user?.id) return;
+    const interval = setInterval(async () => {
+      await loadMessages(selectedConversation.user.id, true);
+      await loadConversations(true);
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [selectedConversation?.user?.id, loadMessages, loadConversations]);
+
+  // Poll for new conversations every 15 seconds even without a selected conversation
+  useEffect(() => {
+    if (selectedConversation?.user?.id) return; // Already polling via the other effect
+    const interval = setInterval(() => {
+      loadConversations(true);
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [selectedConversation?.user?.id, loadConversations]);
 
   // Auto-scroll to new messages
   useEffect(() => {
@@ -324,12 +564,16 @@ const AdminMessages = forwardRef(({ isDarkMode }, ref) => {
           await loadConversations();
         } else {
           console.error('Error sending reply:', result);
-          alert('Failed to send message. ' + (result.message || 'Please try again.'));
+          if (window?.showToast) {
+            window.showToast('Error', 'Failed to send message. ' + (result.message || 'Please try again.'), 'error');
+          }
         }
       } catch (error) {
         console.error('Error sending reply:', error);
         const errorMsg = error.response?.data?.message || error.response?.data?.errors || error.message || 'Unknown error';
-        alert('Error sending message: ' + (typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg)));
+        if (window?.showToast) {
+          window.showToast('Error', 'Error sending message: ' + (typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg)), 'error');
+        }
       } finally {
         setLoading(false);
       }
@@ -384,6 +628,9 @@ const AdminMessages = forwardRef(({ isDarkMode }, ref) => {
             {unreadCount > 0 && <p className="text-xs text-red-500">{unreadCount} unread</p>}
           </div>
           <div className="flex items-center gap-2">
+            <button onClick={() => setShowSettings(true)} className={`p-2 ${isDarkMode ? 'text-amber-400 hover:bg-amber-500/10' : 'text-amber-600 hover:bg-amber-100'} rounded transition-colors`} title="Message Settings">
+              <Cog6ToothIcon className="h-5 w-5" />
+            </button>
             <button onClick={() => loadConversations()} className={`p-2 ${isDarkMode ? 'text-amber-400 hover:bg-amber-500/10' : 'text-amber-600 hover:bg-amber-100'} rounded transition-colors`} title="Refresh">
               <ArrowPathIcon className="h-5 w-5" />
             </button>
@@ -421,7 +668,21 @@ const AdminMessages = forwardRef(({ isDarkMode }, ref) => {
         {showConversationsList && (
         <div className={`w-full lg:w-64 border rounded-lg overflow-hidden flex flex-col ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
           <div className="flex-1 overflow-y-auto">
-            {filteredConversations.length === 0 ? (
+            {loadingConversations ? (
+              <div className={`flex items-center justify-center h-full ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} text-sm`}>
+                <div className="text-center py-8">
+                  <div className="w-6 h-6 border-2 border-amber-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+                  <p>Loading conversations...</p>
+                </div>
+              </div>
+            ) : error ? (
+              <div className={`flex items-center justify-center h-full ${isDarkMode ? 'text-red-400' : 'text-red-600'} text-sm`}>
+                <div className="text-center py-8 px-4">
+                  <p className="text-xs">{error}</p>
+                  <button onClick={loadConversations} className="mt-2 text-xs text-amber-500 hover:text-amber-400 underline">Retry</button>
+                </div>
+              </div>
+            ) : filteredConversations.length === 0 ? (
               <div className={`flex items-center justify-center h-full ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} text-sm`}>
                 <div className="text-center py-8">
                   <EnvelopeIcon className="h-10 w-10 mx-auto mb-2 opacity-50" />
@@ -499,9 +760,15 @@ const AdminMessages = forwardRef(({ isDarkMode }, ref) => {
               </div>
             </div>
 
-            {/* Messages - Fixed height with scroll */}
-            <div className="max-h-96 overflow-y-auto p-4 space-y-3">
-              <MessageThread messages={messages} currentUserId={user?.id} isDarkMode={isDarkMode} />
+            {/* Messages - Flexible height */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-3" style={{ minHeight: '200px', maxHeight: 'calc(100vh - 400px)' }}>
+              {loadingMessages ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="w-6 h-6 border-2 border-amber-500 border-t-transparent rounded-full animate-spin"></div>
+                </div>
+              ) : (
+                <MessageThread messages={messages} currentUserId={user?.id} isDarkMode={isDarkMode} />
+              )}
               <div ref={messagesEndRef} />
             </div>
 
@@ -572,6 +839,14 @@ const AdminMessages = forwardRef(({ isDarkMode }, ref) => {
           </div>
         </div>
       )}
+
+      {/* Message Settings Modal */}
+      <MessageSettingsModal
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
+        isDarkMode={isDarkMode}
+        callApi={callApi}
+      />
     </div>
   );
 });

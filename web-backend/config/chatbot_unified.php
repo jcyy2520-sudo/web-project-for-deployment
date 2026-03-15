@@ -34,15 +34,26 @@ return [
     | Primary AI provider settings
     */
     'llm' => [
-        // Primary provider: claude or ollama
-        'primary_provider' => env('LLM_PRIMARY_PROVIDER', 'claude'),
+        // Primary provider: huggingface, claude, openai, or ollama
+        'primary_provider' => env('LLM_PRIMARY_PROVIDER', 'huggingface'),
+        
+        // HTTP request timeout in seconds
+        'request_timeout' => env('LLM_REQUEST_TIMEOUT', 45),
+        
+        // Streaming timeout (longer for streaming)
+        'streaming_timeout' => env('LLM_STREAMING_TIMEOUT', 300),
+        'streaming_max_tokens' => env('LLM_STREAMING_MAX_TOKENS', 2048),
+        
+        // Generation parameters
+        'temperature' => env('LLM_TEMPERATURE', 0.3),
+        'top_p' => env('LLM_TOP_P', 0.9),
         
         // Claude (Anthropic)
         'claude' => [
             'api_key' => env('ANTHROPIC_API_KEY'),
-            'model' => env('CLAUDE_MODEL', 'claude-3-sonnet-20240229'),
-            'max_tokens' => env('CLAUDE_MAX_TOKENS', 2048),
-            'temperature' => env('CLAUDE_TEMPERATURE', 0.7),
+            'model' => env('CLAUDE_MODEL', 'claude-sonnet-4-20250514'),
+            'max_tokens' => env('CLAUDE_MAX_TOKENS', 4096),
+            'temperature' => env('CLAUDE_TEMPERATURE', 0.3),
         ],
         
         // Ollama (Self-hosted)
@@ -52,10 +63,10 @@ return [
             'model' => env('OLLAMA_MODEL', 'mistral'),
         ],
         
-        // OpenAI (Alternative)
+        // OpenAI (Fallback)
         'openai' => [
             'api_key' => env('OPENAI_API_KEY'),
-            'model' => env('OPENAI_MODEL', 'gpt-4o-mini'),
+            'model' => env('OPENAI_MODEL', 'gpt-4o'),
         ],
     ],
     
@@ -68,14 +79,31 @@ return [
     'embeddings' => [
         // Use Ollama for embeddings (free, local)
         'use_ollama' => env('USE_OLLAMA_EMBEDDINGS', true),
-        'ollama_model' => env('OLLAMA_EMBEDDING_MODEL', 'nomic-embed-text'),
         
-        // OpenAI embeddings (paid, cloud)
+        // API URLs
+        'ollama_url' => env('OLLAMA_EMBEDDINGS_URL', 'http://localhost:11434/api/embeddings'),
+        'openai_url' => env('OPENAI_EMBEDDINGS_URL', 'https://api.openai.com/v1/embeddings'),
+        'huggingface_url' => env('HUGGINGFACE_EMBEDDINGS_URL', 'https://router.huggingface.co/hf-inference/models/sentence-transformers/all-MiniLM-L6-v2'),
+        'voyage_url' => env('VOYAGE_EMBEDDINGS_URL', 'https://api.voyageai.com/v1/embeddings'),
+        
+        // Model names
+        'ollama_model' => env('OLLAMA_EMBEDDING_MODEL', 'all-minilm'),
         'openai_model' => env('OPENAI_EMBEDDING_MODEL', 'text-embedding-3-small'),
+        'voyage_model' => env('VOYAGE_EMBEDDING_MODEL', 'voyage-3'),
         
-        // Search settings
-        'similarity_threshold' => env('EMBEDDING_SIMILARITY_THRESHOLD', 0.5),
-        'max_results' => env('EMBEDDING_MAX_RESULTS', 5),
+        // Timeouts and caching
+        'request_timeout' => env('EMBEDDING_REQUEST_TIMEOUT', 30),
+        'cache_ttl' => env('EMBEDDING_CACHE_TTL', 86400),
+        
+        // Search tuning
+        'similarity_threshold' => env('EMBEDDING_SIMILARITY_THRESHOLD', 0.3),
+        'max_results' => env('EMBEDDING_MAX_RESULTS', 8),
+        'bm25_weight' => env('EMBEDDING_BM25_WEIGHT', 0.4),
+        'vector_weight' => env('EMBEDDING_VECTOR_WEIGHT', 0.6),
+        
+        // Chunking
+        'max_chunk_size' => env('EMBEDDING_MAX_CHUNK_SIZE', 500),
+        'chunk_overlap' => env('EMBEDDING_CHUNK_OVERLAP', 50),
     ],
     
     /*
@@ -103,38 +131,51 @@ return [
     */
     'conversation' => [
         // Max messages to include in context
-        'max_history' => env('CHATBOT_MAX_HISTORY', 10),
+        'max_history' => env('CHATBOT_MAX_HISTORY', 20),
+        
+        // Similarity threshold for context retrieval
+        'similarity_threshold' => env('CHATBOT_SIMILARITY_THRESHOLD', 0.35),
+        
+        // Maximum context documents to include
+        'max_context_docs' => env('CHATBOT_MAX_CONTEXT_DOCS', 8),
+        
+        // Cache TTL for conversation data (minutes)
+        'cache_ttl_minutes' => env('CHATBOT_CACHE_TTL_MINUTES', 10),
         
         // Rate limiting
         'rate_limit' => [
-            'messages_per_minute' => 10,
-            'messages_per_conversation' => 100,
+            'messages_per_minute' => 15,
+            'messages_per_conversation' => 200,
         ],
     ],
     
     /*
     |--------------------------------------------------------------------------
-    | System Prompt (Simplified)
+    | System Prompt (Dynamic — No Hard-Coded Rules)
     |--------------------------------------------------------------------------
-    | The core instructions for the AI. Keep it simple and direct.
+    | The system prompt is now built ENTIRELY at runtime by
+    | DynamicSystemPromptService. This config section exists only as
+    | fallback reference. The actual prompt is dynamically assembled
+    | from: database schema, API endpoints, business rules, user context,
+    | conversation memory, feedback insights, and RAG-retrieved knowledge.
+    |
+    | To customize behavior, modify DynamicSystemPromptService.php
+    | rather than editing this static text.
     */
     'system_prompt' => <<<PROMPT
-You are a helpful assistant for a legal services office.
+You are a fully autonomous, adaptive AI assistant. Your system prompt is built dynamically at runtime — this text is only a reference fallback.
 
 CORE RULES:
-1. Answer ONLY what you know from the provided data
-2. If uncertain, ask for clarification
-3. Never guess, assume, or fabricate information
-4. Be concise and professional
-5. Guide users to perform actions themselves - you cannot perform actions on their behalf
+1. Answer ONLY from provided data — NEVER guess or fabricate. If you don't have verifiable data, say so.
+2. If uncertain, ask for clarification before answering. It is always better to ask than to guess.
+3. When agent_mode is enabled, execute actions on behalf of users using available tools. Always confirm destructive actions.
+4. Adapt language to match the user (English, Filipino, Taglish)
+5. Handle messy inputs gracefully: typos, slang, SMS-speak, broken grammar
+6. Focus on user's INTENT, not the quality of their typing
+7. Cite specific data points when answering (appointment IDs, dates, amounts) — never give vague answers when real data is available.
+8. When corrected, acknowledge the correction and try a completely different approach.
 
-You help with:
-- Appointments and scheduling
-- Services and pricing information
-- Payment and refund inquiries
-- General office information
-
-If a question is outside your scope, politely redirect to appropriate resources.
+All responses are dynamically generated based on live system state, knowledge base, user role, and conversation context. No hard-coded responses exist.
 PROMPT,
     
     /*
@@ -176,5 +217,202 @@ PROMPT,
             'tell me a joke', 'write a poem', 'play a game',
             'ignore your instructions', 'pretend you are',
         ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Feature Flags
+    |--------------------------------------------------------------------------
+    | Toggle new features on/off via .env variables.
+    | All default to false for safe rollout.
+    */
+    'features' => [
+        'cache_static_prompt'  => env('CHATBOT_CACHE_STATIC_PROMPT', false),
+        'memory_summary'       => env('CHATBOT_MEMORY_SUMMARY', false),
+        'fallback_model'       => env('CHATBOT_FALLBACK_MODEL', false),
+        'guard_service'        => env('CHATBOT_USE_GUARD', false),
+        'data_ownership'       => env('CHATBOT_ENFORCE_DATA_OWNERSHIP', true),
+        'context_overflow'     => env('CHATBOT_PREVENT_CONTEXT_OVERFLOW', false),
+        'confidence_score'     => env('CHATBOT_CONFIDENCE_SCORE', false),
+        'self_check'           => env('CHATBOT_SELF_CHECK', false),
+        'reranker'             => env('CHATBOT_USE_RERANKER', false),
+        'long_term_memory'     => env('CHATBOT_LONG_TERM_MEMORY', false),
+        'streaming'            => env('CHATBOT_ENABLE_STREAMING', false),
+        'analytics'            => env('CHATBOT_ANALYTICS_ENABLED', false),
+        'agent_mode'           => env('CHATBOT_AGENT_MODE', false),
+        'continuous_learning'  => env('CHATBOT_CONTINUOUS_LEARNING', false),
+        'intelligent_fallback' => env('CHATBOT_INTELLIGENT_FALLBACK', false),
+        'operational_decisions' => env('CHATBOT_OPERATIONAL_DECISIONS', false),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Model Failover Configuration
+    |--------------------------------------------------------------------------
+    | Primary and fallback models for LLM generation.
+    | Used when 'fallback_model' feature flag is enabled.
+    */
+    'models' => [
+        'primary' => env('CHATBOT_PRIMARY_MODEL', 'meta-llama/Llama-3.3-70B-Instruct'),
+        'fallback' => env('CHATBOT_FALLBACK_MODEL_NAME', 'meta-llama/Llama-3.2-3B-Instruct'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Reranker Configuration
+    |--------------------------------------------------------------------------
+    | Cross-encoder reranking for RAG results.
+    | Used when 'reranker' feature flag is enabled.
+    */
+    'reranker' => [
+        'model' => env('CHATBOT_RERANKER_MODEL', 'cross-encoder/ms-marco-MiniLM-L-6-v2'),
+        'top_k' => env('CHATBOT_RERANKER_TOP_K', 3),
+        'candidates' => env('CHATBOT_RERANKER_CANDIDATES', 10),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Analytics Configuration
+    |--------------------------------------------------------------------------
+    */
+    'analytics' => [
+        'retention_days' => env('CHATBOT_ANALYTICS_RETENTION_DAYS', 90),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Context Overflow Protection
+    |--------------------------------------------------------------------------
+    */
+    'context' => [
+        'max_tokens' => env('CHATBOT_MAX_CONTEXT_TOKENS', 16000),
+        'overflow_threshold' => env('CHATBOT_CONTEXT_OVERFLOW_THRESHOLD', 0.85),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Long-Term Memory
+    |--------------------------------------------------------------------------
+    */
+    'long_term_memory' => [
+        'max_past_summaries' => env('CHATBOT_MAX_PAST_SUMMARIES', 5),
+        'summary_min_messages' => env('CHATBOT_SUMMARY_MIN_MESSAGES', 8),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Agent Mode Configuration
+    |--------------------------------------------------------------------------
+    | When agent_mode is enabled, the chatbot can execute actions on behalf of
+    | users via tool-calling (ReAct reasoning loop). Destructive actions require
+    | explicit user confirmation before execution.
+    */
+    'agent' => [
+        'max_reasoning_steps' => env('CHATBOT_AGENT_MAX_STEPS', 5),
+        'confirmation_timeout_seconds' => env('CHATBOT_AGENT_CONFIRM_TIMEOUT', 300),
+        'max_tool_calls_per_message' => env('CHATBOT_AGENT_MAX_TOOLS', 8),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Booking Configuration
+    |--------------------------------------------------------------------------
+    | Constraints for appointment bookings made via the chatbot.
+    */
+    'booking' => [
+        'daily_limit_per_user' => env('CHATBOT_BOOKING_DAILY_LIMIT', 3),
+        'working_hour_start' => env('CHATBOT_BOOKING_WORK_START', 8),
+        'working_hour_end' => env('CHATBOT_BOOKING_WORK_END', 17),
+        'lunch_break_start' => env('CHATBOT_BOOKING_LUNCH_START', 12),
+        'lunch_break_end' => env('CHATBOT_BOOKING_LUNCH_END', 13),
+        'slot_interval_minutes' => env('CHATBOT_BOOKING_SLOT_INTERVAL', 30),
+        'default_slot_capacity' => env('CHATBOT_BOOKING_DEFAULT_CAPACITY', 3),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Cache Configuration
+    |--------------------------------------------------------------------------
+    | TTL values for chatbot data caching (in seconds).
+    */
+    'cache' => [
+        'ttl' => env('CHATBOT_CACHE_TTL', 300),
+        'critical_ttl' => env('CHATBOT_CRITICAL_CACHE_TTL', 60),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Security Configuration
+    |--------------------------------------------------------------------------
+    | Role hierarchy and security-related settings.
+    */
+    'security' => [
+        'role_hierarchy' => [
+            'guest'   => 0,
+            'client'  => 1,
+            'staff'   => 2,
+            'cashier' => 3,
+            'admin'   => 4,
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Action Handler Configuration
+    |--------------------------------------------------------------------------
+    | Role permissions and destructive action definitions for ChatbotActionHandler.
+    */
+    'action_handler' => [
+        'destructive_actions' => [
+            'appointment' => ['approve', 'decline', 'cancel', 'complete'],
+            'payment'     => ['process'],
+            'refund'      => ['approve', 'decline', 'process', 'request'],
+            'user'        => ['disable'],
+        ],
+        'role_permissions' => [
+            'client' => [
+                'appointment' => ['view', 'cancel', 'reschedule'],
+                'payment' => ['view'],
+                'refund' => ['view', 'request'],
+                'notification' => ['view'],
+            ],
+            'cashier' => [
+                'appointment' => ['view'],
+                'payment' => ['view', 'process', 'verify'],
+                'refund' => ['view', 'process', 'approve'],
+                'notification' => ['view', 'send'],
+            ],
+            'admin' => [
+                'appointment' => ['view', 'approve', 'decline', 'cancel', 'complete', 'reschedule'],
+                'payment' => ['view', 'process', 'verify', 'refund'],
+                'refund' => ['view', 'approve', 'decline', 'process'],
+                'notification' => ['view', 'send', 'broadcast'],
+                'user' => ['view', 'manage', 'disable'],
+                'service' => ['view', 'manage'],
+                'system' => ['view', 'configure'],
+            ],
+            'staff' => [
+                'appointment' => ['view', 'approve', 'decline', 'complete'],
+                'payment' => ['view'],
+                'refund' => ['view'],
+                'notification' => ['view', 'send'],
+            ],
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Continuous Learning Pipeline
+    |--------------------------------------------------------------------------
+    | When continuous_learning is enabled, the ML models detect drift and retrain
+    | adaptively instead of only on a weekly batch schedule.
+    */
+    'continuous_learning' => [
+        'mode' => env('CHATBOT_LEARNING_MODE', 'INCREMENTAL'), // PASSIVE, INCREMENTAL, ADAPTIVE, CONTINUOUS
+        'drift_check_interval_hours' => env('CHATBOT_DRIFT_CHECK_HOURS', 6),
+        'min_samples_for_retrain' => env('CHATBOT_MIN_RETRAIN_SAMPLES', 50),
+        'max_days_between_retrain' => env('CHATBOT_MAX_RETRAIN_DAYS', 7),
+        'accuracy_threshold' => env('CHATBOT_ACCURACY_THRESHOLD', 0.6),
+        'brier_threshold' => env('CHATBOT_BRIER_THRESHOLD', 0.3),
     ],
 ];

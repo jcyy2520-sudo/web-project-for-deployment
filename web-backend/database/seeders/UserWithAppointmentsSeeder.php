@@ -108,18 +108,20 @@ class UserWithAppointmentsSeeder extends Seeder
                 // Vary appointment dates
                 $currentDate = $appointmentDate->copy()->addDays($i);
 
-                Appointment::create([
+                $appointment = Appointment::create([
                     'user_id' => $user->id,
                     'service_id' => $service->id,
                     'appointment_date' => $currentDate,
                     'appointment_time' => $appointmentTime,
-                    'status' => $this->randomStatus(),
-                    'payment_status' => 'unpaid',
                     'purpose' => 'Legal service consultation - ' . $service->name,
                     'type' => 'in-person',
                     'created_at' => now(),
                     'updated_at' => now(),
                 ]);
+                // Set protected fields explicitly (not mass-assignable)
+                $appointment->status = $this->randomStatus();
+                $appointment->payment_status = 'unpaid';
+                $appointment->save();
             }
         }
 

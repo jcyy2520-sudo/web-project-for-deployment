@@ -33,12 +33,11 @@ class DatabaseSeeder extends Seeder
         $this->command->info('Email: johncyy2025@gmail.com');
         $this->command->info('Password: admin123');
         
-        // Attorney seeder removed
-        
-        // Run other seeders (disabled to prevent test data in production)
-        // $this->call([
-        //     TestUserSeeder::class,
-        //     TestAppointmentsSeeder::class,
-        // ]);
+        // Run other seeders for test data
+        $this->call([
+            TestUserSeeder::class,
+            ServiceSeeder::class,
+            LandingPageSeeder::class,
+        ]);
     }
 }

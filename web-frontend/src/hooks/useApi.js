@@ -10,8 +10,8 @@ let csrfTokenLoaded = false;
 const apiCache = new Map();
 const pendingRequests = new Map();
 
-// Simple performance monitoring - records API metrics
-if (typeof window !== 'undefined' && !window.__API_METRICS) {
+// Simple performance monitoring - records API metrics (dev only)
+if (typeof window !== 'undefined' && !window.__API_METRICS && import.meta.env.DEV) {
   window.__API_METRICS = [];
   window.__PERF_REPORT = () => {
     if (window.__API_METRICS.length === 0) return 'No API calls';
@@ -50,6 +50,7 @@ const isCacheValid = (timestamp, ttlSeconds) => {
 // Get cache duration based on endpoint
 const getCacheTTL = (endpoint) => {
   if (endpoint.includes('/action-logs')) return 0; // No cache for action logs - always fresh
+  if (endpoint.includes('/messages')) return 0; // No cache for messages - always fresh
   if (endpoint.includes('/stats')) return 180; // 3 minutes for stats (was 2 minutes)
   if (endpoint.includes('/appointments')) return 60; // 60 seconds for appointments (was 30s)
   if (endpoint.includes('/users')) return 120; // 2 minutes for users (was 1 minute)
@@ -71,6 +72,19 @@ export const useApi = () => {
       csrfTokenLoaded = true;
     } catch (error) {
       console.error('CSRF token failed:', error);
+    }
+  }, []);
+
+  // Reset CSRF token on 419 error (token mismatch / expired)
+  const resetCsrfToken = useCallback(async () => {
+    csrfTokenLoaded = false;
+    try {
+      await axios.get('/sanctum/csrf-cookie');
+      csrfTokenLoaded = true;
+      return true;
+    } catch (error) {
+      console.error('CSRF token reset failed:', error);
+      return false;
     }
   }, []);
 
@@ -241,6 +255,15 @@ export const useApi = () => {
             continue; // Retry the request
           }
           
+          // Handle 419 CSRF token mismatch - reset token and retry once
+          if (err.response?.status === 419 && retryCount < 1) {
+            retryCount++;
+            logger.warn('⚠️ CSRF token expired (419), resetting and retrying...');
+            await resetCsrfToken();
+            await new Promise(resolve => setTimeout(resolve, 300));
+            continue; // Retry the request with fresh CSRF token
+          }
+          
           logger.error('API Call Error:', err);
           
           let errorMessage = 'Something went wrong';
@@ -248,12 +271,10 @@ export const useApi = () => {
           // Check for network errors - could be proxy issue or offline
           if (err.code === 'ERR_NETWORK' || err.message === 'Network Error') {
             errorMessage = 'Network connection failed. Check if backend is running (port 8000) and try again.';
-            logger.error('❌ Network Error Details:', {
+            logger.error('Network Error Details:', {
               code: err.code,
               message: err.message,
-              config: err.config,
               url: err.config?.url,
-              proxyUrl: window.location.origin,
               attempts: retryCount + 1
             });
           } else if (err.response) {
@@ -269,6 +290,7 @@ export const useApi = () => {
               return { 
                 success: false, 
                 error: errorMessage,
+                data: err.response.data,
                 status: err.response.status,
                 isAuthError: true
               };
@@ -286,6 +308,7 @@ export const useApi = () => {
           return { 
             success: false, 
             error: errorMessage,
+            data: err.response?.data,
             status: err.response?.status 
           };
         }
@@ -320,7 +343,7 @@ export const useApi = () => {
     }
 
     return requestPromise;
-  }, [ensureCsrfToken]);
+  }, [ensureCsrfToken, resetCsrfToken]);
 
   const clearError = useCallback(() => setError(null), []);
 
@@ -337,6 +360,7 @@ export const useApi = () => {
     callApi,
     clearError,
     cancelRequest,
+    resetCsrfToken,
   };
 };
 

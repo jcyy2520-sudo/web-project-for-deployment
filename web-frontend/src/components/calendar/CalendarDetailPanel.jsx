@@ -166,8 +166,8 @@ const CalendarDetailPanel = ({
                 {/* ID/Reference */}
                 <div>
                   <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} mb-1`}>Reference</p>
-                  <p className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'} font-mono truncate`} title={typeof apt.id === 'string' ? apt.id : JSON.stringify(apt.id)}>
-                    {typeof apt.id === 'string' ? apt.id?.substring(0, 8) : (apt.id?.id || JSON.stringify(apt.id)).toString().substring(0, 8)}...
+                  <p className={`text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'} font-mono truncate`} title={`#${apt.id}`}>
+                    #{apt.id}
                   </p>
                 </div>
 

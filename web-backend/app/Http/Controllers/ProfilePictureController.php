@@ -6,6 +6,7 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Auth;
+use App\Models\ActionLog;
 
 class ProfilePictureController extends Controller
 {
@@ -32,6 +33,8 @@ class ProfilePictureController extends Controller
             // Update user profile picture path
             $user->update(['profile_picture' => $path]);
 
+            ActionLog::log('update_profile_picture', "Uploaded new profile picture", 'User', $user->id);
+
             return response()->json([
                 'success' => true,
                 'message' => 'Profile picture uploaded successfully',
@@ -47,7 +50,7 @@ class ProfilePictureController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to upload profile picture: ' . $e->getMessage()
+                'message' => config('app.debug') ? 'Failed to upload profile picture: ' . $e->getMessage() : 'Failed to upload profile picture'
             ], 500);
         }
     }
@@ -68,6 +71,8 @@ class ProfilePictureController extends Controller
                 $user->update(['profile_picture' => null]);
             }
 
+            ActionLog::log('delete_profile_picture', "Removed profile picture", 'User', $user->id);
+
             return response()->json([
                 'success' => true,
                 'message' => 'Profile picture removed successfully'
@@ -76,7 +81,7 @@ class ProfilePictureController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to delete profile picture: ' . $e->getMessage()
+                'message' => config('app.debug') ? 'Failed to delete profile picture: ' . $e->getMessage() : 'Failed to delete profile picture'
             ], 500);
         }
     }
@@ -104,7 +109,7 @@ class ProfilePictureController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to fetch profile picture: ' . $e->getMessage()
+                'message' => config('app.debug') ? 'Failed to fetch profile picture: ' . $e->getMessage() : 'Failed to fetch profile picture'
             ], 500);
         }
     }

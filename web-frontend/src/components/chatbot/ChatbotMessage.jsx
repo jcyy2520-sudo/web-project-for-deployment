@@ -1,10 +1,52 @@
-import React from 'react';
+import React, { useState } from 'react';
 
-const ChatbotMessage = ({ message, isDarkMode = true }) => {
+const ChatbotMessage = ({ message, isDarkMode = true, onFeedback, isLastMessage = false }) => {
   const isUser = message.role === 'user';
   const meta = message?.meta || {};
   const actionResult = meta?.action_result || {};
   const data = meta?.data || actionResult?.data || {};
+
+  // Feedback state for assistant messages
+  const [feedbackState, setFeedbackState] = useState(message.feedbackGiven ? message.feedbackType : null); // 'helpful' | 'unhelpful' | null
+  const [showFeedbackForm, setShowFeedbackForm] = useState(false);
+  const [feedbackComment, setFeedbackComment] = useState('');
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
+
+  const handleFeedback = async (type) => {
+    if (!onFeedback || feedbackState) return;
+    setFeedbackState(type);
+    if (type === 'unhelpful') {
+      setShowFeedbackForm(true);
+      return; // wait for additional feedback
+    }
+    // Submit positive feedback immediately
+    try {
+      setFeedbackSubmitting(true);
+      await onFeedback(message.id, { is_helpful: true, rating: 5, category: 'helpful' });
+    } catch (e) {
+      console.error('Feedback failed:', e);
+    } finally {
+      setFeedbackSubmitting(false);
+    }
+  };
+
+  const submitNegativeFeedback = async () => {
+    if (!onFeedback) return;
+    try {
+      setFeedbackSubmitting(true);
+      await onFeedback(message.id, {
+        is_helpful: false,
+        rating: 1,
+        comments: feedbackComment,
+        category: 'unhelpful',
+      });
+      setShowFeedbackForm(false);
+    } catch (e) {
+      console.error('Feedback failed:', e);
+    } finally {
+      setFeedbackSubmitting(false);
+    }
+  };
 
   // Check for priority/sentiment indicators
   const isPriority = message?.isPriority || meta?.is_priority;
@@ -80,17 +122,102 @@ const ChatbotMessage = ({ message, isDarkMode = true }) => {
     const role = meta?.role;
     if (!role || isUser) return null;
     
-    const roleColors = {
-      'ADMIN': 'bg-purple-500/20 text-purple-300 border-purple-500/30',
-      'CASHIER': 'bg-green-500/20 text-green-300 border-green-500/30',
-      'CLIENT': 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30',
-      'SYSTEM': 'bg-gray-500/20 text-gray-300 border-gray-500/30',
+    const roleConfig = {
+      'admin': { color: 'bg-purple-500/20 text-purple-300 border-purple-500/30', lightColor: 'bg-purple-50 text-purple-700 border-purple-200', icon: '🛡️' },
+      'cashier': { color: 'bg-green-500/20 text-green-300 border-green-500/30', lightColor: 'bg-green-50 text-green-700 border-green-200', icon: '💼' },
+      'staff': { color: 'bg-blue-500/20 text-blue-300 border-blue-500/30', lightColor: 'bg-blue-50 text-blue-700 border-blue-200', icon: '👷' },
+      'client': { color: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30', lightColor: 'bg-cyan-50 text-cyan-700 border-cyan-200', icon: '👤' },
+      'guest': { color: 'bg-gray-500/20 text-gray-300 border-gray-500/30', lightColor: 'bg-gray-100 text-gray-600 border-gray-200', icon: '👋' },
     };
 
+    const normalizedRole = role.toLowerCase();
+    const config = roleConfig[normalizedRole] || { color: 'bg-gray-500/20 text-gray-300 border-gray-500/30', lightColor: 'bg-gray-100 text-gray-600 border-gray-200', icon: '⚙️' };
+    const displayName = meta?.role_display || role;
+
     return (
-      <span className={`text-[10px] px-2 py-0.5 rounded-full border ${roleColors[role] || roleColors['SYSTEM']} mb-2 inline-block`}>
-        {role}
+      <span className={`text-[10px] px-2 py-0.5 rounded-full border ${isDarkMode ? config.color : config.lightColor} mb-2 inline-flex items-center gap-1`}>
+        <span>{config.icon}</span>
+        {displayName}
       </span>
+    );
+  };
+
+  // Render quick actions bar from meta — only shown on the last assistant message
+  const renderQuickActions = () => {
+    if (!isLastMessage) return null;
+    const quickActions = meta?.quick_actions;
+    if (!quickActions || !Array.isArray(quickActions) || quickActions.length === 0 || isUser) return null;
+
+    return (
+      <div className={`mt-3 p-2 rounded-lg ${isDarkMode ? 'bg-gray-800/50 border border-amber-500/10' : 'bg-slate-50 border border-slate-200'}`}>
+        <div className={`text-[10px] uppercase tracking-wide mb-1.5 ${isDarkMode ? 'text-gray-500' : 'text-slate-500'}`}>⚡ Related Actions</div>
+        <div className="flex flex-wrap gap-1.5">
+          {quickActions.slice(0, 4).map((action, idx) => (
+            <button
+              key={`qa-${idx}`}
+              className={`text-xs px-2.5 py-1.5 rounded-lg transition-all flex items-center gap-1 ${
+                isDarkMode
+                  ? 'bg-gray-900 border border-amber-500/20 text-amber-400 hover:bg-amber-500/10 hover:border-amber-500/40'
+                  : 'bg-white border border-slate-200 text-slate-700 hover:bg-amber-50 hover:border-amber-300'
+              }`}
+              onClick={() => {
+                if (action.route) {
+                  window.dispatchEvent(new CustomEvent('chatbot-navigate', { detail: { route: action.route } }));
+                } else if (action.message) {
+                  window.dispatchEvent(new CustomEvent('chatbot-suggestion', { detail: action.message }));
+                }
+              }}
+              title={action.label}
+            >
+              {action.icon && <span>{action.icon}</span>}
+              <span className="truncate max-w-[120px]">{action.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  // Render pending items alert from role context — only on last message
+  const renderRolePendingItems = () => {
+    if (!isLastMessage) return null;
+    const pendingItems = meta?.pending_items;
+    if (!pendingItems || !Array.isArray(pendingItems) || pendingItems.length === 0 || isUser) return null;
+
+    // Only show items that have a count > 0
+    const activeItems = pendingItems.filter(item => item.count > 0);
+    if (activeItems.length === 0) return null;
+
+    return (
+      <div className={`mt-3 p-2.5 rounded-lg ${isDarkMode ? 'bg-amber-500/5 border border-amber-500/15' : 'bg-amber-50 border border-amber-100'}`}>
+        <div className={`text-[10px] uppercase tracking-wide mb-1.5 ${isDarkMode ? 'text-amber-400/70' : 'text-amber-600'}`}>📋 Needs Your Attention</div>
+        <div className="flex flex-wrap gap-2">
+          {activeItems.map((item, idx) => (
+            <button
+              key={`pi-${idx}`}
+              className={`text-xs px-2.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                isDarkMode
+                  ? 'bg-gray-900/80 border border-amber-500/20 text-gray-300 hover:border-amber-500/40 hover:text-amber-300'
+                  : 'bg-white border border-amber-200 text-slate-700 hover:bg-amber-50'
+              }`}
+              onClick={() => {
+                if (item.route) {
+                  window.dispatchEvent(new CustomEvent('chatbot-navigate', { detail: { route: item.route } }));
+                } else {
+                  window.dispatchEvent(new CustomEvent('chatbot-suggestion', { detail: `Show me ${item.label?.toLowerCase()}` }));
+                }
+              }}
+            >
+              <span className={`font-bold ${
+                item.count >= 5
+                  ? (isDarkMode ? 'text-red-400' : 'text-red-600')
+                  : (isDarkMode ? 'text-amber-400' : 'text-amber-600')
+              }`}>{item.count}</span>
+              <span className="truncate max-w-[100px]">{item.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
     );
   };
 
@@ -427,8 +554,7 @@ const ChatbotMessage = ({ message, isDarkMode = true }) => {
 
     return (
       <div className={`mt-3 p-3 rounded-lg ${isDarkMode ? 'bg-gray-800 border border-yellow-500/10' : 'bg-white border border-yellow-100'}`}>
-        <div className="text-xs text-gray-400 uppercase tracking-wide mb-2">📋 Items Needing Attention</div>
-          <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'} uppercase tracking-wide mb-2`}>📋 Items Needing Attention</div>
+        <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'} uppercase tracking-wide mb-2`}>Items Needing Attention</div>
         <div className="space-y-2">
               {pendingItems.map((item, idx) => (
                 <button
@@ -444,6 +570,143 @@ const ChatbotMessage = ({ message, isDarkMode = true }) => {
               <div className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-slate-600'}`}>{item.service}</div>
             </button>
           ))}
+        </div>
+      </div>
+    );
+  };
+
+  // Enhanced markdown formatter for chatbot messages
+  const formatMessageContent = (text) => {
+    if (!text || isUser) return text;
+
+    const lines = text.split('\n');
+    const elements = [];
+    let inList = false;
+
+    lines.forEach((line, lineIdx) => {
+      // Process inline formatting: **bold**, *italic*, `code`
+      const processInline = (str) => {
+        const parts = [];
+        let remaining = str;
+        let key = 0;
+
+        while (remaining.length > 0) {
+          // Match **bold**, *italic*, `code`, or plain text
+          const match = remaining.match(/(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`)/);
+          if (match) {
+            const before = remaining.substring(0, match.index);
+            if (before) parts.push(<span key={`t-${lineIdx}-${key++}`}>{before}</span>);
+
+            if (match[2]) {
+              // **bold**
+              parts.push(<strong key={`b-${lineIdx}-${key++}`} className="font-semibold">{match[2]}</strong>);
+            } else if (match[3]) {
+              // *italic*
+              parts.push(<em key={`i-${lineIdx}-${key++}`}>{match[3]}</em>);
+            } else if (match[4]) {
+              // `code`
+              parts.push(<code key={`c-${lineIdx}-${key++}`} className="px-1 py-0.5 rounded bg-amber-900/30 text-amber-300 text-xs font-mono">{match[4]}</code>);
+            }
+            remaining = remaining.substring(match.index + match[0].length);
+          } else {
+            parts.push(<span key={`t-${lineIdx}-${key++}`}>{remaining}</span>);
+            remaining = '';
+          }
+        }
+        return parts;
+      };
+
+      const trimmed = line.trim();
+
+      if (trimmed === '') {
+        inList = false;
+        elements.push(<br key={`br-${lineIdx}`} />);
+      } else if (trimmed.match(/^---+$/)) {
+        // Horizontal rule
+        inList = false;
+        elements.push(
+          <hr key={`hr-${lineIdx}`} className={`my-2 border-t ${isDarkMode ? 'border-gray-700' : 'border-slate-200'}`} />
+        );
+      } else if (trimmed.match(/^>\s+/)) {
+        // Blockquote
+        inList = false;
+        const text = trimmed.replace(/^>\s+/, '');
+        elements.push(
+          <span key={`bq-${lineIdx}`} className={`block pl-3 border-l-2 ${isDarkMode ? 'border-amber-500/40 text-gray-300' : 'border-amber-400 text-slate-600'} italic my-1`}>
+            {processInline(text)}
+          </span>
+        );
+      } else if (trimmed.match(/^#{1,3}\s+/)) {
+        // Headings: # ## ###
+        inList = false;
+        const level = trimmed.match(/^(#{1,3})\s+/)[1].length;
+        const text = trimmed.replace(/^#{1,3}\s+/, '');
+        const className = level === 1 ? 'font-bold text-base mt-2 mb-1' : level === 2 ? 'font-semibold text-sm mt-1.5 mb-0.5' : 'font-medium text-sm mt-1';
+        elements.push(
+          <span key={`h-${lineIdx}`} className={`block ${className}`}>
+            {processInline(text)}
+          </span>
+        );
+      } else if (trimmed.match(/^[-*•]\s+/)) {
+        // Bullet list items
+        inList = true;
+        const text = trimmed.replace(/^[-*•]\s+/, '');
+        elements.push(
+          <span key={`li-${lineIdx}`} className="block pl-4 relative before:content-['•'] before:absolute before:left-1 before:text-amber-400">
+            {processInline(text)}
+          </span>
+        );
+      } else if (trimmed.match(/^\d+\.\s+/)) {
+        // Numbered list items
+        inList = true;
+        const num = trimmed.match(/^(\d+)\./)[1];
+        const text = trimmed.replace(/^\d+\.\s+/, '');
+        elements.push(
+          <span key={`oli-${lineIdx}`} className="block pl-5 relative">
+            <span className="absolute left-0 text-amber-400 font-medium">{num}.</span>
+            {processInline(text)}
+          </span>
+        );
+      } else {
+        elements.push(
+          <span key={`line-${lineIdx}`} className="block">
+            {processInline(line)}
+          </span>
+        );
+      }
+    });
+
+    return elements;
+  };
+
+  // Render confirmation buttons for destructive actions
+  const renderConfirmationButtons = () => {
+    if (!meta?.requires_confirmation || isUser || !isLastMessage) return null;
+
+    return (
+      <div className={`mt-3 p-3 rounded-lg ${isDarkMode ? 'bg-amber-500/5 border border-amber-500/20' : 'bg-amber-50 border border-amber-200'}`}>
+        <div className={`text-[10px] uppercase tracking-wide mb-2 ${isDarkMode ? 'text-amber-400/70' : 'text-amber-600'}`}>⚠️ Confirmation Required</div>
+        <div className="flex gap-2">
+          <button
+            className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-all flex items-center justify-center gap-1.5 ${
+              isDarkMode
+                ? 'bg-green-500/20 text-green-300 border border-green-500/30 hover:bg-green-500/30'
+                : 'bg-green-50 text-green-700 border border-green-200 hover:bg-green-100'
+            }`}
+            onClick={() => window.dispatchEvent(new CustomEvent('chatbot-suggestion', { detail: 'yes' }))}
+          >
+            <span>✓</span> Confirm
+          </button>
+          <button
+            className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-all flex items-center justify-center gap-1.5 ${
+              isDarkMode
+                ? 'bg-red-500/20 text-red-300 border border-red-500/30 hover:bg-red-500/30'
+                : 'bg-red-50 text-red-700 border border-red-200 hover:bg-red-100'
+            }`}
+            onClick={() => window.dispatchEvent(new CustomEvent('chatbot-suggestion', { detail: 'no' }))}
+          >
+            <span>✗</span> Cancel
+          </button>
         </div>
       </div>
     );
@@ -467,7 +730,7 @@ const ChatbotMessage = ({ message, isDarkMode = true }) => {
             {renderActionBadge()}
             {getSentimentIndicator()}
           </div>
-          <p className="text-sm leading-relaxed break-words whitespace-pre-wrap">{message.message}</p>
+          <div className="text-sm leading-relaxed break-words">{formatMessageContent(message.message)}</div>
 
           {/* Render structured appointment card when present (legacy support) */}
           {message?.meta?.data?.next_appointment && !data?.appointment && (
@@ -519,6 +782,15 @@ const ChatbotMessage = ({ message, isDarkMode = true }) => {
 
           {/* Render pending items for action required */}
           {renderPendingItems()}
+
+          {/* Render confirmation buttons for destructive actions */}
+          {renderConfirmationButtons()}
+
+          {/* Render role-based pending items alert */}
+          {renderRolePendingItems()}
+
+          {/* Render quick actions from role context */}
+          {renderQuickActions()}
 
           {/* Render action buttons with navigation links */}
           {meta?.action_buttons && Array.isArray(meta.action_buttons) && meta.action_buttons.length > 0 && (
@@ -578,7 +850,71 @@ const ChatbotMessage = ({ message, isDarkMode = true }) => {
               {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               {renderLanguageIndicator()}
             </span>
+
+            {/* Feedback thumbs for assistant messages */}
+            {!isUser && onFeedback && (
+              <div className="flex items-center gap-1 ml-2">
+                {feedbackState === 'helpful' ? (
+                  <span className="text-green-400 text-xs flex items-center gap-1" title="You found this helpful">
+                    <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path d="M2 10.5a1.5 1.5 0 113 0v6a1.5 1.5 0 01-3 0v-6zM6 10.333v5.43a2 2 0 001.106 1.79l.05.025A4 4 0 008.943 18h5.416a2 2 0 001.962-1.608l1.2-6A2 2 0 0015.56 8H12V4a2 2 0 00-2-2 1 1 0 00-1 1v.667a4 4 0 01-.8 2.4L6.8 7.933a4 4 0 00-.8 2.4z" /></svg>
+                    Thanks!
+                  </span>
+                ) : feedbackState === 'unhelpful' ? (
+                  <span className="text-red-400 text-xs flex items-center gap-1" title="You reported this as unhelpful">
+                    <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path d="M18 9.5a1.5 1.5 0 11-3 0v-6a1.5 1.5 0 013 0v6zM14 9.667v-5.43a2 2 0 00-1.106-1.79l-.05-.025A4 4 0 0011.057 2H5.64a2 2 0 00-1.962 1.608l-1.2 6A2 2 0 004.44 12H8v4a2 2 0 002 2 1 1 0 001-1v-.667a4 4 0 01.8-2.4l1.4-1.866a4 4 0 00.8-2.4z" /></svg>
+                    Noted
+                  </span>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => handleFeedback('helpful')}
+                      disabled={feedbackSubmitting}
+                      className={`p-1 rounded transition-all ${isDarkMode ? 'text-gray-500 hover:text-green-400 hover:bg-green-500/10' : 'text-slate-400 hover:text-green-600 hover:bg-green-50'}`}
+                      title="Helpful"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 20 20"><path d="M2 10.5a1.5 1.5 0 113 0v6a1.5 1.5 0 01-3 0v-6zM6 10.333v5.43a2 2 0 001.106 1.79l.05.025A4 4 0 008.943 18h5.416a2 2 0 001.962-1.608l1.2-6A2 2 0 0015.56 8H12V4a2 2 0 00-2-2 1 1 0 00-1 1v.667a4 4 0 01-.8 2.4L6.8 7.933a4 4 0 00-.8 2.4z" /></svg>
+                    </button>
+                    <button
+                      onClick={() => handleFeedback('unhelpful')}
+                      disabled={feedbackSubmitting}
+                      className={`p-1 rounded transition-all ${isDarkMode ? 'text-gray-500 hover:text-red-400 hover:bg-red-500/10' : 'text-slate-400 hover:text-red-600 hover:bg-red-50'}`}
+                      title="Not helpful"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 20 20"><path d="M18 9.5a1.5 1.5 0 11-3 0v-6a1.5 1.5 0 013 0v6zM14 9.667v-5.43a2 2 0 00-1.106-1.79l-.05-.025A4 4 0 0011.057 2H5.64a2 2 0 00-1.962 1.608l-1.2 6A2 2 0 004.44 12H8v4a2 2 0 002 2 1 1 0 001-1v-.667a4 4 0 01.8-2.4l1.4-1.866a4 4 0 00.8-2.4z" /></svg>
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
           </div>
+
+          {/* Expanded negative feedback form */}
+          {showFeedbackForm && feedbackState === 'unhelpful' && (
+            <div className={`mt-2 p-2 rounded-lg ${isDarkMode ? 'bg-gray-800 border border-red-500/20' : 'bg-red-50 border border-red-100'}`}>
+              <textarea
+                value={feedbackComment}
+                onChange={(e) => setFeedbackComment(e.target.value)}
+                placeholder="What was wrong? (optional)"
+                rows={2}
+                className={`w-full text-xs rounded p-2 resize-none ${isDarkMode ? 'bg-gray-900 border-gray-700 text-gray-300 placeholder-gray-500' : 'bg-white border-slate-200 text-slate-700 placeholder-slate-400'} border focus:outline-none focus:ring-1 focus:ring-amber-500/50`}
+              />
+              <div className="flex gap-2 mt-1.5">
+                <button
+                  onClick={submitNegativeFeedback}
+                  disabled={feedbackSubmitting}
+                  className={`text-xs px-3 py-1 rounded transition-all ${isDarkMode ? 'bg-amber-500 text-gray-900 hover:bg-amber-400' : 'bg-amber-600 text-white hover:bg-amber-500'} ${feedbackSubmitting ? 'opacity-50' : ''}`}
+                >
+                  {feedbackSubmitting ? 'Sending...' : 'Submit'}
+                </button>
+                <button
+                  onClick={() => { setShowFeedbackForm(false); setFeedbackState(null); }}
+                  className={`text-xs px-3 py-1 rounded transition-all ${isDarkMode ? 'text-gray-400 hover:text-gray-300' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

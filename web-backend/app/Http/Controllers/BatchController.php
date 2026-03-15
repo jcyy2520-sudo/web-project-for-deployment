@@ -101,15 +101,6 @@ class BatchController extends Controller
             ],
         ];
 
-        // Get recent appointments count by status (same timeframe)
-        $recentAppointmentStats = DB::table('appointments')
-            ->whereBetween('appointment_date', $dateRange)
-            ->select('status', DB::raw('count(*) as count'))
-            ->groupBy('status')
-            ->get()
-            ->pluck('count', 'status')
-            ->toArray();
-
         // Get user counts by role (same timeframe)
         $userStats = DB::table('users')
             ->whereBetween('created_at', $dateRange)
@@ -126,8 +117,8 @@ class BatchController extends Controller
             // Stats section
             'stats' => $stats,
             
-            // Quick stats
-            'appointmentStats' => $recentAppointmentStats,
+            // Quick stats (reuse the already-computed appointmentStats)
+            'appointmentStats' => $appointmentStats,
             'userStats' => $userStats,
             'servicesCount' => $servicesCount,
             

@@ -19,19 +19,24 @@ use Illuminate\Support\Facades\Http;
  */
 class StreamingLLMService
 {
-    private const CLAUDE_STREAM_URL = 'https://api.anthropic.com/v1/messages';
-    private const OLLAMA_STREAM_URL = 'http://localhost:11434/api/generate';
-    private const REQUEST_TIMEOUT = 300; // 5 minutes for streaming
-    private const MAX_TOKENS = 2048;
+    private string $claudeStreamUrl;
+    private string $ollamaStreamUrl;
+    private int $requestTimeout;
+    private int $maxTokens;
     
     private $claudeApiKey;
     private $useOllama;
-    private $ollamaModel = 'mistral';
+    private string $ollamaModel;
 
     public function __construct()
     {
-        $this->claudeApiKey = env('ANTHROPIC_API_KEY');
-        $this->useOllama = env('USE_OLLAMA_LLM', false) === true || env('USE_OLLAMA_LLM', 'false') === 'true';
+        $this->claudeApiKey = config('services.anthropic.api_key');
+        $this->useOllama = filter_var(config('services.ollama.enabled', false), FILTER_VALIDATE_BOOLEAN);
+        $this->claudeStreamUrl = config('services.anthropic.api_url', 'https://api.anthropic.com/v1/messages');
+        $this->ollamaStreamUrl = config('services.ollama.stream_url', 'http://localhost:11434/api/generate');
+        $this->requestTimeout = (int) config('chatbot_unified.llm.streaming_timeout', 300);
+        $this->maxTokens = (int) config('chatbot_unified.llm.streaming_max_tokens', 2048);
+        $this->ollamaModel = config('services.ollama.model', 'mistral');
     }
 
     /**
@@ -115,7 +120,7 @@ class StreamingLLMService
                 'x-api-key' => $this->claudeApiKey,
                 'anthropic-version' => '2023-06-01',
                 'Content-Type' => 'application/json',
-            ])->timeout(self::REQUEST_TIMEOUT);
+            ])->timeout($this->requestTimeout);
 
             $fullResponse = '';
             $totalInputTokens = 0;
@@ -123,14 +128,14 @@ class StreamingLLMService
 
             // Create request body with streaming enabled
             $requestBody = [
-                'model' => env('CLAUDE_MODEL', 'claude-3-sonnet-20240229'),
-                'max_tokens' => self::MAX_TOKENS,
+                'model' => config('services.anthropic.model', 'claude-3-sonnet-20240229'),
+                'max_tokens' => $this->maxTokens,
                 'system' => $systemPrompt,
                 'messages' => $messages,
                 'stream' => true,
             ];
 
-            $response = $client->post(self::CLAUDE_STREAM_URL, $requestBody);
+            $response = $client->post($this->claudeStreamUrl, $requestBody);
 
             if (!$response->successful()) {
                 throw new \Exception('Claude API returned ' . $response->status());
@@ -205,18 +210,18 @@ class StreamingLLMService
         try {
             $prompt = $this->buildOllamaPrompt($userMessage, $conversationHistory, $systemPrompt);
 
-            $client = Http::timeout(self::REQUEST_TIMEOUT);
+            $client = Http::timeout($this->requestTimeout);
 
             $fullResponse = '';
             $totalTokens = 0;
 
-            $response = $client->post(self::OLLAMA_STREAM_URL, [
+            $response = $client->post($this->ollamaStreamUrl, [
                 'model' => $this->ollamaModel,
                 'prompt' => $prompt,
                 'stream' => true,
-                'num_predict' => self::MAX_TOKENS,
-                'temperature' => 0.7,
-                'top_p' => 0.9,
+                'num_predict' => $this->maxTokens,
+                'temperature' => (float) config('chatbot_unified.llm.temperature', 0.3),
+                'top_p' => (float) config('chatbot_unified.llm.top_p', 0.9),
             ]);
 
             if (!$response->successful()) {

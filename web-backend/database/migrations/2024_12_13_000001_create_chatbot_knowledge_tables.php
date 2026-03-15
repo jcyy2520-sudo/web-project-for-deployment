@@ -24,7 +24,7 @@ return new class extends Migration
             $table->timestamps();
             
             $table->index(['category', 'is_active']);
-            $table->fullText(['title', 'content']); // For fallback keyword search
+            // $table->fullText(['title', 'content']); // For fallback keyword search
         });
 
         // Conversation embeddings for semantic memory

@@ -57,7 +57,7 @@ class ProductionReadinessTest extends TestCase
         // Create 2 appointments (should succeed)
         $today = now()->format('Y-m-d');
         
-        Appointment::create([
+        Appointment::forceCreate([
             'user_id' => $user->id,
             'service_id' => $service->id,
             'appointment_date' => $today,
@@ -66,7 +66,7 @@ class ProductionReadinessTest extends TestCase
             'type' => 'appointment',
         ]);
         
-        Appointment::create([
+        Appointment::forceCreate([
             'user_id' => $user->id,
             'service_id' => $service->id,
             'appointment_date' => $today,

@@ -85,15 +85,15 @@ class AdvancedLLMService
     public function __construct()
     {
         $this->config = [
-            'claude_key' => env('ANTHROPIC_API_KEY'),
-            'openai_key' => env('OPENAI_API_KEY'),
-            'mistral_key' => env('MISTRAL_API_KEY'),
-            'use_ollama' => env('USE_OLLAMA_LLM', false) === true || env('USE_OLLAMA_LLM') === 'true',
-            'ollama_model' => env('OLLAMA_MODEL', 'mistral'),
-            'default_personality' => env('CHATBOT_PERSONALITY', 'professional'),
-            'max_tokens' => (int) env('LLM_MAX_TOKENS', 2048),
-            'temperature' => (float) env('LLM_TEMPERATURE', 0.7),
-            'timeout' => (int) env('LLM_TIMEOUT', 60),
+            'claude_key' => config('services.anthropic.api_key'),
+            'openai_key' => config('services.openai.api_key'),
+            'mistral_key' => config('services.mistral.api_key'),
+            'use_ollama' => filter_var(config('services.ollama.enabled', false), FILTER_VALIDATE_BOOLEAN),
+            'ollama_model' => config('services.ollama.model', 'mistral'),
+            'default_personality' => config('services.llm.personality', 'professional'),
+            'max_tokens' => (int) config('services.llm.max_tokens', 2048),
+            'temperature' => (float) config('services.llm.temperature', 0.7),
+            'timeout' => (int) config('services.llm.timeout', 60),
         ];
 
         // Determine preferred provider based on available keys
@@ -763,10 +763,17 @@ You are an intelligent AI assistant for a legal services appointment booking sys
 - Use formatting for clarity (bullets, bold)
 - Always be accurate: say \"I don't have that information\" if uncertain
 - Suggest next steps when appropriate
-- Match user language (English/Taglish/Filipino)
+- Match user language (English/Taglish/Filipino) - mirror their style
 - NEVER guess, assume, or fabricate
-- Ask clarifying questions when uncertain
-- Expose limitations transparently";
+- Ask clarifying questions when uncertain - offer 2-3 possible interpretations
+- Expose limitations transparently
+- Handle messy input: understand typos, misspellings, broken grammar, SMS-speak, slang
+- Focus on user INTENT, not form - never refuse help due to bad spelling
+- If user is frustrated/upset: validate their feeling first, then assist
+- If user uses offensive language: redirect professionally without repeating bad words
+- If user corrects you or repeats: assume YOUR answer was insufficient, try a different approach
+- When uncertain: say 'I'm not sure about that, let me clarify' instead of guessing
+- In Tagalog/Taglish contexts: use polite markers (po/opo) naturally";
 
         return $prompt;
     }

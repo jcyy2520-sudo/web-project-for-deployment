@@ -71,10 +71,8 @@ class AppointmentController extends Controller
 
         if ($request->user()->isClient()) {
             $query->where('user_id', $request->user()->id);
-        } elseif ($request->user()->isStaff()) {
-            $query->where('staff_id', $request->user()->id)
-                  ->orWhereNull('staff_id');
         }
+        // Staff and admin users can see all appointments
 
         // Apply timeframe filter if provided
         if ($request->has('timeframe')) {
@@ -134,6 +132,12 @@ class AppointmentController extends Controller
         $now = now();
         
         switch ($timeframe) {
+            case 'all':
+                return [
+                    $now->copy()->subYears(5)->startOfYear(),
+                    $now->copy()->addYears(5)->endOfYear()
+                ];
+
             case 'daily':
                 return [
                     $now->copy()->subDays(6)->startOfDay(),
@@ -143,20 +147,20 @@ class AppointmentController extends Controller
             case 'weekly':
                 return [
                     $now->copy()->subWeeks(11)->startOfWeek(),
-                    $now->copy()->endOfDay()
+                    $now->copy()->addMonths(3)->endOfDay() // Allow some future in weekly
                 ];
             
             case 'yearly':
                 return [
                     $now->copy()->subYears(4)->startOfYear(),
-                    $now->copy()->endOfDay()
+                    $now->copy()->addYears(2)->endOfYear() // Allow future in yearly
                 ];
             
             case 'monthly':
             default:
                 return [
                     $now->copy()->subMonths(11)->startOfMonth(),
-                    $now->copy()->endOfDay()
+                    $now->copy()->addYear()->endOfDay() // Allow future in monthly
                 ];
         }
     }
@@ -259,62 +263,25 @@ class AppointmentController extends Controller
             }
         }
 
-        // NEW VALIDATION: Check daily appointment limit per user
-        $hasReachedLimit = \App\Models\AppointmentSettings::userHasReachedDailyLimit($request->user()->id, $request->appointment_date);
+        // Check daily appointment limit per user (rolling 24-hour window)
+        $hasReachedLimit = \App\Models\AppointmentSettings::userHasReachedDailyLimit($request->user()->id);
         if ($hasReachedLimit) {
             $settings = \App\Models\AppointmentSettings::getCurrent();
-
-            // Calculate next available booking time (human friendly)
-            $currentDate = $request->appointment_date;
-            try {
-                $currentDateObj = \Carbon\Carbon::createFromFormat('Y-m-d', $currentDate);
-            } catch (\Exception $e) {
-                $currentDateObj = \Carbon\Carbon::parse($currentDate);
-            }
-            $today = now()->format('Y-m-d');
-
-            if ($currentDate === $today) {
-                $tomorrow = $currentDateObj->copy()->addDay()->format('M d');
-                $nextAvailableTime = "tomorrow ({$tomorrow})";
-            } elseif ($currentDateObj > \Carbon\Carbon::now()) {
-                $nextAvailable = $currentDateObj->copy()->addDay()->format('M d');
-                $nextAvailableTime = "on {$nextAvailable}";
-            } else {
-                $nextAvailableTime = "tomorrow";
-            }
+            $nextAvailable = \App\Models\AppointmentSettings::getNextAvailableTime($request->user()->id);
+            $nextAvailableFormatted = $nextAvailable ? $nextAvailable->format('M d, Y \a\t g:i A') : null;
 
             return response()->json([
-                'message' => "You have reached your daily booking limit of {$settings->daily_booking_limit_per_user} appointments for this day",
+                'message' => "You have reached your booking limit of {$settings->daily_booking_limit_per_user} appointments per 24 hours."
+                    . ($nextAvailableFormatted ? " You can book again on {$nextAvailableFormatted}." : ''),
                 'limit' => $settings->daily_booking_limit_per_user,
-                'next_available_time' => $nextAvailableTime,
+                'next_available_time' => $nextAvailable?->toIso8601String(),
+                'next_available_formatted' => $nextAvailableFormatted,
                 'has_reached_limit' => true
             ], 422);
         }
 
-        // NEW VALIDATION: Check capacity limits
+        // ATOMIC BOOKING: Use transaction with pessimistic locking to prevent double-booking
         $slotCapacity = $this->getSlotCapacity($appointmentDate, $appointmentTime);
-        $appointmentCount = Appointment::where('appointment_date', $request->appointment_date)
-            ->where('appointment_time', $request->appointment_time)
-            ->whereIn('status', ['pending', 'approved'])
-            ->count();
-
-        if ($appointmentCount >= $slotCapacity) {
-            return response()->json([
-                'message' => 'This time slot is at full capacity. Please select another time'
-            ], 422);
-        }
-
-        // EXISTING VALIDATION: Check for existing appointment at same time (redundant but kept for safety)
-        $existingAppointment = Appointment::where('appointment_date', $request->appointment_date)
-            ->where('appointment_time', $request->appointment_time)
-            ->whereIn('status', ['pending', 'approved'])
-            ->exists();
-
-        if ($existingAppointment) {
-            return response()->json([
-                'message' => 'Time slot already booked'
-            ], 422);
-        }
 
         // Get service_id - either from request or by looking up service by name/type
         $serviceId = $request->service_id;
@@ -332,39 +299,124 @@ class AppointmentController extends Controller
             $serviceId = $service?->id;
         }
 
-        $appointment = Appointment::create([
-            'user_id' => $request->user()->id,
-            'type' => $request->type,
-            'service_id' => $serviceId,
-            'service_type' => $request->service_type,
-            'appointment_date' => $request->appointment_date,
-            'appointment_time' => $request->appointment_time,
-            'purpose' => $request->purpose ?? null,
-            'documents' => $request->documents,
-            'notes' => $request->notes,
-            'status' => 'pending',
-        ]);
+        try {
+            $appointment = DB::transaction(function () use ($request, $slotCapacity, $serviceId) {
+                // Pessimistic lock: SELECT ... FOR UPDATE prevents concurrent reads
+                $appointmentCount = Appointment::where('appointment_date', $request->appointment_date)
+                    ->where('appointment_time', $request->appointment_time)
+                    ->whereIn('status', ['pending', 'approved'])
+                    ->lockForUpdate()
+                    ->count();
 
-        // Broadcast appointment created/updated for realtime UIs
+                if ($appointmentCount >= $slotCapacity) {
+                    throw new \Exception('SLOT_FULL');
+                }
+
+                // Check if the SAME USER already has an appointment at this exact date/time
+                $userAlreadyBooked = Appointment::where('appointment_date', $request->appointment_date)
+                    ->where('appointment_time', $request->appointment_time)
+                    ->where('user_id', $request->user()->id)
+                    ->whereIn('status', ['pending', 'approved'])
+                    ->lockForUpdate()
+                    ->exists();
+
+                if ($userAlreadyBooked) {
+                    throw new \Exception('USER_DUPLICATE');
+                }
+
+                $appointment = Appointment::create([
+                    'user_id' => $request->user()->id,
+                    'type' => $request->type,
+                    'service_id' => $serviceId,
+                    'service_type' => $request->service_type,
+                    'appointment_date' => $request->appointment_date,
+                    'appointment_time' => $request->appointment_time,
+                    'purpose' => $request->purpose ?? null,
+                    'documents' => $request->documents,
+                    'notes' => $request->notes,
+                ]);
+                // Set protected field explicitly (not mass-assignable)
+                $appointment->status = 'pending';
+                $appointment->save();
+                return $appointment;
+            });
+        } catch (\Exception $e) {
+            if ($e->getMessage() === 'SLOT_FULL') {
+                return response()->json([
+                    'message' => 'This time slot is at full capacity. Please select another time'
+                ], 422);
+            }
+            if ($e->getMessage() === 'USER_DUPLICATE') {
+                return response()->json([
+                    'message' => 'You already have an appointment booked at this time'
+                ], 422);
+            }
+            \Log::error('Appointment booking failed: ' . $e->getMessage());
+            return response()->json([
+                'message' => 'Failed to book appointment. Please try again.',
+                'success' => false
+            ], 500);
+        }
+
+        // Log the booking action
+        $serviceType = $appointment->service_type ?? $appointment->type ?? 'Unknown';
+        $appointmentDateFormatted = \Carbon\Carbon::parse($appointment->appointment_date)->format('M d, Y');
+        $appointmentTimeFormatted = \Carbon\Carbon::parse($appointment->appointment_time)->format('g:i A');
+        \App\Models\ActionLog::log(
+            'book_appointment',
+            "Booked appointment for {$serviceType} on {$appointmentDateFormatted} at {$appointmentTimeFormatted}",
+            'Appointment',
+            $appointment->id
+        );
+
+        // Broadcast appointment created for realtime UIs (OUTSIDE transaction)
         try {
             $appointment->load(['user', 'staff', 'service']);
-            event(new AppointmentUpdated($appointment));
+            event(new \App\Events\AppointmentCreated($appointment));
         } catch (\Exception $e) {
             \Log::debug('Failed to broadcast appointment created event: ' . $e->getMessage());
         }
 
-        // Send confirmation email
+        // Send confirmation email immediately (sync mode)
+        $emailSent = false;
+        $emailError = null;
         try {
             Mail::to($request->user()->email)->send(new AppointmentConfirmationMail($appointment));
+            $emailSent = true;
+            \Log::info('Appointment confirmation email sent successfully', [
+                'user_email' => $request->user()->email,
+                'appointment_id' => $appointment->id
+            ]);
         } catch (\Exception $e) {
-            \Log::error('Failed to send confirmation email: ' . $e->getMessage());
+            $emailSent = false;
+            $emailError = $e->getMessage();
+            \Log::error('Failed to send confirmation email: ' . $e->getMessage(), [
+                'user_email' => $request->user()->email,
+                'appointment_id' => $appointment->id,
+                'exception' => $e
+            ]);
         }
 
-        return response()->json([
+        // Record user activity for auto-archiving tracking
+        $request->user()->forceFill(['last_activity_at' => now()])->save();
+
+        $response = [
             'message' => 'Appointment booked successfully',
             'appointment' => $appointment->load('user'),
-            'success' => true
-        ]);
+            'success' => true,
+            'email_sent' => $emailSent
+        ];
+
+        // Add warning if email failed
+        if (!$emailSent && strpos($emailError, 'Daily user sending limit') !== false) {
+            $response['email_warning'] = 'Confirmation email could not be sent due to email server limits. Your appointment has been booked. Please contact support or check back later for your confirmation.';
+            $response['email_error_type'] = 'RATE_LIMIT';
+        } elseif (!$emailSent) {
+            $response['email_warning'] = 'Confirmation email could not be sent at this time. Your appointment has been booked. You can view it in your appointments list.';
+            $response['email_error_type'] = 'UNKNOWN';
+        }
+
+        return response()->json($response);
     }
 
     /**
@@ -395,6 +447,20 @@ class AppointmentController extends Controller
     public function show(Appointment $appointment)
     {
         $this->authorize('view', $appointment);
+
+        // Log the view action for the appointment owner
+        $user = auth()->user();
+        if ($user && $appointment->user_id === $user->id) {
+            $serviceType = $appointment->service_type ?? $appointment->type ?? 'Unknown';
+            $appointmentDateFormatted = \Carbon\Carbon::parse($appointment->appointment_date)->format('M d, Y');
+            \App\Models\ActionLog::log(
+                'view_appointment',
+                "Viewed appointment details for {$serviceType} on {$appointmentDateFormatted}",
+                'Appointment',
+                $appointment->id
+            );
+        }
+
         return response()->json([
             'data' => $appointment->load(['user', 'staff', 'service']),
             'success' => true
@@ -406,34 +472,86 @@ class AppointmentController extends Controller
         $this->authorize('update', $appointment);
 
         $request->validate([
-            'status' => 'required|in:approved,completed,cancelled,declined',
+            'status' => 'required|in:pending,approved,completed,cancelled,declined',
             'staff_notes' => 'nullable|string|max:1000',
         ]);
 
-        $oldStatus = $appointment->status;
-        
-        // If approving, assign current user as staff if not already assigned
-        if ($request->status === 'approved' && !$appointment->staff_id) {
-            $appointment->staff_id = $request->user()->id;
+        // Status transition validation - enforce allowed state transitions
+        $allowedTransitions = [
+            'pending'   => ['approved', 'declined', 'cancelled'],
+            'approved'  => ['completed', 'cancelled', 'declined'],
+            'declined'  => ['pending'],  // allow re-review
+            'completed' => [],           // terminal state
+            'cancelled' => [],           // terminal state
+        ];
+
+        if (!in_array($request->status, $allowedTransitions[$appointment->status] ?? [])) {
+            return response()->json([
+                'message' => "Cannot transition from '{$appointment->status}' to '{$request->status}'.",
+                'success' => false,
+                'current_status' => $appointment->status,
+                'allowed_transitions' => $allowedTransitions[$appointment->status] ?? [],
+            ], 422);
         }
 
-        $appointment->update([
-            'status' => $request->status,
-            'staff_notes' => $request->staff_notes,
-            'staff_id' => $appointment->staff_id
-        ]);
+        $oldStatus = $appointment->status;
+        
+        // Wrap in transaction with lock to prevent concurrent status changes
+        DB::transaction(function () use ($request, $appointment) {
+            // Re-fetch with lock to prevent race condition
+            $appointment = Appointment::lockForUpdate()->findOrFail($appointment->id);
 
-        // Send status update email to client
+            $appointment->update([
+                'staff_notes' => $request->staff_notes,
+            ]);
+            // Set protected field explicitly (not mass-assignable)
+            $appointment->status = $request->status;
+            $appointment->save();
+        });
+
+        // Refresh after transaction
+        $appointment->refresh();
+
+        // Log status update
+        if ($oldStatus !== $request->status) {
+            $serviceType = $appointment->service_type ?? $appointment->type ?? 'Unknown';
+            \App\Models\ActionLog::log(
+                'update_appointment_status',
+                "Updated appointment status from {$oldStatus} to {$request->status} for {$appointment->user->first_name} {$appointment->user->last_name} ({$serviceType})",
+                'Appointment',
+                $appointment->id
+            );
+        }
+
+        // Send status update email to client (outside transaction — non-blocking)
         if ($oldStatus !== $request->status) {
             try {
-                Mail::to($appointment->user->email)->send(new AppointmentStatusMail($appointment));
+                if ($appointment->user) {
+                    Mail::to($appointment->user->email)->send(new AppointmentStatusMail($appointment));
+                    \Log::info('Appointment status email sent to user', [
+                        'user_email' => $appointment->user->email,
+                        'appointment_id' => $appointment->id,
+                        'old_status' => $oldStatus,
+                        'new_status' => $request->status
+                    ]);
+                }
                 
                 // Also send to staff if assigned
-                if ($appointment->staff_id && $appointment->staff->email) {
+                if ($appointment->staff_id && $appointment->staff && $appointment->staff->email) {
                     Mail::to($appointment->staff->email)->send(new AppointmentStatusMail($appointment));
+                    \Log::info('Appointment status email sent to staff', [
+                        'staff_email' => $appointment->staff->email,
+                        'appointment_id' => $appointment->id,
+                        'old_status' => $oldStatus,
+                        'new_status' => $request->status
+                    ]);
                 }
             } catch (\Exception $e) {
-                \Log::error('Failed to send status email: ' . $e->getMessage());
+                \Log::error('Failed to send status email: ' . $e->getMessage(), [
+                    'user_email' => $appointment->user?->email ?? 'unknown',
+                    'appointment_id' => $appointment->id,
+                    'exception' => $e
+                ]);
             }
 
             // If status changed to approved, notify cashiers
@@ -473,45 +591,44 @@ class AppointmentController extends Controller
         try {
             $this->authorize('update', $appointment);
 
-            $oldStatus = $appointment->status;
-            
-            // Assign current user as staff if not already assigned
-            if (!$appointment->staff_id) {
-                $appointment->staff_id = request()->user()->id;
+            // Status transition guard: only pending appointments can be approved
+            if ($appointment->status !== 'pending') {
+                return response()->json([
+                    'message' => 'Only pending appointments can be approved.',
+                    'current_status' => $appointment->status,
+                    'success' => false
+                ], 422);
             }
 
-            $appointment->update([
-                'status' => 'approved',
-                'staff_id' => $appointment->staff_id
-            ]);
+            $oldStatus = $appointment->status;
 
-            // Invalidate stats cache when appointment status changes
-            $this->invalidateStatsCache();
+            // Transaction with pessimistic lock to prevent race conditions
+            DB::transaction(function () use ($appointment, $oldStatus) {
+                // Re-fetch with lock to prevent concurrent status changes
+                $appointment = Appointment::lockForUpdate()->findOrFail($appointment->id);
 
-            // Log the action
-            $serviceType = $appointment->service_type ?? $appointment->type;
-            \App\Models\ActionLog::log(
-                'approve',
-                "Approved appointment for {$appointment->user->first_name} {$appointment->user->last_name} - {$serviceType} on {$appointment->appointment_date} at {$appointment->appointment_time}",
-                'Appointment',
-                $appointment->id
-            );
+                // Double-check status after acquiring lock
+                if ($appointment->status !== 'pending') {
+                    throw new \RuntimeException('Appointment status changed concurrently');
+                }
 
-            // Send status update email to client
-            if ($oldStatus !== 'approved') {
-                try {
-                    // Reload appointment to get fresh relationships
-                    $appointment->refresh();
-                    $appointment->load(['user', 'staff', 'service']);
-                    
-                    Mail::to($appointment->user->email)->send(new AppointmentStatusMail($appointment));
-                    
-                    // Also send to staff if assigned and staff exists
-                    if ($appointment->staff_id && $appointment->staff) {
-                        Mail::to($appointment->staff->email)->send(new AppointmentStatusMail($appointment));
-                    }
-                    
-                    // Save message to database for user visibility
+                $appointment->status = 'approved';
+                $appointment->save();
+
+                // Refresh the model to get updated status
+                $appointment->refresh();
+
+                // Log the action
+                $serviceType = $appointment->service_type ?? $appointment->type;
+                \App\Models\ActionLog::log(
+                    'approve',
+                    "Approved appointment for {$appointment->user->first_name} {$appointment->user->last_name} - {$serviceType} on {$appointment->appointment_date} at {$appointment->appointment_time}",
+                    'Appointment',
+                    $appointment->id
+                );
+
+                // Send message within transaction (needs consistency with status change)
+                if ($oldStatus !== 'approved') {
                     $appointmentDate = \Carbon\Carbon::parse($appointment->appointment_date)->format('l, F d, Y');
                     $appointmentTime = \Carbon\Carbon::parse($appointment->appointment_time)->format('g:i A');
                     $serviceType = $appointment->service_type ?? \App\Models\Appointment::getTypes()[$appointment->type] ?? $appointment->type;
@@ -523,27 +640,50 @@ class AppointmentController extends Controller
                         "Please arrive on time for your appointment. If you need to reschedule, please contact us.";
                     
                     Message::create([
-                        'sender_id' => $appointment->staff_id,
+                        'sender_id' => request()->user()->id,
                         'receiver_id' => $appointment->user_id,
                         'message' => $messageText,
                         'read' => false
                     ]);
-                    
-                    // Create in-app notification for the client
+                }
+            });
+
+            // Non-critical notifications OUTSIDE transaction — failures here won't roll back status
+            if ($oldStatus !== 'approved') {
+                try {
                     \App\Services\NotificationService::appointmentApproved($appointment);
-                    
-                    // Notify all cashiers about the new approved appointment ready for payment
                     \App\Services\NotificationService::notifyCashiersAppointmentApproved($appointment);
-                    
                 } catch (\Exception $e) {
-                    \Log::error('Failed to send approval email or create message: ' . $e->getMessage());
-                    \Log::error('Exception trace: ' . $e->getTraceAsString());
-                    // Still return success even if email fails
+                    \Log::warning('Non-critical notification failed in approve: ' . $e->getMessage());
+                }
+            }
+
+            // Invalidate stats cache (outside transaction — non-critical)
+            $this->invalidateStatsCache();
+
+            // Send approval emails immediately (outside the transaction)
+            if ($oldStatus !== 'approved') {
+                try {
+                    $appointment->refresh();
+                    $appointment->load(['user', 'staff', 'service']);
+                    
+                    Mail::to($appointment->user->email)->send(new AppointmentStatusMail($appointment));
+                    \Log::info('Appointment approval email sent to user', ['user_email' => $appointment->user->email, 'appointment_id' => $appointment->id]);
+                    
+                    if ($appointment->staff_id && $appointment->staff) {
+                        Mail::to($appointment->staff->email)->send(new AppointmentStatusMail($appointment));
+                        \Log::info('Appointment approval email sent to staff', ['staff_email' => $appointment->staff->email, 'appointment_id' => $appointment->id]);
+                    }
+                } catch (\Exception $e) {
+                    \Log::error('Failed to send approval email: ' . $e->getMessage(), ['appointment_id' => $appointment->id, 'exception' => $e]);
                 }
             }
 
             // Broadcast approval
             $this->broadcastAppointmentUpdate($appointment);
+
+            // Ensure model is fresh before response
+            $appointment->refresh();
 
             return response()->json([
                 'message' => 'Appointment approved successfully',
@@ -554,7 +694,7 @@ class AppointmentController extends Controller
             \Log::error('Approve method error: ' . $e->getMessage());
             \Log::error('Exception trace: ' . $e->getTraceAsString());
             return response()->json([
-                'message' => 'Error approving appointment: ' . $e->getMessage(),
+                'message' => 'Error approving appointment',
                 'success' => false
             ], 500);
         }
@@ -576,19 +716,36 @@ class AppointmentController extends Controller
         try {
             $this->authorize('update', $appointment);
 
+            // Status transition guard: only pending or approved appointments can be declined
+            if (!in_array($appointment->status, ['pending', 'approved'])) {
+                return response()->json([
+                    'message' => 'Only pending or approved appointments can be declined.',
+                    'current_status' => $appointment->status,
+                    'success' => false
+                ], 422);
+            }
+
             $oldStatus = $appointment->status;
             $declineReason = request()->input('decline_reason', '');
 
-            $appointment->update([
-                'status' => 'declined',
-                'decline_reason' => $declineReason ?: null
-            ]);
+            // Transaction with pessimistic lock to prevent race conditions
+            DB::transaction(function () use ($appointment, $oldStatus, $declineReason) {
+                // Re-fetch with lock to prevent concurrent status changes
+                $appointment = Appointment::lockForUpdate()->findOrFail($appointment->id);
 
-            // Invalidate stats cache when appointment status changes
-            $this->invalidateStatsCache();
+                // Double-check status after acquiring lock
+                if (!in_array($appointment->status, ['pending', 'approved'])) {
+                    throw new \RuntimeException('Appointment status changed concurrently');
+                }
 
-            // Log action
-            try {
+                $appointment->status = 'declined';
+                $appointment->decline_reason = $declineReason ?: null;
+                $appointment->save();
+
+                // Refresh the model to get updated status
+                $appointment->refresh();
+
+                // Log action
                 $serviceType = $appointment->service_type ?? $appointment->type ?? 'Unknown';
                 $reasonText = $declineReason ? " - Reason: {$declineReason}" : '';
                 \App\Models\ActionLog::log(
@@ -597,20 +754,9 @@ class AppointmentController extends Controller
                     'Appointment',
                     $appointment->id
                 );
-            } catch (\Exception $e) {
-                \Log::error('Failed to log appointment decline: ' . $e->getMessage());
-            }
 
-            // Send status update email to client
-            if ($oldStatus !== 'declined') {
-                try {
-                    // Reload appointment to get fresh relationships
-                    $appointment->refresh();
-                    $appointment->load(['user', 'staff', 'service']);
-                    
-                    Mail::to($appointment->user->email)->send(new AppointmentStatusMail($appointment));
-                    
-                    // Save message to database for user visibility
+                // Send message within transaction (needs consistency with status change)
+                if ($oldStatus !== 'declined') {
                     $appointmentDate = \Carbon\Carbon::parse($appointment->appointment_date)->format('l, F d, Y');
                     $appointmentTime = \Carbon\Carbon::parse($appointment->appointment_time)->format('g:i A');
                     $serviceType = $appointment->service_type ?? \App\Models\Appointment::getTypes()[$appointment->type] ?? $appointment->type;
@@ -633,19 +779,39 @@ class AppointmentController extends Controller
                         'message' => $messageText,
                         'read' => false
                     ]);
-                    
-                    // Create in-app notification
+                }
+            });
+
+            // Non-critical notification OUTSIDE transaction — failure won't roll back status
+            if ($oldStatus !== 'declined') {
+                try {
                     \App\Services\NotificationService::appointmentDeclined($appointment, $declineReason);
-                    
                 } catch (\Exception $e) {
-                    \Log::error('Failed to send decline email or create message: ' . $e->getMessage());
-                    \Log::error('Exception trace: ' . $e->getTraceAsString());
-                    // Still return success even if email fails
+                    \Log::warning('Non-critical notification failed in decline: ' . $e->getMessage());
+                }
+            }
+
+            // Invalidate stats cache (outside transaction — non-critical)
+            $this->invalidateStatsCache();
+
+            // Send decline email immediately (outside the transaction)
+            if ($oldStatus !== 'declined') {
+                try {
+                    $appointment->refresh();
+                    $appointment->load(['user', 'staff', 'service']);
+                    
+                    Mail::to($appointment->user->email)->send(new AppointmentStatusMail($appointment));
+                    \Log::info('Appointment decline email sent to user', ['user_email' => $appointment->user->email, 'appointment_id' => $appointment->id]);
+                } catch (\Exception $e) {
+                    \Log::error('Failed to send decline email: ' . $e->getMessage(), ['appointment_id' => $appointment->id, 'exception' => $e]);
                 }
             }
 
             // Broadcast decline
             $this->broadcastAppointmentUpdate($appointment);
+
+            // Ensure model is fresh before response
+            $appointment->refresh();
 
             return response()->json([
                 'message' => 'Appointment declined successfully',
@@ -656,7 +822,7 @@ class AppointmentController extends Controller
             \Log::error('Decline method error: ' . $e->getMessage());
             \Log::error('Exception trace: ' . $e->getTraceAsString());
             return response()->json([
-                'message' => 'Error declining appointment: ' . $e->getMessage(),
+                'message' => 'Error declining appointment',
                 'success' => false
             ], 500);
         }
@@ -682,17 +848,20 @@ class AppointmentController extends Controller
         $completionTime = now();
         $adminUser = $request->user();
 
-        $appointment->update([
-            'status' => 'completed',
-            'completed_at' => $completionTime,
-            'completion_notes' => $request->input('completion_notes'),
-            'completed_by' => $adminUser->id
-        ]);
+        // Wrap status change + message + notification in a transaction
+        DB::transaction(function () use ($appointment, $request, $completionTime, $adminUser, $oldStatus) {
+            // Re-fetch with lock to prevent concurrent status changes
+            $appointment = Appointment::lockForUpdate()->findOrFail($appointment->id);
 
-        // Invalidate stats cache when appointment status changes to completed (affects revenue)
-        $this->invalidateStatsCache();
+            $appointment->update([
+                'completed_at' => $completionTime,
+                'completion_notes' => $request->input('completion_notes'),
+            ]);
+            // Set protected fields explicitly (not mass-assignable)
+            $appointment->status = 'completed';
+            $appointment->completed_by = $adminUser->id;
+            $appointment->save();
 
-        try {
             $serviceType = $appointment->service_type ?? $appointment->type ?? 'Unknown';
             \App\Models\ActionLog::log(
                 'complete_appointment',
@@ -700,26 +869,9 @@ class AppointmentController extends Controller
                 'Appointment',
                 $appointment->id
             );
-        } catch (\Exception $e) {
-            \Log::error('Failed to log appointment completion: ' . $e->getMessage());
-        }
 
-        // Send completion email and create message notification
-        if ($oldStatus !== 'completed') {
-            try {
-                // Reload appointment to get fresh relationships
-                $appointment->refresh();
-                $appointment->load(['user', 'staff', 'service', 'completedBy']);
-                
-                // Send email with new completion mail class
-                Mail::to($appointment->user->email)->send(new \App\Mail\AppointmentCompletionMail($appointment, $adminUser));
-                
-                // Also send to staff if assigned and staff exists
-                if ($appointment->staff_id && $appointment->staff) {
-                    Mail::to($appointment->staff->email)->send(new \App\Mail\AppointmentCompletionMail($appointment, $adminUser));
-                }
-                
-                // Create message notification for user
+            // Create message notification within transaction
+            if ($oldStatus !== 'completed') {
                 $appointmentDate = \Carbon\Carbon::parse($appointment->appointment_date)->format('l, F d, Y');
                 $appointmentTime = \Carbon\Carbon::parse($appointment->appointment_time)->format('g:i A');
                 $serviceType = $appointment->service_type ?? \App\Models\Appointment::getTypes()[$appointment->type] ?? $appointment->type;
@@ -745,11 +897,27 @@ class AppointmentController extends Controller
                 
                 // Create in-app notification
                 \App\Services\NotificationService::appointmentCompleted($appointment);
+            }
+        });
+
+        // Invalidate stats cache (outside transaction — non-critical)
+        $this->invalidateStatsCache();
+
+        // Send completion emails immediately (outside the transaction)
+        if ($oldStatus !== 'completed') {
+            try {
+                $appointment->refresh();
+                $appointment->load(['user', 'staff', 'service', 'completedBy']);
                 
+                Mail::to($appointment->user->email)->send(new \App\Mail\AppointmentCompletionMail($appointment, $adminUser));
+                \Log::info('Appointment completion email sent to user', ['user_email' => $appointment->user->email, 'appointment_id' => $appointment->id]);
+                
+                if ($appointment->staff_id && $appointment->staff) {
+                    Mail::to($appointment->staff->email)->send(new \App\Mail\AppointmentCompletionMail($appointment, $adminUser));
+                    \Log::info('Appointment completion email sent to staff', ['staff_email' => $appointment->staff->email, 'appointment_id' => $appointment->id]);
+                }
             } catch (\Exception $e) {
-                \Log::error('Failed to send completion email or create message: ' . $e->getMessage());
-                \Log::error('Exception trace: ' . $e->getTraceAsString());
-                // Still return success even if email fails
+                \Log::error('Failed to send completion email: ' . $e->getMessage(), ['appointment_id' => $appointment->id, 'exception' => $e]);
             }
         }
 
@@ -759,28 +927,6 @@ class AppointmentController extends Controller
         return response()->json([
             'message' => 'Appointment marked as completed successfully',
             'data' => $appointment->load(['user', 'staff', 'service', 'completedBy']),
-            'success' => true
-        ]);
-    }
-
-    public function assignStaff(Request $request, Appointment $appointment)
-    {
-        $request->validate([
-            'staff_id' => 'required|exists:users,id'
-        ]);
-
-        $staff = User::findOrFail($request->staff_id);
-        if (!$staff->isStaff()) {
-            return response()->json([
-                'message' => 'Selected user is not a staff member'
-            ], 422);
-        }
-
-        $appointment->update(['staff_id' => $request->staff_id]);
-
-        return response()->json([
-            'message' => 'Staff assigned successfully',
-            'data' => $appointment->load(['user', 'staff']),
             'success' => true
         ]);
     }
@@ -859,10 +1005,16 @@ class AppointmentController extends Controller
         $query = Appointment::with(['user', 'staff'])
             ->where('appointment_date', today());
 
-        if ($request->user()->isStaff()) {
-            $query->where('staff_id', $request->user()->id)
+        // Role-based filtering to prevent IDOR
+        if ($request->user()->isClient()) {
+            $query->where('user_id', $request->user()->id);
+        } elseif ($request->user()->isStaff()) {
+            $query->where(function ($q) use ($request) {
+                $q->where('staff_id', $request->user()->id)
                   ->orWhereNull('staff_id');
+            });
         }
+        // admin sees all - no filter needed
 
         $appointments = $query->orderBy('appointment_time')->get();
 
@@ -917,20 +1069,19 @@ class AppointmentController extends Controller
             'user_role' => $user->role
         ]);
         
+        $perPage = $request->get('per_page', 50);
         $appointments = $user->appointments()
             ->with(['staff', 'service'])
             ->orderBy('appointment_date', 'desc')
             ->orderBy('appointment_time', 'desc')
-            ->get();
-
-        \Log::info('[userAppointments] Found appointments', [
-            'count' => $appointments->count()
-        ]);
+            ->paginate($perPage);
 
         return response()->json([
-            'data' => $appointments,
+            'data' => $appointments->items(),
             'success' => true,
-            'count' => $appointments->count()
+            'count' => $appointments->total(),
+            'current_page' => $appointments->currentPage(),
+            'last_page' => $appointments->lastPage(),
         ]);
     }
 
@@ -938,22 +1089,32 @@ class AppointmentController extends Controller
     {
         $user = $request->user();
         
+        $perPage = $request->get('per_page', 50);
         $appointments = $user->staffAppointments()
             ->with(['user', 'service'])
             ->orderBy('appointment_date', 'desc')
             ->orderBy('appointment_time', 'desc')
-            ->get();
+            ->paginate($perPage);
 
         return response()->json([
-            'data' => $appointments,
-            'success' => true
+            'data' => $appointments->items(),
+            'success' => true,
+            'count' => $appointments->total(),
+            'current_page' => $appointments->currentPage(),
+            'last_page' => $appointments->lastPage(),
         ]);
     }
 
     public function cancel(Request $request, $id)
     {
         $user = $request->user();
-        $appointment = $user->appointments()->findOrFail($id);
+        
+        // Admin and staff can cancel any appointment, clients can only cancel their own
+        if ($user->isAdmin() || $user->isStaff()) {
+            $appointment = Appointment::findOrFail($id);
+        } else {
+            $appointment = $user->appointments()->findOrFail($id);
+        }
 
         if (!in_array($appointment->status, ['pending', 'approved'])) {
             return response()->json([
@@ -963,44 +1124,76 @@ class AppointmentController extends Controller
         }
 
         $oldStatus = $appointment->status;
-        $appointment->update(['status' => 'cancelled']);
 
-        // Clear relevant caches to ensure admin dashboard updates
-        // Clear admin stats cache
-        if (auth()->id()) {
-            Cache::forget('admin_stats_' . auth()->id());
-        }
-        
-        // Clear all admin appointment caches by flushing with a prefix
-        // Use a pattern that matches common cache keys
-        $cacheTagsToFlush = ['admin', 'appointments', 'admin_appointments', 'admin_stats'];
-        foreach ($cacheTagsToFlush as $tag) {
-            try {
-                Cache::tags($tag)->flush();
-            } catch (\Exception $e) {
-                // If tags not supported, try direct key deletion
-                \Log::debug('Cache tags not supported for: ' . $tag);
-            }
-        }
+        // Wrap status change + message + notification in a transaction
+        DB::transaction(function () use ($appointment, $user) {
+            // Re-fetch with lock to prevent concurrent status changes
+            $appointment = Appointment::lockForUpdate()->findOrFail($appointment->id);
 
-        // Send cancellation email
+            // Set protected field explicitly (not mass-assignable)
+            $appointment->status = 'cancelled';
+            $appointment->save();
+
+            // Log the action - differentiate between user and admin/staff cancellation
+            $serviceType = $appointment->service_type ?? $appointment->type ?? 'Unknown';
+            $appointmentDateFormatted = \Carbon\Carbon::parse($appointment->appointment_date)->format('M d, Y');
+            $appointmentTimeFormatted = \Carbon\Carbon::parse($appointment->appointment_time)->format('g:i A');
+            $cancelledBy = $user->id === $appointment->user_id ? 'self' : 'admin/staff';
+            \App\Models\ActionLog::log(
+                'cancel_appointment',
+                $cancelledBy === 'self'
+                    ? "Cancelled own appointment for {$serviceType} on {$appointmentDateFormatted} at {$appointmentTimeFormatted}"
+                    : "Cancelled appointment for {$appointment->user->first_name} {$appointment->user->last_name} ({$serviceType}) on {$appointmentDateFormatted} at {$appointmentTimeFormatted}",
+                'Appointment',
+                $appointment->id
+            );
+
+            // Save message to database for user visibility
+            $appointmentDate = \Carbon\Carbon::parse($appointment->appointment_date)->format('l, F d, Y');
+            $appointmentTime = \Carbon\Carbon::parse($appointment->appointment_time)->format('g:i A');
+            $serviceType = $appointment->service_type ?? \App\Models\Appointment::getTypes()[$appointment->type] ?? $appointment->type;
+
+            $messageText = "✕ Your appointment has been CANCELLED.\n\n" .
+                "📅 Date: " . $appointmentDate . "\n" .
+                "⏰ Time: " . $appointmentTime . "\n" .
+                "📋 Service: " . $serviceType . "\n\n" .
+                "If you have any questions, please contact us.";
+
+            Message::create([
+                'sender_id' => $user->id,
+                'receiver_id' => $appointment->user_id,
+                'message' => $messageText,
+                'read' => false
+            ]);
+
+            // Create in-app notification for the client
+            \App\Services\NotificationService::appointmentCancelled($appointment);
+        });
+
+        // Invalidate stats (outside transaction — non-critical)
+        $this->invalidateStatsCache();
+
+        // Send cancellation emails immediately (outside the transaction)
         try {
-            // Reload appointment to get fresh relationships
             $appointment->refresh();
-            $appointment->load(['user', 'staff']);
+            $appointment->load(['user', 'staff', 'service']);
             
-            Mail::to($user->email)->send(new AppointmentStatusMail($appointment));
+            Mail::to($appointment->user->email)->send(new AppointmentStatusMail($appointment));
+            \Log::info('Appointment cancellation email sent to user', ['user_email' => $appointment->user->email, 'appointment_id' => $appointment->id]);
             
-            // Also send to staff if assigned
             if ($appointment->staff_id && $appointment->staff) {
                 Mail::to($appointment->staff->email)->send(new AppointmentStatusMail($appointment));
+                \Log::info('Appointment cancellation email sent to staff', ['staff_email' => $appointment->staff->email, 'appointment_id' => $appointment->id]);
             }
         } catch (\Exception $e) {
-            \Log::error('Failed to send cancellation email: ' . $e->getMessage());
+            \Log::error('Failed to send cancellation email: ' . $e->getMessage(), ['appointment_id' => $appointment->id, 'exception' => $e]);
         }
 
+        // Broadcast cancellation for realtime clients
+        $this->broadcastAppointmentUpdate($appointment);
+
         return response()->json([
-            'data' => $appointment,
+            'data' => $appointment->load(['user', 'staff', 'service']),
             'message' => 'Appointment cancelled successfully',
             'success' => true
         ]);
@@ -1019,7 +1212,17 @@ class AppointmentController extends Controller
         $bookedSlots = Appointment::where('appointment_date', $date)
             ->whereIn('status', ['pending', 'approved'])
             ->pluck('appointment_time')
+            ->map(function ($time) {
+                // Normalize "HH:MM:SS" from MySQL TIME columns to "HH:MM" for comparison
+                return substr($time, 0, 5);
+            })
             ->toArray();
+
+        // Count bookings per time slot for capacity checking
+        $bookingCounts = array_count_values($bookedSlots);
+
+        // Parse date for capacity lookup
+        $dateObj = Carbon::parse($date);
 
         $availableSlots = [];
         $currentTime = strtotime($workingHours['start']);
@@ -1028,8 +1231,10 @@ class AppointmentController extends Controller
         while ($currentTime <= $endTime) {
             $timeSlot = date('H:i', $currentTime);
             
-            // Check if slot is not booked
-            $isAvailable = !in_array($timeSlot, $bookedSlots);
+            // Check if slot has remaining capacity (not just booked/unbooked)
+            $currentBookings = $bookingCounts[$timeSlot] ?? 0;
+            $slotCapacity = $this->getSlotCapacity($dateObj, $timeSlot);
+            $isAvailable = $currentBookings < $slotCapacity;
             
             // Check unavailable records for unavailability
             if ($isAvailable && $unavailableRecords->isNotEmpty()) {
@@ -1181,6 +1386,239 @@ class AppointmentController extends Controller
     }
 
     /**
+     * Smart alternative time slot suggestions
+     * When a user selects an unavailable time, suggests the closest available slots
+     * on the same day and nearby dates with AI-powered scoring
+     */
+    public function suggestAlternativeSlots(Request $request)
+    {
+        $request->validate([
+            'preferred_date' => 'required|date|after_or_equal:today',
+            'preferred_time' => 'required|date_format:H:i',
+            'days_ahead' => 'nullable|integer|min:1|max:30',
+        ]);
+
+        $preferredDate = Carbon::parse($request->preferred_date);
+        $preferredTime = $request->preferred_time;
+        $daysAhead = $request->days_ahead ?? 7;
+
+        // -------------------------------------------
+        // 1) Same-day alternative slots (closest first)
+        // -------------------------------------------
+        $sameDaySlots = $this->getAvailableSlotsForDate($preferredDate->toDateString());
+
+        // Score and sort same-day slots by proximity to preferred time
+        $preferredMinutes = $this->timeToMinutes($preferredTime);
+        $sameDaySuggestions = [];
+
+        foreach ($sameDaySlots as $slot) {
+            $slotMinutes = $this->timeToMinutes($slot['time']);
+            $distanceMinutes = abs($slotMinutes - $preferredMinutes);
+
+            // Compute AI recommendation score (0-100)
+            $score = $this->computeSlotScore($distanceMinutes, $slot['capacity_remaining'] ?? 1, $slot['time']);
+
+            $sameDaySuggestions[] = [
+                'time' => $slot['time'],
+                'display' => $slot['display'],
+                'distance_minutes' => $distanceMinutes,
+                'capacity_remaining' => $slot['capacity_remaining'] ?? 1,
+                'score' => $score,
+                'label' => $this->getSlotLabel($distanceMinutes, $score),
+                'is_closest' => false, // will be set below
+            ];
+        }
+
+        // Sort by distance (closest to preferred time first)
+        usort($sameDaySuggestions, fn($a, $b) => $a['distance_minutes'] <=> $b['distance_minutes']);
+
+        // Mark the closest slot
+        if (!empty($sameDaySuggestions)) {
+            $sameDaySuggestions[0]['is_closest'] = true;
+        }
+
+        // Take top 6 closest same-day slots
+        $sameDaySuggestions = array_slice($sameDaySuggestions, 0, 6);
+
+        // -------------------------------------------
+        // 2) Nearby date alternatives (next available dates)
+        // -------------------------------------------
+        $nearbyDates = [];
+        $maxDateSuggestions = 3;
+
+        for ($i = 1; $i <= $daysAhead && count($nearbyDates) < $maxDateSuggestions; $i++) {
+            $checkDate = $preferredDate->copy()->addDays($i);
+
+            // Skip weekends
+            if ($checkDate->isWeekend()) {
+                continue;
+            }
+
+            // Skip blackout dates
+            $isBlackedOut = BlackoutDate::where(function($query) use ($checkDate) {
+                $query->where('date', $checkDate->toDateString())
+                      ->orWhere(function($q) use ($checkDate) {
+                          $dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+                          $dayName = $dayNames[$checkDate->dayOfWeek];
+                          $q->where('is_recurring', true)
+                            ->whereJsonContains('recurring_days', $dayName);
+                      });
+            })->exists();
+
+            if ($isBlackedOut) continue;
+
+            // Skip unavailable dates
+            $isUnavailable = UnavailableDate::where('date', $checkDate->toDateString())
+                ->where('all_day', true)
+                ->exists();
+            if ($isUnavailable) continue;
+
+            $dateSlots = $this->getAvailableSlotsForDate($checkDate->toDateString());
+            if (empty($dateSlots)) continue;
+
+            // Find the slot closest to the preferred time on this date
+            $bestSlot = null;
+            $bestDistance = PHP_INT_MAX;
+            foreach ($dateSlots as $slot) {
+                $dist = abs($this->timeToMinutes($slot['time']) - $preferredMinutes);
+                if ($dist < $bestDistance) {
+                    $bestDistance = $dist;
+                    $bestSlot = $slot;
+                }
+            }
+
+            $nearbyDates[] = [
+                'date' => $checkDate->toDateString(),
+                'day_name' => $checkDate->format('l'),
+                'formatted_date' => $checkDate->format('M d, Y'),
+                'total_available_slots' => count($dateSlots),
+                'closest_time' => $bestSlot ? $bestSlot['time'] : null,
+                'closest_time_display' => $bestSlot ? $bestSlot['display'] : null,
+                'available_times' => array_map(fn($s) => [
+                    'time' => $s['time'],
+                    'display' => $s['display'],
+                    'capacity_remaining' => $s['capacity_remaining'] ?? 1,
+                ], array_slice($dateSlots, 0, 4)),
+            ];
+        }
+
+        // -------------------------------------------
+        // 3) Build AI recommendation summary
+        // -------------------------------------------
+        $bestRecommendation = null;
+        if (!empty($sameDaySuggestions)) {
+            // Recommend the highest-scored same-day slot
+            $topScored = $sameDaySuggestions;
+            usort($topScored, fn($a, $b) => $b['score'] <=> $a['score']);
+            $best = $topScored[0];
+            $bestRecommendation = [
+                'type' => 'same_day',
+                'date' => $preferredDate->toDateString(),
+                'time' => $best['time'],
+                'display' => $best['display'],
+                'score' => $best['score'],
+                'message' => $this->getRecommendationMessage($best, $preferredTime),
+            ];
+        } elseif (!empty($nearbyDates)) {
+            $nd = $nearbyDates[0];
+            $bestRecommendation = [
+                'type' => 'nearby_date',
+                'date' => $nd['date'],
+                'time' => $nd['closest_time'],
+                'display' => $nd['closest_time_display'],
+                'score' => 80,
+                'message' => "No same-day slots available. The nearest opening is on {$nd['day_name']}, {$nd['formatted_date']} at {$nd['closest_time_display']}.",
+            ];
+        }
+
+        return response()->json([
+            'success' => true,
+            'preferred_date' => $preferredDate->toDateString(),
+            'preferred_time' => $preferredTime,
+            'same_day_slots' => $sameDaySuggestions,
+            'nearby_dates' => $nearbyDates,
+            'ai_recommendation' => $bestRecommendation,
+            'has_same_day_options' => !empty($sameDaySuggestions),
+            'total_suggestions' => count($sameDaySuggestions) + count($nearbyDates),
+        ]);
+    }
+
+    /**
+     * Convert HH:MM time string to total minutes from midnight
+     */
+    private function timeToMinutes(string $time): int
+    {
+        $parts = explode(':', $time);
+        return ((int) $parts[0]) * 60 + ((int) ($parts[1] ?? 0));
+    }
+
+    /**
+     * Compute an AI recommendation score for a time slot (0-100)
+     */
+    private function computeSlotScore(int $distanceMinutes, int $capacityRemaining, string $time): int
+    {
+        $score = 100;
+
+        // Penalize distance from preferred time (up to -50 points)
+        $distancePenalty = min(50, (int)($distanceMinutes / 3));
+        $score -= $distancePenalty;
+
+        // Bonus for high capacity remaining (+10 max)
+        $capacityBonus = min(10, $capacityRemaining * 3);
+        $score += $capacityBonus;
+
+        // Prefer mid-morning and early afternoon (+5)
+        $hour = (int) explode(':', $time)[0];
+        if ($hour >= 9 && $hour <= 11) $score += 5;  // Morning prime
+        if ($hour >= 13 && $hour <= 15) $score += 3;  // Afternoon prime
+
+        // Penalize early morning and late afternoon slightly
+        if ($hour === 8) $score -= 3;
+        if ($hour >= 16) $score -= 5;
+
+        return max(0, min(100, $score));
+    }
+
+    /**
+     * Get human-readable label for a slot suggestion
+     */
+    private function getSlotLabel(int $distanceMinutes, int $score): string
+    {
+        if ($distanceMinutes <= 30) {
+            return 'Closest Available';
+        }
+        if ($distanceMinutes <= 60) {
+            return 'Near Your Preference';
+        }
+        if ($score >= 80) {
+            return 'Highly Recommended';
+        }
+        if ($score >= 60) {
+            return 'Good Option';
+        }
+        return 'Available';
+    }
+
+    /**
+     * Generate AI recommendation message
+     */
+    private function getRecommendationMessage(array $slot, string $preferredTime): string
+    {
+        $distance = $slot['distance_minutes'];
+
+        if ($distance === 0) {
+            return "Great news! Your preferred time at {$slot['display']} is available.";
+        }
+        if ($distance <= 30) {
+            return "We recommend {$slot['display']} — it's just {$distance} minutes from your preferred time of {$preferredTime} and has good availability.";
+        }
+        if ($distance <= 60) {
+            return "{$slot['display']} is the closest available slot, about {$distance} minutes from your preferred time.";
+        }
+        return "{$slot['display']} is available today with {$slot['capacity_remaining']} spots remaining.";
+    }
+
+    /**
      * Helper method to get available slots for a specific date
      */
     private function getAvailableSlotsForDate($date)
@@ -1258,6 +1696,23 @@ class AppointmentController extends Controller
         Cache::forget('admin_batch_full_load_yearly');
         Cache::forget('admin_batch_full_load_all');
 
+        // Clear admin appointments listing cache so status changes appear immediately
+        // Use a tagged approach: store known cache keys and clear them all
+        // Clear every possible combination of admin_appointments cache keys
+        Cache::forget('admin_appointments_' . md5(json_encode([])));
+        Cache::forget('admin_appointments_' . md5('[]'));
+        // Clear with all possible param orders and timeframe combos
+        foreach (['daily', 'weekly', 'monthly', 'yearly', 'all'] as $tf) {
+            Cache::forget('admin_appointments_' . md5(json_encode(['limit' => '1000', 'timeframe' => $tf])));
+            Cache::forget('admin_appointments_' . md5(json_encode(['timeframe' => $tf, 'limit' => '1000'])));
+            Cache::forget('admin_appointments_' . md5(json_encode(['timeframe' => $tf])));
+            // Also clear with integer limit (in case PHP casts differently)
+            Cache::forget('admin_appointments_' . md5(json_encode(['limit' => 1000, 'timeframe' => $tf])));
+        }
+        // Note: Cache::flush() was removed here - it nukes the ENTIRE application cache
+        // including sessions, rate-limit counters, and chatbot caches. The targeted
+        // Cache::forget() calls above handle appointment-specific cache invalidation.
+
         // Clear analytics caches - when appointments change, analytics need to be recalculated
         Cache::forget('analytics_slot_utilization_30');
         Cache::forget('analytics_slot_utilization_7');
@@ -1275,7 +1730,8 @@ class AppointmentController extends Controller
     public function getCompletedAppointmentsPublic(Request $request)
     {
         try {
-            $limit = $request->input('limit', 3);
+            // Cap limit to prevent data dumping
+            $limit = min((int)$request->input('limit', 3), 10);
 
             $appointments = Appointment::where('status', 'completed')
                 ->with([
@@ -1283,16 +1739,16 @@ class AppointmentController extends Controller
                     'service:id,name,price'
                 ])
                 ->orderBy('completed_at', 'desc')
+                ->orderBy('updated_at', 'desc')
                 ->limit($limit)
                 ->get()
                 ->map(function ($apt) {
                     return [
-                        'id' => $apt->id,
+                        // Do not expose internal IDs or private notes publicly
                         'user' => [
-                            'name' => $apt->user?->first_name . ' ' . $apt->user?->last_name
+                            'name' => ($apt->user ? substr($apt->user->first_name, 0, 1) . '. ' . $apt->user->last_name : 'Client')
                         ],
                         'type' => $apt->service?->name ?? $apt->service_type ?? 'Service',
-                        'notes' => $apt->notes ?? 'Successfully completed appointment',
                         'completed_at' => $apt->completed_at?->toDateTimeString()
                     ];
                 });

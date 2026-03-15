@@ -1,5 +1,9 @@
 // config/apiConfig.js
 /**
+ * @deprecated This file is NOT imported anywhere in the codebase.
+ * Cache configuration is handled inline in hooks/useApi.js.
+ * Safe to remove after verifying no new imports reference it.
+ *
  * API Configuration for Smart Caching and Performance Optimization
  * 
  * This configuration defines:

@@ -11,7 +11,7 @@ export const useUserAPI = () => {
   const fetchUsers = useCallback(async () => {
     try {
       const result = await callApi(async () => {
-        const response = await axios.get('/api/users', { timeout: 10000 });
+        const response = await axios.get('/api/admin/users?limit=1000', { timeout: 10000 });
         let usersData = [];
         const payload = response.data?.data || response.data || response.data?.users || response.data;
         
@@ -39,17 +39,16 @@ export const useUserAPI = () => {
   const fetchAdmins = useCallback(async () => {
     try {
       const result = await callApi(async () => {
-        const response = await axios.get('/api/users', { timeout: 10000 });
-        let allUsers = [];
+        const response = await axios.get('/api/admin/users?role=admin&include_self=true&limit=1000', { timeout: 10000 });
+        let adminsData = [];
         const payload = response.data?.data || response.data || response.data?.users || response.data;
         
         if (Array.isArray(payload)) {
-          allUsers = payload;
+          adminsData = payload;
         } else if (payload && typeof payload === 'object') {
-          allUsers = Object.values(payload).filter(item => item && typeof item === 'object');
+          adminsData = Object.values(payload).filter(item => item && typeof item === 'object');
         }
         
-        const adminsData = allUsers.filter(user => user.role === 'admin');
         return { 
           data: adminsData.map(admin => ({ 
             ...admin, 
@@ -67,7 +66,7 @@ export const useUserAPI = () => {
 
   const saveUser = useCallback(async (userData, userId = null) => {
     try {
-      const url = userId ? `/api/users/${userId}` : '/api/users';
+      const url = userId ? `/api/admin/users/${userId}` : '/api/admin/users';
       const method = userId ? 'PUT' : 'POST';
 
       const requestData = {
@@ -97,7 +96,7 @@ export const useUserAPI = () => {
   const deleteUser = useCallback(async (userId) => {
     try {
       const result = await callApi(() => 
-        axios.delete(`/api/users/${userId}`, { timeout: 15000 })
+        axios.delete(`/api/admin/users/${userId}`, { timeout: 15000 })
       );
       return result.success;
     } catch (error) {
@@ -109,7 +108,7 @@ export const useUserAPI = () => {
   const toggleUserStatus = useCallback(async (userId, newStatus) => {
     try {
       const result = await callApi(() => 
-        axios.put(`/api/users/${userId}`, { is_active: newStatus }, { timeout: 15000 })
+        axios.put(`/api/users/${userId}/toggle-status`, {}, { timeout: 15000 })
       );
       return result.success;
     } catch (error) {

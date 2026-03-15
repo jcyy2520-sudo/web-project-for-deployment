@@ -23,7 +23,7 @@ const AdminFormModal = ({ isOpen, onClose, admin, onSave, loading, isDarkMode = 
         phone: admin.phone || '',
         address: admin.address || '',
         password: '',
-        role: 'admin'
+        role: admin.role || 'admin'
       });
     } else if (isOpen) {
       setFormData({
@@ -201,6 +201,24 @@ const AdminFormModal = ({ isOpen, onClose, admin, onSave, loading, isDarkMode = 
               )}
             </div>
           )}
+
+          <div>
+            <label className={`block text-xs font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-1`}>
+              Role *
+            </label>
+            <select
+              value={formData.role}
+              onChange={(e) => setFormData(prev => ({ ...prev, role: e.target.value }))}
+              className={`w-full px-3 py-2 ${isDarkMode ? 'bg-gray-800 border-gray-600 text-white' : 'bg-gray-50 border-gray-300 text-gray-900'} border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm`}
+              disabled={loading}
+            >
+              <option value="admin">Admin</option>
+              <option value="cashier">Cashier</option>
+            </select>
+            <p className={`text-xs mt-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+              {formData.role === 'admin' ? 'Full access to admin dashboard' : 'Limited access to cashier functions'}
+            </p>
+          </div>
 
           <div className={`flex justify-end space-x-3 pt-4 border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
             <button

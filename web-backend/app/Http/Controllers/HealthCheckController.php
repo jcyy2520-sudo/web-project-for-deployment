@@ -76,7 +76,7 @@ class HealthCheckController extends Controller
             return [
                 'status' => 'critical',
                 'connection' => config('database.default'),
-                'error' => $e->getMessage(),
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred',
             ];
         }
     }
@@ -108,7 +108,7 @@ class HealthCheckController extends Controller
             return [
                 'status' => 'unhealthy',
                 'driver' => config('cache.default'),
-                'error' => $e->getMessage(),
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred',
             ];
         }
     }
@@ -146,7 +146,7 @@ class HealthCheckController extends Controller
             return [
                 'status' => 'critical',
                 'writable' => false,
-                'error' => $e->getMessage(),
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred',
             ];
         }
     }
@@ -193,7 +193,7 @@ class HealthCheckController extends Controller
             return [
                 'status' => 'unhealthy',
                 'driver' => config('queue.default'),
-                'error' => $e->getMessage(),
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred',
             ];
         }
     }

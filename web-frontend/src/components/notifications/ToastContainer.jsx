@@ -50,9 +50,9 @@ const Toast = ({ id, title, message, type = 'info', duration = 5000, onClose }) 
   const IconComponent = styles.icon;
 
   return (
-    <div className={`${styles.bg} border ${styles.border} rounded-lg shadow-lg p-4 mb-3 animate-slideDown max-w-sm`}>
+    <div role="alert" aria-live="assertive" className={`${styles.bg} border ${styles.border} rounded-lg shadow-lg p-4 mb-3 animate-slideDown max-w-sm`}>
       <div className="flex items-start gap-3">
-        <IconComponent className={`h-5 w-5 ${styles.iconColor} flex-shrink-0 mt-0.5`} />
+        <IconComponent className={`h-5 w-5 ${styles.iconColor} flex-shrink-0 mt-0.5`} aria-hidden="true" />
         <div className="flex-1">
           <h3 className="text-sm font-semibold text-white">{title}</h3>
           {message && <p className="text-xs text-gray-300 mt-1">{message}</p>}
@@ -60,6 +60,7 @@ const Toast = ({ id, title, message, type = 'info', duration = 5000, onClose }) 
         <button
           onClick={() => onClose(id)}
           className="text-gray-400 hover:text-gray-300 flex-shrink-0"
+          aria-label="Dismiss notification"
         >
           ✕
         </button>

@@ -16,6 +16,8 @@ const UserManagement = () => {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [userToDelete, setUserToDelete] = useState(null);
   const [selectedUser, setSelectedUser] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
@@ -38,13 +40,15 @@ const UserManagement = () => {
   }, [searchTerm, roleFilter]);
 
   const loadUsers = async () => {
-    let url = '/api/users';
+    let url = '/api/admin/users';
     const params = new URLSearchParams();
     
     if (searchTerm) params.append('search', searchTerm);
     if (roleFilter !== 'all') params.append('role', roleFilter);
+    params.append('limit', '1000');
+    params.append('include_self', 'true');
     
-    if (params.toString()) url += `?${params.toString()}`;
+    url += `?${params.toString()}`;
 
     const result = await callApi((signal) => axios.get(url, { signal }));
     if (result.success) {
@@ -54,37 +58,42 @@ const UserManagement = () => {
 
   const handleCreateUser = async (e) => {
     e.preventDefault();
-    const result = await callApi((signal) => axios.post('/api/users', formData, { signal }));
+    const result = await callApi((signal) => axios.post('/api/admin/users', formData, { signal }));
 
     if (result.success) {
       setIsCreateModalOpen(false);
       resetForm();
       loadUsers();
-      alert('User created successfully!');
+      window.showToast?.('Success', 'User created successfully!', 'success');
     }
   };
 
   const handleUpdateUser = async (e) => {
     e.preventDefault();
-    const result = await callApi((signal) => axios.put(`/api/users/${selectedUser.id}`, formData, { signal }));
+    const result = await callApi((signal) => axios.put(`/api/admin/users/${selectedUser.id}`, formData, { signal }));
 
     if (result.success) {
       setIsEditModalOpen(false);
       resetForm();
       loadUsers();
-      alert('User updated successfully!');
+      window.showToast?.('Success', 'User updated successfully!', 'success');
     }
   };
 
   const handleDeleteUser = async (userId) => {
-    if (!confirm('Are you sure you want to delete this user?')) return;
-
-    const result = await callApi((signal) => axios.delete(`/api/users/${userId}`, { signal }));
+    const result = await callApi((signal) => axios.delete(`/api/admin/users/${userId}`, { signal }));
 
     if (result.success) {
+      setIsDeleteConfirmOpen(false);
+      setUserToDelete(null);
       loadUsers();
-      alert('User deleted successfully!');
+      window.showToast?.('Success', 'User deleted successfully!', 'success');
     }
+  };
+
+  const confirmDeleteUser = (user) => {
+    setUserToDelete(user);
+    setIsDeleteConfirmOpen(true);
   };
 
   const resetForm = () => {
@@ -127,6 +136,7 @@ const UserManagement = () => {
     switch (role) {
       case 'admin': return 'bg-purple-100 text-purple-800 dark:bg-purple-500/20 dark:text-purple-300';
       case 'staff': return 'bg-blue-100 text-blue-800 dark:bg-blue-500/20 dark:text-blue-300';
+      case 'cashier': return 'bg-amber-100 text-amber-800 dark:bg-amber-500/20 dark:text-amber-300';
       case 'client': return 'bg-green-100 text-green-800 dark:bg-green-500/20 dark:text-green-300';
       default: return 'bg-slate-300 text-slate-900 dark:bg-slate-500/30 dark:text-slate-200';
     }
@@ -173,6 +183,7 @@ const UserManagement = () => {
             >
               <option value="all">All Roles</option>
               <option value="admin">Admin</option>
+              <option value="cashier">Cashier</option>
               <option value="staff">Staff</option>
               <option value="client">Client</option>
             </select>
@@ -248,7 +259,7 @@ const UserManagement = () => {
                             <PencilIcon className="h-4 w-4" />
                           </button>
                           <button
-                            onClick={() => handleDeleteUser(user.id)}
+                            onClick={() => confirmDeleteUser(user)}
                             className="text-red-600 hover:text-red-900 hover:bg-red-50 p-1.5 rounded"
                             title="Delete"
                           >
@@ -343,6 +354,7 @@ const UserManagement = () => {
                 required
               >
                 <option value="admin">Admin</option>
+                <option value="cashier">Cashier</option>
                 <option value="staff">Staff</option>
                 <option value="client">Client</option>
               </select>
@@ -473,6 +485,7 @@ const UserManagement = () => {
                   required
                 >
                   <option value="admin">Admin</option>
+                  <option value="cashier">Cashier</option>
                   <option value="staff">Staff</option>
                   <option value="client">Client</option>
                 </select>
@@ -601,6 +614,40 @@ const UserManagement = () => {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        isOpen={isDeleteConfirmOpen}
+        onClose={() => { setIsDeleteConfirmOpen(false); setUserToDelete(null); }}
+        title="Confirm Delete"
+        size="sm"
+        isDarkMode={false}
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600">
+            Are you sure you want to delete{' '}
+            <span className="font-semibold text-gray-900">
+              {userToDelete?.first_name} {userToDelete?.last_name}
+            </span>
+            ? This action cannot be undone.
+          </p>
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              onClick={() => { setIsDeleteConfirmOpen(false); setUserToDelete(null); }}
+              className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => handleDeleteUser(userToDelete?.id)}
+              disabled={loading}
+              className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors disabled:opacity-50"
+            >
+              {loading ? 'Deleting...' : 'Delete User'}
+            </button>
+          </div>
+        </div>
       </Modal>
     </div>
   );

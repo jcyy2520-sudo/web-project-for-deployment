@@ -13,7 +13,8 @@ class VerificationCode extends Model
         'email',
         'code',
         'expires_at',
-        'used'
+        'used',
+        'ip_address'
     ];
 
     protected $casts = [

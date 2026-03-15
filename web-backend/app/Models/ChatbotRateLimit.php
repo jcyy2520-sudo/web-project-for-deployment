@@ -44,6 +44,24 @@ class ChatbotRateLimit extends Model
     }
 
     /**
+     * Build a scoped identity query that avoids IP-based OR matching.
+     * Authenticated users are matched ONLY by user_id.
+     * Guests are matched by session_id AND ip_address together.
+     */
+    private static function scopeIdentity($query, ?int $userId, ?string $sessionId, ?string $ipAddress)
+    {
+        if ($userId) {
+            $query->where('user_id', $userId);
+        } else {
+            $query->where(function ($q) use ($sessionId, $ipAddress) {
+                if ($sessionId) $q->where('session_id', $sessionId);
+                if ($ipAddress) $q->where('ip_address', $ipAddress);
+            });
+        }
+        return $query;
+    }
+
+    /**
      * Check if a user/session is rate limited
      */
     public static function isRateLimited(?int $userId, ?string $sessionId, ?string $ipAddress, ?string $conversationId = null): array
@@ -54,12 +72,17 @@ class ChatbotRateLimit extends Model
             return ['limited' => false, 'reason' => null, 'remaining' => self::MESSAGES_PER_CONVERSATION];
         }
 
+        // Housekeeping: purge expired blocks and stale windows on each check
+        try {
+            self::where('is_blocked', true)->where('blocked_until', '<', now())->delete();
+            self::where('is_blocked', false)->where('window_start', '<', now()->subHour())->delete();
+        } catch (\Exception $e) {
+            // Non-critical — don't block the request if cleanup fails
+        }
+
         // Check for blocked status
-        $blocked = self::where(function($q) use ($userId, $sessionId, $ipAddress) {
-                if ($userId) $q->orWhere('user_id', $userId);
-                if ($sessionId) $q->orWhere('session_id', $sessionId);
-                if ($ipAddress) $q->orWhere('ip_address', $ipAddress);
-            })
+        $blocked = self::query()
+            ->tap(fn($q) => self::scopeIdentity($q, $userId, $sessionId, $ipAddress))
             ->where('is_blocked', true)
             ->where('blocked_until', '>', now())
             ->first();
@@ -99,11 +122,8 @@ class ChatbotRateLimit extends Model
         }
 
         // Check per-minute rate limit
-        $recentMinute = self::where(function($q) use ($userId, $sessionId, $ipAddress) {
-                if ($userId) $q->orWhere('user_id', $userId);
-                if ($sessionId) $q->orWhere('session_id', $sessionId);
-                if ($ipAddress) $q->orWhere('ip_address', $ipAddress);
-            })
+        $recentMinute = self::query()
+            ->tap(fn($q) => self::scopeIdentity($q, $userId, $sessionId, $ipAddress))
             ->where('window_start', '>=', now()->subMinute())
             ->sum('message_count');
 
@@ -111,18 +131,15 @@ class ChatbotRateLimit extends Model
             return [
                 'limited' => true,
                 'reason' => 'rate_limit',
-                'message' => 'Please slow down. You can send up to 5 messages per minute.',
+                'message' => 'Please slow down. You can send up to ' . self::MESSAGES_PER_MINUTE . ' messages per minute.',
                 'remaining' => 0,
                 'retry_after' => 60,
             ];
         }
 
-        // Check spam detection (3 messages in 10 seconds)
-        $recentSeconds = self::where(function($q) use ($userId, $sessionId, $ipAddress) {
-                if ($userId) $q->orWhere('user_id', $userId);
-                if ($sessionId) $q->orWhere('session_id', $sessionId);
-                if ($ipAddress) $q->orWhere('ip_address', $ipAddress);
-            })
+        // Check spam detection (4 messages in 10 seconds)
+        $recentSeconds = self::query()
+            ->tap(fn($q) => self::scopeIdentity($q, $userId, $sessionId, $ipAddress))
             ->where('window_start', '>=', now()->subSeconds(10))
             ->sum('message_count');
 
@@ -150,18 +167,22 @@ class ChatbotRateLimit extends Model
     }
 
     /**
-     * Increment message count
+     * Increment message count.
+     * Uses the same identity scoping as isRateLimited() — authenticated users
+     * are keyed by user_id only; guests by session_id + ip_address.
      */
     public static function incrementCount(?int $userId, ?string $sessionId, ?string $ipAddress, ?string $conversationId): void
     {
+        $lookupKey = $userId
+            ? ['user_id' => $userId, 'window_start' => now()->startOfMinute()]
+            : ['session_id' => $sessionId, 'ip_address' => $ipAddress, 'window_start' => now()->startOfMinute()];
+
         $record = self::firstOrCreate(
+            $lookupKey,
             [
                 'user_id' => $userId,
                 'session_id' => $sessionId,
                 'ip_address' => $ipAddress,
-                'window_start' => now()->startOfMinute(),
-            ],
-            [
                 'conversation_id' => $conversationId,
                 'message_count' => 0,
                 'window_end' => now()->addMinute(),

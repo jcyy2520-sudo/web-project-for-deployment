@@ -125,7 +125,7 @@ class BookingLimitProductionTest extends TestCase
     {
         // Book 2 for today
         for ($i = 0; $i < 2; $i++) {
-            Appointment::create([
+            Appointment::forceCreate([
                 'user_id' => $this->client->id,
                 'type' => 'consultation',
                 'appointment_date' => $this->tomorrow,
@@ -149,7 +149,7 @@ class BookingLimitProductionTest extends TestCase
     /** @test Cancelled appointments don't count toward limit */
     public function cancelled_appointment_frees_up_limit()
     {
-        $apt1 = Appointment::create([
+        $apt1 = Appointment::forceCreate([
             'user_id' => $this->client->id,
             'type' => 'consultation',
             'appointment_date' => $this->tomorrow,
@@ -157,7 +157,7 @@ class BookingLimitProductionTest extends TestCase
             'status' => 'pending'
         ]);
 
-        $apt2 = Appointment::create([
+        $apt2 = Appointment::forceCreate([
             'user_id' => $this->client->id,
             'type' => 'consultation',
             'appointment_date' => $this->tomorrow,
@@ -194,7 +194,7 @@ class BookingLimitProductionTest extends TestCase
         // Fill a time slot to capacity (3)
         for ($i = 0; $i < 3; $i++) {
             $user = User::factory()->create(['role' => 'client']);
-            Appointment::create([
+            Appointment::forceCreate([
                 'user_id' => $user->id,
                 'type' => 'consultation',
                 'appointment_date' => $this->tomorrow,
@@ -221,7 +221,7 @@ class BookingLimitProductionTest extends TestCase
         // Fill slot at 08:00 to capacity
         for ($i = 0; $i < 3; $i++) {
             $user = User::factory()->create(['role' => 'client']);
-            Appointment::create([
+            Appointment::forceCreate([
                 'user_id' => $user->id,
                 'type' => 'consultation',
                 'appointment_date' => $this->tomorrow,
@@ -231,7 +231,7 @@ class BookingLimitProductionTest extends TestCase
         }
 
         // Book our client at different times to reach user limit
-        Appointment::create([
+        Appointment::forceCreate([
             'user_id' => $this->client->id,
             'type' => 'consultation',
             'appointment_date' => $this->tomorrow,
@@ -239,7 +239,7 @@ class BookingLimitProductionTest extends TestCase
             'status' => 'pending'
         ]);
 
-        Appointment::create([
+        Appointment::forceCreate([
             'user_id' => $this->client->id,
             'type' => 'consultation',
             'appointment_date' => $this->tomorrow,
@@ -261,7 +261,7 @@ class BookingLimitProductionTest extends TestCase
     /** @test Limit info endpoint accurate */
     public function user_limit_endpoint_accurate()
     {
-        Appointment::create([
+        Appointment::forceCreate([
             'user_id' => $this->client->id,
             'type' => 'consultation',
             'appointment_date' => $this->tomorrow,
@@ -286,7 +286,7 @@ class BookingLimitProductionTest extends TestCase
     {
         // Book 2 (at limit of 2)
         for ($i = 0; $i < 2; $i++) {
-            Appointment::create([
+            Appointment::forceCreate([
                 'user_id' => $this->client->id,
                 'type' => 'consultation',
                 'appointment_date' => $this->tomorrow,
@@ -339,7 +339,7 @@ class BookingLimitProductionTest extends TestCase
         $nextDay = now()->addDays(2)->format('Y-m-d');
         
         // Book today
-        Appointment::create([
+        Appointment::forceCreate([
             'user_id' => $this->client->id,
             'type' => 'consultation',
             'appointment_date' => $this->tomorrow,
@@ -347,7 +347,7 @@ class BookingLimitProductionTest extends TestCase
             'status' => 'pending'
         ]);
 
-        Appointment::create([
+        Appointment::forceCreate([
             'user_id' => $this->client->id,
             'type' => 'consultation',
             'appointment_date' => $this->tomorrow,
@@ -380,7 +380,7 @@ class BookingLimitProductionTest extends TestCase
     {
         // Fill client limit
         for ($i = 0; $i < 2; $i++) {
-            Appointment::create([
+            Appointment::forceCreate([
                 'user_id' => $this->client->id,
                 'type' => 'consultation',
                 'appointment_date' => $this->tomorrow,

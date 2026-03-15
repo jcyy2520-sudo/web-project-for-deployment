@@ -35,10 +35,10 @@ const DisasterRecovery = () => {
     try {
       setLoading(true);
       const response = await axios.post('/api/backups/create');
-      alert('Backup created successfully!');
+      window.showToast?.('Success', 'Backup created successfully!', 'success');
       fetchBackupData();
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to create backup');
+      window.showToast?.('Error', err.response?.data?.message || 'Failed to create backup', 'error');
     } finally {
       setLoading(false);
     }
@@ -47,10 +47,10 @@ const DisasterRecovery = () => {
   const verifyBackup = async (id) => {
     try {
       const response = await axios.get(`/api/backups/${id}/verify`);
-      alert(response.data.message || 'Backup verified successfully!');
+      window.showToast?.('Success', response.data.message || 'Backup verified successfully!', 'success');
       fetchBackupData();
     } catch (err) {
-      alert(err.response?.data?.message || 'Verification failed');
+      window.showToast?.('Error', err.response?.data?.message || 'Verification failed', 'error');
     }
   };
 
@@ -58,12 +58,12 @@ const DisasterRecovery = () => {
     try {
       const response = await axios.post(`/api/backups/${id}/test-restore`);
       if (response.data.success) {
-        alert(`Test Passed!\n${response.data.message}\nFile Size: ${response.data.file_size_mb} MB`);
+        window.showToast?.('Success', `Test Passed!\n${response.data.message}\nFile Size: ${response.data.file_size_mb} MB`, 'success');
       } else {
-        alert(`Test Failed: ${response.data.error}`);
+        window.showToast?.('Error', `Test Failed: ${response.data.error}`, 'error');
       }
     } catch (err) {
-      alert(err.response?.data?.message || 'Test failed');
+      window.showToast?.('Error', err.response?.data?.message || 'Test failed', 'error');
     }
   };
 
@@ -73,7 +73,7 @@ const DisasterRecovery = () => {
       setSelectedBackup(response.data);
       setShowRecoveryPlan(true);
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to get recovery plan');
+      window.showToast?.('Error', err.response?.data?.message || 'Failed to get recovery plan', 'error');
     }
   };
 

@@ -1,5 +1,11 @@
 <?php
 
+/**
+ * @deprecated This file is DEAD CODE in Laravel 11+.
+ * Exception handling is configured in bootstrap/app.php via withExceptions().
+ * This file is safe to delete — the framework does not load it.
+ */
+
 namespace App\Exceptions;
 
 use Throwable;

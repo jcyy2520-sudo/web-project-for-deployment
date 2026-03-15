@@ -21,36 +21,23 @@ return new class extends Migration
         // Appointments table indexes - most critical for dashboard
         Schema::table('appointments', function (Blueprint $table) {
             // Check if index already exists before creating
-            $indexExists = DB::select(
-                "SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS WHERE table_name='appointments' AND index_name='idx_appointments_status'"
-            );
-            
-            if (empty($indexExists)) {
+            if (!Schema::hasIndex('appointments', 'idx_appointments_status')) {
                 $table->index('status', 'idx_appointments_status');
             }
             
             // Index for user appointments
-            $indexExists = DB::select(
-                "SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS WHERE table_name='appointments' AND index_name='idx_appointments_user_id'"
-            );
-            if (empty($indexExists)) {
+            if (!Schema::hasIndex('appointments', 'idx_appointments_user_id')) {
                 $table->index('user_id', 'idx_appointments_user_id');
             }
         });
 
         // Users table indexes
         Schema::table('users', function (Blueprint $table) {
-            $indexExists = DB::select(
-                "SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS WHERE table_name='users' AND index_name='idx_users_role'"
-            );
-            if (empty($indexExists)) {
+            if (!Schema::hasIndex('users', 'idx_users_role')) {
                 $table->index('role', 'idx_users_role');
             }
             
-            $indexExists = DB::select(
-                "SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS WHERE table_name='users' AND index_name='idx_users_is_active'"
-            );
-            if (empty($indexExists)) {
+            if (!Schema::hasIndex('users', 'idx_users_is_active')) {
                 $table->index('is_active', 'idx_users_is_active');
             }
         });

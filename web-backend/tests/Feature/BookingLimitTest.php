@@ -46,7 +46,7 @@ class BookingLimitTest extends TestCase
         $this->assertFalse($userHasReached, "Should not be at limit with 0 bookings");
         
         // Create 1 appointment
-        Appointment::create([
+        Appointment::forceCreate([
             'user_id' => $this->user->id,
             'type' => 'consultation',
             'appointment_date' => $this->tomorrow,
@@ -62,7 +62,7 @@ class BookingLimitTest extends TestCase
         $this->assertFalse($userHasReached, "Should not be at limit with 1 booking out of 2");
         
         // Create 2nd appointment
-        Appointment::create([
+        Appointment::forceCreate([
             'user_id' => $this->user->id,
             'type' => 'consultation',
             'appointment_date' => $this->tomorrow,
@@ -98,7 +98,7 @@ class BookingLimitTest extends TestCase
         
         // Create 2 on day 1
         for ($i = 0; $i < 2; $i++) {
-            Appointment::create([
+            Appointment::forceCreate([
                 'user_id' => $this->user->id,
                 'type' => 'consultation',
                 'appointment_date' => $day1,
@@ -126,7 +126,7 @@ class BookingLimitTest extends TestCase
         
         // Create many bookings
         for ($i = 0; $i < 10; $i++) {
-            Appointment::create([
+            Appointment::forceCreate([
                 'user_id' => $this->user->id,
                 'type' => 'consultation',
                 'appointment_date' => $this->tomorrow,

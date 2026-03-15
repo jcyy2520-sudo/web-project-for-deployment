@@ -24,10 +24,12 @@ class AppointmentService
                 'service_id' => $data['service_id'] ?? null,
                 'appointment_date' => $data['appointment_date'],
                 'appointment_time' => $data['appointment_time'],
-                'status' => $data['status'] ?? 'pending',
                 'notes' => $data['notes'] ?? null,
                 'type' => $data['type'] ?? 'consultation',
             ]);
+            // New appointments must always start in 'pending' status
+            $appointment->status = 'pending';
+            $appointment->save();
 
             return $appointment;
         } catch (Exception $e) {
@@ -41,10 +43,10 @@ class AppointmentService
     public function updateAppointmentStatus(Appointment $appointment, string $status, string $reason = null): Appointment
     {
         try {
-            $appointment->update([
-                'status' => $status,
-                'decline_reason' => $reason,
-            ]);
+            $appointment->decline_reason = $reason;
+            // Set protected field explicitly (not mass-assignable)
+            $appointment->status = $status;
+            $appointment->save();
 
             return $appointment;
         } catch (Exception $e) {

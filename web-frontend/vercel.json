@@ -7,7 +7,10 @@
       "config": { "distDir": "dist" }
     }
   ],
-  "routes": [],
+  "routes": [
+    { "handle": "filesystem" },
+    { "src": "/(.*)", "dest": "/index.html" }
+  ],
   "env": {
     "VITE_API_URL": "https://legaleaase.site/api"
   }

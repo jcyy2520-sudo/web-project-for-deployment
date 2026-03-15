@@ -63,20 +63,34 @@ class JobController
     {
         $hours = (int) $request->query('hours', 24);
 
-        $query = JobMetric::recent($hours);
+        // Single aggregation query instead of 8 separate COUNT queries
+        $counts = JobMetric::recent($hours)
+            ->selectRaw("
+                COUNT(*) as total,
+                SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
+                SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
+                SUM(CASE WHEN status = 'processing' THEN 1 ELSE 0 END) as processing,
+                SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
+                SUM(CASE WHEN status = 'retried' THEN 1 ELSE 0 END) as retried,
+                AVG(CASE WHEN duration_seconds IS NOT NULL THEN duration_seconds END) as avg_duration,
+                SUM(CASE WHEN status = 'processing' AND started_at < ? THEN 1 ELSE 0 END) as stuck_jobs
+            ", [now()->subMinutes(30)])
+            ->first();
+
+        $total = (int) $counts->total;
+        $completed = (int) $counts->completed;
+        $successRate = $total > 0 ? round(($completed / $total) * 100, 2) : 0;
 
         return response()->json([
-            'total' => (clone $query)->count(),
-            'completed' => (clone $query)->where('status', 'completed')->count(),
-            'failed' => (clone $query)->where('status', 'failed')->count(),
-            'processing' => (clone $query)->where('status', 'processing')->count(),
-            'pending' => (clone $query)->where('status', 'pending')->count(),
-            'retried' => (clone $query)->where('status', 'retried')->count(),
-            'average_duration_seconds' => (clone $query)->whereNotNull('duration_seconds')->avg('duration_seconds'),
-            'success_rate' => JobMetric::getStatistics($hours)['success_rate'],
-            'stuck_jobs' => (clone $query)->where('status', 'processing')
-                ->where('started_at', '<', now()->subMinutes(30))
-                ->count(),
+            'total' => $total,
+            'completed' => $completed,
+            'failed' => (int) $counts->failed,
+            'processing' => (int) $counts->processing,
+            'pending' => (int) $counts->pending,
+            'retried' => (int) $counts->retried,
+            'average_duration_seconds' => $counts->avg_duration,
+            'success_rate' => $successRate,
+            'stuck_jobs' => (int) $counts->stuck_jobs,
         ]);
     }
 

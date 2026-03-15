@@ -25,21 +25,18 @@ const AdminActionLogs = ({ isDarkMode = true }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedUser, setSelectedUser] = useState('');
   const [actionFilter, setActionFilter] = useState('');
-  const [stats, setStats] = useState(null);
   const [selectedLog, setSelectedLog] = useState(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
 
   useEffect(() => {
     loadLogs();
     loadUsers();
-    loadStats();
   }, [currentPage, selectedUser, actionFilter]);
 
   // Real-time polling for action logs - refresh every 5 seconds
   useEffect(() => {
     const pollInterval = setInterval(() => {
       loadLogs(true); // Silent refresh - no loading spinner
-      loadStats(true);
     }, 5000);
 
     return () => clearInterval(pollInterval);
@@ -52,7 +49,7 @@ const AdminActionLogs = ({ isDarkMode = true }) => {
       }
       setError('');
       
-      const response = await axios.get('/api/action-logs/', {
+      const response = await axios.get('/api/action-logs', {
         params: {
           page: currentPage,
           per_page: 10,
@@ -86,17 +83,6 @@ const AdminActionLogs = ({ isDarkMode = true }) => {
       }
     } catch (err) {
       console.error('Error loading users:', err);
-    }
-  };
-
-  const loadStats = async () => {
-    try {
-      const response = await axios.get('/api/action-logs/stats');
-      if (response.data && response.data.data) {
-        setStats(response.data.data);
-      }
-    } catch (err) {
-      console.error('Error loading stats:', err);
     }
   };
 
@@ -168,7 +154,6 @@ const AdminActionLogs = ({ isDarkMode = true }) => {
         <button
           onClick={() => {
             loadLogs();
-            loadStats();
           }}
           className={`px-3 py-1.5 border ${isDarkMode ? 'border-amber-500/30 text-amber-50 hover:bg-amber-500/10' : 'border-amber-300 text-amber-900 hover:bg-amber-100'} rounded transition-all duration-200 font-medium text-sm flex items-center`}
         >
@@ -183,38 +168,6 @@ const AdminActionLogs = ({ isDarkMode = true }) => {
           <div className="flex items-center">
             <ExclamationTriangleIcon className="h-4 w-4 mr-2" />
             <p className="text-sm">{error}</p>
-          </div>
-        </div>
-      )}
-
-      {/* Stats Cards */}
-      {stats && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4 transition-colors duration-300`}>
-            <p className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} transition-colors duration-300`}>
-              Total Actions
-            </p>
-            <p className={`text-2xl font-bold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mt-1 transition-colors duration-300`}>
-              {stats.total_actions || 0}
-            </p>
-          </div>
-
-          <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4 transition-colors duration-300`}>
-            <p className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} transition-colors duration-300`}>
-              Today's Actions
-            </p>
-            <p className={`text-2xl font-bold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mt-1 transition-colors duration-300`}>
-              {stats.today_actions || 0}
-            </p>
-          </div>
-
-          <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4 transition-colors duration-300`}>
-            <p className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} transition-colors duration-300`}>
-              This Month
-            </p>
-            <p className={`text-2xl font-bold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mt-1 transition-colors duration-300`}>
-              {stats.this_month_actions || 0}
-            </p>
           </div>
         </div>
       )}

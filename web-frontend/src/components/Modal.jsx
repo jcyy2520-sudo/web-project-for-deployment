@@ -47,6 +47,7 @@ const Modal = ({ isOpen, onClose, title, children, size = 'md', isDarkMode = tru
                     </Dialog.Title>
                     <button
                       onClick={onClose}
+                      aria-label="Close dialog"
                       className="p-1 rounded-lg transition-all duration-200"
                       style={isDarkMode ? { color: 'rgba(245,158,11,0.7)', backgroundColor: 'transparent' } : { color: 'var(--text-secondary)', backgroundColor: 'transparent' }}
                     >
@@ -56,6 +57,7 @@ const Modal = ({ isOpen, onClose, title, children, size = 'md', isDarkMode = tru
                 ) : (
                   <button
                     onClick={onClose}
+                    aria-label="Close dialog"
                     className="absolute top-4 right-4 p-1 rounded-lg transition-all duration-200 z-10"
                     style={isDarkMode ? { color: 'rgba(245,158,11,0.7)', backgroundColor: 'transparent' } : { color: 'var(--text-secondary)', backgroundColor: 'transparent' }}
                   >

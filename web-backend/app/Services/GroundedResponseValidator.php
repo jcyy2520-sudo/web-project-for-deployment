@@ -23,7 +23,6 @@ use Illuminate\Support\Facades\Log;
  */
 class GroundedResponseValidator
 {
-    private array $systemPrompt;
     private float $confidenceScore = 0.0;
     private string $detectedIntent = '';
     private array $verifiedSources = [];
@@ -33,7 +32,8 @@ class GroundedResponseValidator
 
     public function __construct()
     {
-        $this->systemPrompt = config('chatbot.system_prompt');
+        // System prompt is now built dynamically by DynamicSystemPromptService.
+        // Legacy config('chatbot.system_prompt') reference removed.
     }
 
     /**

@@ -84,7 +84,7 @@ export const useAppointmentAPI = () => {
 
   const updateAppointmentStatus = useCallback(async (appointmentId, status, reason = null) => {
     try {
-      const url = `/api/appointments/${appointmentId}`;
+      const url = `/api/appointments/${appointmentId}/status`;
       const data = { status };
       if (reason) data.decline_reason = reason;
 

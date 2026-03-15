@@ -3,10 +3,11 @@ import axios from 'axios';
 
 /**
  * Custom hook for real-time updates using polling as fallback
- * Checks for changes in slot capacities and appointment settings
+ * Checks for changes in slot capacities, appointment settings,
+ * unavailable dates, and user appointment status updates
  * Triggers callbacks when changes are detected
  */
-export const useRealtimeUpdates = (onCapacityChange, onSettingsChange) => {
+export const useRealtimeUpdates = (onCapacityChange, onSettingsChange, onUnavailableDatesChange, onAppointmentStatusChange) => {
   const lastCheckRef = useRef(new Date());
   const pollingIntervalRef = useRef(null);
   const isPollingRef = useRef(false);
@@ -50,6 +51,25 @@ export const useRealtimeUpdates = (onCapacityChange, onSettingsChange) => {
             window.dispatchEvent(new CustomEvent('appointmentSettingsChanged'));
           }
 
+          // Check for unavailable/blackout date changes
+          if (changes.unavailable_dates && changes.unavailable_dates.updated) {
+            console.log('[RealtimeUpdates] Unavailable dates changed');
+            if (onUnavailableDatesChange) {
+              onUnavailableDatesChange();
+            }
+            // Dispatch event for other listeners
+            window.dispatchEvent(new CustomEvent('unavailableDatesChanged'));
+          }
+
+          // Check for user's appointment status changes (admin approved/declined/cancelled)
+          if (changes.appointments && changes.appointments.updated) {
+            console.log('[RealtimeUpdates] User appointments changed');
+            if (onAppointmentStatusChange) {
+              onAppointmentStatusChange();
+            }
+            window.dispatchEvent(new CustomEvent('appointmentStatusChanged'));
+          }
+
           // Update last check time
           lastCheckRef.current = new Date(response.data.timestamp);
         }
@@ -62,9 +82,9 @@ export const useRealtimeUpdates = (onCapacityChange, onSettingsChange) => {
     // Initial check
     pollUpdates();
 
-    // Poll every 10 seconds for changes
-    pollingIntervalRef.current = setInterval(pollUpdates, 10000);
-  }, [onCapacityChange, onSettingsChange]);
+    // Poll every 30 seconds for changes (reduced from 10s for performance)
+    pollingIntervalRef.current = setInterval(pollUpdates, 30000);
+  }, [onCapacityChange, onSettingsChange, onUnavailableDatesChange, onAppointmentStatusChange]);
 
   /**
    * Stop polling
@@ -105,12 +125,26 @@ export const useRealtimeUpdates = (onCapacityChange, onSettingsChange) => {
           window.dispatchEvent(new CustomEvent('appointmentSettingsChanged'));
         }
 
+        if (changes.unavailable_dates && changes.unavailable_dates.updated) {
+          if (onUnavailableDatesChange) {
+            onUnavailableDatesChange();
+          }
+          window.dispatchEvent(new CustomEvent('unavailableDatesChanged'));
+        }
+
+        if (changes.appointments && changes.appointments.updated) {
+          if (onAppointmentStatusChange) {
+            onAppointmentStatusChange();
+          }
+          window.dispatchEvent(new CustomEvent('appointmentStatusChanged'));
+        }
+
         lastCheckRef.current = new Date(response.data.timestamp);
       }
     } catch (error) {
       console.error('[RealtimeUpdates] Manual check error:', error);
     }
-  }, [onCapacityChange, onSettingsChange]);
+  }, [onCapacityChange, onSettingsChange, onUnavailableDatesChange, onAppointmentStatusChange]);
 
   // Cleanup on unmount
   useEffect(() => {

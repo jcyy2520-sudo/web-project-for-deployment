@@ -1,0 +1,13 @@
+{
+  "source_directories": [
+    "."
+  ],
+  "site_roots": [
+    "c:/laragon/www/web/.venv/Lib/site-packages"
+  ],
+  "search_path": [
+    "c:/laragon/www/web/.venv/Lib/site-packages",
+    "ml-service"
+  ],
+  "site_package_search_strategy": "pep561"
+}

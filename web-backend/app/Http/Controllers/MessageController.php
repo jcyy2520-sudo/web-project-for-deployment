@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Message;
 use App\Models\User;
 use App\Models\ActionLog;
+use App\Models\MessageSettings;
 use Illuminate\Http\Request;
 
 class MessageController extends Controller
@@ -14,50 +15,65 @@ class MessageController extends Controller
         try {
             $user = $request->user();
             
-            // Get all users the current user has messaged with
-            // This finds all unique users that have either sent or received messages
-            $userIds = Message::where(function($query) use ($user) {
-                    $query->where('sender_id', $user->id)
-                          ->orWhere('receiver_id', $user->id);
+            // Optimized: Use a single query with subqueries to get conversations
+            // instead of N+1 queries inside a map() loop
+            
+            // Step 1: Get all unique user IDs the current user has conversed with
+            $sentTo = Message::where('sender_id', $user->id)->distinct()->pluck('receiver_id');
+            $receivedFrom = Message::where('receiver_id', $user->id)->distinct()->pluck('sender_id');
+            $userIds = $sentTo->merge($receivedFrom)->unique()->values();
+            
+            if ($userIds->isEmpty()) {
+                return response()->json([
+                    'data' => [],
+                    'success' => true
+                ]);
+            }
+            
+            // Step 2: Batch load all other users at once
+            $otherUsers = User::whereIn('id', $userIds)
+                ->get(['id', 'first_name', 'last_name', 'email', 'role', 'profile_picture'])
+                ->keyBy('id');
+            
+            // Step 3: Get last message for each conversation using a single optimized query
+            // Use a raw query with GROUP BY to get max message IDs in one query
+            $lastMessageIds = \DB::table('messages')
+                ->selectRaw('MAX(id) as last_msg_id')
+                ->where(function($q) use ($user, $userIds) {
+                    $q->where('sender_id', $user->id)->whereIn('receiver_id', $userIds);
                 })
-                ->get(['sender_id', 'receiver_id'])
-                ->map(function($msg) use ($user) {
-                    // Extract the OTHER user's ID (not the current user)
+                ->orWhere(function($q) use ($user, $userIds) {
+                    $q->where('receiver_id', $user->id)->whereIn('sender_id', $userIds);
+                })
+                ->groupByRaw("CASE WHEN sender_id = ? THEN receiver_id ELSE sender_id END", [$user->id])
+                ->pluck('last_msg_id')
+                ->toArray();
+            
+            // Batch load all last messages with their relationships
+            $lastMessages = Message::with(['sender:id,first_name,last_name,email,role', 'receiver:id,first_name,last_name,email,role'])
+                ->whereIn('id', $lastMessageIds)
+                ->get()
+                ->keyBy(function($msg) use ($user) {
                     return $msg->sender_id === $user->id ? $msg->receiver_id : $msg->sender_id;
-                })
-                ->unique()
-                ->values();
-
-            // Build conversations array - one per user
-            $conversations = $userIds->map(function($otherUserId) use ($user) {
-                // Get the most recent message with this user (either direction)
-                $lastMessage = Message::where(function($query) use ($user, $otherUserId) {
-                        $query->where('sender_id', $user->id)
-                              ->where('receiver_id', $otherUserId);
-                    })
-                    ->orWhere(function($query) use ($user, $otherUserId) {
-                        $query->where('sender_id', $otherUserId)
-                              ->where('receiver_id', $user->id);
-                    })
-                    ->latest('created_at')  // Explicitly order by created_at DESC
-                    ->with(['sender', 'receiver'])
-                    ->first();
-
-                // Get the other user
-                $otherUser = User::find($otherUserId);
-
-                // Count unread messages FROM the other user TO current user
-                // This ensures we show unread count for messages the current user hasn't read yet
-                $unreadCount = Message::where('sender_id', $otherUserId)
-                    ->where('receiver_id', $user->id)
-                    ->where('read', false)
-                    ->count();
-
+                });
+            
+            // Step 4: Get unread counts in a single query
+            $unreadCounts = Message::where('receiver_id', $user->id)
+                ->where('read', false)
+                ->whereIn('sender_id', $userIds)
+                ->selectRaw('sender_id, COUNT(*) as unread_count')
+                ->groupBy('sender_id')
+                ->pluck('unread_count', 'sender_id');
+            
+            // Step 5: Build conversations array
+            $conversations = $userIds->map(function($otherUserId) use ($otherUsers, $lastMessages, $unreadCounts) {
                 return [
-                    'user' => $otherUser,
-                    'last_message' => $lastMessage,
-                    'unread_count' => $unreadCount,
+                    'user' => $otherUsers->get($otherUserId),
+                    'last_message' => $lastMessages->get($otherUserId),
+                    'unread_count' => $unreadCounts->get($otherUserId, 0),
                 ];
+            })->filter(function($conv) {
+                return $conv['user'] !== null;
             })->values();
 
             return response()->json([
@@ -68,7 +84,7 @@ class MessageController extends Controller
             \Log::error('Message index error: ' . $e->getMessage());
             return response()->json([
                 'message' => 'Failed to load messages',
-                'error' => $e->getMessage(),
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred',
                 'success' => false
             ], 500);
         }
@@ -79,19 +95,36 @@ class MessageController extends Controller
         try {
             $user = $request->user();
 
-            // Fetch all messages between current user and the other user
-            // This works regardless of who is admin and who is client
-            $messages = Message::where(function ($query) use ($user, $otherUser) {
-                    $query->where('sender_id', $user->id)
-                          ->where('receiver_id', $otherUser->id);
+            // Fetch messages between current user and the other user
+            // Limit to latest 100 messages for performance, load more on demand
+            $limit = $request->get('limit', 100);
+            $before = $request->get('before'); // cursor-based: load messages before this ID
+
+            $query = Message::where(function ($q) use ($user, $otherUser) {
+                    $q->where('sender_id', $user->id)
+                      ->where('receiver_id', $otherUser->id);
                 })
-                ->orWhere(function ($query) use ($user, $otherUser) {
-                    $query->where('sender_id', $otherUser->id)
-                          ->where('receiver_id', $user->id);
+                ->orWhere(function ($q) use ($user, $otherUser) {
+                    $q->where('sender_id', $otherUser->id)
+                      ->where('receiver_id', $user->id);
                 })
-                ->with(['sender', 'receiver'])
-                ->orderBy('created_at', 'asc')  // Explicitly order chronologically (oldest first)
+                ->with(['sender:id,first_name,last_name,email,role', 'receiver:id,first_name,last_name,email,role']);
+
+            if ($before) {
+                $query->where('id', '<', $before);
+            }
+
+            $messages = $query->orderBy('id', 'desc')
+                ->limit($limit + 1) // +1 to check if there are more
                 ->get();
+
+            $hasMore = $messages->count() > $limit;
+            if ($hasMore) {
+                $messages = $messages->slice(0, $limit);
+            }
+
+            // Reverse to chronological order for display
+            $messages = $messages->reverse()->values();
 
             // Mark all unread messages FROM the other user TO the current user as read
             // This ensures the conversation shows as read when the user views it
@@ -103,7 +136,8 @@ class MessageController extends Controller
             return response()->json([
                 'data' => [
                     'messages' => $messages,
-                    'other_user' => $otherUser
+                    'other_user' => $otherUser,
+                    'has_more' => $hasMore
                 ],
                 'success' => true
             ]);
@@ -111,7 +145,7 @@ class MessageController extends Controller
             \Log::error('Message show error: ' . $e->getMessage());
             return response()->json([
                 'message' => 'Failed to load conversation',
-                'error' => $e->getMessage(),
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred',
                 'success' => false
             ], 500);
         }
@@ -142,30 +176,20 @@ class MessageController extends Controller
                     ], 403);
                 }
 
-                // Check 3-reply limit for clients on specific parent messages
-                if ($request->reply_to_message_id) {
-                    $parentMessage = Message::findOrFail($request->reply_to_message_id);
-                    
-                    // Verify the parent message is from the receiver (admin/staff)
-                    if ($parentMessage->sender_id !== $receiver->id) {
-                        return response()->json([
-                            'message' => 'Invalid message to reply to',
-                            'success' => false
-                        ], 400);
-                    }
+                // Check consecutive-message limit for clients (configurable by admin)
+                // Users can only send N messages before the admin/staff replies
+                // Each admin reply resets the counter
+                $messageLimit = MessageSettings::getMessageLimit();
+                $consecutiveCount = $this->getConsecutiveClientMessageCount($user->id, $receiver->id);
 
-                    // Count replies from this user to this parent message
-                    $replyCount = Message::where('reply_to_message_id', $parentMessage->id)
-                        ->where('sender_id', $user->id)
-                        ->count();
-
-                    if ($replyCount >= 3) {
-                        return response()->json([
-                            'message' => 'You have reached the 3-reply limit for this message. Wait for the admin to send another message to continue.',
-                            'success' => false,
-                            'error_code' => 'REPLY_LIMIT_EXCEEDED'
-                        ], 429);
-                    }
+                if ($consecutiveCount >= $messageLimit) {
+                    return response()->json([
+                        'message' => "You can only send up to {$messageLimit} messages at a time. Please wait for the admin to reply before sending more.",
+                        'success' => false,
+                        'error_code' => 'MESSAGE_LIMIT_EXCEEDED',
+                        'remaining_messages' => 0,
+                        'message_limit' => $messageLimit
+                    ], 429);
                 }
             }
 
@@ -181,7 +205,7 @@ class MessageController extends Controller
             // Send email ONLY for appointment-related messages
             if (($request->user()->isAdmin() || $request->user()->isStaff()) && $request->type === 'appointment') {
                 try {
-                    \Illuminate\Support\Facades\Mail::to($receiver->email)->send(new \App\Mail\AdminMessageMail(
+                    \Illuminate\Support\Facades\Mail::to($receiver->email)->queue(new \App\Mail\AdminMessageMail(
                         $receiver,
                         $request->subject ?? 'Appointment Message',
                         $request->message,
@@ -216,7 +240,7 @@ class MessageController extends Controller
             \Log::error('Message store error: ' . $e->getMessage());
             return response()->json([
                 'message' => 'Failed to send message',
-                'error' => $e->getMessage(),
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred',
                 'success' => false
             ], 500);
         }
@@ -268,39 +292,65 @@ class MessageController extends Controller
 
     public function conversation(Request $request, $userId)
     {
-        $user = $request->user();
-        $otherUser = User::findOrFail($userId);
+        try {
+            $user = $request->user();
+            $otherUser = User::findOrFail($userId);
 
-        // Fetch all messages between current user and the specified user
-        // Works regardless of who is admin/client
-        $messages = Message::where(function($query) use ($user, $otherUser) {
-                $query->where('sender_id', $user->id)
+            // Fetch messages with pagination for performance
+            $limit = $request->get('limit', 100);
+            $before = $request->get('before');
+
+            $query = Message::where(function($q) use ($user, $otherUser) {
+                    $q->where('sender_id', $user->id)
                       ->where('receiver_id', $otherUser->id);
-            })
-            ->orWhere(function($query) use ($user, $otherUser) {
-                $query->where('sender_id', $otherUser->id)
+                })
+                ->orWhere(function($q) use ($user, $otherUser) {
+                    $q->where('sender_id', $otherUser->id)
                       ->where('receiver_id', $user->id);
-            })
-            ->with(['sender', 'receiver'])
-            ->orderBy('created_at', 'asc')  // Chronological order
-            ->get();
+                })
+                ->with(['sender:id,first_name,last_name,email,role', 'receiver:id,first_name,last_name,email,role']);
 
-        // Mark all unread messages FROM the other user TO current user as read
-        Message::where('sender_id', $otherUser->id)
-            ->where('receiver_id', $user->id)
-            ->where('read', false)
-            ->update(['read' => true]);
+            if ($before) {
+                $query->where('id', '<', $before);
+            }
 
-        return response()->json([
-            'data' => [
-                'messages' => $messages,
-                'other_user' => $otherUser
-            ],
-            'success' => true
-        ]);
+            $messages = $query->orderBy('id', 'desc')
+                ->limit($limit + 1)
+                ->get();
+
+            $hasMore = $messages->count() > $limit;
+            if ($hasMore) {
+                $messages = $messages->slice(0, $limit);
+            }
+
+            // Reverse to chronological order
+            $messages = $messages->reverse()->values();
+
+            // Mark all unread messages FROM the other user TO current user as read
+            Message::where('sender_id', $otherUser->id)
+                ->where('receiver_id', $user->id)
+                ->where('read', false)
+                ->update(['read' => true]);
+
+            return response()->json([
+                'data' => [
+                    'messages' => $messages,
+                    'other_user' => $otherUser,
+                    'has_more' => $hasMore
+                ],
+                'success' => true
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Conversation error: ' . $e->getMessage());
+            return response()->json([
+                'message' => 'Failed to load conversation',
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred',
+                'success' => false
+            ], 500);
+        }
     }
 
-    // NEW: Check if user can message another user
+    // Check if user can message another user
     public function canMessage(Request $request, $userId)
     {
         $user = $request->user();
@@ -310,37 +360,174 @@ class MessageController extends Controller
         if (!$user->isClient()) {
             return response()->json([
                 'can_message' => true,
-                'reason' => 'Admin/Staff can always message'
+                'reason' => 'Admin/Staff can always message',
+                'remaining_messages' => null
             ]);
         }
 
-        // If user is a client, check if the other user has messaged them first
-        $hasConversation = Message::where(function($query) use ($user, $otherUser) {
-            $query->where('sender_id', $otherUser->id)
-                  ->where('receiver_id', $user->id);
-        })->exists();
+        // Clients can always message admin/staff, but with a configurable message limit
+        $messageLimit = MessageSettings::getMessageLimit();
+        $consecutiveCount = $this->getConsecutiveClientMessageCount($user->id, $otherUser->id);
+        $remaining = max(0, $messageLimit - $consecutiveCount);
 
         return response()->json([
-            'can_message' => $hasConversation,
-            'reason' => $hasConversation ? 'You have received a message from this user' : 'You can only message after receiving a message from the admin or staff'
+            'can_message' => $remaining > 0,
+            'remaining_messages' => $remaining,
+            'message_limit' => $messageLimit,
+            'reason' => $remaining > 0 
+                ? "You can send {$remaining} more message(s) before the admin replies."
+                : "You have reached the {$messageLimit}-message limit. Please wait for the admin to reply before sending more."
         ]);
+    }
+
+    // Get admin contacts for users (even without existing conversations)
+    public function getAdminContacts(Request $request)
+    {
+        try {
+            $user = $request->user();
+
+            // Return only one admin contact for users to message
+            // Prefer the admin who has most recently messaged this user, otherwise the first admin
+            $lastAdminWhoMessaged = Message::where('receiver_id', $user->id)
+                ->whereHas('sender', function($q) {
+                    $q->whereIn('role', ['admin', 'staff']);
+                })
+                ->orderBy('created_at', 'desc')
+                ->first();
+
+            if ($lastAdminWhoMessaged) {
+                $admin = User::where('id', $lastAdminWhoMessaged->sender_id)
+                    ->where('id', '!=', $user->id)
+                    ->first(['id', 'first_name', 'last_name', 'email', 'role', 'profile_picture']);
+                
+                if ($admin) {
+                    return response()->json([
+                        'data' => [$admin],
+                        'success' => true
+                    ]);
+                }
+            }
+
+            // Fallback: get the first active admin account
+            $admin = User::where('role', 'admin')
+                ->where('id', '!=', $user->id)
+                ->where('is_active', true)
+                ->orderBy('id', 'asc')
+                ->first(['id', 'first_name', 'last_name', 'email', 'role', 'profile_picture']);
+
+            return response()->json([
+                'data' => $admin ? [$admin] : [],
+                'success' => true
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Get admin contacts error: ' . $e->getMessage());
+            return response()->json([
+                'message' => 'Failed to load admin contacts',
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred',
+                'success' => false
+            ], 500);
+        }
+    }
+
+    // Get the message limit status for a conversation
+    public function getMessageLimitStatus(Request $request, $userId)
+    {
+        try {
+            $user = $request->user();
+
+            // Admin/staff have no limit
+            if (!$user->isClient()) {
+                return response()->json([
+                    'has_limit' => false,
+                    'remaining_messages' => null,
+                    'message_limit' => null,
+                    'success' => true
+                ]);
+            }
+
+            $messageLimit = MessageSettings::getMessageLimit();
+            $consecutiveCount = $this->getConsecutiveClientMessageCount($user->id, $userId);
+            $remaining = max(0, $messageLimit - $consecutiveCount);
+
+            return response()->json([
+                'has_limit' => true,
+                'remaining_messages' => $remaining,
+                'message_limit' => $messageLimit,
+                'consecutive_sent' => $consecutiveCount,
+                'success' => true
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Get message limit status error: ' . $e->getMessage());
+            return response()->json([
+                'message' => 'Failed to get message limit status',
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred',
+                'success' => false
+            ], 500);
+        }
+    }
+
+    /**
+     * Count consecutive messages sent by a client to a receiver (admin/staff)
+     * without a reply from the receiver in between.
+     * Each reply from the receiver resets the counter.
+     */
+    private function getConsecutiveClientMessageCount($clientId, $receiverId)
+    {
+        // Get the most recent messages between these two users, ordered by newest first
+        $recentMessages = Message::where(function($q) use ($clientId, $receiverId) {
+                $q->where('sender_id', $clientId)->where('receiver_id', $receiverId);
+            })
+            ->orWhere(function($q) use ($clientId, $receiverId) {
+                $q->where('sender_id', $receiverId)->where('receiver_id', $clientId);
+            })
+            ->orderBy('id', 'desc')
+            ->limit(10)
+            ->get();
+
+        // Count consecutive messages from the client (starting from most recent)
+        $count = 0;
+        foreach ($recentMessages as $msg) {
+            if ($msg->sender_id == $clientId) {
+                $count++;
+            } else {
+                // Found a message from the admin/staff - stop counting
+                break;
+            }
+        }
+
+        return $count;
     }
 
     // NEW: Get all messages for dashboard (flat list, not grouped)
     public function getAllMessages(Request $request)
     {
-        $user = $request->user();
+        try {
+            $user = $request->user();
 
-        $messages = Message::where('sender_id', $user->id)
-            ->orWhere('receiver_id', $user->id)
-            ->with(['sender', 'receiver'])
-            ->orderBy('created_at', 'desc')
-            ->get();
+            $messages = Message::where(function($q) use ($user) {
+                    $q->where('sender_id', $user->id)
+                      ->orWhere('receiver_id', $user->id);
+                })
+                ->with(['sender:id,first_name,last_name,email,role', 'receiver:id,first_name,last_name,email,role'])
+                ->orderBy('created_at', 'desc')
+                ->limit(200)
+                ->get();
 
-        return response()->json([
-            'data' => $messages,
-            'success' => true
-        ]);
+            return response()->json([
+                'data' => $messages,
+                'success' => true
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('getAllMessages error: ' . $e->getMessage(), [
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+            ]);
+            return response()->json([
+                'message' => 'Failed to load messages',
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred',
+                'success' => false
+            ], 500);
+        }
     }
 
     // NEW: Delete entire conversation with a user
@@ -378,7 +565,7 @@ class MessageController extends Controller
             \Log::error('Delete conversation error: ' . $e->getMessage());
             return response()->json([
                 'message' => 'Failed to delete conversation',
-                'error' => $e->getMessage(),
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred',
                 'success' => false
             ], 500);
         }

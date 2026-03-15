@@ -27,10 +27,11 @@ return new class extends Migration
         }
 
         // Update column to not nullable
-        \DB::statement('ALTER TABLE users MODIFY uuid CHAR(36) NOT NULL');
-        
-        // Add unique constraint
-        \DB::statement('ALTER TABLE users ADD UNIQUE KEY users_uuid_unique (uuid)');
+        if (\DB::getDriverName() !== 'sqlite') {
+            \DB::statement('ALTER TABLE users MODIFY uuid CHAR(36) NOT NULL');
+            // Add unique constraint
+            \DB::statement('ALTER TABLE users ADD UNIQUE KEY users_uuid_unique (uuid)');
+        }
     }
 
     public function down(): void

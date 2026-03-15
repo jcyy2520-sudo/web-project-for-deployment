@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { useApi } from '../hooks/useApi';
@@ -11,7 +11,15 @@ import TimePicker from '../components/TimePicker';
 import ActionLogViewer from '../components/ActionLogViewer';
 import MessageCenter from './MessageCenter';
 import UserFeedback from '../components/user/UserFeedback';
-import { formatServiceName, formatTime12Hour } from '../utils/format';
+import UserInsights from '../components/user/UserInsights';
+import ProfileCompletionBanner from '../components/ProfileCompletionBanner';
+import UserNotifications from '../components/user/UserNotifications';
+import TermsPrivacyModal from '../components/auth/TermsPrivacyModal';
+
+import NotificationBell from '../components/user/NotificationBell';
+import MobileNotificationBell from '../components/user/MobileNotificationBell';
+import { formatServiceName, formatTime12Hour, formatDateDisplay } from '../utils/format';
+
 import { 
   HomeIcon,
   CalendarIcon, 
@@ -25,6 +33,7 @@ import {
   PencilIcon,
   TrashIcon,
   EyeIcon,
+  EyeSlashIcon,
   ExclamationTriangleIcon,
   InformationCircleIcon,
   ArrowPathIcon,
@@ -44,7 +53,9 @@ import {
   Bars3Icon,
   CurrencyDollarIcon,
   ArrowLeftIcon,
-  StarIcon
+  StarIcon,
+  BellIcon,
+  ChevronRightIcon
 } from '@heroicons/react/24/outline';
 
 // Enhanced Status Badge Component
@@ -139,15 +150,36 @@ const ServiceTypeDropdown = ({
   error, 
   onOtherChange,
   otherValue,
-  disabled = false
+  disabled = false,
+  isDarkMode = true
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [showOtherInput, setShowOtherInput] = useState(value === 'other');
+  const dropdownRef = React.useRef(null);
 
   const filteredOptions = options.filter(option => 
     option.label.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  // Close dropdown on Escape key or click outside
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') { setIsOpen(false); setSearchTerm(''); }
+    };
+    const handleClickOutside = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setIsOpen(false); setSearchTerm('');
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isOpen]);
 
   const handleSelect = (optionValue, optionLabel) => {
     if (disabled) return;
@@ -168,9 +200,9 @@ const ServiceTypeDropdown = ({
   };
 
   return (
-    <div className="relative">
-      <label className="block text-xs font-medium text-amber-50 mb-1">
-        Service Type *
+    <div className="relative" ref={dropdownRef}>
+      <label className={`block text-xs font-medium mb-1 ${isDarkMode ? 'text-amber-50' : 'text-gray-700'}`}>
+        Service Type <span className="text-red-500">*</span>
       </label>
       
       {/* Dropdown Trigger */}
@@ -178,19 +210,23 @@ const ServiceTypeDropdown = ({
         type="button"
         disabled={disabled}
         onClick={() => !disabled && setIsOpen(!isOpen)}
-        className={`w-full px-3 py-2 bg-gray-800 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 text-sm text-white text-left flex justify-between items-center ${
-          disabled ? 'opacity-50 cursor-not-allowed bg-gray-900' : ''
+        aria-expanded={isOpen}
+        aria-haspopup="listbox"
+        className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 text-sm text-left flex justify-between items-center transition-colors ${
+          isDarkMode ? 'bg-gray-800 text-white' : 'bg-white text-gray-900'
         } ${
-          error ? 'border-red-500' : 'border-gray-600 focus:border-amber-500'
+          disabled ? 'opacity-50 cursor-not-allowed' : ''
+        } ${
+          error ? 'border-red-500' : isDarkMode ? 'border-gray-600 focus:border-amber-500' : 'border-gray-300 focus:border-amber-500'
         }`}
       >
         <div className="flex flex-col gap-0.5">
-          <span className={!value ? 'text-gray-400' : 'text-white'}>
+          <span className={!value ? 'text-gray-400' : (isDarkMode ? 'text-white' : 'text-gray-900')}>
             {value ? options.find(opt => opt.value === value)?.label || 'Other (Custom)' : 'Select service type...'}
           </span>
           {value && options.find(opt => opt.value === value)?.price && (
             <span className="text-amber-400/70 text-xs">
-              ${parseFloat(options.find(opt => opt.value === value).price).toFixed(2)}
+              ₱{parseFloat(options.find(opt => opt.value === value).price).toFixed(2)}
             </span>
           )}
         </div>
@@ -227,7 +263,7 @@ const ServiceTypeDropdown = ({
                 <div className="flex flex-col gap-0.5">
                   <span>{option.label}</span>
                   {option.price && (
-                    <span className="text-amber-400/70 text-xs">${parseFloat(option.price).toFixed(2)}</span>
+                    <span className="text-amber-400/70 text-xs">₱{parseFloat(option.price).toFixed(2)}</span>
                   )}
                 </div>
                 {option.value === value && (
@@ -278,11 +314,28 @@ const ServiceTypeDropdown = ({
 };
 
 // Enhanced Calendar Component
-const EnhancedCalendar = ({ value, onChange, error, disabled = false, dailyLimitInfo = {} }) => {
+const EnhancedCalendar = ({ value, onChange, error, disabled = false, dailyLimitInfo = {}, isDarkMode = true }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState(value ? new Date(value) : null);
+  const calendarRef = React.useRef(null);
   const [unavailableDates, setUnavailableDates] = useState([]);
+  const [blockInfo, setBlockInfo] = useState(null); // { date, reason, timeRange, type }
+
+  // Close calendar on Escape or click outside
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e) => { if (e.key === 'Escape') setIsOpen(false); };
+    const handleClickOutside = (e) => {
+      if (calendarRef.current && !calendarRef.current.contains(e.target)) setIsOpen(false);
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isOpen]);
 
   const today = new Date();
   const minDate = new Date(today);
@@ -319,34 +372,94 @@ const EnhancedCalendar = ({ value, onChange, error, disabled = false, dailyLimit
     setIsOpen(false);
   };
 
-  const isDateDisabled = (date) => {
+  // Get detailed block info for a date
+  const getDateBlockInfo = (date) => {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     const dateStr = `${year}-${month}-${day}`;
-
-    // Past dates disabled
-    if (date < minDate) return true;
-
-    // Weekends disabled
     const dayOfWeek = date.getDay();
-    if (dayOfWeek === 0 || dayOfWeek === 6) return true;
+    const dayName = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][dayOfWeek];
 
-    // Admin-set unavailable/blackout dates
-    if (unavailableDates.some(u => {
+    // Past dates
+    if (date < minDate) return { isBlocked: true, reason: 'Past date', type: 'past', timeRange: null };
+
+    // Weekends
+    if (dayOfWeek === 0 || dayOfWeek === 6) {
+      return { isBlocked: true, reason: `${dayName.charAt(0).toUpperCase() + dayName.slice(1)} — Office Closed`, type: 'weekend', timeRange: null };
+    }
+
+    // Check admin-set unavailable/blackout dates
+    const matchingEntries = unavailableDates.filter(u => {
       const uDate = (u.date || '').toString().split('T')[0];
       if (uDate && uDate === dateStr) return true;
-      // recurring blackout entries may include recurring_days array
-      if (u.is_recurring && u.recurring_days) {
-        const dayName = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'][dayOfWeek];
-        if (u.recurring_days.includes(dayName)) return true;
-      }
-      // legacy types: some entries may have type === 'weekend' or 'blackout'
+      if (u.is_recurring && u.recurring_days && u.recurring_days.includes(dayName)) return true;
       if (u.type === 'weekend' && (dayOfWeek === 0 || dayOfWeek === 6)) return true;
       return false;
-    })) return true;
+    });
 
-    return false;
+    if (matchingEntries.length > 0) {
+      // Check if any entry is a full-day block (no time range)
+      const fullDayBlock = matchingEntries.find(u => {
+        const hasTimeRange = (u.start_time && u.end_time) || (u.time_range);
+        const isAllDay = u.all_day === true || u.all_day === 1;
+        return !hasTimeRange || isAllDay;
+      });
+
+      if (fullDayBlock) {
+        return {
+          isBlocked: true,
+          reason: fullDayBlock.reason || 'Blocked by admin',
+          type: 'full_block',
+          timeRange: null
+        };
+      }
+
+      // All entries have time ranges — partial block
+      const timeRanges = matchingEntries.map(u => ({
+        reason: u.reason || 'Blocked by admin',
+        timeRange: u.time_range || (u.start_time && u.end_time ? `${u.start_time} - ${u.end_time}` : null)
+      })).filter(t => t.timeRange);
+
+      if (timeRanges.length > 0) {
+        return {
+          isBlocked: false, // Date is still selectable
+          isPartialBlock: true,
+          reason: timeRanges.map(t => t.reason).join(', '),
+          type: 'time_range',
+          timeRanges: timeRanges
+        };
+      }
+
+      // Fallback: treat as full block
+      return {
+        isBlocked: true,
+        reason: matchingEntries[0].reason || 'Blocked by admin',
+        type: 'full_block',
+        timeRange: null
+      };
+    }
+
+    return { isBlocked: false, isPartialBlock: false, reason: null, type: null, timeRange: null };
+  };
+
+  const isDateDisabled = (date) => {
+    const info = getDateBlockInfo(date);
+    return info.isBlocked;
+  };
+
+  // Handle blocked date click — show reason popup
+  const handleBlockedDateClick = (date) => {
+    const info = getDateBlockInfo(date);
+    if (info.isBlocked || info.isPartialBlock) {
+      setBlockInfo({
+        date: date.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
+        reason: info.reason,
+        type: info.type,
+        timeRanges: info.timeRanges || null,
+        isPartialBlock: info.isPartialBlock || false
+      });
+    }
   };
 
   // Load unavailable dates from admin endpoint
@@ -365,7 +478,17 @@ const EnhancedCalendar = ({ value, onChange, error, disabled = false, dailyLimit
       }
     };
     loadUnavailable();
-    return () => { mounted = false; };
+
+    // Listen for admin changes to unavailable dates (via realtime polling)
+    const handleUnavailableDatesChanged = () => {
+      loadUnavailable();
+    };
+    window.addEventListener('unavailableDatesChanged', handleUnavailableDatesChanged);
+
+    return () => {
+      mounted = false;
+      window.removeEventListener('unavailableDatesChanged', handleUnavailableDatesChanged);
+    };
   }, []);
 
   const renderCalendarGrid = () => {
@@ -392,9 +515,10 @@ const EnhancedCalendar = ({ value, onChange, error, disabled = false, dailyLimit
 
     // Current month days
     for (let i = 1; i <= daysInMonth; i++) {
-      const date = new Date(currentMonth);
-      date.setDate(i);
-      const isDisabled = isDateDisabled(date);
+      const date = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), i);
+      const dateBlockInfo = getDateBlockInfo(date);
+      const isDisabled = dateBlockInfo.isBlocked;
+      const isPartial = dateBlockInfo.isPartialBlock;
       const isSelected = selectedDate && 
         date.getDate() === selectedDate.getDate() &&
         date.getMonth() === selectedDate.getMonth() &&
@@ -405,19 +529,38 @@ const EnhancedCalendar = ({ value, onChange, error, disabled = false, dailyLimit
         <div key={`current-${i}`} className="p-1">
           <button
             type="button"
-            onClick={() => !isDisabled && handleDateSelect(date)}
-            disabled={isDisabled}
-            className={`w-full h-8 flex items-center justify-center text-xs rounded border ${
+            onClick={() => {
+              if (isDisabled) {
+                handleBlockedDateClick(date);
+              } else if (isPartial) {
+                handleBlockedDateClick(date);
+                handleDateSelect(date);
+              } else {
+                handleDateSelect(date);
+              }
+            }}
+            className={`w-full h-8 flex items-center justify-center text-xs rounded border relative ${
               isDisabled
-                ? 'text-gray-600 bg-gray-800/30 border-gray-700 cursor-not-allowed'
+                ? 'text-red-400 bg-red-900/30 border-red-700/50 cursor-pointer hover:bg-red-900/50'
+                : isPartial
+                ? isSelected
+                  ? 'bg-amber-500 text-white border-amber-500 shadow-lg shadow-amber-500/25'
+                  : 'text-amber-300 bg-amber-900/20 border-amber-500/40 hover:bg-amber-500/20 cursor-pointer'
                 : isSelected
                 ? 'bg-amber-500 text-white border-amber-500 shadow-lg shadow-amber-500/25'
                 : isToday
                 ? 'bg-amber-500/20 text-amber-300 border-amber-500/30 hover:bg-amber-500/30'
                 : 'text-amber-50 bg-gray-800/50 border-gray-600 hover:bg-amber-500/10 hover:border-amber-500/40'
             }`}
+            title={isDisabled ? dateBlockInfo.reason : isPartial ? `⚠ Partial block: ${dateBlockInfo.reason}` : ''}
           >
             {i}
+            {isDisabled && dateBlockInfo.type !== 'past' && (
+              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-red-500" />
+            )}
+            {isPartial && (
+              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber-500" />
+            )}
           </button>
         </div>
       );
@@ -442,22 +585,26 @@ const EnhancedCalendar = ({ value, onChange, error, disabled = false, dailyLimit
   };
 
   return (
-    <div className="relative">
-      <label className="block text-xs font-medium text-amber-50 mb-1">
-        Preferred Date *
+    <div className="relative" ref={calendarRef}>
+      <label className={`block text-xs font-medium mb-1 ${isDarkMode ? 'text-amber-50' : 'text-gray-700'}`}>
+        Preferred Date <span className="text-red-500">*</span>
       </label>
       
       <button
         type="button"
         disabled={disabled}
         onClick={() => !disabled && setIsOpen(!isOpen)}
-        className={`w-full px-3 py-2 bg-gray-800 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 text-sm text-white text-left flex justify-between items-center ${
-          disabled ? 'opacity-50 cursor-not-allowed bg-gray-900' : ''
+        aria-expanded={isOpen}
+        aria-haspopup="dialog"
+        className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 text-sm text-left flex justify-between items-center transition-colors ${
+          isDarkMode ? 'bg-gray-800 text-white' : 'bg-white text-gray-900'
         } ${
-          error ? 'border-red-500' : 'border-gray-600 focus:border-amber-500'
+          disabled ? 'opacity-50 cursor-not-allowed' : ''
+        } ${
+          error ? 'border-red-500' : isDarkMode ? 'border-gray-600 focus:border-amber-500' : 'border-gray-300 focus:border-amber-500'
         }`}
       >
-        <span className={!value ? 'text-gray-400' : 'text-white'}>
+        <span className={!value ? 'text-gray-400' : (isDarkMode ? 'text-white' : 'text-gray-900')}>
           {value ? new Date(value).toLocaleDateString('en-US', { 
             weekday: 'short', 
             year: 'numeric', 
@@ -465,11 +612,99 @@ const EnhancedCalendar = ({ value, onChange, error, disabled = false, dailyLimit
             day: 'numeric' 
           }) : 'Select appointment date...'}
         </span>
-        <CalendarDaysIcon className="h-4 w-4 text-amber-400" />
+        <CalendarDaysIcon className={`h-4 w-4 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`} />
       </button>
+
+      {/* Block Info Popup */}
+      {blockInfo && (
+        <div className="absolute z-[60] w-full mt-1 bg-gray-800 border border-red-500/40 rounded-lg shadow-lg shadow-red-500/10 p-4 animate-in slide-in-from-top-1">
+          <div className="flex items-start justify-between mb-2">
+            <div className="flex items-center gap-2">
+              {blockInfo.isPartialBlock ? (
+                <ClockIcon className="h-5 w-5 text-amber-400 flex-shrink-0" />
+              ) : (
+                <ExclamationTriangleIcon className="h-5 w-5 text-red-400 flex-shrink-0" />
+              )}
+              <h4 className={`text-sm font-semibold ${blockInfo.isPartialBlock ? 'text-amber-300' : 'text-red-300'}`}>
+                {blockInfo.isPartialBlock ? 'Partially Blocked Date' : 'Date Unavailable'}
+              </h4>
+            </div>
+            <button
+              type="button"
+              onClick={() => setBlockInfo(null)}
+              className="text-gray-400 hover:text-gray-200 p-0.5 rounded hover:bg-gray-700"
+            >
+              <XMarkIcon className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="space-y-2">
+            <p className="text-xs text-gray-300">
+              <span className="font-medium text-gray-200">{blockInfo.date}</span>
+            </p>
+            <div className={`text-xs px-3 py-2 rounded-lg border ${
+              blockInfo.isPartialBlock
+                ? 'bg-amber-900/20 border-amber-500/30 text-amber-200'
+                : 'bg-red-900/20 border-red-500/30 text-red-200'
+            }`}>
+              <p className="font-medium mb-1">Reason:</p>
+              <p>{blockInfo.reason}</p>
+            </div>
+            {blockInfo.timeRanges && blockInfo.timeRanges.length > 0 && (
+              <div className="text-xs bg-amber-900/20 border border-amber-500/30 rounded-lg px-3 py-2 text-amber-200">
+                <p className="font-medium mb-1 flex items-center gap-1">
+                  <ClockIcon className="h-3 w-3" /> Blocked Time Ranges:
+                </p>
+                {blockInfo.timeRanges.map((tr, idx) => (
+                  <div key={idx} className="flex items-center gap-2 ml-2 mt-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                    <span className="font-mono">{tr.timeRange}</span>
+                    <span className="text-amber-300/70">— {tr.reason}</span>
+                  </div>
+                ))}
+                <p className="mt-2 text-amber-300/80 italic">
+                  You may still book this date outside the blocked time ranges.
+                </p>
+              </div>
+            )}
+            {!blockInfo.isPartialBlock && (
+              <p className="text-xs text-gray-400 italic">
+                Please select a different date for your appointment.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
 
       {isOpen && !disabled && (
         <div className="absolute z-50 w-full mt-1 bg-gray-800 border border-amber-500/30 rounded-lg shadow-lg shadow-amber-500/10 p-3">
+          {/* Month Navigation */}
+          <div className="flex items-center justify-between mb-3">
+            <button
+              type="button"
+              onClick={() => navigateMonth(-1)}
+              className="p-1 rounded text-gray-300 hover:bg-gray-700 hover:text-amber-300 transition-colors"
+            >
+              <ArrowLeftIcon className="h-4 w-4" />
+            </button>
+            <span className="text-sm font-semibold text-amber-200">
+              {currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+            </span>
+            <button
+              type="button"
+              onClick={() => navigateMonth(1)}
+              className="p-1 rounded text-gray-300 hover:bg-gray-700 hover:text-amber-300 transition-colors"
+            >
+              <ChevronDownIcon className="h-4 w-4 -rotate-90" />
+            </button>
+          </div>
+
+          {/* Day headers */}
+          <div className="grid grid-cols-7 gap-1 mb-1">
+            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+              <div key={d} className="text-center text-[10px] font-semibold text-gray-500 py-1">{d}</div>
+            ))}
+          </div>
+
           {/* Daily Limit Status */}
           {dailyLimitInfo.limit && (
             <div className={`rounded-lg border p-4 flex items-start gap-3 ${
@@ -481,13 +716,13 @@ const EnhancedCalendar = ({ value, onChange, error, disabled = false, dailyLimit
                 <>
                   <InformationCircleIcon className="h-5 w-5 flex-shrink-0 text-blue-400 mt-0.5" />
                   <div>
-                    <h3 className="font-semibold text-blue-400">📅 Daily Booking Limit Reached</h3>
+                    <h3 className="font-semibold text-blue-400">📅 Booking Limit Reached</h3>
                     <p className="text-sm text-blue-300/80 mt-1">
-                      {dailyLimitInfo.message || `You have reached your daily booking limit of ${dailyLimitInfo.limit} appointments. You can book again tomorrow.`}
+                      {dailyLimitInfo.message || `You have reached your booking limit of ${dailyLimitInfo.limit} appointments per 24 hours.`}
                     </p>
                     {dailyLimitInfo.bookingsToday?.length > 0 && (
                       <div className="mt-3 text-xs text-blue-300/70">
-                        <p className="font-medium mb-2">Your appointments today:</p>
+                        <p className="font-medium mb-2">Your recent bookings (last 24h):</p>
                         <ul className="space-y-1 ml-2">
                           {dailyLimitInfo.bookingsToday.map((booking, idx) => (
                             <li key={idx} className="flex items-center gap-2">
@@ -517,6 +752,22 @@ const EnhancedCalendar = ({ value, onChange, error, disabled = false, dailyLimit
               {/* Calendar Grid */}
               <div className="mt-3">
                 <div className="grid grid-cols-7 gap-1">{renderCalendarGrid()}</div>
+
+                {/* Legend */}
+                <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px]">
+                  <div className="flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-green-400/60"></span>
+                    <span className="text-gray-400">Available</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-red-500"></span>
+                    <span className="text-gray-400">Blocked</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                    <span className="text-gray-400">Partial Block</span>
+                  </div>
+                </div>
 
                 {/* Quick-select buttons */}
                 <div className="mt-3 flex gap-2 justify-end">
@@ -554,22 +805,30 @@ const EnhancedCalendar = ({ value, onChange, error, disabled = false, dailyLimit
 };
 
 // Appointment Detail Modal
-const AppointmentDetailModal = ({ isOpen, onClose, appointment }) => {
+const AppointmentDetailModal = ({ isOpen, onClose, appointment, isDarkMode = true }) => {
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleEsc = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handleEsc);
+    return () => document.removeEventListener('keydown', handleEsc);
+  }, [isOpen, onClose]);
+
   if (!isOpen || !appointment) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4 animate-fadeIn">
-      <div className="bg-gray-900 border border-amber-500/30 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto transform animate-scaleIn">
-        <div className="flex justify-between items-center p-4 border-b border-gray-700 sticky top-0 bg-gray-900">
+    <div className={`fixed inset-0 flex items-center justify-center z-50 p-4 animate-fadeIn ${isDarkMode ? 'bg-black/70' : 'bg-gray-900/40 backdrop-blur-sm'}`} role="dialog" aria-modal="true" aria-label="Appointment Details">
+      <div className={`rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto transform animate-scaleIn border ${isDarkMode ? 'bg-gray-900 border-amber-500/30' : 'bg-white border-gray-200'}`}>
+        <div className={`flex justify-between items-center p-4 border-b sticky top-0 ${isDarkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'}`}>
           <div className="flex items-center">
-            <DocumentTextIcon className="h-5 w-5 text-amber-400 mr-2" />
-            <h3 className="text-sm font-semibold text-amber-50">
+            <DocumentTextIcon className={`h-5 w-5 mr-2 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`} aria-hidden="true" />
+            <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>
               Appointment Details
             </h3>
           </div>
           <button 
             onClick={onClose} 
-            className="text-gray-400 hover:text-amber-400 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-amber-500 rounded p-1"
+            className={`rounded p-1 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-amber-500 ${isDarkMode ? 'text-gray-400 hover:text-amber-400' : 'text-gray-500 hover:text-amber-600'}`}
+            aria-label="Close dialog"
           >
             <XMarkIcon className="h-4 w-4" />
           </button>
@@ -577,77 +836,60 @@ const AppointmentDetailModal = ({ isOpen, onClose, appointment }) => {
         
         <div className="p-4 space-y-4">
           {/* Appointment Header */}
-          <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg border border-gray-600">
+          <div className={`flex items-center justify-between p-3 rounded-lg border ${isDarkMode ? 'bg-gray-800/50 border-gray-600' : 'bg-gray-50 border-gray-200'}`}>
             <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 bg-amber-500/20 rounded-full flex items-center justify-center border border-amber-500/30">
-                <DocumentTextIcon className="h-5 w-5 text-amber-400" />
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center border ${isDarkMode ? 'bg-amber-500/20 border-amber-500/30' : 'bg-amber-100 border-amber-300'}`}>
+                <DocumentTextIcon className={`h-5 w-5 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`} aria-hidden="true" />
               </div>
               <div>
-                <h4 className="text-sm font-bold text-amber-50">{formatServiceName(appointment)}</h4>
+                <h4 className={`text-sm font-bold ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>{formatServiceName(appointment)}</h4>
                 <StatusBadge status={appointment.status} />
               </div>
             </div>
             <div className="text-right">
-              <div className="text-sm font-semibold text-amber-50">
-                {new Date(appointment.appointment_date).toLocaleDateString()}
+              <div className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>
+                {formatDateDisplay(appointment.appointment_date)}
               </div>
-              <div className="text-xs text-amber-400/70">{appointment.appointment_time}</div>
+              <div className={`text-xs ${isDarkMode ? 'text-amber-400/70' : 'text-gray-500'}`}>{appointment.appointment_time}</div>
             </div>
           </div>
 
           {/* Appointment Details Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-3">
-              <div className="p-3 bg-gray-800/30 rounded-lg border border-gray-600">
-                <label className="text-xs font-medium text-gray-400 mb-2 block">Service Information</label>
+              <div className={`p-3 rounded-lg border ${isDarkMode ? 'bg-gray-800/30 border-gray-600' : 'bg-gray-50 border-gray-200'}`}>
+                <label className={`text-xs font-medium mb-2 block ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Service Information</label>
                 <div className="space-y-2">
                   <div>
-                    <span className="text-xs text-gray-500">Service Type</span>
-                    <p className="text-amber-50 font-medium text-sm">{formatServiceName(appointment)}</p>
+                    <span className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>Service Type</span>
+                    <p className={`font-medium text-sm ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>{formatServiceName(appointment)}</p>
                   </div>
                   {appointment.service?.price && (
                     <div>
-                      <span className="text-xs text-gray-500">Price</span>
-                      <p className="text-amber-300 font-semibold text-sm">${parseFloat(appointment.service.price).toFixed(2)}</p>
+                      <span className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>Price</span>
+                      <p className={`font-semibold text-sm ${isDarkMode ? 'text-amber-300' : 'text-amber-700'}`}>₱{parseFloat(appointment.service.price).toFixed(2)}</p>
                     </div>
                   )}
                 </div>
               </div>
 
-              <div className="p-3 bg-gray-800/30 rounded-lg border border-gray-600">
-                <label className="text-xs font-medium text-gray-400 mb-2 block">Assignee</label>
-                {appointment.staff ? (
-                  <div className="flex items-center space-x-2">
-                    <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs font-bold shadow">
-                      {appointment.staff.first_name?.charAt(0)}{appointment.staff.last_name?.charAt(0)}
-                    </div>
-                    <div>
-                      <p className="text-amber-50 font-medium text-sm">
-                        {appointment.staff.first_name} {appointment.staff.last_name}
-                      </p>
-                      <p className="text-xs text-amber-400/70 capitalize">{appointment.staff.role}</p>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-amber-400/70 text-sm">No assignee yet</p>
-                )}
-              </div>
+
             </div>
 
             <div className="space-y-3">
-              <div className="p-3 bg-gray-800/30 rounded-lg border border-gray-600">
-                <label className="text-xs font-medium text-gray-400 mb-2 block">Additional Information</label>
+              <div className={`p-3 rounded-lg border ${isDarkMode ? 'bg-gray-800/30 border-gray-600' : 'bg-gray-50 border-gray-200'}`}>
+                <label className={`text-xs font-medium mb-2 block ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Additional Information</label>
                 <div className="space-y-2">
                   {appointment.notes && (
                     <div>
-                      <span className="text-xs text-gray-500">Your Notes</span>
-                      <p className="text-amber-50 text-sm">{appointment.notes}</p>
+                      <span className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>Your Notes</span>
+                      <p className={`text-sm ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>{appointment.notes}</p>
                     </div>
                   )}
                   {appointment.staff_notes && (
                     <div>
-                      <span className="text-xs text-gray-500">Internal Notes</span>
-                      <p className="text-amber-50 text-sm">{appointment.staff_notes}</p>
+                      <span className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>Internal Notes</span>
+                      <p className={`text-sm ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>{appointment.staff_notes}</p>
                     </div>
                   )}
                 </div>
@@ -661,7 +903,7 @@ const AppointmentDetailModal = ({ isOpen, onClose, appointment }) => {
 };
 
 // Confirmation Modal
-const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, confirmText = "Confirm", type = "primary", loading = false }) => {
+const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, confirmText = "Confirm", type = "primary", loading = false, isDarkMode = true }) => {
   if (!isOpen) return null;
 
   const buttonColors = {
@@ -678,41 +920,66 @@ const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, confirm
     success: CheckCircleIcon
   };
 
+  const iconBgColors = {
+    danger: isDarkMode ? 'bg-red-500/20' : 'bg-red-100',
+    warning: isDarkMode ? 'bg-yellow-500/20' : 'bg-yellow-100',
+    success: isDarkMode ? 'bg-green-500/20' : 'bg-green-100',
+    primary: isDarkMode ? 'bg-amber-500/20' : 'bg-amber-100'
+  };
+
+  const iconTextColors = {
+    danger: isDarkMode ? 'text-red-400' : 'text-red-600',
+    warning: isDarkMode ? 'text-yellow-400' : 'text-yellow-600',
+    success: isDarkMode ? 'text-green-400' : 'text-green-600',
+    primary: isDarkMode ? 'text-amber-400' : 'text-amber-600'
+  };
+
   const IconComponent = icons[type];
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4 animate-fadeIn">
-      <div className="bg-gray-900 border border-amber-500/30 rounded-lg shadow-xl w-full max-w-md transform animate-scaleIn">
+    <div className={`fixed inset-0 flex items-center justify-center z-50 p-4 animate-fadeIn ${
+      isDarkMode ? 'bg-black/70' : 'bg-gray-900/40 backdrop-blur-sm'
+    }`}>
+      <div className={`rounded-2xl shadow-2xl w-full max-w-md transform animate-scaleIn ${
+        isDarkMode 
+          ? 'bg-gray-900 border border-amber-500/30' 
+          : 'bg-white border border-gray-200 shadow-gray-200/50'
+      }`}>
         <div className="p-6">
+          {/* Icon + Title */}
           <div className="flex items-center mb-4">
-            <div className={`p-2 rounded-lg ${
-              type === 'danger' ? 'bg-red-500/20' : 
-              type === 'warning' ? 'bg-yellow-500/20' : 
-              type === 'success' ? 'bg-green-500/20' : 
-              'bg-amber-500/20'
-            }`}>
-              <IconComponent className={`h-5 w-5 ${
-                type === 'danger' ? 'text-red-400' : 
-                type === 'warning' ? 'text-yellow-400' : 
-                type === 'success' ? 'text-green-400' : 
-                'text-amber-400'
-              }`} />
+            <div className={`p-2.5 rounded-xl ${iconBgColors[type] || iconBgColors.primary}`}>
+              <IconComponent className={`h-5 w-5 ${iconTextColors[type] || iconTextColors.primary}`} />
             </div>
-            <h3 className="text-base font-bold text-amber-50 ml-3">{title}</h3>
+            <h3 className={`text-base font-bold ml-3 ${
+              isDarkMode ? 'text-amber-50' : 'text-gray-900'
+            }`}>{title}</h3>
           </div>
-          <p className="text-gray-300 text-sm mb-6 leading-relaxed">{message}</p>
+
+          {/* Message */}
+          <p className={`text-sm mb-6 leading-relaxed ${
+            isDarkMode ? 'text-gray-300' : 'text-gray-600'
+          }`}>{message}</p>
+
+          {/* Action Buttons */}
           <div className="flex flex-col-reverse sm:flex-row gap-3 justify-end">
             <button
               onClick={onClose}
               disabled={loading}
-              className="px-4 py-2.5 border-2 border-amber-500/50 text-amber-400 font-semibold text-sm rounded-lg hover:bg-amber-500/10 hover:border-amber-400 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 focus:ring-offset-gray-900 disabled:opacity-50 disabled:cursor-not-allowed"
+              className={`px-4 py-2.5 font-semibold text-sm rounded-xl transition-all duration-200 focus:outline-none focus:ring-2 disabled:opacity-50 disabled:cursor-not-allowed ${
+                isDarkMode 
+                  ? 'border-2 border-amber-500/50 text-amber-400 hover:bg-amber-500/10 hover:border-amber-400 focus:ring-amber-500 focus:ring-offset-2 focus:ring-offset-gray-900' 
+                  : 'border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 hover:border-gray-400 focus:ring-gray-400 focus:ring-offset-2'
+              }`}
             >
               Cancel
             </button>
             <button
               onClick={onConfirm}
               disabled={loading}
-              className={`px-4 py-2.5 text-white font-semibold text-sm rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 disabled:opacity-50 disabled:cursor-not-allowed ${buttonColors[type]}`}
+              className={`px-4 py-2.5 text-white font-semibold text-sm rounded-xl transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${
+                isDarkMode ? 'focus:ring-offset-gray-900' : 'focus:ring-offset-white'
+              } ${buttonColors[type]}`}
             >
               {loading ? (
                 <div className="flex items-center justify-center">
@@ -731,20 +998,28 @@ const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, confirm
 };
 
 // Settings Modal Component
-const SettingsModal = ({ isOpen, onClose, settings, onSettingsChange }) => {
+const SettingsModal = ({ isOpen, onClose, settings, onSettingsChange, onOpenTerms, isDarkMode = true }) => {
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleEsc = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handleEsc);
+    return () => document.removeEventListener('keydown', handleEsc);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4 animate-fadeIn">
-      <div className="bg-gray-900 border border-amber-500/30 rounded-lg shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto transform animate-scaleIn">
-        <div className="flex justify-between items-center p-4 border-b border-gray-700 sticky top-0 bg-gray-900">
+    <div className={`fixed inset-0 flex items-center justify-center z-50 p-4 animate-fadeIn ${isDarkMode ? 'bg-black/70' : 'bg-gray-900/40 backdrop-blur-sm'}`} role="dialog" aria-modal="true" aria-label="Settings">
+      <div className={`rounded-lg shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto transform animate-scaleIn border ${isDarkMode ? 'bg-gray-900 border-amber-500/30' : 'bg-white border-gray-200'}`}>
+        <div className={`flex justify-between items-center p-4 border-b sticky top-0 ${isDarkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'}`}>
           <div className="flex items-center">
-            <Cog6ToothIcon className="h-5 w-5 text-amber-400 mr-2" />
-            <h3 className="text-sm font-semibold text-amber-50">Settings</h3>
+            <Cog6ToothIcon className={`h-5 w-5 mr-2 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`} aria-hidden="true" />
+            <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>Settings</h3>
           </div>
           <button 
             onClick={onClose} 
-            className="text-gray-400 hover:text-amber-400 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-amber-500 rounded p-1"
+            className={`rounded p-1 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-amber-500 ${isDarkMode ? 'text-gray-400 hover:text-amber-400' : 'text-gray-500 hover:text-amber-600'}`}
+            aria-label="Close settings"
           >
             <XMarkIcon className="h-4 w-4" />
           </button>
@@ -753,18 +1028,18 @@ const SettingsModal = ({ isOpen, onClose, settings, onSettingsChange }) => {
         <div className="p-4 space-y-4">
           {/* Theme Settings */}
           <div className="space-y-3">
-            <h4 className="text-xs font-semibold text-amber-50">Appearance</h4>
+            <h4 className={`text-xs font-semibold ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>Appearance</h4>
             
-            <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg border border-gray-600">
+            <div className={`flex items-center justify-between p-3 rounded-lg border ${isDarkMode ? 'bg-gray-800/50 border-gray-600' : 'bg-gray-50 border-gray-200'}`}>
               <div className="flex items-center space-x-2">
                 {settings.theme === 'dark' ? (
-                  <MoonIcon className="h-4 w-4 text-amber-400" />
+                  <MoonIcon className={`h-4 w-4 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`} aria-hidden="true" />
                 ) : (
-                  <SunIcon className="h-4 w-4 text-amber-400" />
+                  <SunIcon className={`h-4 w-4 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`} aria-hidden="true" />
                 )}
                 <div>
-                  <p className="text-amber-50 font-medium text-sm">Theme</p>
-                  <p className="text-xs text-amber-400/70">Choose your preferred theme</p>
+                  <p className={`font-medium text-sm ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>Theme</p>
+                  <p className={`text-xs ${isDarkMode ? 'text-amber-400/70' : 'text-gray-500'}`}>Choose your preferred theme</p>
                 </div>
               </div>
               <div className="flex items-center space-x-2">
@@ -774,14 +1049,16 @@ const SettingsModal = ({ isOpen, onClose, settings, onSettingsChange }) => {
                     checked={settings.theme === 'light'}
                     onChange={(e) => onSettingsChange('theme', e.target.checked ? 'light' : 'dark')}
                     className="sr-only peer"
+                    aria-label="Toggle light mode"
                   />
-                  <div className="w-10 h-5 bg-gray-600 rounded-full peer-focus:ring-2 peer-focus:ring-amber-500 peer-checked:bg-amber-600 relative after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:border-gray-300 after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full"></div>
+                  <div className={`w-10 h-5 rounded-full peer-focus:ring-2 peer-focus:ring-amber-500 peer-checked:bg-amber-600 relative after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:border-gray-300 after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-full ${isDarkMode ? 'bg-gray-600' : 'bg-gray-300'}`}></div>
                 </label>
 
                 <select
                   value={settings.theme}
                   onChange={(e) => onSettingsChange('theme', e.target.value)}
-                  className="bg-gray-800 border border-gray-600 rounded-lg px-2 py-1 text-amber-50 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                  className={`border rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 ${isDarkMode ? 'bg-gray-800 border-gray-600 text-amber-50' : 'bg-white border-gray-300 text-gray-900'}`}
+                  aria-label="Select theme"
                 >
                   <option value="light">Light</option>
                   <option value="dark">Dark</option>
@@ -793,13 +1070,13 @@ const SettingsModal = ({ isOpen, onClose, settings, onSettingsChange }) => {
 
           {/* Notification Settings */}
           <div className="space-y-3">
-            <h4 className="text-xs font-semibold text-amber-50">Notifications</h4>
+            <h4 className={`text-xs font-semibold ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>Notifications</h4>
             
             <div className="space-y-2">
-              <div className="flex items-center justify-between p-2 bg-gray-800/50 rounded-lg border border-gray-600">
+              <div className={`flex items-center justify-between p-2 rounded-lg border ${isDarkMode ? 'bg-gray-800/50 border-gray-600' : 'bg-gray-50 border-gray-200'}`}>
                 <div>
-                  <p className="text-amber-50 font-medium text-sm">Email Notifications</p>
-                  <p className="text-xs text-amber-400/70">Receive email updates about your appointments</p>
+                  <p className={`font-medium text-sm ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>Email Notifications</p>
+                  <p className={`text-xs ${isDarkMode ? 'text-amber-400/70' : 'text-gray-500'}`}>Receive email updates about your appointments</p>
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer">
                   <input
@@ -807,15 +1084,16 @@ const SettingsModal = ({ isOpen, onClose, settings, onSettingsChange }) => {
                     checked={settings.emailNotifications}
                     onChange={(e) => onSettingsChange('emailNotifications', e.target.checked)}
                     className="sr-only peer"
+                    aria-label="Toggle email notifications"
                   />
-                  <div className="w-9 h-5 bg-gray-600 peer-focus:outline-none peer-focus:ring-amber-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-600"></div>
+                  <div className={`w-9 h-5 peer-focus:outline-none peer-focus:ring-amber-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-600 ${isDarkMode ? 'bg-gray-600' : 'bg-gray-300'}`}></div>
                 </label>
               </div>
 
-              <div className="flex items-center justify-between p-2 bg-gray-800/50 rounded-lg border border-gray-600">
+              <div className={`flex items-center justify-between p-2 rounded-lg border ${isDarkMode ? 'bg-gray-800/50 border-gray-600' : 'bg-gray-50 border-gray-200'}`}>
                 <div>
-                  <p className="text-amber-50 font-medium text-sm">SMS Notifications</p>
-                  <p className="text-xs text-amber-400/70">Receive text message reminders</p>
+                  <p className={`font-medium text-sm ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>SMS Notifications</p>
+                  <p className={`text-xs ${isDarkMode ? 'text-amber-400/70' : 'text-gray-500'}`}>Receive text message reminders</p>
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer">
                   <input
@@ -823,10 +1101,40 @@ const SettingsModal = ({ isOpen, onClose, settings, onSettingsChange }) => {
                     checked={settings.smsNotifications}
                     onChange={(e) => onSettingsChange('smsNotifications', e.target.checked)}
                     className="sr-only peer"
+                    aria-label="Toggle SMS notifications"
                   />
-                  <div className="w-9 h-5 bg-gray-600 peer-focus:outline-none peer-focus:ring-amber-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-600"></div>
+                  <div className={`w-9 h-5 peer-focus:outline-none peer-focus:ring-amber-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-600 ${isDarkMode ? 'bg-gray-600' : 'bg-gray-300'}`}></div>
                 </label>
               </div>
+            </div>
+          </div>
+
+          {/* Legal */}
+          <div className={`p-3 rounded-lg border ${isDarkMode ? 'bg-gray-800/50 border-gray-700' : 'bg-gray-50 border-gray-200'}`}>
+            <h4 className={`font-semibold mb-2 text-sm ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
+              Legal
+            </h4>
+            <div className="space-y-2">
+              <button
+                onClick={() => onOpenTerms && onOpenTerms('terms')}
+                className={`w-full flex items-center justify-between p-2 rounded-lg border transition-colors ${isDarkMode ? 'bg-gray-800/50 border-gray-600 hover:bg-amber-500/10' : 'bg-gray-50 border-gray-200 hover:bg-amber-50'}`}
+              >
+                <div className="flex items-center">
+                  <span className="mr-2">📋</span>
+                  <p className={`font-medium text-sm ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>Terms & Conditions</p>
+                </div>
+                <ChevronRightIcon className={`h-4 w-4 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`} />
+              </button>
+              <button
+                onClick={() => onOpenTerms && onOpenTerms('privacy')}
+                className={`w-full flex items-center justify-between p-2 rounded-lg border transition-colors ${isDarkMode ? 'bg-gray-800/50 border-gray-600 hover:bg-amber-500/10' : 'bg-gray-50 border-gray-200 hover:bg-amber-50'}`}
+              >
+                <div className="flex items-center">
+                  <span className="mr-2">🔒</span>
+                  <p className={`font-medium text-sm ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>Privacy Policy</p>
+                </div>
+                <ChevronRightIcon className={`h-4 w-4 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`} />
+              </button>
             </div>
           </div>
         </div>
@@ -836,43 +1144,54 @@ const SettingsModal = ({ isOpen, onClose, settings, onSettingsChange }) => {
 };
 
 // Thank You Modal Component
-const ThankYouModal = ({ isOpen, onClose, appointment }) => {
+const ThankYouModal = ({ isOpen, onClose, appointment, isDarkMode = true }) => {
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleEsc = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handleEsc);
+    return () => document.removeEventListener('keydown', handleEsc);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4 animate-fadeIn">
-      <div className="bg-gray-900 border border-amber-500/30 rounded-lg shadow-xl w-full max-w-md transform animate-scaleIn">
+    <div className={`fixed inset-0 flex items-center justify-center z-50 p-4 animate-fadeIn ${isDarkMode ? 'bg-black/70' : 'bg-gray-900/40 backdrop-blur-sm'}`} role="dialog" aria-modal="true" aria-label="Appointment booked successfully">
+      <div className={`rounded-lg shadow-xl w-full max-w-md transform animate-scaleIn border ${isDarkMode ? 'bg-gray-900 border-amber-500/30' : 'bg-white border-gray-200'}`}>
         <div className="p-4">
           <div className="text-center">
-            <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-green-500/20 mb-3 border border-green-500/30">
-              <CheckCircleIcon className="h-6 w-6 text-green-400" />
+            <div className={`mx-auto flex items-center justify-center h-12 w-12 rounded-full mb-3 border ${isDarkMode ? 'bg-green-500/20 border-green-500/30' : 'bg-green-100 border-green-300'}`}>
+              <CheckCircleIcon className={`h-6 w-6 ${isDarkMode ? 'text-green-400' : 'text-green-600'}`} aria-hidden="true" />
             </div>
-            <h3 className="text-sm font-semibold text-amber-50 mb-2">
+            <h3 className={`text-sm font-semibold mb-2 ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>
               Appointment Booked Successfully! 🎉
             </h3>
             
             {appointment && (
-              <div className="bg-gray-800/50 rounded-lg p-3 mb-3 border border-gray-600">
-                <p className="text-xs text-amber-400/70 mb-1">
-                  <strong>Date:</strong> {new Date(appointment.appointment_date).toLocaleDateString()}
+              <div className={`rounded-lg p-3 mb-3 border ${isDarkMode ? 'bg-gray-800/50 border-gray-600' : 'bg-gray-50 border-gray-200'}`}>
+                <p className={`text-xs mb-1 ${isDarkMode ? 'text-amber-400/70' : 'text-gray-600'}`}>
+                  <strong>Date:</strong> {formatDateDisplay(appointment.appointment_date)}
                 </p>
-                <p className="text-xs text-amber-400/70 mb-1">
+                <p className={`text-xs mb-1 ${isDarkMode ? 'text-amber-400/70' : 'text-gray-600'}`}>
                   <strong>Time:</strong> {appointment.appointment_time}
                 </p>
-                <p className="text-xs text-amber-400/70">
+                <p className={`text-xs ${isDarkMode ? 'text-amber-400/70' : 'text-gray-600'}`}>
                   <strong>Status:</strong> <StatusBadge status="pending" />
                 </p>
               </div>
             )}
             
-            <p className="text-amber-400/70 text-xs mb-4">
+            <p className={`text-xs mb-4 ${isDarkMode ? 'text-amber-400/70' : 'text-gray-500'}`}>
               A confirmation email has been sent to your email address. 
               You will receive another email once your appointment is approved.
             </p>
             
             <button
               onClick={onClose}
-              className="w-full px-4 py-2 bg-gradient-to-r from-amber-600 to-amber-700 text-white rounded-lg hover:from-amber-700 hover:to-amber-800 transition-all duration-200 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 focus:ring-offset-gray-900 shadow border border-amber-500/30"
+              className={`w-full px-4 py-2 text-white rounded-lg transition-all duration-200 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 shadow border ${
+                isDarkMode
+                  ? 'bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 focus:ring-offset-gray-900 border-amber-500/30'
+                  : 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 focus:ring-offset-white border-amber-400'
+              }`}
             >
               Close
             </button>
@@ -883,196 +1202,163 @@ const ThankYouModal = ({ isOpen, onClose, appointment }) => {
   );
 };
 
-// About Us Modal Component
-const AboutUsModal = ({ isOpen, onClose, isDarkMode = true }) => {
+// About Us Modal Component — Redesigned with modern card layout
+const AboutUsModal = ({ isOpen, onClose, onOpenTerms, isDarkMode = true }) => {
   if (!isOpen) return null;
 
   const APP_VERSION = '1.0.0';
-  const LAUNCH_DATE = 'January 2024';
-  const LOCATION = 'San Francisco, California';
-  const DEVELOPER = 'John Christian Fajutagana';
+  const LAUNCH_DATE = '2024';
+  const LOCATION = '233 Aljenjay Building, Vicente Ylagan Street, Bagong Bayan 2, Bongabong, Oriental Mindoro';
+
+  // Professional system description
+  const SYSTEM_DESCRIPTION = 'Legal Ease is a secure, modern platform for managing notarization and verification services. Our mission is to provide accessible, reliable, and efficient solutions for document authentication, appointment scheduling, and client support.';
+
+  const services = [
+    { icon: '📜', title: 'Notarization', desc: 'Certified document notarization for individuals and businesses.' },
+    { icon: '✅', title: 'Verification', desc: 'Comprehensive document verification and witnessing.' },
+    { icon: '👨‍⚖️', title: 'Professional Staff', desc: 'Licensed and accredited notary public professionals.' },
+    { icon: '📅', title: 'Flexible Scheduling', desc: 'Convenient online booking and mobile service options.' },
+  ];
+
+  const stats = [
+    { value: '24/7', label: 'Availability' },
+    { value: '100%', label: 'Licensed' },
+    { value: '5★', label: 'Client Satisfaction' },
+    { value: 'Fast', label: 'Service Delivery' },
+  ];
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center z-50 p-4 animate-fadeIn" style={{backgroundColor: isDarkMode ? 'rgba(0,0,0,0.7)' : 'rgba(0,0,0,0.4)'}}>
-      <div className={`rounded-lg shadow-xl w-full max-w-md transform animate-scaleIn max-h-[90vh] overflow-y-auto border-2 ${
+    <div className="fixed inset-0 flex items-center justify-center z-50 p-4 animate-fadeIn" style={{backgroundColor: isDarkMode ? 'rgba(0,0,0,0.75)' : 'rgba(0,0,0,0.4)'}}>
+      <div className={`rounded-2xl shadow-2xl w-full max-w-lg transform animate-scaleIn max-h-[90vh] overflow-hidden flex flex-col ${
         isDarkMode 
-          ? 'bg-gray-900 border-amber-500/30' 
-          : 'bg-white border-amber-400'
+          ? 'bg-gray-900 border border-amber-500/20' 
+          : 'bg-white border border-gray-200'
       }`}>
-        {/* Header */}
-        <div className={`flex justify-between items-center p-4 border-b sticky top-0 ${
-          isDarkMode 
-            ? 'bg-gray-900 border-gray-700' 
-            : 'bg-white border-gray-200'
-        }`}>
-          <div className="flex items-center">
-            <InformationCircleIcon className={`h-5 w-5 mr-2 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`} />
-            <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>About Us</h3>
-          </div>
+        {/* Hero Header */}
+        <div className={`relative px-6 pt-6 pb-5 ${isDarkMode ? 'bg-gradient-to-br from-amber-600/20 via-gray-900 to-gray-900' : 'bg-gradient-to-br from-amber-50 via-white to-white'}`}>
           <button 
             onClick={onClose} 
-            className={`rounded p-1 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-amber-500 ${
+            className={`absolute top-4 right-4 rounded-full p-1.5 transition-all duration-200 focus:outline-none ${
               isDarkMode 
-                ? 'text-gray-400 hover:text-amber-400' 
-                : 'text-gray-600 hover:text-amber-600'
+                ? 'text-gray-400 hover:text-white hover:bg-white/10' 
+                : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'
             }`}
           >
-            <XMarkIcon className="h-4 w-4" />
+            <XMarkIcon className="h-5 w-5" />
           </button>
+
+          <div className="flex items-center gap-4">
+            <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg flex-shrink-0 ${
+              isDarkMode ? 'bg-gradient-to-br from-amber-400 to-amber-600 shadow-amber-500/30' : 'bg-gradient-to-br from-amber-400 to-amber-600 shadow-amber-300/40'
+            }`}>
+              <BuildingLibraryIcon className="h-7 w-7 text-white" />
+            </div>
+            <div>
+              <h3 className={`text-lg font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Legal Ease</h3>
+              <p className={`text-sm ${isDarkMode ? 'text-amber-400/80' : 'text-amber-700'}`}>Notarization Services</p>
+            </div>
+          </div>
+
+          {/* Stats Row */}
+          <div className="grid grid-cols-4 gap-2 mt-5">
+            {stats.map((stat, i) => (
+              <div key={i} className={`text-center py-2 rounded-xl ${isDarkMode ? 'bg-white/5 border border-white/10' : 'bg-amber-50 border border-amber-100'}`}>
+                <div className={`text-sm font-bold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>{stat.value}</div>
+                <div className={`text-[10px] ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>{stat.label}</div>
+              </div>
+            ))}
+          </div>
         </div>
 
-        {/* Content */}
-        <div className={`p-4 space-y-5 ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>
-          {/* Company Info */}
+        {/* Scrollable Content */}
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+          {/* Mission */}
           <div>
-            <h4 className={`font-semibold mb-2 text-sm ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
-              NotaryPro Services
-            </h4>
-            <p className={`text-xs leading-relaxed ${isDarkMode ? 'text-amber-100/70' : 'text-gray-700'}`}>
-              NotaryPro is your trusted partner for professional notarization services. Founded with a commitment to excellence, we provide fast, reliable, and accessible notarization for all your legal document needs.
+            <p className={`text-sm leading-relaxed ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+              {SYSTEM_DESCRIPTION}
             </p>
+          </div>
+
+          {/* Services Grid */}
+          <div>
+            <h4 className={`text-xs font-semibold uppercase tracking-wider mb-3 ${isDarkMode ? 'text-amber-400/70' : 'text-amber-700'}`}>Our Services</h4>
+            <div className="grid grid-cols-2 gap-2">
+              {services.map((svc, i) => (
+                <div key={i} className={`p-3 rounded-xl transition-colors ${isDarkMode ? 'bg-gray-800/60 border border-gray-700/50 hover:border-amber-500/30' : 'bg-gray-50 border border-gray-100 hover:border-amber-200'}`}>
+                  <span className="text-lg">{svc.icon}</span>
+                  <p className={`text-xs font-semibold mt-1 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{svc.title}</p>
+                  <p className={`text-[11px] mt-0.5 leading-tight ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>{svc.desc}</p>
+                </div>
+              ))}
+            </div>
           </div>
 
           {/* Company Details */}
-          <div className={`p-3 rounded-lg space-y-2 ${isDarkMode ? 'bg-gray-800/50 border border-gray-700' : 'bg-gray-100 border border-gray-300'}`}>
-            <div className="text-xs">
-              <p className={`mb-2 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}><strong>📍 Location:</strong></p>
-              <p className={`ml-4 ${isDarkMode ? 'text-amber-100/70' : 'text-gray-700'}`}>{LOCATION}</p>
-            </div>
-            <div className="text-xs">
-              <p className={`mb-2 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}><strong>🚀 Founded:</strong></p>
-              <p className={`ml-4 ${isDarkMode ? 'text-amber-100/70' : 'text-gray-700'}`}>{LAUNCH_DATE}</p>
-            </div>
-          </div>
-
-          {/* Our Mission */}
-          <div>
-            <h4 className={`font-semibold mb-2 text-sm ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
-              Our Mission
-            </h4>
-            <p className={`text-xs leading-relaxed ${isDarkMode ? 'text-amber-100/70' : 'text-gray-700'}`}>
-              To make notarization services accessible, convenient, and trustworthy for everyone. We believe in providing exceptional service with integrity and professionalism.
-            </p>
-          </div>
-
-          {/* What We Offer */}
-          <div>
-            <h4 className={`font-semibold mb-3 text-sm ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
-              Services
-            </h4>
-            <ul className={`space-y-2 text-xs ${isDarkMode ? 'text-amber-100/70' : 'text-gray-700'}`}>
-              <li className="flex items-start">
-                <span className={`mr-2 flex-shrink-0 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>✓</span>
-                <span>Professional Notarization Services</span>
-              </li>
-              <li className="flex items-start">
-                <span className={`mr-2 flex-shrink-0 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>✓</span>
-                <span>Document Verification & Witnessing</span>
-              </li>
-              <li className="flex items-start">
-                <span className={`mr-2 flex-shrink-0 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>✓</span>
-                <span>Certified Notary Public Staff</span>
-              </li>
-              <li className="flex items-start">
-                <span className={`mr-2 flex-shrink-0 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>✓</span>
-                <span>Flexible Scheduling & Mobile Service</span>
-              </li>
-            </ul>
-          </div>
-
-          {/* Why Choose Us */}
-          <div>
-            <h4 className={`font-semibold mb-3 text-sm ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
-              Why Choose NotaryPro
-            </h4>
-            <ul className={`space-y-2 text-xs ${isDarkMode ? 'text-amber-100/70' : 'text-gray-700'}`}>
-              <li className="flex items-start">
-                <span className={`mr-2 flex-shrink-0 ${isDarkMode ? 'text-green-400' : 'text-green-600'}`}>✓</span>
-                <span>Licensed & Insured Professionals</span>
-              </li>
-              <li className="flex items-start">
-                <span className={`mr-2 flex-shrink-0 ${isDarkMode ? 'text-green-400' : 'text-green-600'}`}>✓</span>
-                <span>Fast & Reliable Service</span>
-              </li>
-              <li className="flex items-start">
-                <span className={`mr-2 flex-shrink-0 ${isDarkMode ? 'text-green-400' : 'text-green-600'}`}>✓</span>
-                <span>Competitive Pricing</span>
-              </li>
-              <li className="flex items-start">
-                <span className={`mr-2 flex-shrink-0 ${isDarkMode ? 'text-green-400' : 'text-green-600'}`}>✓</span>
-                <span>24/7 Availability</span>
-              </li>
-            </ul>
-          </div>
-
-          {/* Developer & Team */}
-          <div className={`p-3 rounded-lg ${isDarkMode ? 'bg-gray-800/50 border border-gray-700' : 'bg-gray-100 border border-gray-300'}`}>
-            <h4 className={`font-semibold mb-3 text-sm ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
-              👨‍💻 Development Team
-            </h4>
-            <div className={`text-xs ${isDarkMode ? 'text-amber-100/70' : 'text-gray-700'}`}>
-              <p><strong>Lead Developer:</strong></p>
-              <p className={`ml-4 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>{DEVELOPER}</p>
-              <p className={`mt-2 text-xs ${isDarkMode ? 'text-amber-100/60' : 'text-gray-600'}`}>
-                Full Stack Developer specializing in modern web technologies and professional services platforms.
-              </p>
+          <div className={`flex items-center gap-4 p-4 rounded-xl ${isDarkMode ? 'bg-gray-800/40 border border-gray-700/50' : 'bg-gray-50 border border-gray-100'}`}>
+            <div className="flex-1 space-y-2">
+              <div className="flex items-center gap-2 text-xs">
+                <MapPinIcon className={`h-4 w-4 flex-shrink-0 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`} />
+                <span className={isDarkMode ? 'text-gray-300' : 'text-gray-700'}>{LOCATION}</span>
+              </div>
+              <div className="flex items-center gap-2 text-xs">
+                <CalendarIcon className={`h-4 w-4 flex-shrink-0 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`} />
+                <span className={isDarkMode ? 'text-gray-300' : 'text-gray-700'}>Founded {LAUNCH_DATE}</span>
+              </div>
             </div>
           </div>
 
-          {/* Contact & Support */}
-          <div className={`p-3 rounded-lg ${isDarkMode ? 'bg-gray-800/50 border border-gray-700' : 'bg-gray-100 border border-gray-300'}`}>
-            <h4 className={`font-semibold mb-2 text-sm ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
-              Get In Touch
-            </h4>
-            <div className={`space-y-1 text-xs ${isDarkMode ? 'text-amber-100/70' : 'text-gray-700'}`}>
-              <p><strong>Email:</strong> support@notarypro.com</p>
-              <p><strong>Phone:</strong> 1-800-NOTARY-1</p>
-              <p><strong>Hours:</strong> 24/7 Service Available</p>
+
+
+          {/* Contact */}
+          <div className={`p-4 rounded-xl ${isDarkMode ? 'bg-gray-800/40 border border-gray-700/50' : 'bg-gray-50 border border-gray-100'}`}>
+            <h4 className={`text-xs font-semibold uppercase tracking-wider mb-3 ${isDarkMode ? 'text-amber-400/70' : 'text-amber-700'}`}>Get In Touch</h4>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-xs">
+                <EnvelopeIcon className={`h-4 w-4 flex-shrink-0 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`} />
+                <span className={isDarkMode ? 'text-gray-300' : 'text-gray-700'}>peejaydeguzmanlegal@gmail.com</span>
+              </div>
+              <div className="flex items-center gap-2 text-xs">
+                <PhoneIcon className={`h-4 w-4 flex-shrink-0 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`} />
+                <span className={isDarkMode ? 'text-gray-300' : 'text-gray-700'}>09765075274</span>
+              </div>
             </div>
           </div>
 
           {/* Legal Links */}
-          <div className={`p-3 rounded-lg space-y-2 ${isDarkMode ? 'bg-gray-800/50 border border-gray-700' : 'bg-gray-100 border border-gray-300'}`}>
-            <button className={`w-full text-left text-xs font-medium px-3 py-2 rounded transition-colors ${
-              isDarkMode 
-                ? 'hover:bg-amber-500/10 text-amber-400' 
-                : 'hover:bg-amber-100 text-amber-600'
-            }`}>
-              📋 Terms of Service
+          <div className="flex gap-2">
+            <button
+              onClick={() => onOpenTerms && onOpenTerms('terms')}
+              className={`flex-1 text-xs font-medium px-3 py-2.5 rounded-xl transition-all ${
+                isDarkMode 
+                  ? 'bg-gray-800/60 border border-gray-700/50 hover:border-amber-500/30 text-gray-300 hover:text-amber-400' 
+                  : 'bg-gray-50 border border-gray-200 hover:border-amber-300 text-gray-700 hover:text-amber-700'
+              }`}
+            >
+              📋 Terms
             </button>
-            <button className={`w-full text-left text-xs font-medium px-3 py-2 rounded transition-colors ${
-              isDarkMode 
-                ? 'hover:bg-amber-500/10 text-amber-400' 
-                : 'hover:bg-amber-100 text-amber-600'
-            }`}>
-              🔒 Privacy Policy
-            </button>
-            <button className={`w-full text-left text-xs font-medium px-3 py-2 rounded transition-colors ${
-              isDarkMode 
-                ? 'hover:bg-amber-500/10 text-amber-400' 
-                : 'hover:bg-amber-100 text-amber-600'
-            }`}>
-              💬 Contact Support
+            <button
+              onClick={() => onOpenTerms && onOpenTerms('privacy')}
+              className={`flex-1 text-xs font-medium px-3 py-2.5 rounded-xl transition-all ${
+                isDarkMode 
+                  ? 'bg-gray-800/60 border border-gray-700/50 hover:border-amber-500/30 text-gray-300 hover:text-amber-400' 
+                  : 'bg-gray-50 border border-gray-200 hover:border-amber-300 text-gray-700 hover:text-amber-700'
+              }`}
+            >
+              🔒 Privacy
             </button>
           </div>
 
           {/* Version */}
-          <div className={`text-center pt-2 border-t ${isDarkMode ? 'border-gray-700 text-gray-500' : 'border-gray-300 text-gray-600'}`}>
-            <p className="text-xs">
-              Version {APP_VERSION} • © 2024 NotaryPro Services
-            </p>
+          <div className={`text-center pt-3 border-t ${isDarkMode ? 'border-gray-800 text-gray-600' : 'border-gray-100 text-gray-400'}`}>
+            <p className="text-[11px]">v{APP_VERSION} · © 2024 Legal Ease Platform — Peejayy De Guzman Legal Services. All rights reserved.</p>
           </div>
         </div>
 
-        {/* Close Button */}
-        <div className={`p-4 border-t ${isDarkMode ? 'bg-gray-800/50 border-gray-700' : 'bg-gray-50 border-gray-300'}`}>
+        {/* Footer */}
+        <div className={`px-6 py-4 border-t flex-shrink-0 ${isDarkMode ? 'border-gray-800 bg-gray-900/80' : 'border-gray-100 bg-gray-50'}`}>
           <button
             onClick={onClose}
-            className={`w-full px-4 py-2 rounded-lg font-medium text-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-              isDarkMode
-                ? 'bg-amber-600 hover:bg-amber-700 text-white focus:ring-amber-500 focus:ring-offset-gray-900'
-                : 'bg-amber-600 hover:bg-amber-700 text-white focus:ring-amber-500 focus:ring-offset-white'
-            }`}
+            className="w-full px-4 py-2.5 rounded-xl font-medium text-sm transition-all duration-200 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white shadow-lg shadow-amber-500/20 hover:shadow-amber-500/30"
           >
             Close
           </button>
@@ -1083,7 +1369,7 @@ const AboutUsModal = ({ isOpen, onClose, isDarkMode = true }) => {
 };
 
 const Dashboard = () => {
-  const { user, logout } = useAuth();
+  const { user, logout, updateUser } = useAuth();
   const { callApi, loading, error, clearError } = useApi();
   const navigate = useNavigate();
   const location = useLocation();
@@ -1098,7 +1384,7 @@ const Dashboard = () => {
       }, 100);
       return () => clearTimeout(timer);
     }
-    if (user?.role === 'staff') {
+    if (user?.role === 'staff' || user?.role === 'cashier') {
       setRedirecting(true);
       // Use a small timeout to allow React to update state
       const timer = setTimeout(() => {
@@ -1116,6 +1402,8 @@ const Dashboard = () => {
 
   const [showSettings, setShowSettings] = useState(false);
   const [showAboutUs, setShowAboutUs] = useState(false);
+  const [showTermsPrivacyModal, setShowTermsPrivacyModal] = useState(false);
+  const [termsPrivacyTab, setTermsPrivacyTab] = useState('terms');
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false); // Track logout loading state
   const [showThankYouModal, setShowThankYouModal] = useState(false);
@@ -1124,6 +1412,8 @@ const Dashboard = () => {
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
   const [profileSection, setProfileSection] = useState('overview');
   const [showProfileMenu, setShowProfileMenu] = useState(false);
+
+  const [showMobileNotifications, setShowMobileNotifications] = useState(false);
 
   // Sync active tab with URL query `?tab=` so BottomNav can navigate using query params
   useEffect(() => {
@@ -1232,6 +1522,18 @@ const Dashboard = () => {
   const [profileSuccess, setProfileSuccess] = useState('');
   const [passwordSuccess, setPasswordSuccess] = useState('');
 
+  // Password visibility toggles
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [showProfilePassword, setShowProfilePassword] = useState(false);
+
+  // Delete account state
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+
   // Message reply state - moved to component level to comply with React hooks rules
   const [messageReply, setMessageReply] = useState('');
   const [replyError, setReplyError] = useState('');
@@ -1263,6 +1565,13 @@ const Dashboard = () => {
           href: '#', 
           icon: StarIcon, 
           current: activeTab === 'feedback',
+          badge: null
+        },
+        {
+          name: 'Notifications',
+          href: '#',
+          icon: BellIcon,
+          current: activeTab === 'notifications',
           badge: null
         }
       ]
@@ -1315,10 +1624,11 @@ const Dashboard = () => {
   ];
 
   // Load data on component mount and tab change
+  // Load data on tab change (lazy loading for non-preloaded tabs)
   useEffect(() => {
     if (!user?.id) return; // Wait for user to load
     loadInitialData();
-  }, [activeTab, user?.id]);
+  }, [activeTab, user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Debug: Log when dailyLimitInfo changes
   useEffect(() => {
@@ -1404,7 +1714,8 @@ const Dashboard = () => {
   }, []);
 
   // Define checkDailyLimit FIRST before useEffect hooks that use it
-  const checkDailyLimit = useCallback(async (dateToCheck = null) => {
+  // Always checks today's date - counts how many appointments booked today regardless of appointment date
+  const checkDailyLimit = useCallback(async () => {
     try {
       // Guard: user must be loaded
       if (!user?.id) {
@@ -1412,8 +1723,9 @@ const Dashboard = () => {
         return;
       }
       
-      // Use the selected date or today's date
-      const checkDate = dateToCheck || new Date().toISOString().split('T')[0];
+      // Always use today's date (use local time, not UTC)
+      const now = new Date();
+      const checkDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
       
       const result = await callApi((signal) =>
         axios.get(`/api/appointment-settings/user-limit/${user.id}/${checkDate}`, { signal })
@@ -1539,15 +1851,25 @@ const Dashboard = () => {
         'other': 500.00
       };
       
-      const result = await callApi((signal) => 
-        axios.get('/api/appointments/types/all', { signal })
-      );
-      
-      if (result.success) {
-        setAppointmentTypes(Object.entries(result.data.data || {}).map(([value, label]) => ({
+      try {
+        const result = await callApi((signal) => 
+          axios.get('/api/appointments/types/all', { signal })
+        );
+        
+        if (result.success) {
+          setAppointmentTypes(Object.entries(result.data.data || {}).map(([value, label]) => ({
+            value,
+            label,
+            price: defaultPrices[value] || 500.00
+          })));
+        }
+      } catch (fallbackError) {
+        console.error('Fallback appointment types also failed:', fallbackError);
+        // Set static types as last resort
+        setAppointmentTypes(Object.entries(defaultPrices).map(([value, price]) => ({
           value,
-          label,
-          price: defaultPrices[value] || 500.00
+          label: value.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+          price
         })));
       }
     }
@@ -1654,7 +1976,7 @@ const Dashboard = () => {
   const loadMessages = useCallback(async () => {
     const result = await callApi((signal) => 
       axios.get('/api/messages/all/messages', { signal })
-    );
+    , { abortPrevious: false });
     
     if (result.success) {
       // Filter out chatbot-type messages to keep only genuine user-admin conversations
@@ -1695,46 +2017,64 @@ const Dashboard = () => {
   useEffect(() => {
     const handleAppointmentSettingsChanged = () => {
       console.log('Appointment settings changed, checking daily limit...');
-      // Check today's limit or the selected appointment date
-      const dateToCheck = appointmentData?.appointment_date || new Date().toISOString().split('T')[0];
-      checkDailyLimit(dateToCheck);
+      checkDailyLimit();
     };
 
     window.addEventListener('appointmentSettingsChanged', handleAppointmentSettingsChanged);
     return () => window.removeEventListener('appointmentSettingsChanged', handleAppointmentSettingsChanged);
-  }, [appointmentData?.appointment_date, checkDailyLimit]);
+  }, [checkDailyLimit]);
+
+  // Track which data sets have been loaded
+  const [userDataLoaded, setUserDataLoaded] = useState({
+    home: false,
+    appointments: false,
+    refunds: false,
+    messages: false
+  });
 
   const loadInitialData = useCallback(async () => {
     switch (activeTab) {
       case 'home':
       case 'book':
-        // Load all data in PARALLEL for faster loading
-        await Promise.all([
-          loadAppointmentTypes(),
-          loadAppointments(),
-          loadRefunds(),
-          checkDailyLimit()
-        ]);
+        if (!userDataLoaded.home) {
+          // Load all data in PARALLEL for faster loading
+          await Promise.all([
+            loadAppointmentTypes(),
+            loadAppointments(),
+            loadRefunds(),
+            checkDailyLimit()
+          ]);
+          setUserDataLoaded(prev => ({ ...prev, home: true, appointments: true, refunds: true }));
+        }
         break;
       case 'appointments':
-        // Load in parallel
-        await Promise.all([
-          loadAppointments(),
-          loadRefunds(),
-          checkDailyLimit()
-        ]);
+        if (!userDataLoaded.appointments) {
+          // Load in parallel
+          await Promise.all([
+            loadAppointments(),
+            loadRefunds(),
+            checkDailyLimit()
+          ]);
+          setUserDataLoaded(prev => ({ ...prev, appointments: true, refunds: true }));
+        }
         break;
       case 'refunds':
-        await loadRefunds();
+        if (!userDataLoaded.refunds) {
+          await loadRefunds();
+          setUserDataLoaded(prev => ({ ...prev, refunds: true }));
+        }
         break;
       case 'messages':
-        await loadMessages();
+        if (!userDataLoaded.messages) {
+          await loadMessages();
+          setUserDataLoaded(prev => ({ ...prev, messages: true }));
+        }
         break;
       case 'profile':
         // Profile data is already loaded from auth context
         break;
     }
-  }, [activeTab, loadAppointmentTypes, loadAppointments, loadRefunds, checkDailyLimit, loadMessages]);
+  }, [activeTab, userDataLoaded, loadAppointmentTypes, loadAppointments, loadRefunds, checkDailyLimit, loadMessages]);
 
   // Initialize real-time updates polling
   const { startPolling: startRealtimePolling, stopPolling: stopRealtimePolling } = useRealtimeUpdates(
@@ -1748,8 +2088,17 @@ const Dashboard = () => {
     // onSettingsChange callback
     (settingsData) => {
       console.log('[Dashboard] Settings data received from polling, checking daily limit');
-      const dateToCheck = appointmentData?.appointment_date || new Date().toISOString().split('T')[0];
-      checkDailyLimit(dateToCheck);
+      checkDailyLimit();
+    },
+    // onUnavailableDatesChange callback
+    () => {
+      console.log('[Dashboard] Unavailable dates changed from polling, dispatching event');
+      // The EnhancedCalendar listens for this event and will reload
+    },
+    // onAppointmentStatusChange callback - admin approved/declined/cancelled user's appointment
+    () => {
+      console.log('[Dashboard] Appointment status changed from polling, reloading appointments');
+      loadAppointments();
     }
   );
 
@@ -1810,7 +2159,32 @@ const Dashboard = () => {
       ...prev,
       [name]: value
     }));
+    // Clear errors when user starts typing
+    if (passwordErrors.general || passwordErrors[name]) {
+      setPasswordErrors(prev => ({ ...prev, general: '', [name]: '' }));
+    }
   };
+
+  // Password strength calculator (matches the one in register)
+  const getPasswordStrength = (password) => {
+    if (!password) return { level: 0, label: '', color: '' };
+    let score = 0;
+    if (password.length >= 8) score++;
+    if (password.length >= 12) score++;
+    if (/[a-z]/.test(password)) score++;
+    if (/[A-Z]/.test(password)) score++;
+    if (/[0-9]/.test(password)) score++;
+    if (/[^a-zA-Z0-9]/.test(password)) score++;
+
+    if (score <= 2) return { level: 1, label: 'Weak', color: 'red' };
+    if (score <= 3) return { level: 2, label: 'Fair', color: 'orange' };
+    if (score <= 4) return { level: 3, label: 'Good', color: 'yellow' };
+    if (score <= 5) return { level: 4, label: 'Strong', color: 'green' };
+    return { level: 5, label: 'Very Strong', color: 'emerald' };
+  };
+
+  const newPasswordStrength = getPasswordStrength(passwordData.new_password);
+  const passwordsMatch = passwordData.new_password_confirmation.length === 0 || passwordData.new_password === passwordData.new_password_confirmation;
 
   const handleAppointmentChange = (e) => {
     const { name, value } = e.target;
@@ -1822,7 +2196,7 @@ const Dashboard = () => {
     // Load available slots and check limit when date changes
     if (name === 'appointment_date') {
       loadAvailableSlots(value);
-      checkDailyLimit(value);
+      checkDailyLimit();
     }
 
     // Clear errors when user starts typing
@@ -1896,6 +2270,16 @@ const Dashboard = () => {
     setPasswordSuccess('');
     setPasswordErrors({});
 
+    // Client-side validation
+    if (passwordData.new_password.length < 8) {
+      setPasswordErrors({ new_password: 'Password must be at least 8 characters' });
+      return;
+    }
+    if (passwordData.new_password !== passwordData.new_password_confirmation) {
+      setPasswordErrors({ new_password_confirmation: 'Passwords do not match' });
+      return;
+    }
+
     const result = await callApi((signal) => 
       axios.put('/api/profile/password', passwordData, { signal })
     );
@@ -1907,12 +2291,17 @@ const Dashboard = () => {
         new_password_confirmation: ''
       });
       setPasswordSuccess('Password updated successfully!');
-      // Clear success message after 3 seconds
-      setTimeout(() => setPasswordSuccess(''), 3000);
+      setTimeout(() => setPasswordSuccess(''), 5000);
     } else {
-      if (result.error) {
-        setPasswordErrors({ general: result.error });
-      }
+      // Handle field-specific validation errors from Laravel
+      const fieldErrors = result.data?.errors || {};
+      const generalMsg = result.error || result.data?.message || 'Failed to update password';
+      setPasswordErrors({
+        general: Object.keys(fieldErrors).length === 0 ? generalMsg : '',
+        current_password: fieldErrors.current_password?.[0] || '',
+        new_password: fieldErrors.new_password?.[0] || '',
+        new_password_confirmation: fieldErrors.new_password_confirmation?.[0] || '',
+      });
     }
   };
 
@@ -1969,6 +2358,9 @@ const Dashboard = () => {
       setLatestAppointment(result.data.appointment);
       setShowThankYouModal(true);
       
+      // Save the booked date before resetting the form so we can refresh the correct daily limit
+      const bookedDate = appointmentData.appointment_date;
+      
       // Reset form
       setAppointmentData({
         type: '',
@@ -1980,7 +2372,7 @@ const Dashboard = () => {
       setAvailableSlots([]);
       setFormErrors({});
       
-      // Reload appointments and check daily limit
+      // Reload appointments and check daily limit for the booked date
       await loadAppointments();
       await checkDailyLimit();
     } else {
@@ -2039,19 +2431,19 @@ const Dashboard = () => {
     e.preventDefault();
     
     if (!selectedAppointment || !refundData.reason) {
-      alert('Please select a reason for the refund');
+      window.showToast?.('Warning', 'Please select a reason for the refund', 'warning');
       return;
     }
 
     // Validate payment amount exists
     if (!selectedAppointment.payment_amount || selectedAppointment.payment_amount <= 0) {
-      alert('Cannot process refund: This appointment has no payment amount recorded. Please contact support for assistance.');
+      window.showToast?.('Error', 'Cannot process refund: This appointment has no payment amount recorded. Please contact support for assistance.', 'error');
       return;
     }
 
     // Validate payment status
     if (selectedAppointment.payment_status !== 'paid') {
-      alert('Cannot process refund: This appointment is not marked as paid. Only paid appointments can be refunded.');
+      window.showToast?.('Error', 'Cannot process refund: This appointment is not marked as paid. Only paid appointments can be refunded.', 'error');
       return;
     }
 
@@ -2065,7 +2457,7 @@ const Dashboard = () => {
       });
 
       if (response.data?.success) {
-        alert('Refund request submitted successfully. You will receive a notification once it is reviewed.');
+        window.showToast?.('Success', 'Refund request submitted successfully. You will receive a notification once it is reviewed.', 'success');
         setShowRefundModal(false);
         setSelectedAppointment(null);
         setRefundData({ reason: 'customer_request', description: '' });
@@ -2075,7 +2467,7 @@ const Dashboard = () => {
       }
     } catch (error) {
       console.error('Refund request failed:', error);
-      alert(error.response?.data?.message || 'Failed to submit refund request');
+      window.showToast?.('Error', error.response?.data?.message || 'Failed to submit refund request', 'error');
     } finally {
       setRefundLoading(false);
     }
@@ -2169,6 +2561,8 @@ const Dashboard = () => {
 
   const renderHome = () => (
     <div className="space-y-6">
+      <ProfileCompletionBanner isDarkMode={isDarkMode} />
+      
       {/* Welcome Section */}
       <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4 sm:p-6 hover:border-amber-500/40 transition-all duration-300`}>
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -2255,7 +2649,7 @@ const Dashboard = () => {
                         {formatServiceName(appointment)}
                       </p>
                       <p className="text-xs text-amber-400/70 group-hover:text-amber-300">
-                        {new Date(appointment.appointment_date).toLocaleDateString()} at {appointment.appointment_time}
+                        {formatDateDisplay(appointment.appointment_date)} at {appointment.appointment_time}
                       </p>
                     </div>
                   </div>
@@ -2266,6 +2660,9 @@ const Dashboard = () => {
           )}
         </div>
       </div>
+
+      {/* Insights & Analytics */}
+      <UserInsights appointments={appointments} isDarkMode={isDarkMode} />
     </div>
   );
 
@@ -2348,6 +2745,7 @@ const Dashboard = () => {
               onOtherChange={handleCustomServiceChange}
               otherValue={appointmentData.custom_service_type}
               disabled={dailyLimitInfo.hasReachedLimit}
+              isDarkMode={isDarkMode}
             />
 
             {/* Enhanced Calendar Component */}
@@ -2357,6 +2755,7 @@ const Dashboard = () => {
               error={formErrors.appointment_date}
               disabled={dailyLimitInfo.hasReachedLimit}
               dailyLimitInfo={dailyLimitInfo}
+              isDarkMode={isDarkMode}
             />
 
             {/* Time Input using TimePicker Component */}
@@ -2399,7 +2798,7 @@ const Dashboard = () => {
                     <div>
                       <p className="text-xs text-amber-400/70 font-medium">Price</p>
                       <p className="text-sm text-amber-50 font-semibold">
-                        ${parseFloat(appointmentTypes.find(t => t.value === appointmentData.type).price).toFixed(2)}
+                        ₱{parseFloat(appointmentTypes.find(t => t.value === appointmentData.type).price).toFixed(2)}
                       </p>
                     </div>
                   )}
@@ -2580,7 +2979,7 @@ const Dashboard = () => {
                             <StatusBadge status={appointment.status} />
                           </div>
                           <p className={`text-xs mt-1 ${isDarkMode ? 'text-amber-400/70' : 'text-amber-700/70'}`}>
-                            {new Date(appointment.appointment_date).toLocaleDateString()} at {appointment.appointment_time}
+                            {formatDateDisplay(appointment.appointment_date)} at {appointment.appointment_time}
                           </p>
                           {appointment.staff && (
                             <div className={`flex items-center space-x-1 mt-1 text-xs ${isDarkMode ? 'text-amber-400/70' : 'text-amber-700/70'}`}>
@@ -2683,7 +3082,11 @@ const Dashboard = () => {
   };
 
   const renderMessages = () => {
-    return <MessageCenter isDarkMode={isDarkMode} />;
+    return (
+      <div className="flex flex-col" style={{ height: 'calc(100vh - 140px)', minHeight: '500px' }}>
+        <MessageCenter isDarkMode={isDarkMode} />
+      </div>
+    );
   };
 
   const renderRefunds = () => {
@@ -2906,9 +3309,12 @@ const Dashboard = () => {
 
       {/* Profile Overview */}
       <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-6 hover:border-amber-500/40 transition-all duration-300`}>
-        <div className="flex items-center space-x-3 mb-6">
-          <div className="w-12 h-12 bg-gradient-to-r from-amber-500 to-amber-600 rounded-full flex items-center justify-center text-gray-900 text-sm font-bold shadow">
-            {user?.first_name?.charAt(0)}{user?.last_name?.charAt(0)}
+        <div className="flex items-center space-x-4 mb-6">
+          {/* Profile Avatar */}
+          <div className="relative w-24 h-24 rounded-full overflow-hidden border-4 border-amber-400 bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center flex-shrink-0">
+            <span className="text-white text-4xl font-bold">
+              {(user?.first_name?.[0] || '').toUpperCase()}{(user?.last_name?.[0] || '').toUpperCase() || 'U'}
+            </span>
           </div>
           <div>
             <h3 className={`text-sm font-bold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>{user?.first_name} {user?.last_name}</h3>
@@ -3010,14 +3416,22 @@ const Dashboard = () => {
                 <div className="relative">
                   <KeyIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-3 w-3 text-amber-400" />
                   <input
-                    type="password"
+                    type={showProfilePassword ? 'text' : 'password'}
                     name="password"
                     value={profileData.password}
                     onChange={handleProfileChange}
                     disabled={!isEditing}
                     placeholder="Leave blank to keep current password"
-                    className={`w-full pl-9 pr-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm ${isDarkMode ? 'bg-gray-800 border-gray-600 text-white disabled:bg-gray-800/50 disabled:text-gray-400 placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900 disabled:bg-gray-100 disabled:text-gray-500 placeholder-gray-400'} disabled:cursor-not-allowed`}
+                    className={`w-full pl-9 pr-9 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm ${isDarkMode ? 'bg-gray-800 border-gray-600 text-white disabled:bg-gray-800/50 disabled:text-gray-400 placeholder-gray-400' : 'bg-white border-gray-300 text-gray-900 disabled:bg-gray-100 disabled:text-gray-500 placeholder-gray-400'} disabled:cursor-not-allowed`}
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowProfilePassword(!showProfilePassword)}
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-amber-400 transition-colors"
+                    tabIndex={-1}
+                  >
+                    {showProfilePassword ? <EyeSlashIcon className="h-4 w-4" /> : <EyeIcon className="h-4 w-4" />}
+                  </button>
                 </div>
               </div>
 
@@ -3098,49 +3512,149 @@ const Dashboard = () => {
                 <label className={`block text-xs font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-1`}>
                   Current Password *
                 </label>
-                <input
-                  type="password"
-                  name="current_password"
-                  value={passwordData.current_password}
-                  onChange={handlePasswordChange}
-                  className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm ${isDarkMode ? 'bg-gray-800 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
-                  required
-                />
+                <div className="relative">
+                  <input
+                    type={showCurrentPassword ? 'text' : 'password'}
+                    name="current_password"
+                    value={passwordData.current_password}
+                    onChange={handlePasswordChange}
+                    className={`w-full px-3 pr-9 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm ${
+                      passwordErrors.current_password
+                        ? isDarkMode ? 'bg-gray-800 border-red-500 text-white' : 'bg-white border-red-400 text-gray-900'
+                        : isDarkMode ? 'bg-gray-800 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'
+                    }`}
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-amber-400 transition-colors"
+                    tabIndex={-1}
+                  >
+                    {showCurrentPassword ? <EyeSlashIcon className="h-4 w-4" /> : <EyeIcon className="h-4 w-4" />}
+                  </button>
+                </div>
+                {passwordErrors.current_password && (
+                  <p className="text-xs mt-1 text-red-400">{passwordErrors.current_password}</p>
+                )}
               </div>
 
               <div>
                 <label className={`block text-xs font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-1`}>
                   New Password *
                 </label>
-                <input
-                  type="password"
-                  name="new_password"
-                  value={passwordData.new_password}
-                  onChange={handlePasswordChange}
-                  className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm ${isDarkMode ? 'bg-gray-800 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
-                  required
-                />
+                <div className="relative">
+                  <input
+                    type={showNewPassword ? 'text' : 'password'}
+                    name="new_password"
+                    value={passwordData.new_password}
+                    onChange={handlePasswordChange}
+                    className={`w-full px-3 pr-9 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm ${
+                      passwordErrors.new_password
+                        ? isDarkMode ? 'bg-gray-800 border-red-500 text-white' : 'bg-white border-red-400 text-gray-900'
+                        : isDarkMode ? 'bg-gray-800 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'
+                    }`}
+                    required
+                    minLength="8"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPassword(!showNewPassword)}
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-amber-400 transition-colors"
+                    tabIndex={-1}
+                  >
+                    {showNewPassword ? <EyeSlashIcon className="h-4 w-4" /> : <EyeIcon className="h-4 w-4" />}
+                  </button>
+                </div>
+                {passwordErrors.new_password && (
+                  <p className="text-xs mt-1 text-red-400">{passwordErrors.new_password}</p>
+                )}
+                {/* Password Strength Indicator */}
+                {passwordData.new_password.length > 0 && (
+                  <div className="mt-1.5 space-y-1">
+                    <div className="flex gap-1">
+                      {[1, 2, 3, 4, 5].map((i) => (
+                        <div
+                          key={i}
+                          className={`h-1 flex-1 rounded-full transition-all duration-300 ${
+                            i <= newPasswordStrength.level
+                              ? newPasswordStrength.color === 'red' ? 'bg-red-500'
+                              : newPasswordStrength.color === 'orange' ? 'bg-orange-500'
+                              : newPasswordStrength.color === 'yellow' ? 'bg-yellow-500'
+                              : newPasswordStrength.color === 'green' ? 'bg-green-500'
+                              : 'bg-emerald-500'
+                              : isDarkMode ? 'bg-gray-700' : 'bg-gray-200'
+                          }`}
+                        />
+                      ))}
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <p className={`text-xs ${
+                        newPasswordStrength.color === 'red' ? 'text-red-400'
+                        : newPasswordStrength.color === 'orange' ? 'text-orange-400'
+                        : newPasswordStrength.color === 'yellow' ? 'text-yellow-400'
+                        : newPasswordStrength.color === 'green' ? 'text-green-400'
+                        : 'text-emerald-400'
+                      }`}>
+                        {newPasswordStrength.label} password
+                      </p>
+                      <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>Min 8 characters</p>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="md:col-span-2">
                 <label className={`block text-xs font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-1`}>
                   Confirm New Password *
                 </label>
-                <input
-                  type="password"
-                  name="new_password_confirmation"
-                  value={passwordData.new_password_confirmation}
-                  onChange={handlePasswordChange}
-                  className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm ${isDarkMode ? 'bg-gray-800 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'}`}
-                  required
-                />
+                <div className="relative">
+                  <input
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    name="new_password_confirmation"
+                    value={passwordData.new_password_confirmation}
+                    onChange={handlePasswordChange}
+                    className={`w-full px-3 pr-9 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm ${
+                      passwordData.new_password_confirmation.length > 0 && !passwordsMatch
+                        ? isDarkMode ? 'bg-gray-800 border-red-500 text-white' : 'bg-white border-red-400 text-gray-900'
+                        : passwordData.new_password_confirmation.length > 0 && passwordsMatch
+                          ? isDarkMode ? 'bg-gray-800 border-green-500 text-white' : 'bg-white border-green-400 text-gray-900'
+                          : isDarkMode ? 'bg-gray-800 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'
+                    }`}
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-amber-400 transition-colors"
+                    tabIndex={-1}
+                  >
+                    {showConfirmPassword ? <EyeSlashIcon className="h-4 w-4" /> : <EyeIcon className="h-4 w-4" />}
+                  </button>
+                </div>
+                {/* Real-time password match indicator */}
+                {passwordData.new_password_confirmation.length > 0 && !passwordsMatch && (
+                  <p className="text-xs mt-1 text-red-400 flex items-center">
+                    <ExclamationTriangleIcon className="h-3 w-3 mr-1 flex-shrink-0" />
+                    Passwords do not match
+                  </p>
+                )}
+                {passwordData.new_password_confirmation.length > 0 && passwordsMatch && (
+                  <p className="text-xs mt-1 text-green-400 flex items-center">
+                    <CheckCircleIcon className="h-3 w-3 mr-1 flex-shrink-0" />
+                    Passwords match
+                  </p>
+                )}
+                {passwordErrors.new_password_confirmation && (
+                  <p className="text-xs mt-1 text-red-400">{passwordErrors.new_password_confirmation}</p>
+                )}
               </div>
             </div>
 
             <div className={`flex justify-end pt-4 border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
               <button
                 type="submit"
-                disabled={loading}
+                disabled={loading || (passwordData.new_password_confirmation.length > 0 && !passwordsMatch)}
                 className={`px-4 py-2 bg-gradient-to-r from-amber-600 to-amber-700 text-white rounded-lg hover:from-amber-700 hover:to-amber-800 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 transition-all duration-200 font-medium text-sm shadow border border-amber-500/30 disabled:opacity-50 hover:scale-105 ${isDarkMode ? 'focus:ring-offset-gray-900' : 'focus:ring-offset-white'}`}
               >
                 {loading ? (
@@ -3156,6 +3670,123 @@ const Dashboard = () => {
           </form>
         </div>
       </div>
+
+      {/* Danger Zone - Delete Account */}
+      {user?.role !== 'admin' && (
+        <div className={`${isDarkMode ? 'bg-gray-900 border-red-500/20' : 'bg-white border-red-300/40'} border rounded-lg shadow p-6 hover:border-red-500/40 transition-all duration-300`}>
+          <h4 className={`text-sm font-semibold text-red-500 mb-4 flex items-center`}>
+            <ExclamationTriangleIcon className="h-4 w-4 mr-2" />
+            Danger Zone
+          </h4>
+          <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} mb-4`}>
+            Once you delete your account, there is no going back. All your data, appointments, messages, and associated information will be permanently removed.
+          </p>
+          <button
+            onClick={() => { setShowDeleteModal(true); setDeleteConfirmText(''); setDeleteError(''); }}
+            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 transition-all duration-200 font-medium text-sm flex items-center gap-2"
+          >
+            <TrashIcon className="h-4 w-4" />
+            Delete Account
+          </button>
+        </div>
+      )}
+
+      {/* Delete Account Confirmation Modal */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => setShowDeleteModal(false)}>
+          <div 
+            className={`${isDarkMode ? 'bg-gray-800' : 'bg-white'} rounded-xl shadow-2xl w-full max-w-md mx-auto overflow-hidden`}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className={`${isDarkMode ? 'bg-red-900/30 border-red-800/50' : 'bg-red-50 border-red-200'} px-6 py-4 border-b`}>
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-full ${isDarkMode ? 'bg-red-900/50' : 'bg-red-100'} flex items-center justify-center`}>
+                  <ExclamationTriangleIcon className={`w-6 h-6 ${isDarkMode ? 'text-red-400' : 'text-red-600'}`} />
+                </div>
+                <div>
+                  <h3 className={`text-lg font-semibold ${isDarkMode ? 'text-red-300' : 'text-red-800'}`}>Delete Account</h3>
+                  <p className={`text-xs ${isDarkMode ? 'text-red-400' : 'text-red-600'}`}>This action cannot be undone</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <div className="px-6 py-5 space-y-4">
+              <div className={`p-3 rounded-lg ${isDarkMode ? 'bg-red-900/20 border-red-800/40' : 'bg-red-50 border-red-200'} border`}>
+                <p className={`text-sm ${isDarkMode ? 'text-red-300' : 'text-red-700'}`}>
+                  Deleting your account will permanently remove all your data, appointments, messages, and associated information. This cannot be recovered.
+                </p>
+              </div>
+
+              {/* Type "confirm" */}
+              <div>
+                <label className={`block text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'} mb-1.5`}>
+                  Type <span className={`font-bold ${isDarkMode ? 'text-red-400' : 'text-red-600'}`}>"confirm"</span> to proceed
+                </label>
+                <input
+                  type="text"
+                  value={deleteConfirmText}
+                  onChange={e => setDeleteConfirmText(e.target.value)}
+                  placeholder='Type "confirm" here'
+                  autoComplete="off"
+                  className={`w-full px-3 py-2 rounded-lg border ${isDarkMode ? 'border-gray-600 bg-gray-700 text-white' : 'border-gray-300 bg-white text-gray-900'} text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none`}
+                />
+              </div>
+
+              {/* Error message */}
+              {deleteError && (
+                <div className={`p-2.5 rounded-lg ${isDarkMode ? 'bg-red-900/20 border-red-800/40' : 'bg-red-50 border-red-200'} border`}>
+                  <p className={`text-sm ${isDarkMode ? 'text-red-400' : 'text-red-600'}`}>{deleteError}</p>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className={`px-6 py-4 border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-200'} flex gap-3`}>
+              <button
+                onClick={() => setShowDeleteModal(false)}
+                className={`flex-1 px-4 py-2.5 rounded-lg border ${isDarkMode ? 'border-gray-600 text-gray-300 hover:bg-gray-700' : 'border-gray-300 text-gray-700 hover:bg-gray-50'} text-sm font-medium transition-colors`}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  if (deleteConfirmText !== 'confirm') return;
+                  try {
+                    setDeleteLoading(true);
+                    setDeleteError('');
+                    await axios.delete('/api/account/delete', { data: { confirmation: 'confirm' } });
+                    setShowDeleteModal(false);
+                    localStorage.removeItem('token');
+                    localStorage.removeItem('user');
+                    window.location.href = '/';
+                  } catch (err) {
+                    setDeleteError(err.response?.data?.message || 'Failed to delete account.');
+                  } finally {
+                    setDeleteLoading(false);
+                  }
+                }}
+                disabled={deleteConfirmText !== 'confirm' || deleteLoading}
+                className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-medium text-white transition-colors ${
+                  deleteConfirmText === 'confirm' && !deleteLoading
+                    ? 'bg-red-600 hover:bg-red-700'
+                    : 'bg-red-300 dark:bg-red-800 cursor-not-allowed'
+                }`}
+              >
+                {deleteLoading ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                    Deleting...
+                  </span>
+                ) : (
+                  'Delete My Account'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 
@@ -3168,6 +3799,7 @@ const Dashboard = () => {
       case 'refunds': return renderRefunds();
       case 'action-logs': return <ActionLogViewer isDarkMode={isDarkMode} />;
       case 'feedback': return <UserFeedback />;
+      case 'notifications': return <UserNotifications />;
       case 'profile': return renderProfile();
       case 'settings': 
         return (
@@ -3222,9 +3854,9 @@ const Dashboard = () => {
       )}
 
       {/* Sidebar - Hidden on mobile by default, shown on desktop and when toggled on mobile */}
-      <div className={`hidden lg:block fixed inset-y-0 right-0 lg:right-auto lg:left-0 z-40 w-64 h-screen ${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border-l lg:border-l-0 lg:border-r shadow-xl transition-all duration-300 lg:translate-x-0 ${
+      <div className={`fixed inset-y-0 right-0 lg:right-auto lg:left-0 z-40 w-64 h-screen ${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border-l lg:border-l-0 lg:border-r shadow-xl transition-all duration-300 ${
         showMobileSidebar ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'
-      }`}>
+      }`} role="navigation" aria-label="Main navigation">
         <div className="flex flex-col h-full">
           {/* Logo Section */}
           <div className={`p-4 shadow-md ${isDarkMode ? 'bg-gray-800 border-amber-500/30' : 'bg-gray-50 border-amber-300/50'} px-3 border-b transition-colors duration-300`}>
@@ -3239,6 +3871,7 @@ const Dashboard = () => {
               <button
                 onClick={() => setShowMobileSidebar(false)}
                 className="lg:hidden text-gray-400 hover:text-amber-400 transition-colors p-1 flex-shrink-0"
+                aria-label="Close navigation menu"
               >
                 <XMarkIcon className="h-5 w-5" />
               </button>
@@ -3308,7 +3941,7 @@ const Dashboard = () => {
             ))}
           </nav>
 
-          {/* Footer with Settings (Desktop only) and Logout */}
+          {/* Footer with Settings, About Us (Desktop only) and Logout */}
           <div className={`p-3 border-t ${isDarkMode ? 'border-amber-500/20 bg-gray-900/50' : 'border-amber-300/30 bg-gray-50/50'} space-y-2 transition-colors duration-300`}>
             {/* Settings Button - Hidden on mobile */}
             <button
@@ -3324,6 +3957,22 @@ const Dashboard = () => {
             >
               <Cog6ToothIcon className="mr-2 h-4 w-4 flex-shrink-0" />
               Settings
+            </button>
+
+            {/* About Us Button - Hidden on mobile */}
+            <button
+              onClick={() => {
+                setShowAboutUs(true);
+                setShowMobileSidebar(false);
+              }}
+              className={`hidden lg:flex w-full items-center px-3 py-2 text-xs font-medium rounded-lg transition-all duration-200 border ${
+                isDarkMode
+                  ? 'text-gray-400 border-gray-700 hover:border-cyan-500/30 hover:bg-cyan-500/8 hover:text-cyan-300'
+                  : 'text-gray-600 border-gray-300 hover:border-cyan-400/50 hover:bg-cyan-200/10 hover:text-cyan-700'
+              }`}
+            >
+              <InformationCircleIcon className="mr-2 h-4 w-4 flex-shrink-0" />
+              About Us
             </button>
 
             {/* Logout Button */}
@@ -3343,8 +3992,39 @@ const Dashboard = () => {
       </div>
 
       {/* Main content */}
-      <div className="flex-1 flex flex-col min-w-0 lg:mt-0 mt-0 lg:ml-64 h-auto lg:h-screen overflow-y-auto lg:overflow-hidden lg:h-screen">
-        {/* Header */}
+      <div className="flex-1 flex flex-col min-w-0 lg:mt-0 mt-0 lg:ml-64 h-auto lg:h-screen overflow-y-auto lg:overflow-hidden">
+        {/* Mobile Header - visible only on small screens */}
+        <header className={`lg:hidden flex items-center justify-between px-4 py-2.5 ${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border-b shadow-sm flex-shrink-0 transition-colors duration-300`}>
+          <div className="flex items-center gap-2 min-w-0">
+            <button
+              onClick={() => setShowMobileSidebar(true)}
+              className={`p-1.5 rounded-lg transition-colors ${isDarkMode ? 'text-amber-400 hover:bg-amber-500/10' : 'text-amber-700 hover:bg-amber-100'}`}
+              aria-label="Open navigation menu"
+            >
+              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
+            <div className="w-8 h-8 bg-gradient-to-br from-amber-400 to-amber-600 rounded-lg flex items-center justify-center shadow-md flex-shrink-0">
+              <BuildingLibraryIcon className="h-4 w-4 text-white" />
+            </div>
+            <div className="min-w-0">
+              <h1 className={`text-sm font-bold tracking-wide ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>LEGAL EASE</h1>
+            </div>
+          </div>
+          <MobileNotificationBell
+            onViewAll={() => {
+              setShowMobileNotifications(false);
+              handleNavClick('notifications');
+            }}
+            isOpen={showMobileNotifications}
+            onToggle={() => setShowMobileNotifications(!showMobileNotifications)}
+            onClose={() => setShowMobileNotifications(false)}
+            isDarkMode={isDarkMode}
+          />
+        </header>
+
+        {/* Desktop Header */}
         <header className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-gray-50 border-amber-300/40'} border-b shadow flex-shrink-0 transition-colors duration-300 hidden lg:flex flex-col`}>
           <div className="flex justify-between items-center px-4 lg:px-6 py-3 lg:py-4">
             <div className="flex items-center space-x-3 min-w-0">
@@ -3372,7 +4052,8 @@ const Dashboard = () => {
                 </button>
               )}
             </div>
-            <div className="flex-shrink-0">
+            <div className="flex items-center gap-3 flex-shrink-0">
+              <NotificationBell onViewAll={() => handleNavClick('notifications')} />
               <div className={`text-xs lg:text-sm ${isDarkMode ? 'text-amber-400/70' : 'text-amber-700/70'} transition-colors duration-300 text-right`}>
                 {new Date().toLocaleDateString('en-US', { 
                   weekday: 'short', 
@@ -3417,6 +4098,7 @@ const Dashboard = () => {
           setSelectedAppointment(null);
         }}
         appointment={selectedAppointment}
+        isDarkMode={isDarkMode}
       />
 
       <ConfirmationModal
@@ -3427,7 +4109,7 @@ const Dashboard = () => {
         }}
         onConfirm={handleCancelAppointment}
         title="Cancel Appointment"
-        message={`Are you sure you want to cancel your ${formatServiceName(selectedAppointment)} appointment on ${selectedAppointment ? new Date(selectedAppointment.appointment_date).toLocaleDateString() : ''}? This action cannot be undone.`}
+        message={`Are you sure you want to cancel your ${formatServiceName(selectedAppointment)} appointment on ${selectedAppointment ? formatDateDisplay(selectedAppointment.appointment_date) : ''}? This action cannot be undone.`}
         confirmText="Cancel Appointment"
         type="danger"
         loading={loading}
@@ -3451,11 +4133,21 @@ const Dashboard = () => {
         onClose={() => setShowSettings(false)}
         settings={settings}
         onSettingsChange={handleSettingsChange}
+        onOpenTerms={(tab) => { setTermsPrivacyTab(tab); setShowTermsPrivacyModal(true); }}
+        isDarkMode={isDarkMode}
       />
 
       <AboutUsModal
         isOpen={showAboutUs}
         onClose={() => setShowAboutUs(false)}
+        onOpenTerms={(tab) => { setTermsPrivacyTab(tab); setShowTermsPrivacyModal(true); }}
+        isDarkMode={isDarkMode}
+      />
+
+      <TermsPrivacyModal
+        isOpen={showTermsPrivacyModal}
+        onClose={() => setShowTermsPrivacyModal(false)}
+        initialTab={termsPrivacyTab}
         isDarkMode={isDarkMode}
       />
 
@@ -3463,6 +4155,7 @@ const Dashboard = () => {
         isOpen={showThankYouModal}
         onClose={() => setShowThankYouModal(false)}
         appointment={latestAppointment}
+        isDarkMode={isDarkMode}
       />
 
       {/* Refund Request Modal */}
@@ -3503,7 +4196,7 @@ const Dashboard = () => {
                   </div>
                   <div>
                     <p className="text-gray-400">Date</p>
-                    <p className="text-amber-50 font-medium">{new Date(selectedAppointment.appointment_date).toLocaleDateString()}</p>
+                    <p className="text-amber-50 font-medium">{formatDateDisplay(selectedAppointment.appointment_date)}</p>
                   </div>
                   <div>
                     <p className="text-gray-400">Time</p>

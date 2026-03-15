@@ -13,9 +13,14 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Auth\Events\Registered;
+use App\Mail\RegistrationDecisionMail;
 
 use App\Models\AuditLog;
+use App\Models\ActionLog;
+use App\Services\ProfanityFilterService;
 
 class AuthController extends Controller
 {
@@ -25,7 +30,7 @@ class AuthController extends Controller
 
     public function registerStep1(Request $request)
     {
-        Log::info('=== REGISTER STEP 1 STARTED ===', $request->all());
+        Log::info('=== REGISTER STEP 1 STARTED ===', ['email' => $request->email, 'ip' => $request->ip()]);
 
         // Rate limiting for registration attempts
         $key = 'register:' . ($request->ip() ?? 'unknown');
@@ -38,14 +43,10 @@ class AuthController extends Controller
         }
         RateLimiter::hit($key, 300); // 5 minutes
 
-        // DEBUG: Log database state before validation
-        Log::info('DEBUG: Checking database state for email: ' . $request->email);
-        $userCount = User::where('email', $request->email)->count();
-        $verificationCount = VerificationCode::where('email', $request->email)->count();
-        Log::info('DEBUG: Users with this email: ' . $userCount . ', Verification codes: ' . $verificationCount);
+        // Validation check (debug logging removed for production safety)
 
         $request->validate([
-            'username' => 'required|string|unique:users|min:3|max:255|regex:/^[a-zA-Z0-9_]+$/',
+            'username' => 'required|string|unique:users|min:3|max:50',
             'email' => 'required|email|max:255|unique:users',
             'password' => [
                 'required',
@@ -54,10 +55,19 @@ class AuthController extends Controller
                 'confirmed',
             ],
         ], [
-            'username.regex' => 'Username can only contain letters, numbers, and underscores.',
             'email.unique' => 'This email is already registered. Please use a different email or sign in.',
-            'username.unique' => 'This username is already taken. Please choose a different username.'
+            'username.unique' => 'This username is already taken. Please choose a different username.',
         ]);
+
+        // Profanity check on username
+        $profanityFilter = app(ProfanityFilterService::class);
+        $usernameCheck = $profanityFilter->checkUsername($request->username);
+        if (!$usernameCheck['is_clean']) {
+            return response()->json([
+                'message' => 'Validation failed',
+                'errors' => ['username' => [$usernameCheck['reason']]]
+            ], 422);
+        }
 
         // Additional explicit check (in case validation cache is causing issues)
         $existingUser = User::where('email', $request->email)->first();
@@ -77,7 +87,7 @@ class AuthController extends Controller
 
         // Generate secure verification code
         $verificationCode = $this->generateSecureVerificationCode();
-        Log::info('Generated verification code: ' . $verificationCode);
+        Log::info('Verification code generated for: ' . $request->email);
 
         // Create verification code
         $verification = VerificationCode::create([
@@ -90,7 +100,6 @@ class AuthController extends Controller
 
         Log::info('Verification code saved to database', [
             'email' => $request->email,
-            'code' => $verificationCode,
             'expires_at' => $verification->expires_at,
             'ip' => $request->ip()
         ]);
@@ -98,7 +107,7 @@ class AuthController extends Controller
         try {
             // Send email with verification code
             Log::info('Attempting to send email to: ' . $request->email);
-            Mail::to($request->email)->send(new VerificationCodeMail($verificationCode));
+            Mail::to($request->email)->queue(new VerificationCodeMail($verificationCode));
             
             Log::info('✅ Verification email sent successfully to: ' . $request->email);
             
@@ -126,7 +135,7 @@ class AuthController extends Controller
 
     public function verifyCode(Request $request)
 {
-    Log::info('=== VERIFY CODE STARTED ===', $request->all());
+    Log::info('=== VERIFY CODE STARTED ===', ['email' => $request->email, 'ip' => $request->ip()]);
 
     // Rate limiting for verification attempts
     $key = 'verify:' . ($request->ip() ?? 'unknown');
@@ -145,7 +154,7 @@ class AuthController extends Controller
 
     Log::info('Looking for verification code', [
         'email' => $request->email,
-        'code' => $request->code
+        'ip' => $request->ip()
     ]);
 
     // SECURITY: Check if email has ANY verification record first
@@ -161,8 +170,9 @@ class AuthController extends Controller
             'ip' => $request->ip()
         ]);
         
+        // Generic message to prevent email enumeration
         return response()->json([
-            'message' => 'Email not found. Please complete the registration process first.'
+            'message' => 'Invalid or expired verification code. Please request a new code.'
         ], 422);
     }
 
@@ -176,16 +186,15 @@ class AuthController extends Controller
     if (!$verification) {
         RateLimiter::hit($key, 300); // 5 minutes
         
-        // Log all available codes for this email for debugging
-        $availableCodes = VerificationCode::where('email', $request->email)
+        // SECURITY: Log failure without exposing actual codes
+        $availableCount = VerificationCode::where('email', $request->email)
             ->where('expires_at', '>', now())
             ->where('used', false)
-            ->get();
+            ->count();
             
         Log::warning('Invalid or expired verification code', [
             'email' => $request->email,
-            'code_attempted' => $request->code,
-            'available_codes' => $availableCodes->pluck('code'),
+            'available_codes_count' => $availableCount,
             'ip' => $request->ip(),
             'attempts' => RateLimiter::attempts($key)
         ]);
@@ -200,7 +209,6 @@ class AuthController extends Controller
     $verification->update(['used' => true]);
     Log::info('✅ Verification code marked as used', [
         'email' => $request->email,
-        'code' => $request->code,
         'verification_id' => $verification->id
     ]);
 
@@ -217,11 +225,11 @@ class AuthController extends Controller
 
     public function completeRegistration(Request $request)
 {
-    Log::info('=== COMPLETE REGISTRATION STARTED ===', $request->all());
+    Log::info('=== COMPLETE REGISTRATION STARTED ===', ['email' => $request->email, 'ip' => $request->ip()]);
 
     // Custom validation without unique checks first
     $validator = Validator::make($request->all(), [
-        'username' => 'required|string|min:3|max:255|regex:/^[a-zA-Z0-9_]+$/',
+        'username' => 'required|string|min:3|max:50',
         'email' => 'required|email',
         'password' => [
             'required',
@@ -236,7 +244,6 @@ class AuthController extends Controller
         'first_name.regex' => 'First name can only contain letters and spaces.',
         'last_name.regex' => 'Last name can only contain letters and spaces.',
         'phone.regex' => 'Please enter a valid phone number.',
-        'username.regex' => 'Username can only contain letters, numbers, and underscores.'
     ]);
 
     if ($validator->fails()) {
@@ -244,6 +251,16 @@ class AuthController extends Controller
         return response()->json([
             'message' => 'Validation failed',
             'errors' => $validator->errors()
+        ], 422);
+    }
+
+    // Profanity check on username
+    $profanityFilter = app(ProfanityFilterService::class);
+    $usernameCheck = $profanityFilter->checkUsername($request->username);
+    if (!$usernameCheck['is_clean']) {
+        return response()->json([
+            'message' => 'Validation failed',
+            'errors' => ['username' => [$usernameCheck['reason']]]
         ], 422);
     }
 
@@ -258,7 +275,7 @@ class AuthController extends Controller
     if (!$wasVerified) {
         Log::warning('Email not verified or verification expired/stolen', [
             'email' => $request->email,
-            'available_verifications' => VerificationCode::where('email', $request->email)->get()
+            'available_verifications_count' => VerificationCode::where('email', $request->email)->count()
         ]);
         return response()->json([
             'message' => 'Email verification required or verification has expired. Please restart the registration process.'
@@ -268,7 +285,6 @@ class AuthController extends Controller
     Log::info('✅ Email verification confirmed for registration', [
         'email' => $request->email,
         'verification_id' => $wasVerified->id,
-        'code_used' => $wasVerified->code
     ]);
 
     // Check if user already exists (final check)
@@ -295,18 +311,31 @@ class AuthController extends Controller
         $user = User::create([
             'username' => $request->username,
             'email' => $request->email,
-            'password' => Hash::make($request->password),
             'first_name' => $request->first_name,
             'last_name' => $request->last_name,
             'phone' => $request->phone,
             'address' => $request->address,
-            'role' => 'client',
             'email_verified_at' => now(),
-            'is_active' => true,
             'registration_ip' => $request->ip(),
+            'verification_method' => 'email',
+            'profile_completed' => true, // Email-registered users complete all fields during registration
         ]);
 
+        // Set sensitive fields explicitly (not via mass assignment for security)
+        $user->password = Hash::make($request->password);
+        $user->is_active = false;
+        $user->role = 'client';
+        $user->password_login_enabled = true;
+        $user->verification_code = Str::random(64);
+        $user->verification_code_expires_at = now()->addHours(24);
+        $user->save();
+
         Log::info('✅ User created successfully', ['user_id' => $user->id]);
+
+        // Invalidate relevant caches so new user appears in admin listings
+        Cache::forget('users_count');
+        Cache::forget('public_init_data');
+        Cache::forget('public_services');
 
         // Clean up ALL verification codes for this email (used and unused)
         $deletedCount = VerificationCode::where('email', $request->email)->delete();
@@ -329,29 +358,44 @@ class AuthController extends Controller
     }
 
     try {
-        $token = $user->createToken('auth_token', ['*'], now()->addDays(7))->plainTextToken;
-        Log::info('✅ Auth token created for user: ' . $user->id);
+        $confirmUrl = URL::temporarySignedRoute(
+            'registration.confirm',
+            now()->addHours(24),
+            ['token' => $user->verification_code]
+        );
+
+        $denyUrl = URL::temporarySignedRoute(
+            'registration.reject',
+            now()->addHours(24),
+            ['token' => $user->verification_code]
+        );
+
+        Mail::to($user->email)->queue(new RegistrationDecisionMail($user, $confirmUrl, $denyUrl));
     } catch (\Exception $e) {
-        Log::error('❌ Token creation failed: ' . $e->getMessage());
+        Log::error('Failed to send registration decision email: ' . $e->getMessage());
         return response()->json([
-            'message' => 'Registration completed but login failed. Please try logging in.',
-            'user' => [
-                'id' => $user->id,
-                'username' => $user->username,
-                'email' => $user->email,
-                'first_name' => $user->first_name,
-                'last_name' => $user->last_name,
-                'role' => $user->role,
-            ],
-            'success' => true
-        ]);
+            'message' => 'Registration created, but we could not send the confirmation email. Please try again.',
+            'success' => false,
+        ], 500);
     }
 
     // Clear registration rate limit
     RateLimiter::clear('register:' . ($request->ip() ?? 'unknown'));
 
+    ActionLog::create([
+        'user_id' => $user->id,
+        'action' => 'register',
+        'description' => "User {$user->first_name} {$user->last_name} ({$user->email}) registered",
+        'model_type' => 'User',
+        'model_id' => $user->id,
+        'ip_address' => request()->ip(),
+        'user_agent' => request()->header('User-Agent'),
+        'status' => 'success',
+        'integrity_hash' => hash_hmac('sha256', "register|{$user->id}|" . now()->toISOString(), config('app.key', 'fallback')),
+    ]);
+
     return response()->json([
-        'message' => 'User registered successfully',
+        'message' => 'Registration submitted. Check your email and click It is me to activate login.',
         'user' => [
             'id' => $user->id,
             'username' => $user->username,
@@ -362,15 +406,13 @@ class AuthController extends Controller
             'phone' => $user->phone,
             'address' => $user->address,
         ],
-        'token' => $token,
-        'token_expires_at' => now()->addDays(7)->toISOString(),
         'success' => true
     ]);
 }
 
     public function resendVerificationCode(Request $request)
     {
-        Log::info('=== RESEND VERIFICATION CODE ===', $request->all());
+        Log::info('=== RESEND VERIFICATION CODE ===', ['email' => $request->email, 'ip' => $request->ip()]);
 
         $request->validate([
             'email' => 'required|email',
@@ -402,7 +444,7 @@ class AuthController extends Controller
 
         // Generate new verification code
         $verificationCode = $this->generateSecureVerificationCode();
-        Log::info('Generated new verification code for resend: ' . $verificationCode);
+        Log::info('New verification code generated for resend: ' . $request->email);
 
         // Create new verification code
         $verification = VerificationCode::create([
@@ -414,7 +456,7 @@ class AuthController extends Controller
         ]);
 
         try {
-            Mail::to($request->email)->send(new VerificationCodeMail($verificationCode));
+            Mail::to($request->email)->queue(new VerificationCodeMail($verificationCode));
             Log::info('✅ Resent verification email to: ' . $request->email);
             
             return response()->json([
@@ -454,9 +496,15 @@ class AuthController extends Controller
 
         Log::info('Looking for user with email: ' . $request->email);
 
-        $user = User::where('email', $request->email)->first();
+        // Include soft-deleted users so auto-archived accounts can be restored on login
+        $user = User::withTrashed()->where('email', $request->email)->first();
 
         if (!$user) {
+            // Timing attack mitigation: perform a dummy hash check so the response time
+            // is indistinguishable from an invalid-password path.
+            // Must use a valid bcrypt hash — Laravel's BcryptHasher rejects malformed hashes.
+            Hash::check($request->password, '$2y$12$ttn2FOy3LM87u5IVyxnyyeZzEa.7hj6QcnsJc2mM5Skvn64OXN70.');
+            
             RateLimiter::hit($key, 300); // 5 minutes
             Log::warning('❌ USER NOT FOUND with email: ' . $request->email);
             
@@ -476,9 +524,31 @@ class AuthController extends Controller
             'is_active' => $user->is_active ? 'true' : 'false'
         ]);
 
+        // Email-registered accounts must confirm "It's me" from email before first login.
+        if (!$user->is_active
+            && $user->verification_method === 'email'
+            && !empty($user->verification_code)
+            && $user->verification_code_expires_at
+            && $user->verification_code_expires_at->isFuture()) {
+            return response()->json([
+                'message' => 'Please confirm your registration from your email by clicking It is me before logging in.',
+                'success' => false,
+            ], 422);
+        }
+
+        // Google-first accounts may not have password login enabled yet.
+        if (($user->verification_method === 'google' || !empty($user->google_id))
+            && isset($user->password_login_enabled)
+            && !$user->password_login_enabled) {
+            return response()->json([
+                'message' => 'Password login is not enabled for this account yet. Use Google Sign-In or use Forgot Password to set a password first.',
+                'success' => false,
+            ], 422);
+        }
+
         // Check if password matches
         $passwordMatches = Hash::check($request->password, $user->password);
-        Log::info('🔐 PASSWORD CHECK: ' . ($passwordMatches ? '✅ MATCH' : '❌ NO MATCH'));
+        // Password check result logged securely (no password data in logs)
 
         if (!$passwordMatches) {
             RateLimiter::hit($key, 300); // 5 minutes
@@ -493,15 +563,37 @@ class AuthController extends Controller
             ], 401);
         }
 
-        // Check if user is active
-        if (!$user->is_active) {
-            Log::warning('❌ USER ACCOUNT INACTIVE: ' . $user->email);
-            
+        // Auto-restore archived users on login (30-day inactivity archive)
+        if ($user->trashed() && $user->account_status === 'archived') {
+            $user->restore();
+            $user->is_active = true;
+            $user->account_status = 'active';
+            $user->account_status_reason = null;
+            $user->last_activity_at = now();
+            $user->save();
+            Log::info('✅ AUTO-RESTORED archived user on login: ' . $user->email);
+            try {
+                ActionLog::log('auto_restore', "Auto-restored archived user on login: {$user->first_name} {$user->last_name} ({$user->email})", 'User', $user->id);
+            } catch (\Exception $e) {
+                Log::warning('Action log failed for auto-restore: ' . $e->getMessage());
+            }
+        }
+
+        // Check if user is active and not blocked/deactivated/deleted
+        if (!$user->is_active || in_array($user->account_status ?? 'active', ['blocked', 'deactivated', 'deleted'])) {
+            $statusMessages = [
+                'blocked' => 'Your account has been blocked. You may submit an appeal.',
+                'deactivated' => 'Your account has been deactivated. Please contact support.',
+                'deleted' => 'This account no longer exists.',
+            ];
+            $msg = $statusMessages[$user->account_status ?? ''] ?? 'Your account has been deactivated. Please contact support.';
+            Log::warning('USER ACCOUNT INACTIVE/BLOCKED: ' . $user->email . ' status=' . ($user->account_status ?? 'inactive'));
+
             // Log failed login attempt for security audit
             $this->logFailedLogin($request->email, $request->ip(), 'account_inactive', $user->id);
-            
+
             return response()->json([
-                'message' => 'Your account has been deactivated. Please contact support.',
+                'message' => $msg,
                 'success' => false
             ], 401);
         }
@@ -511,6 +603,10 @@ class AuthController extends Controller
         try {
             // Clear login rate limit on success
             RateLimiter::clear($key);
+
+            // Record last activity
+            $user->last_activity_at = now();
+            $user->save();
 
             // Create token with expiration
             $token = $user->createToken('auth_token', ['*'], now()->addDays(7))->plainTextToken;
@@ -527,6 +623,9 @@ class AuthController extends Controller
                     'role' => $user->role,
                     'phone' => $user->phone,
                     'address' => $user->address,
+                    'profile_picture' => $user->profile_picture,
+                    'profile_picture_url' => $user->profile_picture_url,
+                    'created_at' => $user->created_at,
                 ],
                 'token' => $token,
                 'token_expires_at' => now()->addDays(7)->toISOString(),
@@ -534,6 +633,13 @@ class AuthController extends Controller
             ];
 
             Log::info('✅ LOGIN SUCCESSFUL - Sending response');
+
+            // Log action separately so failures don't break the login response
+            try {
+                ActionLog::log('login', "User {$user->first_name} {$user->last_name} ({$user->email}) logged in", 'User', $user->id);
+            } catch (\Exception $logException) {
+                Log::warning('⚠️ Action log failed (non-blocking): ' . $logException->getMessage());
+            }
 
             return response()->json($response);
 
@@ -550,8 +656,33 @@ class AuthController extends Controller
     public function logout(Request $request)
     {
         try {
-            $request->user()->currentAccessToken()->delete();
-            Log::info('User logged out successfully');
+            $user = $request->user();
+            if ($user) {
+                $userId = $user->id;
+                $userName = $user->first_name . ' ' . $user->last_name;
+                $userEmail = $user->email;
+                $user->currentAccessToken()->delete();
+                Log::info('User logged out successfully');
+
+                // Log action separately so failures don't break the logout response
+                try {
+                    ActionLog::create([
+                        'user_id' => $userId,
+                        'action' => 'logout',
+                        'description' => "User {$userName} ({$userEmail}) logged out",
+                        'model_type' => 'User',
+                        'model_id' => $userId,
+                        'ip_address' => request()->ip(),
+                        'user_agent' => request()->header('User-Agent'),
+                        'status' => 'success',
+                        'integrity_hash' => hash_hmac('sha256', "logout|{$userId}|" . now()->toISOString(), config('app.key', 'fallback')),
+                    ]);
+                } catch (\Exception $logException) {
+                    Log::warning('⚠️ Action log failed (non-blocking): ' . $logException->getMessage());
+                }
+            } else {
+                Log::info('Logout called but no user was authenticated');
+            }
 
             return response()->json([
                 'message' => 'Logged out successfully',
@@ -564,6 +695,51 @@ class AuthController extends Controller
                 'success' => false
             ], 500);
         }
+    }
+
+    public function confirmRegistration(Request $request, string $token)
+    {
+        if (!$request->hasValidSignature()) {
+            return response('Invalid or expired confirmation link.', 403);
+        }
+
+        $user = User::where('verification_code', $token)
+            ->where('verification_code_expires_at', '>', now())
+            ->first();
+
+        if (!$user) {
+            return response('This confirmation link is invalid or has expired.', 410);
+        }
+
+        $user->verification_code = null;
+        $user->verification_code_expires_at = null;
+        $user->is_active = true;
+        $user->save();
+
+        return redirect()->away(rtrim(env('FRONTEND_URL', 'http://localhost:3000'), '/') . '/auth/callback#registration=confirmed');
+    }
+
+    public function rejectRegistration(Request $request, string $token)
+    {
+        if (!$request->hasValidSignature()) {
+            return response('Invalid or expired rejection link.', 403);
+        }
+
+        $user = User::where('verification_code', $token)
+            ->where('verification_code_expires_at', '>', now())
+            ->first();
+
+        if (!$user) {
+            return response('This rejection link is invalid or has expired.', 410);
+        }
+
+        $user->is_active = false;
+        $user->verification_code = null;
+        $user->verification_code_expires_at = null;
+        $user->tokens()->delete();
+        $user->save();
+
+        return response('The registration was marked as not me and the account is blocked from login.', 200);
     }
 
     public function user(Request $request)
@@ -604,26 +780,8 @@ class AuthController extends Controller
         ]);
     }
 
-    /**
-     * Debug endpoint to check email status
-     */
-    public function debugEmailStatus(Request $request)
-    {
-        $request->validate([
-            'email' => 'required|email',
-        ]);
-
-        $userExists = User::where('email', $request->email)->exists();
-        $verificationCodes = VerificationCode::where('email', $request->email)->get();
-        
-        return response()->json([
-            'email' => $request->email,
-            'user_exists' => $userExists,
-            'verification_codes_count' => $verificationCodes->count(),
-            'verification_codes' => $verificationCodes,
-            'database' => config('database.connections.mysql.database')
-        ]);
-    }
+    // SECURITY: debugEmailStatus method removed — it exposed verification codes and database name.
+    // Rollback: restore this method from version control if needed for local debugging only.
 
     /**
      * Log failed login attempts for security monitoring

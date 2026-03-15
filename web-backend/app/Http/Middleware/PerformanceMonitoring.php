@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use App\Models\RequestMetric;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -31,7 +32,7 @@ class PerformanceMonitoring
     }
 
     /**
-     * Log the request metric
+     * Log the request metric (sampled to reduce DB load)
      */
     private function logMetric(Request $request, $response = null, $startTime = null, $startMemory = null, $exception = null): void
     {
@@ -46,11 +47,32 @@ class PerformanceMonitoring
                 return;
             }
 
+            // PERFORMANCE FIX: Sample only a percentage of requests to reduce DB write load
+            // Errors are always logged; normal requests are sampled at configured rate
+            $rawRate = config('monitoring.sample_rate', 5);
+            $sampleRate = max(0, min(100, (int) $rawRate)); // Clamp to [0,100], default 5%
+            if ($sampleRate === 0) {
+                $sampleRate = 5; // Fallback: never silently disable all logging
+                Log::warning('PerformanceMonitoring: sample_rate was 0 or invalid, defaulting to 5%', [
+                    'raw_value' => $rawRate,
+                ]);
+            }
+            $isError = false;
+
+            if ($exception) {
+                $isError = true;
+            } elseif ($response && $response->getStatusCode() >= 400) {
+                $isError = true;
+            }
+
+            // Always log errors, sample normal requests
+            if (!$isError && random_int(1, 100) > $sampleRate) {
+                return;
+            }
+
             $endTime = microtime(true);
             $responseTime = round(($endTime - $startTime) * 1000, 2); // ms
             $memoryUsed = memory_get_usage(true) - $startMemory;
-
-            $isError = false;
             $statusCode = 200;
             $errorType = null;
 

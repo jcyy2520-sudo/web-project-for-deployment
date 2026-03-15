@@ -56,11 +56,13 @@ const AdminFeedback = () => {
     try {
       const result = await callApi(async () => {
         const response = await axios.get('/api/admin/feedback/stats', { timeout: 10000 });
-        return response.data;
+        return response;
       });
-      if (result.success || result.data) {
-        const responseData = result.data || result;
-        setStats(responseData.data || responseData || {});
+      if (result.success) {
+        const responseBody = result.data || {};
+        // Stats response: { data: { total_feedback, average_rating, ... } }
+        const statsData = responseBody.data || responseBody || {};
+        setStats(statsData);
       }
     } catch (error) {
       console.error('Failed to load stats:', error);
@@ -71,37 +73,50 @@ const AdminFeedback = () => {
   const loadFeedback = async (page = 1) => {
     try {
       setLoading(true);
+
+      // Parse sort value from "field-order" format
+      let sortField = 'created_at';
+      let order = 'desc';
+      if (sortBy && sortBy.includes('-')) {
+        const parts = sortBy.split('-');
+        sortField = parts[0];
+        order = parts[1];
+      }
+
+      const params = {
+        page,
+        per_page: itemsPerPage,
+        search: searchTerm,
+        sort_by: sortField,
+        sort_order: order,
+      };
+      if (ratingFilter !== 'all') params.rating = ratingFilter;
+      if (testimonialFilter !== 'all') params.is_testimonial = testimonialFilter === 'true';
+
       const result = await callApi(async () => {
-        // Parse sort value from "field-order" format
-        let sortField = 'created_at';
-        let sortOrder = 'desc';
-        if (sortBy && sortBy.includes('-')) {
-          const [field, order] = sortBy.split('-');
-          sortField = field;
-          sortOrder = order;
-        }
-
-        const params = {
-          page,
-          per_page: itemsPerPage,
-          search: searchTerm,
-          sort_by: sortField,
-          sort_order: sortOrder,
-        };
-        if (ratingFilter !== 'all') params.rating = ratingFilter;
-        if (testimonialFilter !== 'all') params.is_testimonial = testimonialFilter === 'true';
-
         const response = await axios.get('/api/admin/feedback', { params, timeout: 10000 });
-        return response.data;
+        return response;
       });
 
-      if (result.success || result.data) {
-        const responseData = result.data || result;
-        const feedbackItems = responseData?.data || [];
-        const paginationData = responseData?.pagination || {};
+      if (result.success) {
+        // result.data is the axios response body: { data: [...], pagination: {...} }
+        const responseBody = result.data || {};
+        
+        // Handle multiple possible response shapes
+        let feedbackItems = [];
+        let paginationData = {};
+
+        if (Array.isArray(responseBody)) {
+          // callApi already unwrapped .data and it was the array directly
+          feedbackItems = responseBody;
+        } else if (responseBody && typeof responseBody === 'object') {
+          // Normal shape: { data: [...], pagination: {...} }
+          feedbackItems = Array.isArray(responseBody.data) ? responseBody.data : [];
+          paginationData = responseBody.pagination || responseBody.meta || {};
+        }
         
         setFeedback(feedbackItems);
-        setTotal(paginationData.total || 0);
+        setTotal(paginationData.total || feedbackItems.length || 0);
         setCurrentPage(page);
         
         // Initialize expanded state for all cards

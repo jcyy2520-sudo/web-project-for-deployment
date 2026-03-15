@@ -40,7 +40,7 @@ const MaintenanceCenter = () => {
       // Refresh task status
       await fetchTaskStatus();
     } catch (err) {
-      alert(err.response?.data?.message || 'Cleanup task failed');
+      window.showToast?.('Error', err.response?.data?.message || 'Cleanup task failed', 'error');
     } finally {
       setRunning(false);
     }

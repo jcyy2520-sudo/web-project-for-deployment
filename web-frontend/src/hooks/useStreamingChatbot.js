@@ -1,3 +1,8 @@
+/**
+ * @deprecated This hook is NOT imported anywhere in the codebase.
+ * Streaming is handled by useChatbot.js (sendMessageStreaming).
+ * Safe to remove after verifying no new imports reference it.
+ */
 import { useState, useCallback, useRef, useEffect } from 'react';
 import axios from 'axios';
 

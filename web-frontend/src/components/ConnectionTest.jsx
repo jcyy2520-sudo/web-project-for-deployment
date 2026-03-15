@@ -4,8 +4,10 @@ const ConnectionTest = () => {
   const [tests, setTests] = useState([]);
   const [loading, setLoading] = useState(true);
   
-  // Correct API URL from environment
-  const API_URL = import.meta.env.VITE_API_URL || 'https://web-project-backend-lzzf.onrender.com/api';
+  // In development, use the Vite proxy (relative path). In production, use env variable.
+  const API_URL = import.meta.env.PROD
+    ? (import.meta.env.VITE_API_URL || 'http://localhost:8000/api')
+    : '/api';
 
   useEffect(() => {
     const runTests = async () => {

@@ -31,7 +31,7 @@ export const useAdminData = () => {
         callApi(async () => axios.get('/api/admin/stats', { timeout: 10000 }), {
           cache: true
         }),
-        callApi(async () => axios.get('/api/users', { timeout: 10000 }), {
+        callApi(async () => axios.get('/api/admin/users?limit=1000&include_self=true', { timeout: 10000 }), {
           cache: true
         }),
         callApi(async () => axios.get('/api/admin/appointments', { timeout: 10000 }), {
@@ -61,11 +61,11 @@ export const useAdminData = () => {
   // Load data for specific admin tabs (lazy loading)
   const loadTabData = useCallback(async (tabKey) => {
     const endpoints = {
-      users: '/api/users',
+      users: '/api/admin/users?limit=1000&include_self=true',
       appointments: '/api/admin/appointments',
       calendar: '/api/admin/unavailable-dates',
       services: '/api/admin/services',
-      adminProfile: '/api/users?role=admin,staff',
+      adminProfile: '/api/admin/users?role=admin&include_self=true&limit=1000',
       archive: '/api/users/archived/list',
       messages: '/api/admin/messages'
     };

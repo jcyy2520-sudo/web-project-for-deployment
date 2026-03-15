@@ -13,6 +13,7 @@ use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 
 /**
  * ChatbotActionHandler - Execute system actions through the chatbot
@@ -39,36 +40,115 @@ class ChatbotActionHandler
     const ACTION_PROCESS_REFUND = 'process_refund';
     const ACTION_SEND_NOTIFICATION = 'send_notification';
 
-    // Role permissions mapping
-    private static array $rolePermissions = [
-        'client' => [
-            'appointment' => ['view', 'cancel', 'reschedule'],
-            'payment' => ['view'],
-            'refund' => ['view', 'request'],
-            'notification' => ['view'],
-        ],
-        'cashier' => [
-            'appointment' => ['view'],
-            'payment' => ['view', 'process', 'verify'],
-            'refund' => ['view', 'process', 'approve'],
-            'notification' => ['view', 'send'],
-        ],
-        'admin' => [
-            'appointment' => ['view', 'approve', 'decline', 'cancel', 'complete', 'reschedule'],
-            'payment' => ['view', 'process', 'verify', 'refund'],
-            'refund' => ['view', 'approve', 'decline', 'process'],
-            'notification' => ['view', 'send', 'broadcast'],
-            'user' => ['view', 'manage', 'disable'],
-            'service' => ['view', 'manage'],
-            'system' => ['view', 'configure'],
-        ],
-        'staff' => [
-            'appointment' => ['view', 'approve', 'decline', 'complete'],
-            'payment' => ['view'],
-            'refund' => ['view'],
-            'notification' => ['view', 'send'],
-        ],
-    ];
+    /**
+     * Destructive action+resource combinations that require confirmation.
+     * Loaded from config at runtime via getDestructiveActions().
+     */
+    private static function getDestructiveActions(): array
+    {
+        return config('chatbot_unified.action_handler.destructive_actions', [
+            'appointment' => ['approve', 'decline', 'cancel', 'complete'],
+            'payment'     => ['process'],
+            'refund'      => ['approve', 'decline', 'process', 'request'],
+            'user'        => ['disable'],
+        ]);
+    }
+
+    /**
+     * Check if an action on a resource is destructive and requires confirmation
+     */
+    private static function isDestructiveAction(string $resource, string $action): bool
+    {
+        $destructiveActions = self::getDestructiveActions();
+        return in_array($action, $destructiveActions[$resource] ?? []);
+    }
+
+    /**
+     * Generate a human-readable confirmation message for a destructive action
+     */
+    private static function getConfirmationMessage(string $resource, string $action, ?int $resourceId): string
+    {
+        $target = $resourceId ? "{$resource} #{$resourceId}" : "this {$resource}";
+        return match("{$resource}.{$action}") {
+            'appointment.approve' => "Are you sure you want to approve {$target}? Reply \"yes\" or \"confirm\" to proceed.",
+            'appointment.decline' => "Are you sure you want to decline {$target}? Reply \"yes\" or \"confirm\" to proceed.",
+            'appointment.cancel'  => "Are you sure you want to cancel {$target}? Reply \"yes\" or \"confirm\" to proceed.",
+            'appointment.complete' => "Are you sure you want to mark {$target} as completed? Reply \"yes\" or \"confirm\" to proceed.",
+            'payment.process'     => "Are you sure you want to process payment for {$target}? Reply \"yes\" or \"confirm\" to proceed.",
+            'refund.approve'      => "Are you sure you want to approve {$target}? Reply \"yes\" or \"confirm\" to proceed.",
+            'refund.decline'      => "Are you sure you want to decline {$target}? Reply \"yes\" or \"confirm\" to proceed.",
+            'refund.process'      => "Are you sure you want to process/complete {$target}? Reply \"yes\" or \"confirm\" to proceed.",
+            'refund.request'      => "Are you sure you want to request a refund? Reply \"yes\" or \"confirm\" to proceed.",
+            'user.disable'        => "Are you sure you want to disable {$target}? Reply \"yes\" or \"confirm\" to proceed.",
+            default               => "Please confirm this action by replying \"yes\" or \"confirm\".",
+        };
+    }
+
+    /**
+     * Store a pending action awaiting user confirmation
+     */
+    private static function storePendingAction(int $userId, array $params): string
+    {
+        $confirmationKey = 'chatbot_handler_confirm_' . $userId . '_' . bin2hex(random_bytes(16));
+        Cache::put($confirmationKey, [
+            'params' => $params,
+            'user_id' => $userId,
+            'created_at' => now(),
+        ], 300); // 5 minutes expiry
+
+        return $confirmationKey;
+    }
+
+    /**
+     * Retrieve and clear a pending action
+     */
+    public static function getPendingAction(int $userId, string $confirmationKey): ?array
+    {
+        $pending = Cache::get($confirmationKey);
+        if ($pending) {
+            // Verify the pending action belongs to this user
+            if (($pending['user_id'] ?? null) !== $userId) {
+                return null;
+            }
+            Cache::forget($confirmationKey);
+            return $pending;
+        }
+        return null;
+    }
+
+    // Role permissions mapping — loaded from config with sensible defaults
+    private static function getRolePermissions(): array
+    {
+        return config('chatbot_unified.action_handler.role_permissions', [
+            'client' => [
+                'appointment' => ['view', 'cancel', 'reschedule'],
+                'payment' => ['view'],
+                'refund' => ['view', 'request'],
+                'notification' => ['view'],
+            ],
+            'cashier' => [
+                'appointment' => ['view'],
+                'payment' => ['view', 'process', 'verify'],
+                'refund' => ['view', 'process', 'approve'],
+                'notification' => ['view', 'send'],
+            ],
+            'admin' => [
+                'appointment' => ['view', 'approve', 'decline', 'cancel', 'complete', 'reschedule'],
+                'payment' => ['view', 'process', 'verify', 'refund'],
+                'refund' => ['view', 'approve', 'decline', 'process'],
+                'notification' => ['view', 'send', 'broadcast'],
+                'user' => ['view', 'manage', 'disable'],
+                'service' => ['view', 'manage'],
+                'system' => ['view', 'configure'],
+            ],
+            'staff' => [
+                'appointment' => ['view', 'approve', 'decline', 'complete'],
+                'payment' => ['view'],
+                'refund' => ['view'],
+                'notification' => ['view', 'send'],
+            ],
+        ]);
+    }
 
     /**
      * Check if a role has permission for a specific action on a resource
@@ -76,7 +156,8 @@ class ChatbotActionHandler
     public static function hasPermission(string $role, string $resource, string $action): bool
     {
         $role = strtolower($role);
-        $permissions = self::$rolePermissions[$role] ?? [];
+        $allPermissions = self::getRolePermissions();
+        $permissions = $allPermissions[$role] ?? [];
         $resourcePermissions = $permissions[$resource] ?? [];
         
         return in_array($action, $resourcePermissions);
@@ -109,6 +190,30 @@ class ChatbotActionHandler
                 'success' => false,
                 'message' => "You don't have permission to {$action} {$resource}. This action requires " . self::getRequiredRole($resource, $action) . " access.",
                 'code' => 'PERMISSION_DENIED'
+            ];
+        }
+
+        // Require confirmation for destructive actions
+        $confirmed = $params['confirmed'] ?? false;
+        if (!$confirmed && self::isDestructiveAction($resource, $action)) {
+            if (!$userId) {
+                return [
+                    'success' => false,
+                    'message' => 'Authentication required for destructive actions.',
+                    'code' => 'AUTH_REQUIRED'
+                ];
+            }
+            $confirmationKey = self::storePendingAction($userId, $params);
+            return [
+                'success' => true,
+                'requires_confirmation' => true,
+                'confirmation_key' => $confirmationKey,
+                'message' => self::getConfirmationMessage($resource, $action, $resourceId),
+                'proposed_action' => [
+                    'action' => $action,
+                    'resource' => $resource,
+                    'resource_id' => $resourceId,
+                ],
             ];
         }
 
@@ -654,15 +759,14 @@ class ChatbotActionHandler
         $payment->amount_paid = $data['amount'] ?? $payment->total_amount;
         $payment->save();
 
-        // Sync with appointment table for consistency
+        // Sync with appointment table for consistency (set protected fields explicitly)
         if ($payment->appointment) {
-            $payment->appointment->update([
-                'payment_status' => 'paid',
-                'payment_amount' => $payment->amount_paid,
-                'payment_type' => $payment->payment_method,
-                'processed_by' => $processedBy,
-                'payment_date' => $payment->payment_date
-            ]);
+            $payment->appointment->payment_status = 'paid';
+            $payment->appointment->payment_amount = $payment->amount_paid;
+            $payment->appointment->payment_type = $payment->payment_method;
+            $payment->appointment->processed_by = $processedBy;
+            $payment->appointment->payment_date = $payment->payment_date;
+            $payment->appointment->save();
         }
 
         // Notify client
@@ -713,20 +817,21 @@ class ChatbotActionHandler
                 'appointment_id' => $appointmentId,
                 'total_amount' => $appointment->service->price ?? 0,
                 'amount_paid' => $data['amount'] ?? $appointment->service->price ?? 0,
-                'payment_status' => 'paid',
                 'payment_date' => now(),
                 'payment_method' => $data['method'] ?? 'cash',
                 'processed_by' => $processedBy,
             ]);
+            // Set protected fields explicitly (not mass-assignable)
+            $payment->payment_status = 'paid';
+            $payment->save();
 
             // Sync with appointment table for consistency
-            $appointment->update([
-                'payment_status' => 'paid',
-                'payment_amount' => $payment->amount_paid,
-                'payment_type' => $payment->payment_method,
-                'processed_by' => $processedBy,
-                'payment_date' => $payment->payment_date
-            ]);
+            $appointment->payment_status = 'paid';
+            $appointment->payment_amount = $payment->amount_paid;
+            $appointment->payment_type = $payment->payment_method;
+            $appointment->processed_by = $processedBy;
+            $appointment->payment_date = $payment->payment_date;
+            $appointment->save();
         } else {
             return self::processPayment($payment, $processedBy, $data);
         }
@@ -1010,17 +1115,10 @@ class ChatbotActionHandler
         $refund->completed_at = now();
         $refund->save();
 
-        // Update appointment payment status
+        // Update appointment payment status (set protected field explicitly)
         if ($refund->appointment) {
-            if (!$refund->is_partial) {
-                $refund->appointment->update([
-                    'payment_status' => 'refunded'
-                ]);
-            } else {
-                $refund->appointment->update([
-                    'payment_status' => 'partially_refunded'
-                ]);
-            }
+            $refund->appointment->payment_status = $refund->is_partial ? 'partially_refunded' : 'refunded';
+            $refund->appointment->save();
         }
 
         // Notify client
@@ -1371,7 +1469,7 @@ class ChatbotActionHandler
      */
     private static function getRequiredRole(string $resource, string $action): string
     {
-        foreach (self::$rolePermissions as $role => $permissions) {
+        foreach (self::getRolePermissions() as $role => $permissions) {
             if (isset($permissions[$resource]) && in_array($action, $permissions[$resource])) {
                 return $role;
             }

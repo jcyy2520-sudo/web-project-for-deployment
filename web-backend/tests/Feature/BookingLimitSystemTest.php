@@ -159,7 +159,7 @@ class BookingLimitSystemTest extends TestCase
     public function test_cancelled_appointment_frees_up_limit()
     {
         // Create 2 appointments directly in database
-        $apt1 = Appointment::create([
+        $apt1 = Appointment::forceCreate([
             'user_id' => $this->client->id,
             'type' => 'consultation',
             'appointment_date' => $this->bookableDate,
@@ -167,7 +167,7 @@ class BookingLimitSystemTest extends TestCase
             'status' => 'pending'
         ]);
 
-        $apt2 = Appointment::create([
+        $apt2 = Appointment::forceCreate([
             'user_id' => $this->client->id,
             'type' => 'consultation',
             'appointment_date' => $this->bookableDate,
@@ -230,7 +230,7 @@ class BookingLimitSystemTest extends TestCase
     public function test_both_limits_enforced_simultaneously()
     {
         // Create a user with 2 bookings already
-        Appointment::create([
+        Appointment::forceCreate([
             'user_id' => $this->client->id,
             'type' => 'consultation',
             'appointment_date' => $this->bookableDate,
@@ -238,7 +238,7 @@ class BookingLimitSystemTest extends TestCase
             'status' => 'pending'
         ]);
 
-        Appointment::create([
+        Appointment::forceCreate([
             'user_id' => $this->client->id,
             'type' => 'consultation',
             'appointment_date' => $this->bookableDate,
@@ -249,7 +249,7 @@ class BookingLimitSystemTest extends TestCase
         // Fill the 08:00 slot to capacity with other users
         for ($i = 0; $i < 3; $i++) {
             $user = User::factory()->create(['role' => 'client']);
-            Appointment::create([
+            Appointment::forceCreate([
                 'user_id' => $user->id,
                 'type' => 'consultation',
                 'appointment_date' => $this->bookableDate,
@@ -298,7 +298,7 @@ class BookingLimitSystemTest extends TestCase
     {
         // Book 2 (at current limit)
         for ($i = 0; $i < 2; $i++) {
-            Appointment::create([
+            Appointment::forceCreate([
                 'user_id' => $this->client->id,
                 'type' => 'consultation',
                 'appointment_date' => $this->bookableDate,
@@ -363,7 +363,7 @@ class BookingLimitSystemTest extends TestCase
     {
         // Fill client's limit
         for ($i = 0; $i < 2; $i++) {
-            Appointment::create([
+            Appointment::forceCreate([
                 'user_id' => $this->client->id,
                 'type' => 'consultation',
                 'appointment_date' => $this->bookableDate,

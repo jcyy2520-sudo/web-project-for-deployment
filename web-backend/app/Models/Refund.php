@@ -17,15 +17,10 @@ class Refund extends Model
         'original_amount',
         'reason',
         'description',
-        'status',
-        'approved_by',
-        'approval_notes',
-        'approved_at',
-        'completed_at',
+        // 'status', 'approved_by', 'approval_notes', 'approved_at', 'completed_at', 'transaction_id',
+        // 'rejection_reason' excluded — admin-only fields, set explicitly in controller logic.
         'refund_method',
-        'transaction_id',
         'payment_method_reversed',
-        'rejection_reason',
         'is_partial'
     ];
 

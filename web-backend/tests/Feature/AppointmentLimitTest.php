@@ -185,7 +185,7 @@ class AppointmentLimitTest extends TestCase
         $today = now()->format('Y-m-d');
         
         // Book 2 appointments
-        $apt1 = Appointment::create([
+        $apt1 = Appointment::forceCreate([
             'user_id' => $this->user->id,
             'type' => 'consultation',
             'service_type' => 'Legal Consultation',
@@ -194,7 +194,7 @@ class AppointmentLimitTest extends TestCase
             'status' => 'pending'
         ]);
 
-        $apt2 = Appointment::create([
+        $apt2 = Appointment::forceCreate([
             'user_id' => $this->user->id,
             'type' => 'consultation',
             'service_type' => 'Legal Consultation',
@@ -227,7 +227,7 @@ class AppointmentLimitTest extends TestCase
         // Create 3 appointments at 09:00 (capacity is 3)
         for ($i = 0; $i < 3; $i++) {
             $user = User::factory()->create();
-            Appointment::create([
+            Appointment::forceCreate([
                 'user_id' => $user->id,
                 'type' => 'consultation',
                 'service_type' => 'Legal Consultation',
@@ -257,7 +257,7 @@ class AppointmentLimitTest extends TestCase
         $today = now()->format('Y-m-d');
         
         // Book one appointment
-        Appointment::create([
+        Appointment::forceCreate([
             'user_id' => $this->user->id,
             'type' => 'consultation',
             'service_type' => 'Legal Consultation',
@@ -284,7 +284,7 @@ class AppointmentLimitTest extends TestCase
         
         // Book two appointments (at limit)
         for ($i = 0; $i < 2; $i++) {
-            Appointment::create([
+            Appointment::forceCreate([
                 'user_id' => $this->user->id,
                 'type' => 'consultation',
                 'service_type' => 'Legal Consultation',

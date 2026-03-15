@@ -24,7 +24,7 @@ return new class extends Migration
             $table->index('category');
             $table->index('document_type');
             $table->index('is_active');
-            $table->fullText(['title', 'content_chunk']); // For full-text search as fallback
+            // $table->fullText(['title', 'content_chunk']); // For full-text search as fallback
         });
     }
 

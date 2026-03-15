@@ -10,9 +10,16 @@ class Appointment extends Model
 {
     use HasFactory, SoftDeletes;
 
+    /**
+     * Mass-assignable fields.
+     *
+     * SECURITY: status, payment_status, payment_amount, processed_by,
+     * completed_by are deliberately EXCLUDED. These must be set explicitly
+     * in controller logic to prevent clients from manipulating appointment
+     * or payment state via crafted POST data.
+     */
     protected $fillable = [
         'user_id',
-        'staff_id',
         'type',
         'service_id',
         'service_type',
@@ -20,13 +27,9 @@ class Appointment extends Model
         'appointment_time',
         'start_time',
         'end_time',
-        'status',
-        'payment_status',
-        'payment_amount',
         'discount_amount',
         'discount_type',
         'payment_type',
-        'processed_by',
         'payment_date',
         'payment_notes',
         'purpose',
@@ -36,20 +39,26 @@ class Appointment extends Model
         'staff_notes',
         'completed_at',
         'completion_notes',
-        'completed_by',
         'outcome_status',
         'original_price',
         'reminder_sent',
-        'reminder_sent_at'
+        'reminder_sent_at',
+        'reminder_level',
+        'decline_reason',
+        'paymongo_checkout_id',
+        'paymongo_payment_id',
+        'paymongo_checkout_url',
+        'paymongo_status',
     ];
 
     protected $casts = [
-        'appointment_date' => 'date',
+        'appointment_date' => 'date:Y-m-d',
         'documents' => 'array',
         'completed_at' => 'datetime',
         'payment_date' => 'datetime',
         'reminder_sent' => 'boolean',
         'reminder_sent_at' => 'datetime',
+        'reminder_level' => 'integer',
         'payment_amount' => 'decimal:2',
         'discount_amount' => 'decimal:2',
     ];

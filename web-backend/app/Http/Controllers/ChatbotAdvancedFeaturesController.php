@@ -67,7 +67,7 @@ class ChatbotAdvancedFeaturesController extends Controller
             }
 
             $connectionId = $request->input('connection_id') ?? uniqid('ws_');
-            $sessionId = $request->header('X-Session-ID') ?? $request->session()->getId();
+            $sessionId = $request->header('X-Session-ID') ?? ($request->hasSession() ? $request->session()->getId() : null);
 
             $this->websocketService->registerConnection($connectionId, $userId, $sessionId);
 
@@ -81,7 +81,7 @@ class ChatbotAdvancedFeaturesController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to initialize WebSocket',
-                'error' => $e->getMessage(),
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred',
             ], 500);
         }
     }
@@ -212,7 +212,7 @@ class ChatbotAdvancedFeaturesController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Workflow execution failed',
-                'error' => $e->getMessage(),
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred',
             ], 500);
         }
     }

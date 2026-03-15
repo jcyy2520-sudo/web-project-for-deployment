@@ -23,12 +23,22 @@ class StatsController extends Controller
             $ttl = 15; // seconds - shorter TTL for near-real-time
 
             $stats = Cache::remember($cacheKey, $ttl, function () {
+                // Use a single query with conditional aggregation instead of 5 separate queries
+                $appointmentStats = DB::table('appointments')
+                    ->whereNull('deleted_at')
+                    ->selectRaw("
+                        COUNT(*) as total,
+                        SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
+                        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed
+                    ")
+                    ->first();
+
                 return [
-                    'totalUsers' => User::where('role', 'client')->count(),
-                    'totalAppointments' => Appointment::count(),
-                    'pendingAppointments' => Appointment::where('status', 'pending')->count(),
-                    'completedAppointments' => Appointment::where('status', 'completed')->count(),
-                    'totalServices' => Service::where('is_active', true)->count(),
+                    'totalUsers' => DB::table('users')->where('role', 'client')->where('is_active', true)->count(),
+                    'totalAppointments' => (int)($appointmentStats->total ?? 0),
+                    'pendingAppointments' => (int)($appointmentStats->pending ?? 0),
+                    'completedAppointments' => (int)($appointmentStats->completed ?? 0),
+                    'totalServices' => DB::table('services')->where('is_active', true)->whereNull('deleted_at')->count(),
                 ];
             });
 
@@ -82,10 +92,12 @@ class StatsController extends Controller
 
         // Appointments within timeframe
         $totalAppointments = DB::table('appointments')
+            ->whereNull('deleted_at')
             ->whereBetween('appointment_date', $dateRange)
             ->count();
 
         $appointmentStats = DB::table('appointments')
+            ->whereNull('deleted_at')
             ->whereBetween('appointment_date', $dateRange)
             ->select('status', DB::raw('count(*) as count'))
             ->groupBy('status')
@@ -97,6 +109,7 @@ class StatsController extends Controller
         // Only count paid appointments or completed appointments with service price
         $revenue = DB::table('appointments')
             ->leftJoin('services', 'appointments.service_id', '=', 'services.id')
+            ->whereNull('appointments.deleted_at')
             ->where(function($query) {
                 $query->where('appointments.payment_status', 'paid')
                       ->orWhere(function($q) {
@@ -140,6 +153,7 @@ class StatsController extends Controller
     private function getAppointmentsByMonth()
     {
         $appointments = DB::table('appointments')
+            ->whereNull('deleted_at')
             ->select(
                 DB::raw('DATE_FORMAT(appointment_date, "%Y-%m") as month'),
                 DB::raw('count(*) as count')
@@ -192,6 +206,7 @@ class StatsController extends Controller
         switch ($period) {
             case 'daily':
                 $rows = DB::table('appointments')
+                    ->whereNull('deleted_at')
                     ->select(DB::raw('DATE(appointment_date) as period'), DB::raw('count(*) as count'))
                     ->where('appointment_date', '>=', now()->subDays(6)->startOfDay())
                     ->groupBy('period')
@@ -202,6 +217,7 @@ class StatsController extends Controller
             case 'weekly':
                 // last 12 weeks grouped by ISO week (year-week)
                 $rows = DB::table('appointments')
+                    ->whereNull('deleted_at')
                     ->select(DB::raw('YEARWEEK(appointment_date, 3) as period'), DB::raw('count(*) as count'))
                     ->where('appointment_date', '>=', now()->subWeeks(11)->startOfWeek())
                     ->groupBy('period')
@@ -211,6 +227,7 @@ class StatsController extends Controller
 
             case 'yearly':
                 $rows = DB::table('appointments')
+                    ->whereNull('deleted_at')
                     ->select(DB::raw('YEAR(appointment_date) as period'), DB::raw('count(*) as count'))
                     ->where('appointment_date', '>=', now()->subYears(4)->startOfYear())
                     ->groupBy('period')
@@ -221,6 +238,7 @@ class StatsController extends Controller
             case 'monthly':
             default:
                 $rows = DB::table('appointments')
+                    ->whereNull('deleted_at')
                     ->select(DB::raw('DATE_FORMAT(appointment_date, "%Y-%m") as period'), DB::raw('count(*) as count'))
                     ->where('appointment_date', '>=', now()->subMonths(11)->startOfMonth())
                     ->groupBy('period')
@@ -237,6 +255,7 @@ class StatsController extends Controller
             case 'daily':
                 $rows = DB::table('appointments')
                     ->leftJoin('services', 'appointments.service_id', '=', 'services.id')
+                    ->whereNull('appointments.deleted_at')
                     ->select(
                         DB::raw('DATE(appointment_date) as period'), 
                         DB::raw('COALESCE(SUM(COALESCE(appointments.payment_amount, services.price)),0) as total')
@@ -257,6 +276,7 @@ class StatsController extends Controller
             case 'weekly':
                 $rows = DB::table('appointments')
                     ->leftJoin('services', 'appointments.service_id', '=', 'services.id')
+                    ->whereNull('appointments.deleted_at')
                     ->select(
                         DB::raw('YEARWEEK(appointment_date, 3) as period'), 
                         DB::raw('COALESCE(SUM(COALESCE(appointments.payment_amount, services.price)),0) as total')
@@ -277,6 +297,7 @@ class StatsController extends Controller
             case 'yearly':
                 $rows = DB::table('appointments')
                     ->leftJoin('services', 'appointments.service_id', '=', 'services.id')
+                    ->whereNull('appointments.deleted_at')
                     ->select(
                         DB::raw('YEAR(appointment_date) as period'), 
                         DB::raw('COALESCE(SUM(COALESCE(appointments.payment_amount, services.price)),0) as total')
@@ -298,6 +319,7 @@ class StatsController extends Controller
             default:
                 $rows = DB::table('appointments')
                     ->leftJoin('services', 'appointments.service_id', '=', 'services.id')
+                    ->whereNull('appointments.deleted_at')
                     ->select(
                         DB::raw('DATE_FORMAT(appointment_date, "%Y-%m") as period'), 
                         DB::raw('COALESCE(SUM(COALESCE(appointments.payment_amount, services.price)),0) as total')
@@ -466,6 +488,13 @@ class StatsController extends Controller
                 // Last 5 years
                 return [
                     $now->copy()->subYears(4)->startOfYear(),
+                    $now->copy()->endOfDay()
+                ];
+
+            case 'all':
+                // All time - from the beginning
+                return [
+                    $now->copy()->subYears(20)->startOfYear(),
                     $now->copy()->endOfDay()
                 ];
             

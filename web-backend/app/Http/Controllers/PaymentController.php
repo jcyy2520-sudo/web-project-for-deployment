@@ -26,7 +26,7 @@ class PaymentController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to fetch payment methods',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred'
             ], 500);
         }
     }
@@ -54,8 +54,10 @@ class PaymentController extends Controller
 
             $appointment = Appointment::findOrFail($request->appointment_id);
 
-            // Check if payment already exists
-            $existingPayment = Payment::where('appointment_id', $appointment->id)->first();
+            // Check if payment already exists — use lockForUpdate to prevent duplicate payments
+            $existingPayment = Payment::where('appointment_id', $appointment->id)
+                ->lockForUpdate()
+                ->first();
             if ($existingPayment) {
                 return response()->json([
                     'success' => false,
@@ -119,7 +121,7 @@ class PaymentController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to record payment',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred'
             ], 500);
         }
     }
@@ -131,6 +133,18 @@ class PaymentController extends Controller
     {
         try {
             $appointment = Appointment::findOrFail($appointmentId);
+
+            // SECURITY: Verify requesting user has access to this appointment's payment
+            $user = request()->user();
+            if ($user && !in_array($user->role, ['admin', 'staff', 'cashier'])) {
+                if ($appointment->user_id !== $user->id) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Unauthorized to view this payment'
+                    ], 403);
+                }
+            }
+
             $payment = Payment::where('appointment_id', $appointmentId)->first();
 
             if (!$payment) {
@@ -149,7 +163,7 @@ class PaymentController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to fetch payment',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred'
             ], 500);
         }
     }
@@ -164,15 +178,24 @@ class PaymentController extends Controller
             'payment_method_id' => 'nullable|exists:payment_methods,id',
             'payment_date' => 'nullable|date',
             'discount_amount' => 'nullable|numeric|min:0',
-            'notes' => 'nullable|string',
-            'goods_description' => 'nullable|string',
-            'edit_notes' => 'nullable|string'
+            'notes' => 'nullable|string|max:1000',
+            'goods_description' => 'nullable|string|max:1000',
+            'edit_notes' => 'nullable|string|max:1000'
         ]);
 
         try {
             DB::beginTransaction();
 
             $payment = Payment::findOrFail($paymentId);
+
+            // SECURITY: Verify requesting user has permission to update this payment
+            $user = $request->user();
+            if ($user && !in_array($user->role, ['admin', 'staff', 'cashier'])) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized to update this payment'
+                ], 403);
+            }
 
             $oldValues = $payment->getAttributes();
 
@@ -213,6 +236,8 @@ class PaymentController extends Controller
 
             $payment->is_edited = true;
             $payment->edit_notes = $request->edit_notes;
+            $payment->last_edited_by = auth()->id();
+            $payment->last_edited_at = now();
             $payment->save();
 
             // Log action
@@ -235,7 +260,7 @@ class PaymentController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to update payment',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred'
             ], 500);
         }
     }

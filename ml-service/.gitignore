@@ -1,0 +1,11 @@
+.env
+__pycache__/
+*.pyc
+storage/models/*.joblib
+storage/models/*.joblib.sig
+storage/models/*.json
+storage/feedback/
+*.egg-info/
+dist/
+build/
+.eggs/

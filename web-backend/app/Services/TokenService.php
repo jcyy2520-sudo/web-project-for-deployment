@@ -66,6 +66,10 @@ class TokenService
 
     /**
      * Verify token by UUID
+     * 
+     * SECURITY: Token is REQUIRED for verification to prevent UUID-only access.
+     * The $token parameter is kept nullable only for backward compatibility with
+     * email verification links that use UUID-only flow.
      */
     public static function verifyTokenByUuid($tokenUuid, $token = null)
     {
@@ -79,12 +83,16 @@ class TokenService
             return null;
         }
 
-        // If token provided, validate it matches
+        // Validate token hash if provided
         if ($token) {
             $tokenHash = hash('sha256', $token);
-            if ($accessToken->token_hash !== $tokenHash) {
+            if (!hash_equals($accessToken->token_hash, $tokenHash)) {
                 return null;
             }
+        } elseif ($accessToken->purpose !== 'email_verification') {
+            // SECURITY: Require token for all purposes except email verification
+            // to prevent UUID-only access to sensitive operations like password reset
+            return null;
         }
 
         $accessToken->markAsUsed();

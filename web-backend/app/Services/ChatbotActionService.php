@@ -2,16 +2,23 @@
 
 namespace App\Services;
 
+use App\Events\AppointmentCreated;
+use App\Mail\AppointmentConfirmationMail;
+use App\Models\ActionLog;
 use App\Models\Appointment;
+use App\Models\AppointmentSettings;
+use App\Models\BlackoutDate;
 use App\Models\Payment;
 use App\Models\Refund;
-use App\Models\User;
 use App\Models\Service;
+use App\Models\TimeSlotCapacity;
+use App\Models\UnavailableDate;
+use App\Models\User;
 use Carbon\Carbon;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 
 /**
  * ChatbotActionService - Execute actions through chatbot commands
@@ -35,11 +42,15 @@ class ChatbotActionService
      */
     private const ACTIONS_REQUIRING_CONFIRMATION = [
         'cancel_appointment',
+        'approve_appointment',
+        'decline_appointment',
+        'complete_appointment',
         'request_refund',
         'approve_refund',
         'reject_refund',
         'complete_refund',
         'delete_appointment',
+        'process_payment',
     ];
     
     /**
@@ -47,16 +58,17 @@ class ChatbotActionService
      */
     private static function storePendingAction(int $userId, string $action, array $params): string
     {
-        $confirmationKey = 'chatbot_confirm_' . $userId . '_' . time();
+        $confirmationKey = 'chatbot_confirm_' . $userId . '_' . bin2hex(random_bytes(16));
         Cache::put($confirmationKey, [
             'action' => $action,
             'params' => $params,
+            'user_id' => $userId,
             'created_at' => now(),
         ], 300); // 5 minutes expiry
-        
+
         return $confirmationKey;
     }
-    
+
     /**
      * Get and clear a pending action
      */
@@ -64,6 +76,10 @@ class ChatbotActionService
     {
         $pending = Cache::get($confirmationKey);
         if ($pending) {
+            // Verify the pending action belongs to this user
+            if (($pending['user_id'] ?? null) !== $userId) {
+                return null;
+            }
             Cache::forget($confirmationKey);
             return $pending;
         }
@@ -176,7 +192,6 @@ class ChatbotActionService
             return [
                 'success' => false,
                 'message' => 'An error occurred while processing your request. Please try again.',
-                'error' => config('app.debug') ? $e->getMessage() : null,
             ];
         }
     }
@@ -188,11 +203,15 @@ class ChatbotActionService
     {
         return match($action) {
             'cancel_appointment' => 'Are you sure you want to cancel this appointment? Reply "yes" or "confirm" to proceed.',
+            'approve_appointment' => 'Are you sure you want to approve this appointment? Reply "yes" or "confirm" to proceed.',
+            'decline_appointment' => 'Are you sure you want to decline this appointment? Reply "yes" or "confirm" to proceed.',
+            'complete_appointment' => 'Are you sure you want to mark this appointment as completed? Reply "yes" or "confirm" to proceed.',
             'request_refund' => 'Are you sure you want to request a refund? Reply "yes" or "confirm" to proceed.',
             'approve_refund' => 'Are you sure you want to approve this refund? Reply "yes" or "confirm" to proceed.',
             'reject_refund' => 'Are you sure you want to reject this refund? Reply "yes" or "confirm" to proceed.',
             'complete_refund' => 'Are you sure you want to mark this refund as completed? Reply "yes" or "confirm" to proceed.',
             'delete_appointment' => 'Are you sure you want to delete this appointment? This cannot be undone. Reply "yes" or "confirm" to proceed.',
+            'process_payment' => 'Are you sure you want to process this payment? Reply "yes" or "confirm" to proceed.',
             default => 'Please confirm this action by replying "yes" or "confirm".',
         };
     }
@@ -768,14 +787,16 @@ class ChatbotActionService
             $existingPayment->recorded_by = $cashierId;
             $existingPayment->save();
         } else {
-            Payment::create([
+            $newPayment = Payment::create([
                 'appointment_id' => $appointmentId,
                 'recorded_by' => $cashierId,
                 'service_price' => $servicePrice,
                 'amount_paid' => $amountPaid,
-                'payment_status' => 'paid',
                 'payment_date' => Carbon::now(),
             ]);
+            // Set protected field explicitly (not mass-assignable)
+            $newPayment->payment_status = 'paid';
+            $newPayment->save();
         }
         
         // Mark appointment as completed
@@ -911,7 +932,7 @@ class ChatbotActionService
      */
     private static function viewUserProfile(int $userId): array
     {
-        $user = User::select('id', 'name', 'email', 'phone', 'created_at')
+        $user = User::select('id', 'first_name', 'last_name', 'email', 'phone', 'created_at')
             ->find($userId);
             
         if (!$user) {
@@ -921,13 +942,16 @@ class ChatbotActionService
             ];
         }
         
+        $fullName = trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? ''));
         $memberSince = Carbon::parse($user->created_at)->format('F Y');
         
         return [
             'success' => true,
-            'message' => "Your Profile:\n• Name: {$user->name}\n• Email: {$user->email}\n• Phone: {$user->phone}\n• Member since: {$memberSince}",
+            'message' => "Your Profile:\n• Name: {$fullName}\n• Email: {$user->email}\n• Phone: {$user->phone}\n• Member since: {$memberSince}",
             'data' => [
-                'name' => $user->name,
+                'name' => $fullName,
+                'first_name' => $user->first_name,
+                'last_name' => $user->last_name,
                 'email' => $user->email,
                 'phone' => $user->phone,
                 'member_since' => $memberSince,
@@ -951,8 +975,23 @@ class ChatbotActionService
         
         $updated = [];
         
-        if (isset($params['name']) && !empty($params['name'])) {
-            $user->name = $params['name'];
+        if (isset($params['first_name']) && !empty($params['first_name'])) {
+            $user->first_name = $params['first_name'];
+            $updated[] = 'first name';
+        }
+        
+        if (isset($params['last_name']) && !empty($params['last_name'])) {
+            $user->last_name = $params['last_name'];
+            $updated[] = 'last name';
+        }
+        
+        // Support legacy 'name' param by splitting into first/last
+        if (isset($params['name']) && !empty($params['name']) && empty($updated)) {
+            $parts = explode(' ', $params['name'], 2);
+            $user->first_name = $parts[0];
+            if (isset($parts[1])) {
+                $user->last_name = $parts[1];
+            }
             $updated[] = 'name';
         }
         
@@ -964,7 +1003,7 @@ class ChatbotActionService
         if (empty($updated)) {
             return [
                 'success' => false,
-                'message' => 'Please specify what you want to update. You can update your name or phone number.',
+                'message' => 'Please specify what you want to update. You can update your first name, last name, or phone number.',
             ];
         }
         
@@ -1032,28 +1071,35 @@ class ChatbotActionService
      */
     private static function initiateBooking(int $userId, array $params): array
     {
+        // SECURITY: Block booking if user's profile is incomplete (e.g., Google-auth users who skipped registration steps)
+        $user = User::find($userId);
+        if ($user && !$user->profile_completed) {
+            return [
+                'success' => false,
+                'message' => "This feature is only for verified users. Please complete your profile (first name, last name, phone number, and address) before booking an appointment. Go to your dashboard and fill out the required information. If you need help, type 'How do I complete my profile?' or click the profile section.",
+                'action_suggested' => 'navigate_to_profile',
+            ];
+        }
+
         $serviceId = $params['service_id'] ?? null;
-        $date = isset($params['date']) ? Carbon::parse($params['date']) : null;
-        
+        $date = $params['date'] ?? null;
+        $time = $params['time'] ?? null;
+
         if (!$serviceId) {
-            // List available services
             $services = Service::where('is_available', true)
                 ->select('id', 'name', 'price', 'duration')
                 ->get();
-                
+
             if ($services->isEmpty()) {
-                return [
-                    'success' => false,
-                    'message' => 'No services are currently available.',
-                ];
+                return ['success' => false, 'message' => 'No services are currently available. Please check back later or contact support for assistance.'];
             }
-            
+
             $message = "Available services for booking:\n";
             foreach ($services as $service) {
                 $message .= "• {$service->name} - ₱" . number_format($service->price, 2) . " ({$service->duration} mins)\n";
             }
-            $message .= "\nTo book, please specify the service and your preferred date.";
-            
+            $message .= "\nTo book, please specify the service, date, and time.";
+
             return [
                 'success' => true,
                 'message' => trim($message),
@@ -1061,25 +1107,44 @@ class ChatbotActionService
                 'next_action' => 'select_service',
             ];
         }
-        
-        // Service selected, provide booking info
+
         $service = Service::find($serviceId);
         if (!$service || !$service->is_available) {
+            return ['success' => false, 'message' => 'Service not found or not available. Please select another service or contact support.'];
+        }
+
+        // If date or time not provided, ask for them
+        if (!$date || !$time) {
             return [
-                'success' => false,
-                'message' => 'Service not found or not available.',
+                'success' => true,
+                'message' => "You've selected {$service->name} (₱" . number_format($service->price, 2) . "). Please provide your preferred date (YYYY-MM-DD) and time (HH:MM).",
+                'data' => ['service' => $service->toArray()],
+                'next_action' => 'select_date_time',
             ];
         }
-        
-        return [
-            'success' => true,
-            'message' => "You've selected {$service->name} (₱" . number_format($service->price, 2) . "). Please use the booking page to complete your appointment with your preferred date and time.",
-            'data' => [
-                'service' => $service->toArray(),
-                'booking_url' => '/book',
-            ],
-            'redirect_to' => '/book?service=' . $serviceId,
-        ];
+
+        // Use AgentToolRegistry to handle the actual booking logic identically to LLM tools
+        try {
+            $registry = app(\App\Services\AgentToolRegistry::class);
+            $result = $registry->executeTool('book_appointment', $params, $userId, 'client');
+            
+            if ($result['success']) {
+                return [
+                    'success' => true,
+                    'message' => $result['message'],
+                    'data' => $result['data'] ?? [],
+                ];
+            } else {
+                return [
+                    'success' => false,
+                    'message' => $result['error'] ?? 'Booking failed.',
+                    'data' => $result['data'] ?? [],
+                ];
+            }
+        } catch (\Exception $e) {
+            Log::error('ChatbotActionService booking failed via registry', ['error' => $e->getMessage()]);
+            return ['success' => false, 'message' => 'An error occurred while booking. Please try again.'];
+        }
     }
     
     /**

@@ -5,6 +5,15 @@
 
     RewriteEngine On
 
+    # Block access to dotfiles (e.g. .env, .git)
+    RewriteCond %{REQUEST_URI} (^|\/)\.(?!well-known) [NC]
+    RewriteRule ^ - [F,L]
+
+    # Block access to test/debug PHP files in production
+    RewriteCond %{REQUEST_FILENAME} -f
+    RewriteCond %{REQUEST_URI} ^/(test-|clear-cache|check-).*\.php$ [NC]
+    RewriteRule ^ - [F,L]
+
     # Handle Authorization Header
     RewriteCond %{HTTP:Authorization} .
     RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]

@@ -4,11 +4,16 @@ namespace App\Http\Controllers;
 
 use App\Models\BlackoutDate;
 use App\Models\UnavailableDate;
+use App\Traits\SafeExperimentalFeature;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
+use App\Models\ActionLog;
 
 class BlackoutDateController extends Controller
 {
+    use SafeExperimentalFeature;
     /**
      * Get all blackout dates (including legacy UnavailableDate entries)
      */
@@ -82,15 +87,21 @@ class BlackoutDateController extends Controller
             try {
                 $blackoutDate = BlackoutDate::create($request->all());
 
+                // Clear caches and broadcast change so user-side updates
+                $this->clearUnavailableDateCaches();
+
+                ActionLog::log('create', "Created blackout date: {$blackoutDate->date} - {$blackoutDate->reason}", 'BlackoutDate', $blackoutDate->id);
+
                 return response()->json([
                     'success' => true,
                     'message' => 'Blackout date created successfully',
                     'data' => $blackoutDate
                 ], 201);
             } catch (\Exception $e) {
+                Log::error('Error creating blackout date: ' . $e->getMessage());
                 return response()->json([
                     'success' => false,
-                    'message' => 'Error creating blackout date: ' . $e->getMessage()
+                    'message' => config('app.debug') ? 'Error creating blackout date: ' . $e->getMessage() : 'Error creating blackout date'
                 ], 500);
             }
         }, 'blackout_date.store');
@@ -115,15 +126,21 @@ class BlackoutDateController extends Controller
             try {
                 $blackoutDate->update($request->all());
 
+                // Clear caches and broadcast change so user-side updates
+                $this->clearUnavailableDateCaches();
+
+                ActionLog::log('update', "Updated blackout date: {$blackoutDate->date} - {$blackoutDate->reason}", 'BlackoutDate', $blackoutDate->id);
+
                 return response()->json([
                     'success' => true,
                     'message' => 'Blackout date updated successfully',
                     'data' => $blackoutDate
                 ]);
             } catch (\Exception $e) {
+                Log::error('Error updating blackout date: ' . $e->getMessage());
                 return response()->json([
                     'success' => false,
-                    'message' => 'Error updating blackout date: ' . $e->getMessage()
+                    'message' => config('app.debug') ? 'Error updating blackout date: ' . $e->getMessage() : 'Error updating blackout date'
                 ], 500);
             }
         }, 'blackout_date.update');
@@ -136,16 +153,24 @@ class BlackoutDateController extends Controller
     {
         return $this->wrapExperimental(function () use ($blackoutDate) {
             try {
+                $dateValue = $blackoutDate->date;
+                $blackoutId = $blackoutDate->id;
                 $blackoutDate->delete();
+
+                // Clear caches and broadcast change so user-side updates
+                $this->clearUnavailableDateCaches();
+
+                ActionLog::log('delete', "Deleted blackout date: {$dateValue} (ID: {$blackoutId})", 'BlackoutDate', $blackoutId);
 
                 return response()->json([
                     'success' => true,
                     'message' => 'Blackout date deleted successfully'
                 ]);
             } catch (\Exception $e) {
+                Log::error('Error deleting blackout date: ' . $e->getMessage());
                 return response()->json([
                     'success' => false,
-                    'message' => 'Error deleting blackout date: ' . $e->getMessage()
+                    'message' => config('app.debug') ? 'Error deleting blackout date: ' . $e->getMessage() : 'Error deleting blackout date'
                 ], 500);
             }
         }, 'blackout_date.destroy');
@@ -234,5 +259,25 @@ class BlackoutDateController extends Controller
             'total_unavailable' => count($unavailableDates),
             'total_days_in_range' => $startDate->diffInDays($endDate) + 1,
         ]);
+    }
+
+    /**
+     * Clear unavailable date caches and broadcast change event
+     * so user-side systems pick up the changes
+     */
+    private function clearUnavailableDateCaches()
+    {
+        try {
+            Cache::put('unavailable_dates_last_update', now()->toDateTimeString());
+            Cache::forget('unavailable_dates');
+            Cache::forget('blackout_dates');
+
+            // Broadcast event so user-side calendars update
+            if (class_exists(\App\Events\UnavailableDatesUpdated::class)) {
+                event(new \App\Events\UnavailableDatesUpdated());
+            }
+        } catch (\Exception $e) {
+            Log::warning('Failed to clear unavailable date caches: ' . $e->getMessage());
+        }
     }
 }

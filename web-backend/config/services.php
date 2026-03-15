@@ -59,10 +59,27 @@ return [
     'ollama' => [
         'host' => env('OLLAMA_HOST', 'http://localhost:11434'),
         'model' => env('OLLAMA_MODEL', 'llama2'),
+        'enabled' => env('USE_OLLAMA_LLM', false),
+        'embeddings_enabled' => env('USE_OLLAMA_EMBEDDINGS', true),
+        'embedding_model' => env('OLLAMA_EMBEDDING_MODEL', 'nomic-embed-text'),
+        'url' => env('OLLAMA_URL', 'http://localhost:11434'),
     ],
 
     'huggingface' => [
         'api_key' => env('HUGGINGFACE_API_KEY'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | LLM General Settings
+    |--------------------------------------------------------------------------
+    */
+
+    'llm' => [
+        'max_tokens' => (int) env('LLM_MAX_TOKENS', 4096),
+        'temperature' => (float) env('LLM_TEMPERATURE', 0.3),
+        'timeout' => (int) env('LLM_TIMEOUT', 60),
+        'personality' => env('CHATBOT_PERSONALITY', 'professional'),
     ],
 
     /*
@@ -87,12 +104,24 @@ return [
     */
 
     'chatbot' => [
-        'provider_order' => env('LLM_PROVIDER_ORDER', 'claude,openai,mistral,ollama'),
+        'provider_order' => env('LLM_PROVIDER_ORDER', 'huggingface,openai,claude,ollama'),
         'default_personality' => env('CHATBOT_DEFAULT_PERSONALITY', 'professional'),
         'max_context_messages' => env('CHATBOT_MAX_CONTEXT_MESSAGES', 50),
         'enable_streaming' => env('CHATBOT_ENABLE_STREAMING', true),
         'enable_rag' => env('CHATBOT_ENABLE_RAG', true),
         'enable_memory' => env('CHATBOT_ENABLE_MEMORY', true),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | OAuth Services
+    |--------------------------------------------------------------------------
+    */
+
+    'google' => [
+        'client_id' => env('GOOGLE_CLIENT_ID'),
+        'client_secret' => env('GOOGLE_CLIENT_SECRET'),
+        'redirect' => env('GOOGLE_REDIRECT_URI', '/auth/google/callback'),
     ],
 
 ];

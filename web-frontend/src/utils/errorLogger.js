@@ -6,7 +6,8 @@ import axios from 'axios';
  */
 class ErrorLogger {
   constructor() {
-    this.apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+    // Use the configured API URL; in production VITE_API_URL must be set via environment
+    this.apiUrl = (import.meta.env.VITE_API_URL || '') + '/api';
     this.errorQueue = [];
     this.isOnline = navigator.onLine;
     this.isInitialized = false;

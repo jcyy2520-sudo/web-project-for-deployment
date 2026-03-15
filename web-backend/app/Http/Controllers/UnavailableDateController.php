@@ -9,6 +9,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Cache;
 use App\Events\UnavailableDatesUpdated;
+use App\Models\ActionLog;
 
 class UnavailableDateController extends Controller
 {
@@ -38,7 +39,7 @@ class UnavailableDateController extends Controller
             Log::error('Failed to fetch unavailable dates: ' . $e->getMessage());
             return response()->json([
                 'message' => 'Failed to fetch unavailable dates',
-                'error' => $e->getMessage(),
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred',
                 'success' => false
             ], 500);
         }
@@ -49,7 +50,7 @@ class UnavailableDateController extends Controller
         Log::info('Creating unavailable date', $request->all());
 
         $request->validate([
-            'date' => 'required|date|after:today',
+            'date' => 'required|date|after_or_equal:today',
             'reason' => 'nullable|string|max:255',
             'all_day' => 'boolean',
             'start_time' => 'required_if:all_day,false|nullable|date_format:H:i',
@@ -87,6 +88,9 @@ class UnavailableDateController extends Controller
             } catch (\Exception $e) {
                 Log::error('Failed to set unavailable dates cache or broadcast: ' . $e->getMessage());
             }
+
+            ActionLog::log('create', "Added unavailable date: {$unavailableDate->date} - {$unavailableDate->reason}", 'UnavailableDate', $unavailableDate->id);
+
             return response()->json([
                 'data' => $unavailableDate,
                 'message' => 'Unavailable date added successfully',
@@ -97,7 +101,7 @@ class UnavailableDateController extends Controller
             Log::error('Stack trace: ' . $e->getTraceAsString());
             return response()->json([
                 'message' => 'Failed to create unavailable date',
-                'error' => $e->getMessage(),
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred',
                 'success' => false
             ], 500);
         }
@@ -120,6 +124,9 @@ class UnavailableDateController extends Controller
             }
 
             Log::info('Unavailable date deleted successfully');
+
+            ActionLog::log('delete', "Deleted unavailable date (ID: {$id})", 'UnavailableDate', $id);
+
             return response()->json([
                 'message' => 'Unavailable date deleted successfully',
                 'success' => true
@@ -128,7 +135,7 @@ class UnavailableDateController extends Controller
             Log::error('Failed to delete unavailable date: ' . $e->getMessage());
             return response()->json([
                 'message' => 'Failed to delete unavailable date',
-                'error' => $e->getMessage(),
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred',
                 'success' => false
             ], 500);
         }
@@ -148,7 +155,7 @@ class UnavailableDateController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred'
             ], 500);
         }
     }
@@ -218,7 +225,7 @@ class UnavailableDateController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to fetch affected appointments',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred'
             ], 500);
         }
     }

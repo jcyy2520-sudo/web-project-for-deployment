@@ -12,11 +12,13 @@ import LoadingSpinner from './LoadingSpinner';
 /**
  * Unavailable Dates Viewer Component
  * Shows clients which dates are unavailable for booking
+ * Clicking on unavailable dates shows the reason and time range
  */
 const UnavailableDatesViewer = ({ isDarkMode = true, onDateSelect = null }) => {
   const { callApi, loading } = useApi();
   const [unavailableDates, setUnavailableDates] = useState([]);
   const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [selectedDateInfo, setSelectedDateInfo] = useState(null); // Popup for blocked date info
 
   useEffect(() => {
     loadUnavailableDates();
@@ -38,7 +40,10 @@ const UnavailableDatesViewer = ({ isDarkMode = true, onDateSelect = null }) => {
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     const dateStr = `${year}-${month}-${day}`;
-    return unavailableDates.some(u => u.date === dateStr || isBlackedOut(date));
+    return unavailableDates.some(u => {
+      const uDate = (u.date || '').toString().split('T')[0];
+      return uDate === dateStr || isBlackedOut(date);
+    });
   };
 
   // Check for blackout dates
@@ -56,7 +61,8 @@ const UnavailableDatesViewer = ({ isDarkMode = true, onDateSelect = null }) => {
       }
 
       // Specific blackout date
-      if (u.date && u.date === dateStr) {
+      const uDate = (u.date || '').toString().split('T')[0];
+      if (uDate && uDate === dateStr) {
         return true;
       }
 
@@ -81,7 +87,8 @@ const UnavailableDatesViewer = ({ isDarkMode = true, onDateSelect = null }) => {
       if (u.type === 'weekend' && (dayOfWeek === 'saturday' || dayOfWeek === 'sunday')) {
         return true;
       }
-      if (u.date === dateStr) {
+      const uDate = (u.date || '').toString().split('T')[0];
+      if (uDate === dateStr) {
         return true;
       }
       if (u.is_recurring && u.recurring_days?.includes(dayOfWeek)) {
@@ -91,6 +98,67 @@ const UnavailableDatesViewer = ({ isDarkMode = true, onDateSelect = null }) => {
     });
 
     return matching?.reason || 'Not available';
+  };
+
+  // Get detailed unavailable info including time ranges
+  const getDateDetailedInfo = (date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const dateStr = `${year}-${month}-${day}`;
+    const dayOfWeek = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][date.getDay()];
+
+    const matchingEntries = unavailableDates.filter(u => {
+      if (u.type === 'weekend' && (dayOfWeek === 'saturday' || dayOfWeek === 'sunday')) return true;
+      const uDate = (u.date || '').toString().split('T')[0];
+      if (uDate === dateStr) return true;
+      if (u.is_recurring && u.recurring_days?.includes(dayOfWeek)) return true;
+      return false;
+    });
+
+    if (matchingEntries.length === 0) return null;
+
+    // Check for full-day blocks
+    const fullDayBlock = matchingEntries.find(u => {
+      if (u.type === 'weekend') return true;
+      const hasTimeRange = (u.start_time && u.end_time) || u.time_range;
+      const isAllDay = u.all_day === true || u.all_day === 1;
+      return !hasTimeRange || isAllDay;
+    });
+
+    // Collect time ranges
+    const timeRanges = matchingEntries
+      .filter(u => u.type !== 'weekend')
+      .map(u => ({
+        reason: u.reason || 'Blocked by admin',
+        timeRange: u.time_range || (u.start_time && u.end_time ? `${u.start_time} - ${u.end_time}` : null),
+        isAllDay: (!u.start_time && !u.end_time && !u.time_range) || u.all_day === true || u.all_day === 1
+      }));
+
+    return {
+      date: date.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
+      isFullBlock: !!fullDayBlock,
+      isWeekend: matchingEntries.some(u => u.type === 'weekend') || dayOfWeek === 'saturday' || dayOfWeek === 'sunday',
+      reason: fullDayBlock?.reason || matchingEntries[0]?.reason || 'Not available',
+      entries: timeRanges
+    };
+  };
+
+  // Handle date click to show info
+  const handleDateClick = (date) => {
+    const isPast = date < new Date();
+    const isUnavailable = isDateUnavailable(date);
+    const isDayWeekend = date.getDay() === 0 || date.getDay() === 6;
+
+    if (isUnavailable || isDayWeekend) {
+      const info = getDateDetailedInfo(date);
+      if (info) {
+        setSelectedDateInfo(info);
+      }
+    } else if (!isPast && onDateSelect) {
+      onDateSelect(date);
+      setSelectedDateInfo(null);
+    }
   };
 
   // Calendar generation logic
@@ -185,7 +253,14 @@ const UnavailableDatesViewer = ({ isDarkMode = true, onDateSelect = null }) => {
             <div className={`w-3 h-3 rounded opacity-30 ${isDarkMode ? 'bg-gray-500' : 'bg-gray-300'}`}></div>
             <span className={isDarkMode ? 'text-gray-400' : 'text-gray-500'}>Past Date</span>
           </div>
+          <div className="flex items-center gap-2">
+            <div className={`w-3 h-3 rounded ${isDarkMode ? 'bg-amber-500' : 'bg-amber-400'}`}></div>
+            <span className={isDarkMode ? 'text-gray-300' : 'text-gray-600'}>Partial Block</span>
+          </div>
         </div>
+        <p className={`text-xs mt-2 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+          Click on blocked dates to see why they are unavailable
+        </p>
       </div>
 
       {/* Calendar */}
@@ -222,6 +297,9 @@ const UnavailableDatesViewer = ({ isDarkMode = true, onDateSelect = null }) => {
                 const isPast = date < new Date() && !isCurrentMonth;
                 const isUnavailable = isDateUnavailable(date);
                 const isDayWeekend = date.getDay() === 0 || date.getDay() === 6;
+                const detailedInfo = getDateDetailedInfo(date);
+                const hasTimeRange = detailedInfo?.entries?.some(e => e.timeRange && !e.isAllDay);
+                const isPartialBlock = hasTimeRange && !detailedInfo?.isFullBlock && !isDayWeekend;
 
                 let bgColor = isDarkMode ? 'bg-gray-700' : 'bg-gray-100';
                 let textColor = isDarkMode ? 'text-gray-100' : 'text-gray-900';
@@ -231,6 +309,10 @@ const UnavailableDatesViewer = ({ isDarkMode = true, onDateSelect = null }) => {
                 if (isPast) {
                   bgColor = isDarkMode ? 'bg-gray-800/50' : 'bg-gray-200/50';
                   textColor = isDarkMode ? 'text-gray-500' : 'text-gray-500';
+                } else if (isPartialBlock) {
+                  bgColor = isDarkMode ? 'bg-amber-500/20' : 'bg-amber-100';
+                  textColor = isDarkMode ? 'text-amber-400' : 'text-amber-700';
+                  borderColor = isDarkMode ? 'border-amber-500/30' : 'border-amber-300';
                 } else if (isUnavailable) {
                   bgColor = isDarkMode ? 'bg-red-500/20' : 'bg-red-100';
                   textColor = isDarkMode ? 'text-red-400' : 'text-red-700';
@@ -247,28 +329,111 @@ const UnavailableDatesViewer = ({ isDarkMode = true, onDateSelect = null }) => {
                 return (
                   <div
                     key={date.toISOString()}
-                    className={`aspect-square flex flex-col items-center justify-center rounded border-2 p-1 text-xs font-semibold cursor-pointer transition-all hover:shadow-md ${bgColor} ${textColor} ${borderColor}`}
+                    className={`aspect-square flex flex-col items-center justify-center rounded border-2 p-1 text-xs font-semibold cursor-pointer transition-all hover:shadow-md relative ${bgColor} ${textColor} ${borderColor}`}
                     title={
                       isUnavailable && !isPast
-                        ? `${getUnavailableReason(date)}`
+                        ? `${getUnavailableReason(date)}${hasTimeRange ? ' (click for details)' : ''}`
                         : isPast
                         ? 'Past date'
                         : 'Available'
                     }
-                    onClick={() => {
-                      if (!isUnavailable && !isPast && onDateSelect) {
-                        onDateSelect(date);
-                      }
-                    }}
+                    onClick={() => handleDateClick(date)}
                   >
                     {date.getDate()}
-                    {isUnavailable && !isPast && (
+                    {isUnavailable && !isPast && !isPartialBlock && (
                       <XMarkIcon className="h-3 w-3 mt-0.5" />
+                    )}
+                    {isPartialBlock && !isPast && (
+                      <ClockIcon className="h-3 w-3 mt-0.5" />
                     )}
                   </div>
                 );
               })}
             </div>
+
+            {/* Block Info Popup */}
+            {selectedDateInfo && (
+              <div className={`p-4 rounded-lg border ${
+                isDarkMode
+                  ? 'bg-gray-900 border-red-500/30'
+                  : 'bg-red-50 border-red-200'
+              }`}>
+                <div className="flex items-start justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    {selectedDateInfo.isWeekend ? (
+                      <CalendarIcon className={`h-5 w-5 flex-shrink-0 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`} />
+                    ) : selectedDateInfo.entries?.some(e => e.timeRange && !e.isAllDay) ? (
+                      <ClockIcon className={`h-5 w-5 flex-shrink-0 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`} />
+                    ) : (
+                      <ExclamationTriangleIcon className={`h-5 w-5 flex-shrink-0 ${isDarkMode ? 'text-red-400' : 'text-red-600'}`} />
+                    )}
+                    <h4 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>
+                      {selectedDateInfo.isWeekend ? 'Weekend — Closed' : 
+                       selectedDateInfo.isFullBlock ? 'Date Unavailable' : 'Partially Blocked'}
+                    </h4>
+                  </div>
+                  <button
+                    onClick={() => setSelectedDateInfo(null)}
+                    className={`p-0.5 rounded transition-colors ${isDarkMode ? 'text-gray-400 hover:text-gray-200 hover:bg-gray-700' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-200'}`}
+                  >
+                    <XMarkIcon className="h-4 w-4" />
+                  </button>
+                </div>
+
+                <p className={`text-xs mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                  {selectedDateInfo.date}
+                </p>
+
+                {!selectedDateInfo.isWeekend && (
+                  <div className={`text-xs space-y-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                    <div className={`px-3 py-2 rounded border ${
+                      isDarkMode ? 'bg-red-900/20 border-red-500/30' : 'bg-red-100 border-red-200'
+                    }`}>
+                      <p className="font-medium mb-1">Reason:</p>
+                      <p>{selectedDateInfo.reason}</p>
+                    </div>
+
+                    {selectedDateInfo.entries?.length > 0 && selectedDateInfo.entries.some(e => e.timeRange) && (
+                      <div className={`px-3 py-2 rounded border ${
+                        isDarkMode ? 'bg-amber-900/20 border-amber-500/30' : 'bg-amber-50 border-amber-200'
+                      }`}>
+                        <p className={`font-medium mb-1 flex items-center gap-1 ${isDarkMode ? 'text-amber-300' : 'text-amber-700'}`}>
+                          <ClockIcon className="h-3 w-3" /> Blocked Time Ranges:
+                        </p>
+                        {selectedDateInfo.entries.filter(e => e.timeRange).map((entry, idx) => (
+                          <div key={idx} className="flex items-center gap-2 ml-2 mt-1">
+                            <span className={`w-1.5 h-1.5 rounded-full ${isDarkMode ? 'bg-amber-400' : 'bg-amber-500'}`}></span>
+                            <span className="font-mono">{entry.timeRange}</span>
+                            <span className={isDarkMode ? 'text-amber-300/70' : 'text-amber-600'}>— {entry.reason}</span>
+                          </div>
+                        ))}
+                        {!selectedDateInfo.isFullBlock && (
+                          <p className={`mt-2 italic ${isDarkMode ? 'text-amber-300/80' : 'text-amber-600'}`}>
+                            You may still book this date outside the blocked time ranges.
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {selectedDateInfo.entries?.length > 0 && selectedDateInfo.entries.some(e => e.isAllDay) && (
+                      <div className={`px-3 py-2 rounded border ${
+                        isDarkMode ? 'bg-red-900/20 border-red-500/30' : 'bg-red-100 border-red-200'
+                      }`}>
+                        <p className={`font-medium ${isDarkMode ? 'text-red-300' : 'text-red-700'}`}>
+                          Entire day is blocked
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {selectedDateInfo.isWeekend && (
+                  <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                    The office is closed on weekends. Please select a weekday.
+                  </p>
+                )}
+              </div>
+            )}
 
             {/* Info section */}
             <div className={`p-3 rounded border ${
@@ -277,7 +442,7 @@ const UnavailableDatesViewer = ({ isDarkMode = true, onDateSelect = null }) => {
                 : 'bg-blue-50 border-blue-200 text-blue-700'
             }`}>
               <p className="text-xs">
-                <strong>Note:</strong> Unavailable dates are blocked by admin. Please select an available date to book an appointment.
+                <strong>Tip:</strong> Click on any blocked or unavailable date to see the reason and details. Dates with a <ClockIcon className="inline h-3 w-3" /> icon have specific time ranges blocked.
               </p>
             </div>
           </div>

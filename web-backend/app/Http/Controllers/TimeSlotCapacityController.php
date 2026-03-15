@@ -4,10 +4,13 @@ namespace App\Http\Controllers;
 
 use App\Models\TimeSlotCapacity;
 use App\Events\SlotCapacityChanged;
+use App\Models\ActionLog;
+use App\Traits\SafeExperimentalFeature;
 use Illuminate\Http\Request;
 
 class TimeSlotCapacityController extends Controller
 {
+    use SafeExperimentalFeature;
     /**
      * Get all slot capacity configurations
      */
@@ -36,7 +39,7 @@ class TimeSlotCapacityController extends Controller
     }
 
     /**
-     * Create a new slot capacity configuration
+     * Create or update a slot capacity configuration (upsert)
      */
     public function store(Request $request)
     {
@@ -50,20 +53,49 @@ class TimeSlotCapacityController extends Controller
             ]);
 
             try {
-                $capacity = TimeSlotCapacity::create($request->all());
+                // Upsert: update if exists, create if not
+                $existing = TimeSlotCapacity::where('start_time', $request->start_time)
+                    ->where('end_time', $request->end_time)
+                    ->where(function ($q) use ($request) {
+                        if ($request->day_of_week) {
+                            $q->where('day_of_week', $request->day_of_week);
+                        } else {
+                            $q->whereNull('day_of_week');
+                        }
+                    })
+                    ->first();
+
+                if ($existing) {
+                    $existing->update([
+                        'max_appointments_per_slot' => $request->max_appointments_per_slot,
+                        'description' => $request->description,
+                        'is_active' => true,
+                    ]);
+                    $capacity = $existing;
+                    $action = 'updated';
+                } else {
+                    $capacity = TimeSlotCapacity::create($request->all());
+                    $action = 'created';
+                }
                 
                 // Broadcast the change to all connected clients
-                broadcast(new SlotCapacityChanged($capacity, 'created', [$capacity->start_time]));
+                try {
+                    broadcast(new SlotCapacityChanged($capacity, $action, [$capacity->start_time]));
+                } catch (\Exception $e) {
+                    \Log::warning('Failed to broadcast slot capacity change: ' . $e->getMessage());
+                }
+
+                ActionLog::log($action === 'created' ? 'create' : 'update', ucfirst($action) . " slot capacity: {$capacity->start_time}-{$capacity->end_time} (max: {$capacity->max_appointments_per_slot})", 'TimeSlotCapacity', $capacity->id);
 
                 return response()->json([
                     'success' => true,
-                    'message' => 'Slot capacity configuration created successfully',
+                    'message' => "Slot capacity configuration {$action} successfully",
                     'data' => $capacity
-                ], 201);
+                ], $action === 'created' ? 201 : 200);
             } catch (\Exception $e) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Error creating slot capacity: ' . $e->getMessage()
+                    'message' => config('app.debug') ? 'Error saving slot capacity: ' . $e->getMessage() : 'Error saving slot capacity'
                 ], 500);
             }
         }, 'slot_capacity.store');
@@ -90,6 +122,8 @@ class TimeSlotCapacityController extends Controller
                 // Broadcast the change to all connected clients
                 broadcast(new SlotCapacityChanged($timeSlotCapacity, 'updated', [$timeSlotCapacity->start_time]));
 
+                ActionLog::log('update', "Updated slot capacity: {$timeSlotCapacity->start_time}-{$timeSlotCapacity->end_time} (max: {$timeSlotCapacity->max_appointments_per_slot})", 'TimeSlotCapacity', $timeSlotCapacity->id);
+
                 return response()->json([
                     'success' => true,
                     'message' => 'Slot capacity configuration updated successfully',
@@ -98,7 +132,7 @@ class TimeSlotCapacityController extends Controller
             } catch (\Exception $e) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Error updating slot capacity: ' . $e->getMessage()
+                    'message' => config('app.debug') ? 'Error updating slot capacity: ' . $e->getMessage() : 'Error updating slot capacity'
                 ], 500);
             }
         }, 'slot_capacity.update');
@@ -117,6 +151,8 @@ class TimeSlotCapacityController extends Controller
                 // Broadcast the change to all connected clients
                 broadcast(new SlotCapacityChanged($timeSlotCapacity, 'deleted', [$affectedTime]));
 
+                ActionLog::log('delete', "Deleted slot capacity for {$affectedTime}", 'TimeSlotCapacity', $timeSlotCapacity->id);
+
                 return response()->json([
                     'success' => true,
                     'message' => 'Slot capacity configuration deleted successfully'
@@ -124,7 +160,7 @@ class TimeSlotCapacityController extends Controller
             } catch (\Exception $e) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Error deleting slot capacity: ' . $e->getMessage()
+                    'message' => config('app.debug') ? 'Error deleting slot capacity: ' . $e->getMessage() : 'Error deleting slot capacity'
                 ], 500);
             }
         }, 'slot_capacity.destroy');
@@ -230,6 +266,8 @@ class TimeSlotCapacityController extends Controller
                     array_column($timeSlots, 0) // All start times
                 ));
 
+                ActionLog::log('update', "Applied capacity {$capacity} to all time slots (Created: {$created}, Updated: {$updated})", 'TimeSlotCapacity', null);
+
                 return response()->json([
                     'success' => true,
                     'message' => "Capacity applied to all time slots (Created: {$created}, Updated: {$updated})",
@@ -242,7 +280,7 @@ class TimeSlotCapacityController extends Controller
             } catch (\Exception $e) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Error applying capacity to all slots: ' . $e->getMessage()
+                    'message' => config('app.debug') ? 'Error applying capacity to all slots: ' . $e->getMessage() : 'Error applying capacity to all slots'
                 ], 500);
             }
         }, 'slot_capacity.apply_all');

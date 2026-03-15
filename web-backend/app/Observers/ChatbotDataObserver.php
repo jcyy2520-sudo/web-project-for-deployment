@@ -190,10 +190,17 @@ class ChatbotDataObserver
         try {
             Log::info("ChatbotDataObserver: Triggering knowledge sync due to {$modelName} update");
             
-            // Use queue to avoid blocking the request
-            \Illuminate\Support\Facades\Artisan::queue('chatbot:sync-knowledge');
+            // Only dispatch to queue if a real queue driver is configured (not sync)
+            // With sync driver, Artisan::queue() runs synchronously and can hang/timeout
+            // on long-running commands like chatbot:sync-knowledge
+            $queueDriver = config('queue.default', 'sync');
+            if ($queueDriver !== 'sync') {
+                \Illuminate\Support\Facades\Artisan::queue('chatbot:sync-knowledge');
+            } else {
+                Log::info("ChatbotDataObserver: Skipping sync-knowledge (queue driver is sync, would block request)");
+            }
             
-            // Also clear the embeddings cache to force re-computation
+            // Clear the embeddings cache to force re-computation on next request
             Cache::forget('chatbot_embeddings_version');
             Cache::forget('chatbot_knowledge_hash');
         } catch (\Exception $e) {

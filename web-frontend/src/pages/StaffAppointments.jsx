@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo } from 'react';
+import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 import { useApi } from '../hooks/useApi';
 import Modal from '../components/Modal';
 import LoadingSpinner from '../components/LoadingSpinner';
-import { formatServiceName } from '../utils/format';
+import { formatServiceName, formatDateDisplay } from '../utils/format';
 import { 
   CheckCircleIcon,
   XCircleIcon,
@@ -129,7 +130,7 @@ const StaffAppointments = () => {
     if (result.success) {
       loadAppointments();
       setIsDetailsModalOpen(false);
-      alert(`Appointment ${newStatus} successfully!`);
+      window.showToast?.('Success', `Appointment ${newStatus} successfully!`, 'success');
     }
   };
 
@@ -271,12 +272,12 @@ const StaffAppointments = () => {
                               {appointment.user?.first_name} {appointment.user?.last_name}
                             </h4>
                             <p className="text-sm text-gray-600">
-                              {new Date(appointment.appointment_date).toLocaleDateString()} at {appointment.appointment_time}
+                              {formatDateDisplay(appointment.appointment_date)} at {appointment.appointment_time}
                             </p>
                             <p className="text-sm text-gray-500">
                               {formatServiceName(appointment)}
                               {appointment.service?.price && (
-                                <span className="text-sm text-gray-700 font-medium"> &nbsp;— &nbsp;${parseFloat(appointment.service.price).toFixed(2)}</span>
+                                <span className="text-sm text-gray-700 font-medium"> &nbsp;— &nbsp;₱{parseFloat(appointment.service.price).toFixed(2)}</span>
                               )}
                             </p>
                           </div>
@@ -360,7 +361,7 @@ const StaffAppointments = () => {
               <div>
                 <label className="block text-sm font-medium text-gray-700">Date & Time</label>
                 <p className="mt-1 text-sm text-gray-900">
-                  {new Date(selectedAppointment.appointment_date).toLocaleDateString()} at {selectedAppointment.appointment_time}
+                  {formatDateDisplay(selectedAppointment.appointment_date)} at {selectedAppointment.appointment_time}
                 </p>
               </div>
               <div>

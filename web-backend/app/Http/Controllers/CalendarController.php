@@ -120,31 +120,36 @@ class CalendarController extends Controller
             $slots = $this->filterByBlackoutTimes($slots, $blackoutDate);
         }
 
-        // Rule 5: Remove booked slots
-        $bookedSlots = Appointment::where('appointment_date', $request->date)
+        // Rule 5+6: Check capacity limits per slot (batched query to avoid N+1)
+        $slotCounts = Appointment::where('appointment_date', $request->date)
             ->whereIn('status', ['pending', 'approved'])
-            ->pluck('appointment_time')
+            ->selectRaw('appointment_time, COUNT(*) as count')
+            ->groupBy('appointment_time')
+            ->pluck('count', 'appointment_time')
             ->toArray();
 
-        // Rule 6: Check capacity limits per slot
+        // Pre-load all capacity rules for this day to avoid N+1 queries in the loop
+        $parsedDate = Carbon::parse($request->date);
+        $dayName = strtolower($parsedDate->englishDayOfWeek);
+        $capacityRules = TimeSlotCapacity::where('is_active', true)
+            ->where(function ($query) use ($dayName) {
+                $query->whereNull('day_of_week')
+                      ->orWhere('day_of_week', $dayName);
+            })
+            ->get();
+
         $availableSlots = [];
         foreach ($slots as $slot) {
-            if (!in_array($slot, $bookedSlots)) {
-                $appointmentCount = Appointment::where('appointment_date', $request->date)
-                    ->where('appointment_time', $slot)
-                    ->whereIn('status', ['pending', 'approved'])
-                    ->count();
+            $appointmentCount = $slotCounts[$slot] ?? 0;
+            $maxCapacity = $this->getSlotCapacityFromRules($capacityRules, $slot);
 
-                $maxCapacity = $this->getSlotCapacity($request->date, $slot);
-                
-                if ($appointmentCount < $maxCapacity) {
-                    $availableSlots[] = [
-                        'time' => $slot,
-                        'booked' => $appointmentCount,
-                        'capacity' => $maxCapacity,
-                        'availability' => $maxCapacity - $appointmentCount
-                    ];
-                }
+            if ($appointmentCount < $maxCapacity) {
+                $availableSlots[] = [
+                    'time' => $slot,
+                    'booked' => $appointmentCount,
+                    'capacity' => $maxCapacity,
+                    'availability' => $maxCapacity - $appointmentCount
+                ];
             }
         }
 
@@ -223,10 +228,21 @@ class CalendarController extends Controller
             }
         }
 
+        // Deduplicate by date key to prevent duplicate entries
+        $seen = [];
+        $deduped = [];
+        foreach ($unavailableDates as $entry) {
+            $key = $entry['date'] . '|' . ($entry['type'] ?? '') . '|' . ($entry['time_range'] ?? 'all');
+            if (!isset($seen[$key])) {
+                $seen[$key] = true;
+                $deduped[] = $entry;
+            }
+        }
+
         return response()->json([
             'success' => true,
-            'unavailable_dates' => array_values(array_unique($unavailableDates, SORT_REGULAR)),
-            'total_unavailable' => count(array_unique($unavailableDates, SORT_REGULAR))
+            'unavailable_dates' => array_values($deduped),
+            'total_unavailable' => count($deduped)
         ]);
     }
 
@@ -352,6 +368,18 @@ class CalendarController extends Controller
             ->first();
 
         return $capacity ? $capacity->max_appointments_per_slot : 3; // Default 3 per slot
+    }
+
+    /**
+     * Get slot capacity from pre-loaded rules (avoids N+1 queries)
+     */
+    private function getSlotCapacityFromRules($capacityRules, $time)
+    {
+        $matching = $capacityRules->first(function ($rule) use ($time) {
+            return $rule->start_time <= $time && $rule->end_time > $time;
+        });
+
+        return $matching ? $matching->max_appointments_per_slot : 3; // Default 3 per slot
     }
 
     private function generateTimeSlots($start, $end, $interval = '30 minutes')

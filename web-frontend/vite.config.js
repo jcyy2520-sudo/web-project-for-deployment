@@ -78,7 +78,7 @@ export default defineConfig({
     },
     proxy: {
       '/api': {
-        target: 'http://localhost/web/web-backend/public',
+        target: 'http://127.0.0.1:8000',
         changeOrigin: true,
         secure: false,
         rewrite: (path) => path,
@@ -87,11 +87,11 @@ export default defineConfig({
           proxy.on('error', (err, req, res) => {
             console.log('proxy error', err);
           });
-          // Removed verbose proxy logging
+          
         }
       },
       '/sanctum': {
-        target: 'http://localhost/web/web-backend/public',
+        target: 'http://127.0.0.1:8000',
         changeOrigin: true,
         secure: false,
       }

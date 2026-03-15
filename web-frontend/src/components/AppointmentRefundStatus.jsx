@@ -16,7 +16,7 @@ const AppointmentRefundStatus = ({ appointment, onRefundRequested }) => {
   const loadRefunds = async () => {
     setLoading(true);
     try {
-      const response = await axios.get(`/api/cashier/appointments/${appointment.id}/refunds`);
+      const response = await axios.get(`/api/refunds/appointment/${appointment.id}`);
       if (response.data?.success) {
         setRefunds(response.data.refunds || []);
       }

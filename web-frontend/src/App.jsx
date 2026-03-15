@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useSearchParams } from 'react-router-dom';
 import { lazy, Suspense, useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
@@ -9,17 +9,14 @@ import ChatbotButton from './components/chatbot/ChatbotButton';
 import InstallPrompt from './components/InstallPrompt';
 import ConnectionTest from './components/ConnectionTest';
 import './css/animations.css';
-import { debugApiConfig } from './utils/debugApi';
 import errorLogger from './utils/errorLogger';
 
 // Initialize error logging
 errorLogger.initialize();
 errorLogger.loadFromLocalStorage();
 
-// Debug API configuration on app load (development only)
-if (import.meta.env.DEV) {
-  debugApiConfig();
-}
+// Debug API configuration available via console: window.debugApiConfig()
+// (loaded on-demand via debugApi.js; no import needed here)
 
 // Lazy load components
 const LandingPage = lazy(() => import('./pages/LandingPage'));
@@ -31,6 +28,10 @@ const CashierDashboard = lazy(() => import('./pages/CashierDashboard'));
 const UserManagement = lazy(() => import('./pages/UserManagement'));
 const CalendarManagement = lazy(() => import('./pages/CalendarManagement'));
 const MessageCenter = lazy(() => import('./pages/MessageCenter'));
+const AppealPage = lazy(() => import('./pages/AppealPage'));
+const LandingPageCMS = lazy(() => import('./pages/LandingPageCMS'));
+
+const AuthCallback = lazy(() => import('./pages/AuthCallback'));
 
 // Loading component for Suspense fallback - theme-aware
 const PageLoading = () => {
@@ -74,9 +75,26 @@ const ProtectedRoute = ({ children, allowedRoles = [] }) => {
 
 // PublicRoute component
 const PublicRoute = ({ children }) => {
-  const { isAuthenticated, loading } = useAuth();
+  const { isAuthenticated, logout, loading } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [forceLogoutDone, setForceLogoutDone] = useState(false);
 
-  if (loading) {
+  useEffect(() => {
+    // If force_logout param is present (from reactivation/unblock emails), clear auth
+    if (searchParams.get('force_logout') === 'true') {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      // Remove the query param from URL so it doesn't persist
+      searchParams.delete('force_logout');
+      setSearchParams(searchParams, { replace: true });
+      // Force a full reload to reset AuthContext state
+      window.location.replace(window.location.pathname);
+      return;
+    }
+    setForceLogoutDone(true);
+  }, []);
+
+  if (loading || !forceLogoutDone) {
     return <PageLoading />;
   }
 
@@ -89,9 +107,56 @@ const PublicRoute = ({ children }) => {
   );
 };
 
+// Connection error banner component
+const ConnectionBanner = () => {
+  const [dismissed, setDismissed] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  
+  const handleRetry = async () => {
+    setRetrying(true);
+    try {
+      await fetch('/api/health', { method: 'GET', headers: { 'Accept': 'application/json' } });
+      // If successful, reload the page to re-initialize
+      window.location.reload();
+    } catch {
+      setRetrying(false);
+    }
+  };
+  
+  if (dismissed) return null;
+  
+  return (
+    <div role="alert" className="fixed top-0 left-0 right-0 z-50 bg-red-600 text-white px-4 py-3 shadow-lg flex items-center justify-between">
+      <div className="flex items-center gap-2">
+        <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+        </svg>
+        <span className="text-sm font-medium">
+          Cannot connect to the server. Some features may not work. Please ensure the backend is running.
+        </span>
+      </div>
+      <div className="flex items-center gap-2 flex-shrink-0">
+        <button 
+          onClick={handleRetry}
+          disabled={retrying}
+          className="px-3 py-1 text-xs bg-white/20 hover:bg-white/30 rounded transition-colors disabled:opacity-50"
+        >
+          {retrying ? 'Retrying...' : 'Retry'}
+        </button>
+        <button 
+          onClick={() => setDismissed(true)}
+          className="px-2 py-1 text-xs hover:bg-white/20 rounded transition-colors"
+        >
+          ✕
+        </button>
+      </div>
+    </div>
+  );
+};
+
 // AppContent component to prevent layout shifts
 const AppContent = () => {
-  const { loading } = useAuth();
+  const { loading, connectionError } = useAuth();
   const [showTest, setShowTest] = useState(false); // Hidden by default
 
   // Removed unnecessary 100ms delay - it was causing perceived slowness
@@ -126,7 +191,21 @@ const AppContent = () => {
 
   return (
     <>
+      {/* Skip to content link for keyboard/screen reader users */}
+      <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[100] focus:bg-white focus:text-black focus:px-4 focus:py-2 focus:rounded focus:shadow-lg">
+        Skip to main content
+      </a>
+      {connectionError && <ConnectionBanner />}
+      <main id="main-content">
       <Routes>
+      <Route
+        path="/auth/callback"
+        element={
+          <Suspense fallback={<PageLoading />}>
+            <AuthCallback />
+          </Suspense>
+        }
+      />
       <Route
         path="/"
         element={
@@ -190,7 +269,7 @@ const AppContent = () => {
       <Route
         path="/cashier"
         element={
-          <ProtectedRoute allowedRoles={['staff', 'admin']}>
+          <ProtectedRoute allowedRoles={['cashier', 'staff', 'admin']}>
             <Suspense fallback={<PageLoading />}>
               <CashierDashboard />
             </Suspense>
@@ -218,6 +297,16 @@ const AppContent = () => {
         }
       />
       <Route
+        path="/admin/cms"
+        element={
+          <ProtectedRoute allowedRoles={['admin']}>
+            <Suspense fallback={<PageLoading />}>
+              <LandingPageCMS />
+            </Suspense>
+          </ProtectedRoute>
+        }
+      />
+      <Route
         path="/messages"
         element={
           <ProtectedRoute>
@@ -227,8 +316,17 @@ const AppContent = () => {
           </ProtectedRoute>
         } 
       />
+      <Route
+        path="/appeal/:token"
+        element={
+          <Suspense fallback={<PageLoading />}>
+            <AppealPage />
+          </Suspense>
+        }
+      />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </main>
     </>
   );
 };

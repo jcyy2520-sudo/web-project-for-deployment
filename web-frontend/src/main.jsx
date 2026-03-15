@@ -46,63 +46,30 @@ const envApiUrl = import.meta.env.VITE_API_URL;
 
 // Determine API URL with proper fallback
 // NOTE: Do NOT include /api here - the routes already have /api prefix
+// IMPORTANT: Set VITE_API_URL in .env for production builds
 let API_URL;
 if (envApiUrl) {
-  // If explicitly set via VITE_API_URL env var, use it
   API_URL = envApiUrl;
 } else if (isProduction) {
-  // If production build, use cPanel backend (no /api suffix)
-  API_URL = 'https://legaleaase.site';
+  // Production builds MUST set VITE_API_URL; this fallback ensures graceful degradation
+  API_URL = import.meta.env.VITE_PRODUCTION_API_URL || 'https://legaleaase.site';
+  console.warn('[config] VITE_API_URL not set for production build. Using fallback.');
 } else {
-  // Otherwise use local development backend (no /api suffix)
-  API_URL = 'http://127.0.0.1:8000';
+  // Development: Don't set baseURL - let Vite proxy handle /api routes
+  API_URL = null;
 }
 
 // Configure axios to use the API URL
 if (API_URL) {
   axios.defaults.baseURL = API_URL;
-  // Log for debugging (remove in production if needed)
-  if (isProduction) {
-    console.log('✓ Production API configured: ' + API_URL);
-  }
 }
 
-// Remove StrictMode to prevent double-rendering in development
+// Re-enable StrictMode — helps catch bugs in development (no effect in production)
 ReactDOM.createRoot(document.getElementById('root')).render(
-  <App />
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
 )
-
-// Poll for unavailable-dates changes and dispatch in-page event for components to react
-// DISABLED: This polling was causing unnecessary API requests every 15 seconds
-// Uncomment below to re-enable if needed
-/*
-;(function setupUnavailableDatesPoller() {
-  const POLL_INTERVAL_MS = 15000; // 15s
-  let last = null;
-
-  async function check() {
-    try {
-      // FIXED: Use correct API URL from environment
-      const res = await fetch(`${API_URL}/unavailable-dates/last-update`);
-      if (!res.ok) return;
-      const json = await res.json();
-      const ts = json.last_update || null;
-      if (ts && last !== ts) {
-        // store and notify
-        last = ts;
-        window.dispatchEvent(new CustomEvent('unavailableDatesChanged', { detail: { last_update: ts } }));
-      }
-    } catch (e) {
-      // ignore network errors silently
-      console.debug('Unavailable dates poll failed', e);
-    }
-  }
-
-  // initial check and interval
-  check();
-  setInterval(check, POLL_INTERVAL_MS);
-})();
-*/
 
 // Laravel Echo (real-time) initialization (optional)
 // - To enable: install `pusher-js` and `laravel-echo` then set Vite env vars

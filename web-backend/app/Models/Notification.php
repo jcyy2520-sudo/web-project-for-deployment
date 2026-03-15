@@ -51,4 +51,44 @@ class Notification extends Model
             'read_at' => null
         ]);
     }
+
+    public function scopeUnread($query)
+    {
+        return $query->where('is_read', false);
+    }
+
+    /**
+     * Send a notification to a specific user
+     */
+    public static function sendToUser($userId, $title, $message, $type = 'general', $data = null)
+    {
+        return self::create([
+            'user_id' => $userId,
+            'title' => $title,
+            'message' => $message,
+            'type' => $type,
+            'data' => $data,
+        ]);
+    }
+
+    /**
+     * Send notification to all clients
+     */
+    public static function sendToAllClients($title, $message, $type = 'general', $data = null)
+    {
+        $clients = User::where('role', 'client')->where('is_active', true)->get();
+        $notifications = [];
+
+        foreach ($clients as $client) {
+            $notifications[] = self::create([
+                'user_id' => $client->id,
+                'title' => $title,
+                'message' => $message,
+                'type' => $type,
+                'data' => $data,
+            ]);
+        }
+
+        return $notifications;
+    }
 }

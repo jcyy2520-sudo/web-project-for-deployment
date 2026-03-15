@@ -12,9 +12,21 @@ const DocumentManagement = ({ isDarkMode = true }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [totalAppointments, setTotalAppointments] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(10);
 
   useEffect(() => {
     loadStats();
+  }, []);
+
+  // Listen for services updates and reload stats
+  useEffect(() => {
+    const handleServicesUpdate = () => {
+      loadStats();
+    };
+
+    window.addEventListener('servicesUpdated', handleServicesUpdate);
+    return () => window.removeEventListener('servicesUpdated', handleServicesUpdate);
   }, []);
 
   const loadStats = async () => {
@@ -53,6 +65,12 @@ const DocumentManagement = ({ isDarkMode = true }) => {
   };
 
   const sortedStats = [...serviceStats].sort((a, b) => (b.count || 0) - (a.count || 0));
+  
+  // Pagination calculations
+  const totalPages = Math.ceil(sortedStats.length / itemsPerPage);
+  const startIdx = (currentPage - 1) * itemsPerPage;
+  const endIdx = startIdx + itemsPerPage;
+  const paginatedStats = sortedStats.slice(startIdx, endIdx);
 
   return (
     <div className="space-y-6">
@@ -153,69 +171,96 @@ const DocumentManagement = ({ isDarkMode = true }) => {
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className={`${isDarkMode ? 'bg-gray-800' : 'bg-gray-50'} transition-colors duration-300 border-b ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
-                  <th className={`px-4 py-3 text-left font-semibold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
-                    Service Type
-                  </th>
-                  <th className={`px-4 py-3 text-right font-semibold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
-                    Count
-                  </th>
-                  <th className={`px-4 py-3 text-right font-semibold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
-                    Percentage
-                  </th>
-                  <th className={`px-4 py-3 text-left font-semibold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
-                    Usage Distribution
-                  </th>
-                </tr>
-              </thead>
-              <tbody className={`divide-y ${isDarkMode ? 'divide-gray-700' : 'divide-gray-200'} transition-colors duration-300`}>
-                {sortedStats.map((stat) => {
-                  const percentage = getPercentage(stat.count || 0);
-                  return (
-                    <tr 
-                      key={stat.id} 
-                      className={`${isDarkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-50'} transition-colors duration-200`}
-                    >
-                      <td className={`px-4 py-3 font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>
-                        <div>
-                          <p>{stat.name}</p>
-                          {stat.description && (
-                            <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                              {stat.description}
-                            </p>
-                          )}
-                        </div>
-                      </td>
-                      <td className={`px-4 py-3 text-right ${isDarkMode ? 'text-gray-300' : 'text-gray-800'}`}>
-                        <span className={`inline-block px-2 py-1 rounded ${isDarkMode ? 'bg-amber-500/20 text-amber-300' : 'bg-amber-100 text-amber-800'} font-semibold transition-colors duration-300`}>
-                          {stat.count || 0}
-                        </span>
-                      </td>
-                      <td className={`px-4 py-3 text-right ${isDarkMode ? 'text-gray-300' : 'text-gray-800'}`}>
-                        <span className="font-semibold">{percentage}%</span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center space-x-2 max-w-xs">
-                          <div className={`flex-1 h-2 ${isDarkMode ? 'bg-gray-700' : 'bg-gray-200'} rounded-full overflow-hidden transition-colors duration-300`}>
-                            <div 
-                              className="h-full bg-gradient-to-r from-amber-500 to-amber-600 transition-all duration-500"
-                              style={{ width: `${percentage}%` }}
-                            />
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className={`${isDarkMode ? 'bg-gray-800' : 'bg-gray-50'} transition-colors duration-300 border-b ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+                    <th className={`px-4 py-3 text-left font-semibold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
+                      Service Type
+                    </th>
+                    <th className={`px-4 py-3 text-right font-semibold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
+                      Count
+                    </th>
+                    <th className={`px-4 py-3 text-right font-semibold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
+                      Percentage
+                    </th>
+                    <th className={`px-4 py-3 text-left font-semibold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
+                      Usage Distribution
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className={`divide-y ${isDarkMode ? 'divide-gray-700' : 'divide-gray-200'} transition-colors duration-300`}>
+                  {paginatedStats.map((stat) => {
+                    const percentage = getPercentage(stat.count || 0);
+                    return (
+                      <tr 
+                        key={stat.id} 
+                        className={`${isDarkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-50'} transition-colors duration-200`}
+                      >
+                        <td className={`px-4 py-3 font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>
+                          <div>
+                            <p>{stat.name}</p>
+                            {stat.description && (
+                              <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                                {stat.description}
+                              </p>
+                            )}
                           </div>
-                          <span className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} w-8 text-right`}>
-                            {percentage}%
+                        </td>
+                        <td className={`px-4 py-3 text-right ${isDarkMode ? 'text-gray-300' : 'text-gray-800'}`}>
+                          <span className={`inline-block px-2 py-1 rounded ${isDarkMode ? 'bg-amber-500/20 text-amber-300' : 'bg-amber-100 text-amber-800'} font-semibold transition-colors duration-300`}>
+                            {stat.count || 0}
                           </span>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                        </td>
+                        <td className={`px-4 py-3 text-right ${isDarkMode ? 'text-gray-300' : 'text-gray-800'}`}>
+                          <span className="font-semibold">{percentage}%</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center space-x-2 max-w-xs">
+                            <div className={`flex-1 h-2 ${isDarkMode ? 'bg-gray-700' : 'bg-gray-200'} rounded-full overflow-hidden transition-colors duration-300`}>
+                              <div 
+                                className="h-full bg-gradient-to-r from-amber-500 to-amber-600 transition-all duration-500"
+                                style={{ width: `${percentage}%` }}
+                              />
+                            </div>
+                            <span className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} w-8 text-right`}>
+                              {percentage}%
+                            </span>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className={`border-t ${isDarkMode ? 'border-gray-700 bg-gray-800/50' : 'border-gray-200 bg-gray-50'} px-4 py-3 flex items-center justify-between transition-colors duration-300`}>
+                <button
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="px-3 py-1.5 text-sm border border-gray-600 text-gray-300 rounded hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  ← Previous
+                </button>
+                <div className="flex items-center gap-2">
+                  <span className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                    Page {currentPage} of {totalPages}
+                  </span>
+                </div>
+                <button
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="px-3 py-1.5 text-sm border border-gray-600 text-gray-300 rounded hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Next →
+                </button>
+              </div>
+            )}
+          </>
         )}
 
         {/* Summary Footer */}

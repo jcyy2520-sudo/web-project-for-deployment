@@ -6,6 +6,8 @@ use App\Models\SystemMetrics;
 use App\Services\SystemMetricsService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 class AnalyticsDashboardController extends Controller
 {
@@ -39,19 +41,23 @@ class AnalyticsDashboardController extends Controller
         $hours = (int) $request->get('hours', 24);
         $minutes = $hours * 60;
 
-        $metrics = SystemMetrics::recent($minutes)->get();
+        $agg = SystemMetrics::recent($minutes)
+            ->selectRaw('AVG(cpu_usage) as avg_cpu, MAX(cpu_usage) as max_cpu, MIN(cpu_usage) as min_cpu')
+            ->first();
+
+        $current = SystemMetrics::latest('timestamp')->first();
+
+        $samples = $this->getSampledMetrics($minutes, ['timestamp', 'cpu_usage']);
 
         return response()->json([
-            'current' => $metrics->last()?->cpu_usage ?? 0,
-            'average' => round($metrics->avg('cpu_usage'), 2),
-            'max' => $metrics->max('cpu_usage'),
-            'min' => $metrics->min('cpu_usage'),
-            'samples' => $metrics->map(function ($m) {
-                return [
-                    'timestamp' => $m->timestamp->toIso8601String(),
-                    'usage' => $m->cpu_usage,
-                ];
-            })->toArray(),
+            'current' => $current?->cpu_usage ?? 0,
+            'average' => round($agg->avg_cpu ?? 0, 2),
+            'max' => $agg->max_cpu ?? 0,
+            'min' => $agg->min_cpu ?? 0,
+            'samples' => $samples->map(fn ($m) => [
+                'timestamp' => $m->timestamp->toIso8601String(),
+                'usage' => $m->cpu_usage,
+            ])->values()->toArray(),
         ]);
     }
 
@@ -63,25 +69,27 @@ class AnalyticsDashboardController extends Controller
         $hours = (int) $request->get('hours', 24);
         $minutes = $hours * 60;
 
-        $metrics = SystemMetrics::recent($minutes)->get();
+        $agg = SystemMetrics::recent($minutes)
+            ->selectRaw('AVG(memory_usage) as avg_mem, MAX(memory_usage) as max_mem')
+            ->first();
 
-        $latest = $metrics->last();
+        $latest = SystemMetrics::latest('timestamp')->first();
+
+        $samples = $this->getSampledMetrics($minutes, ['timestamp', 'memory_usage', 'memory_total']);
 
         return response()->json([
             'current' => [
                 'used_mb' => $latest ? round($latest->memory_usage / 1024 / 1024, 2) : 0,
                 'total_mb' => $latest ? round($latest->memory_total / 1024 / 1024, 2) : 0,
-                'percent' => $latest ? round(($latest->memory_usage / $latest->memory_total) * 100, 2) : 0,
+                'percent' => $latest && $latest->memory_total ? round(($latest->memory_usage / $latest->memory_total) * 100, 2) : 0,
             ],
-            'average_usage' => round($metrics->avg('memory_usage') / 1024 / 1024, 2),
-            'peak_usage' => round($metrics->max('memory_usage') / 1024 / 1024, 2),
-            'samples' => $metrics->map(function ($m) {
-                return [
-                    'timestamp' => $m->timestamp->toIso8601String(),
-                    'used_mb' => round($m->memory_usage / 1024 / 1024, 2),
-                    'percent' => round(($m->memory_usage / $m->memory_total) * 100, 2),
-                ];
-            })->toArray(),
+            'average_usage' => round(($agg->avg_mem ?? 0) / 1024 / 1024, 2),
+            'peak_usage' => round(($agg->max_mem ?? 0) / 1024 / 1024, 2),
+            'samples' => $samples->map(fn ($m) => [
+                'timestamp' => $m->timestamp->toIso8601String(),
+                'used_mb' => round($m->memory_usage / 1024 / 1024, 2),
+                'percent' => $m->memory_total ? round(($m->memory_usage / $m->memory_total) * 100, 2) : 0,
+            ])->values()->toArray(),
         ]);
     }
 
@@ -93,25 +101,32 @@ class AnalyticsDashboardController extends Controller
         $hours = (int) $request->get('hours', 24);
         $minutes = $hours * 60;
 
-        $metrics = SystemMetrics::recent($minutes)->get();
-        $latest = $metrics->last();
+        $agg = SystemMetrics::recent($minutes)
+            ->selectRaw('AVG(disk_usage) as avg_disk')
+            ->first();
+
+        $latest = SystemMetrics::latest('timestamp')->first();
+
+        // For trend, only need first and last row
+        $first = SystemMetrics::recent($minutes)->orderBy('timestamp', 'asc')->first();
+        $trend = $this->calculateTrendFromTwo($first, $latest, 'disk_usage');
+
+        $samples = $this->getSampledMetrics($minutes, ['timestamp', 'disk_usage', 'disk_total', 'disk_free']);
 
         return response()->json([
             'current' => [
                 'used_mb' => $latest ? round($latest->disk_usage / 1024 / 1024, 2) : 0,
                 'total_mb' => $latest ? round($latest->disk_total / 1024 / 1024, 2) : 0,
                 'free_mb' => $latest ? round($latest->disk_free / 1024 / 1024, 2) : 0,
-                'percent' => $latest ? round(($latest->disk_usage / $latest->disk_total) * 100, 2) : 0,
+                'percent' => $latest && $latest->disk_total ? round(($latest->disk_usage / $latest->disk_total) * 100, 2) : 0,
             ],
-            'average_usage' => round($metrics->avg('disk_usage') / 1024 / 1024, 2),
-            'trend' => $this->calculateTrend($metrics, 'disk_usage'),
-            'samples' => $metrics->map(function ($m) {
-                return [
-                    'timestamp' => $m->timestamp->toIso8601String(),
-                    'used_mb' => round($m->disk_usage / 1024 / 1024, 2),
-                    'percent' => round(($m->disk_usage / $m->disk_total) * 100, 2),
-                ];
-            })->toArray(),
+            'average_usage' => round(($agg->avg_disk ?? 0) / 1024 / 1024, 2),
+            'trend' => $trend,
+            'samples' => $samples->map(fn ($m) => [
+                'timestamp' => $m->timestamp->toIso8601String(),
+                'used_mb' => round($m->disk_usage / 1024 / 1024, 2),
+                'percent' => $m->disk_total ? round(($m->disk_usage / $m->disk_total) * 100, 2) : 0,
+            ])->values()->toArray(),
         ]);
     }
 
@@ -184,30 +199,51 @@ class AnalyticsDashboardController extends Controller
         $hours = (int) $request->get('hours', 24);
         $minutes = $hours * 60;
 
-        $metrics = SystemMetrics::recent($minutes)->get();
+        $first = SystemMetrics::recent($minutes)->orderBy('timestamp', 'asc')->first();
+        $last = SystemMetrics::recent($minutes)->orderBy('timestamp', 'desc')->first();
+        $count = SystemMetrics::recent($minutes)->count();
 
         return response()->json([
-            'cpu_trend' => $this->calculateTrend($metrics, 'cpu_usage'),
-            'memory_trend' => $this->calculateTrend($metrics, 'memory_usage'),
-            'disk_trend' => $this->calculateTrend($metrics, 'disk_usage'),
-            'samples_analyzed' => $metrics->count(),
+            'cpu_trend' => $this->calculateTrendFromTwo($first, $last, 'cpu_usage'),
+            'memory_trend' => $this->calculateTrendFromTwo($first, $last, 'memory_usage'),
+            'disk_trend' => $this->calculateTrendFromTwo($first, $last, 'disk_usage'),
+            'samples_analyzed' => $count,
             'time_range_hours' => $hours,
         ]);
     }
 
     /**
-     * Calculate trend direction
+     * Get sampled metrics to avoid loading thousands of rows.
+     * Returns at most ~200 evenly-spaced data points.
      */
-    private function calculateTrend($metrics, $field)
+    private function getSampledMetrics(int $minutes, array $columns): \Illuminate\Support\Collection
     {
-        if ($metrics->count() < 2) {
+        $totalRows = SystemMetrics::recent($minutes)->count();
+        $maxSamples = 200;
+
+        if ($totalRows <= $maxSamples) {
+            return SystemMetrics::recent($minutes)->select($columns)->orderBy('timestamp')->get();
+        }
+
+        // Use nth-row sampling via row number
+        $nth = (int) ceil($totalRows / $maxSamples);
+        return SystemMetrics::recent($minutes)
+            ->select($columns)
+            ->orderBy('timestamp')
+            ->get()
+            ->nth($nth);
+    }
+
+    /**
+     * Calculate trend from first and last metrics rows only.
+     */
+    private function calculateTrendFromTwo($first, $last, string $field): string
+    {
+        if (!$first || !$last || !$first->{$field}) {
             return 'stable';
         }
 
-        $first = $metrics->first()->{$field};
-        $last = $metrics->last()->{$field};
-
-        $change = (($last - $first) / $first) * 100;
+        $change = (($last->{$field} - $first->{$field}) / $first->{$field}) * 100;
 
         if (abs($change) < 5) {
             return 'stable';

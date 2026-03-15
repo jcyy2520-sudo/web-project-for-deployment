@@ -13,25 +13,45 @@ class AppointmentReminderMail extends Mailable
 
     public $appointment;
     public $timeUntilAppointment;
+    public $timeLabel;
+    public $urgencyLevel;
 
-    public function __construct(Appointment $appointment)
+    /**
+     * @param Appointment $appointment
+     * @param string      $timeLabel  Human-readable label like "2 hours", "1 hour", "30 minutes"
+     */
+    public function __construct(Appointment $appointment, string $timeLabel = '1 hour')
     {
         $this->appointment = $appointment;
+        $this->timeLabel = $timeLabel;
         
-        // Calculate time until appointment
+        // Calculate exact time until appointment
         $appointmentDateTime = \Carbon\Carbon::parse(
             $appointment->appointment_date->format('Y-m-d') . ' ' . $appointment->appointment_time
         );
         $this->timeUntilAppointment = now()->diffInMinutes($appointmentDateTime);
+
+        // Set urgency level for template styling
+        if ($this->timeUntilAppointment <= 35) {
+            $this->urgencyLevel = 'high';      // 30 min — red/urgent
+        } elseif ($this->timeUntilAppointment <= 65) {
+            $this->urgencyLevel = 'medium';    // 1 hour — orange
+        } else {
+            $this->urgencyLevel = 'low';       // 2 hours — blue/normal
+        }
     }
 
     public function build()
     {
-        return $this->subject('🔔 Appointment Reminder - Legal Ease')
+        $subjectPrefix = $this->urgencyLevel === 'high' ? '⚠️' : '🔔';
+
+        return $this->subject("{$subjectPrefix} Appointment in {$this->timeLabel} - Legal Ease")
                     ->view('emails.appointment-reminder')
                     ->with([
                         'appointment' => $this->appointment,
-                        'timeUntilAppointment' => $this->timeUntilAppointment
+                        'timeUntilAppointment' => $this->timeUntilAppointment,
+                        'timeLabel' => $this->timeLabel,
+                        'urgencyLevel' => $this->urgencyLevel,
                     ]);
     }
 }

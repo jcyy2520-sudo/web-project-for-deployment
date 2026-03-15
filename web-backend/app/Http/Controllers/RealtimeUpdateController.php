@@ -4,7 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Models\TimeSlotCapacity;
 use App\Models\AppointmentSettings;
+use App\Models\BlackoutDate;
+use App\Models\UnavailableDate;
+use App\Models\Appointment;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 class RealtimeUpdateController extends Controller
 {
@@ -18,38 +22,76 @@ class RealtimeUpdateController extends Controller
         try {
             $lastCheck = $request->query('last_check');
             $lastCheckTime = $lastCheck ? \Carbon\Carbon::parse($lastCheck) : now()->subMinutes(5);
+            $userId = $request->user() ? $request->user()->id : 0;
 
-            // Get latest slot capacity changes
-            $slotCapacities = TimeSlotCapacity::where('updated_at', '>', $lastCheckTime)
-                ->orderBy('updated_at', 'desc')
-                ->get(['id', 'start_time', 'end_time', 'max_appointments_per_slot', 'day_of_week', 'updated_at']);
+            // Cache the result for 5 seconds to reduce DB load from frequent polling
+            $cacheKey = 'realtime_updates_' . $userId . '_' . $lastCheckTime->timestamp;
+            
+            $result = Cache::remember($cacheKey, 5, function () use ($lastCheckTime, $request) {
 
-            // Get latest appointment settings changes
-            $appointmentSettings = AppointmentSettings::where('updated_at', '>', $lastCheckTime)
-                ->where('is_active', true)
-                ->first();
+                // Get latest slot capacity changes
+                $slotCapacities = TimeSlotCapacity::where('updated_at', '>', $lastCheckTime)
+                    ->orderBy('updated_at', 'desc')
+                    ->get(['id', 'start_time', 'end_time', 'max_appointments_per_slot', 'day_of_week', 'updated_at']);
 
-            return response()->json([
-                'success' => true,
-                'timestamp' => now()->toIso8601String(),
-                'changes' => [
-                    'slot_capacities' => [
-                        'count' => $slotCapacities->count(),
-                        'data' => $slotCapacities
-                    ],
-                    'appointment_settings' => $appointmentSettings ? [
-                        'updated' => true,
-                        'data' => $appointmentSettings
-                    ] : [
-                        'updated' => false,
-                        'data' => null
+                // Get latest appointment settings changes
+                $appointmentSettings = AppointmentSettings::where('updated_at', '>', $lastCheckTime)
+                    ->where('is_active', true)
+                    ->first();
+
+                // Check for unavailable/blackout date changes
+                $unavailableDatesChanged = false;
+                $lastUnavailableUpdate = Cache::get('unavailable_dates_last_update');
+                if ($lastUnavailableUpdate) {
+                    $lastUnavailableTime = \Carbon\Carbon::parse($lastUnavailableUpdate);
+                    $unavailableDatesChanged = $lastUnavailableTime->gt($lastCheckTime);
+                }
+                // Also check database directly for recent blackout date changes
+                if (!$unavailableDatesChanged) {
+                    $recentBlackout = BlackoutDate::where('updated_at', '>', $lastCheckTime)->exists();
+                    $recentUnavailable = UnavailableDate::where('updated_at', '>', $lastCheckTime)->exists();
+                    $unavailableDatesChanged = $recentBlackout || $recentUnavailable;
+                }
+
+                // Check if the authenticated user's appointments have been updated (status changed by admin)
+                $appointmentsChanged = false;
+                $user = $request->user();
+                if ($user) {
+                    $appointmentsChanged = Appointment::where('user_id', $user->id)
+                        ->where('updated_at', '>', $lastCheckTime)
+                        ->exists();
+                }
+
+                return [
+                    'success' => true,
+                    'timestamp' => now()->toIso8601String(),
+                    'changes' => [
+                        'slot_capacities' => [
+                            'count' => $slotCapacities->count(),
+                            'data' => $slotCapacities
+                        ],
+                        'appointment_settings' => $appointmentSettings ? [
+                            'updated' => true,
+                            'data' => $appointmentSettings
+                        ] : [
+                            'updated' => false,
+                            'data' => null
+                        ],
+                        'unavailable_dates' => [
+                            'updated' => $unavailableDatesChanged,
+                        ],
+                        'appointments' => [
+                            'updated' => $appointmentsChanged,
+                        ]
                     ]
-                ]
-            ]);
+                ];
+            });
+
+            return response()->json($result);
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Error fetching updates: ' . $e->getMessage()
+                'message' => config('app.debug') ? 'Error fetching updates: ' . $e->getMessage() : 'Error fetching updates'
             ], 500);
         }
     }
@@ -101,7 +143,7 @@ class RealtimeUpdateController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Error fetching slot capacity data: ' . $e->getMessage()
+                'message' => config('app.debug') ? 'Error fetching slot capacity data: ' . $e->getMessage() : 'Error fetching slot capacity data'
             ], 500);
         }
     }
@@ -127,7 +169,7 @@ class RealtimeUpdateController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Error fetching appointment settings: ' . $e->getMessage()
+                'message' => config('app.debug') ? 'Error fetching appointment settings: ' . $e->getMessage() : 'Error fetching appointment settings'
             ], 500);
         }
     }

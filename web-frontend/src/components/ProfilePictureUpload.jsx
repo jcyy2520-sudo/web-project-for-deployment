@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import axios from 'axios';
 import { XMarkIcon, CameraIcon } from '@heroicons/react/24/solid';
 
 const ProfilePictureUpload = ({ currentImage, user, onUploadSuccess, onDeleteSuccess }) => {
@@ -7,6 +8,14 @@ const ProfilePictureUpload = ({ currentImage, user, onUploadSuccess, onDeleteSuc
   const [success, setSuccess] = useState(null);
   const [preview, setPreview] = useState(currentImage || null);
   const fileInputRef = useRef(null);
+
+  // Keep preview in sync when the parent's currentImage prop changes
+  // (e.g., after auth context refresh from server)
+  React.useEffect(() => {
+    if (currentImage !== undefined) {
+      setPreview(currentImage || null);
+    }
+  }, [currentImage]);
 
   const handleFileSelect = async (e) => {
     const file = e.target.files?.[0];
@@ -44,19 +53,13 @@ const ProfilePictureUpload = ({ currentImage, user, onUploadSuccess, onDeleteSuc
       const formData = new FormData();
       formData.append('profile_picture', file);
 
-      const response = await fetch('/api/profile/picture', {
-        method: 'POST',
-        body: formData,
+      const response = await axios.post('/api/profile/picture', formData, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
+          'Content-Type': 'multipart/form-data'
         }
       });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || 'Failed to upload profile picture');
-      }
+      const data = response.data;
 
       setSuccess('Profile picture uploaded successfully');
       setError(null);
@@ -65,7 +68,8 @@ const ProfilePictureUpload = ({ currentImage, user, onUploadSuccess, onDeleteSuc
       // Clear success message after 3 seconds
       setTimeout(() => setSuccess(null), 3000);
     } catch (err) {
-      setError(err.message);
+      const message = err.response?.data?.message || err.message || 'Failed to upload profile picture';
+      setError(message);
       setSuccess(null);
       // Reset preview on error
       setPreview(currentImage || null);
@@ -83,19 +87,9 @@ const ProfilePictureUpload = ({ currentImage, user, onUploadSuccess, onDeleteSuc
     setError(null);
 
     try {
-      const response = await fetch('/api/profile/picture', {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('auth_token')}`,
-          'Content-Type': 'application/json'
-        }
-      });
+      const response = await axios.delete('/api/profile/picture');
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || 'Failed to delete profile picture');
-      }
+      const data = response.data;
 
       setSuccess('Profile picture removed');
       setError(null);
@@ -105,7 +99,8 @@ const ProfilePictureUpload = ({ currentImage, user, onUploadSuccess, onDeleteSuc
       // Clear success message after 3 seconds
       setTimeout(() => setSuccess(null), 3000);
     } catch (err) {
-      setError(err.message);
+      const message = err.response?.data?.message || err.message || 'Failed to delete profile picture';
+      setError(message);
       setSuccess(null);
     } finally {
       setIsUploading(false);
@@ -182,11 +177,6 @@ const ProfilePictureUpload = ({ currentImage, user, onUploadSuccess, onDeleteSuc
       >
         {isUploading ? 'Uploading...' : preview ? 'Change Photo' : 'Upload Photo'}
       </button>
-
-      {/* Info Text */}
-      <p className="text-sm text-gray-500 dark:text-gray-400 text-center">
-        JPG, PNG, GIF, or WebP • Max 5MB
-      </p>
 
       {/* Error Message */}
       {error && (

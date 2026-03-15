@@ -31,8 +31,65 @@ use Illuminate\Support\Facades\Log;
  */
 class ChatbotRealTimeDataService
 {
-    private const CACHE_TTL = 300; // 5 minutes
-    private const CRITICAL_DATA_TTL = 60; // 1 minute for critical data
+    private int $cacheTtl;
+    private int $criticalDataTtl;
+
+    public function __construct()
+    {
+        $this->cacheTtl = (int) config('chatbot_unified.cache.ttl', 300);
+        $this->criticalDataTtl = (int) config('chatbot_unified.cache.critical_ttl', 60);
+    }
+
+    // ─── DATA OWNERSHIP HELPER ─────────────────────────────────
+
+    /**
+     * Check whether the requesting user is allowed to access the given resource.
+     * Returns true when access is allowed, false when denied.
+     *
+     * Rules (only enforced when `data_ownership` feature flag is ON):
+     *   • admin / staff  → full access
+     *   • cashier         → payment / refund records only (appointment read‑only)
+     *   • client / guest  → own records only (matched by $ownerId)
+     *
+     * @param  User|null $requestingUser  The user making the request (null = guest)
+     * @param  int|null  $ownerId         The user_id that owns the resource
+     * @return bool
+     */
+    private function isAccessAllowed(?User $requestingUser, ?int $ownerId): bool
+    {
+        // Feature flag off → enforce ownership (secure by default)
+        if (!config('chatbot_unified.features.data_ownership', true)) {
+            return true;
+        }
+
+        // No requesting user context → deny
+        if (!$requestingUser) {
+            return false;
+        }
+
+        // Admins and staff have full access
+        if ($requestingUser->hasAnyRole(['admin', 'staff'])) {
+            return true;
+        }
+
+        // Otherwise must own the resource
+        return $requestingUser->id === $ownerId;
+    }
+
+    /**
+     * Check whether the requesting user holds an elevated role (admin, staff, cashier).
+     *
+     * @param  User|null $requestingUser
+     * @return bool
+     */
+    private function isElevatedRole(?User $requestingUser): bool
+    {
+        if (!$requestingUser) {
+            return false;
+        }
+
+        return $requestingUser->hasAnyRole(['admin', 'staff', 'cashier']);
+    }
 
     /**
      * Get user's appointments with real-time status
@@ -80,7 +137,7 @@ class ChatbotRealTimeDataService
             })->toArray();
 
             // Cache the result
-            Cache::put($cacheKey, $appointments, self::CACHE_TTL);
+            Cache::put($cacheKey, $appointments, $this->cacheTtl);
 
             return $appointments;
         } catch (\Exception $e) {
@@ -96,10 +153,19 @@ class ChatbotRealTimeDataService
      * Get pending appointments for admin/staff (needs approval)
      * 
      * @param int $limit
+     * @param User|null $requestingUser Optional – when data_ownership is on, only elevated roles may call this
      * @return array
      */
-    public function getPendingAppointments(int $limit = 50): array
+    public function getPendingAppointments(int $limit = 50, ?User $requestingUser = null): array
     {
+        // Gate: only elevated roles may list all pending appointments
+        if (config('chatbot_unified.features.data_ownership', true) && !$this->isElevatedRole($requestingUser)) {
+            Log::warning('Data ownership: non-elevated user tried to access pending appointments', [
+                'requesting_user' => $requestingUser?->id,
+            ]);
+            return [];
+        }
+
         try {
             $cacheKey = 'chatbot_pending_appointments';
 
@@ -111,13 +177,13 @@ class ChatbotRealTimeDataService
             $appointments = Appointment::where('status', 'pending')
                 ->orderBy('created_at', 'asc')
                 ->limit($limit)
-                ->with('user:id,first_name,last_name,email')
+                ->with('user:id,first_name,last_name')
                 ->get()
                 ->map(function ($apt) {
                     return [
                         'id' => $apt->id,
                         'user_name' => $apt->user?->first_name . ' ' . $apt->user?->last_name,
-                        'user_email' => $apt->user?->email,
+                        // SECURITY: user_email intentionally excluded — PII not sent to LLMs
                         'service' => $apt->service_type,
                         'date' => $apt->appointment_date?->format('Y-m-d'),
                         'time' => $apt->appointment_time,
@@ -126,7 +192,7 @@ class ChatbotRealTimeDataService
                     ];
                 })->toArray();
 
-            Cache::put($cacheKey, $appointments, self::CRITICAL_DATA_TTL);
+            Cache::put($cacheKey, $appointments, $this->criticalDataTtl);
 
             return $appointments;
         } catch (\Exception $e) {
@@ -139,21 +205,40 @@ class ChatbotRealTimeDataService
      * Get appointment details by ID
      * 
      * @param int $appointmentId
+     * @param User|null $requestingUser Optional – enforces data ownership when flag is on
      * @return array|null
      */
-    public function getAppointmentDetails(int $appointmentId): ?array
+    public function getAppointmentDetails(int $appointmentId, ?User $requestingUser = null): ?array
     {
         try {
             $cacheKey = "chatbot_appointment_{$appointmentId}";
 
             $cached = Cache::get($cacheKey);
             if ($cached !== null) {
+                // Enforce ownership even on cached data
+                if (!$this->isAccessAllowed($requestingUser, $cached['user_id'] ?? null)) {
+                    Log::warning('Data ownership denied for appointment', [
+                        'appointment_id' => $appointmentId,
+                        'requesting_user' => $requestingUser?->id,
+                    ]);
+                    return null;
+                }
                 return $cached;
             }
 
             $appointment = Appointment::find($appointmentId);
 
             if (!$appointment) {
+                return null;
+            }
+
+            // Enforce ownership
+            if (!$this->isAccessAllowed($requestingUser, $appointment->user_id)) {
+                Log::warning('Data ownership denied for appointment', [
+                    'appointment_id' => $appointmentId,
+                    'requesting_user' => $requestingUser?->id,
+                    'owner_id' => $appointment->user_id,
+                ]);
                 return null;
             }
 
@@ -177,7 +262,7 @@ class ChatbotRealTimeDataService
                 'is_upcoming' => $appointment->appointment_date && $appointment->appointment_date->isFuture(),
             ];
 
-            Cache::put($cacheKey, $details, self::CACHE_TTL);
+            Cache::put($cacheKey, $details, $this->cacheTtl);
 
             return $details;
         } catch (\Exception $e) {
@@ -212,22 +297,22 @@ class ChatbotRealTimeDataService
             })->orderBy('created_at', 'desc')->limit($limit);
 
             if ($status) {
-                $query->where('status', strtolower($status));
+                $query->where('payment_status', strtolower($status));
             }
 
             $payments = $query->get()->map(function ($payment) {
                 return [
                     'id' => $payment->id,
                     'appointment_id' => $payment->appointment_id,
-                    'amount' => $payment->amount,
-                    'status' => $payment->status,
-                    'payment_method' => $payment->payment_method,
-                    'processed_at' => $payment->processed_at?->toDateTimeString(),
+                    'amount' => $payment->amount_paid,
+                    'status' => $payment->payment_status,
+                    'payment_method' => $payment->paymentMethod?->name ?? 'Unknown',
+                    'processed_at' => $payment->payment_date?->toDateTimeString(),
                     'created_at' => $payment->created_at?->toDateTimeString(),
                 ];
             })->toArray();
 
-            Cache::put($cacheKey, $payments, self::CACHE_TTL);
+            Cache::put($cacheKey, $payments, $this->cacheTtl);
 
             return $payments;
         } catch (\Exception $e) {
@@ -243,10 +328,16 @@ class ChatbotRealTimeDataService
      * Get pending payments that need collection (for cashier)
      * 
      * @param int $limit
+     * @param User|null $requestingUser Optional – when data_ownership is on, only elevated roles may call this
      * @return array
      */
-    public function getPendingPayments(int $limit = 50): array
+    public function getPendingPayments(int $limit = 50, ?User $requestingUser = null): array
     {
+        // Gate: only elevated roles may list all pending payments
+        if (config('chatbot_unified.features.data_ownership', true) && !$this->isElevatedRole($requestingUser)) {
+            return [];
+        }
+
         try {
             $cacheKey = 'chatbot_pending_payments';
 
@@ -259,13 +350,13 @@ class ChatbotRealTimeDataService
                 ->where('status', '!=', 'cancelled')
                 ->orderBy('appointment_date', 'asc')
                 ->limit($limit)
-                ->with('user:id,first_name,last_name,email')
+                ->with('user:id,first_name,last_name')
                 ->get()
                 ->map(function ($apt) {
                     return [
                         'appointment_id' => $apt->id,
                         'user_name' => $apt->user?->first_name . ' ' . $apt->user?->last_name,
-                        'user_email' => $apt->user?->email,
+                        // SECURITY: user_email intentionally excluded — PII not sent to LLMs
                         'amount_due' => $apt->payment_amount - ($apt->discount_amount ?? 0),
                         'service' => $apt->service_type,
                         'date' => $apt->appointment_date?->format('Y-m-d'),
@@ -273,7 +364,7 @@ class ChatbotRealTimeDataService
                     ];
                 })->toArray();
 
-            Cache::put($cacheKey, $appointments, self::CRITICAL_DATA_TTL);
+            Cache::put($cacheKey, $appointments, $this->criticalDataTtl);
 
             return $appointments;
         } catch (\Exception $e) {
@@ -321,7 +412,7 @@ class ChatbotRealTimeDataService
                 ];
             })->toArray();
 
-            Cache::put($cacheKey, $refunds, self::CACHE_TTL);
+            Cache::put($cacheKey, $refunds, $this->cacheTtl);
 
             return $refunds;
         } catch (\Exception $e) {
@@ -337,10 +428,16 @@ class ChatbotRealTimeDataService
      * Get pending refund requests (for cashier/admin)
      * 
      * @param int $limit
+     * @param User|null $requestingUser Optional – when data_ownership is on, only elevated roles may call this
      * @return array
      */
-    public function getPendingRefunds(int $limit = 50): array
+    public function getPendingRefunds(int $limit = 50, ?User $requestingUser = null): array
     {
+        // Gate: only elevated roles may list all pending refunds
+        if (config('chatbot_unified.features.data_ownership', true) && !$this->isElevatedRole($requestingUser)) {
+            return [];
+        }
+
         try {
             $cacheKey = 'chatbot_pending_refunds';
 
@@ -352,14 +449,14 @@ class ChatbotRealTimeDataService
             $refunds = Refund::where('status', 'pending')
                 ->orderBy('created_at', 'asc')
                 ->limit($limit)
-                ->with('user:id,first_name,last_name,email')
+                ->with('user:id,first_name,last_name')
                 ->get()
                 ->map(function ($refund) {
                     return [
                         'id' => $refund->id,
                         'appointment_id' => $refund->appointment_id,
                         'user_name' => $refund->user?->first_name . ' ' . $refund->user?->last_name,
-                        'user_email' => $refund->user?->email,
+                        // SECURITY: user_email intentionally excluded — PII not sent to LLMs
                         'amount' => $refund->amount,
                         'reason' => $refund->reason,
                         'created_at' => $refund->created_at?->toDateTimeString(),
@@ -367,7 +464,7 @@ class ChatbotRealTimeDataService
                     ];
                 })->toArray();
 
-            Cache::put($cacheKey, $refunds, self::CRITICAL_DATA_TTL);
+            Cache::put($cacheKey, $refunds, $this->criticalDataTtl);
 
             return $refunds;
         } catch (\Exception $e) {
@@ -384,10 +481,10 @@ class ChatbotRealTimeDataService
     public function getBusinessInfo(): array
     {
         return [
-            'company_name' => config('chatbot.business.name', 'Peejayy De Guzman Legal'),
-            'email' => config('chatbot.business.email', 'peejaydeguzmanlegal@gmail.com'),
-            'phone' => config('chatbot.business.phone', '09765075274'),
-            'address' => config('chatbot.business.address', '233 Aljenjay Building, Vicente Ylagan Street, Bagong Bayan 2, Bongabong, Oriental Mindoro'),
+            'company_name' => config('chatbot_unified.business.name', 'Peejayy De Guzman Legal'),
+            'email' => config('chatbot_unified.business.email', 'peejaydeguzmanlegal@gmail.com'),
+            'phone' => config('chatbot_unified.business.phone', '09765075274'),
+            'address' => config('chatbot_unified.business.address', '233 Aljenjay Building, Vicente Ylagan Street, Bagong Bayan 2, Bongabong, Oriental Mindoro'),
             'type' => 'Notary Services & Legal Consultation',
             'specialties' => [
                 'Notary Services',
@@ -429,7 +526,7 @@ class ChatbotRealTimeDataService
                     ];
                 })->toArray();
 
-            Cache::put($cacheKey, $services, self::CACHE_TTL);
+            Cache::put($cacheKey, $services, $this->cacheTtl);
 
             return $services;
         } catch (\Exception $e) {
@@ -470,7 +567,7 @@ class ChatbotRealTimeDataService
                 'is_open_today' => $this->isOpenToday($settings),
             ];
 
-            Cache::put($cacheKey, $hours, self::CACHE_TTL);
+            Cache::put($cacheKey, $hours, $this->cacheTtl);
 
             return $hours;
         } catch (\Exception $e) {
@@ -568,7 +665,7 @@ class ChatbotRealTimeDataService
                 '16:00' => 'Available',
             ];
 
-            Cache::put($cacheKey, $availableSlots, self::CACHE_TTL);
+            Cache::put($cacheKey, $availableSlots, $this->cacheTtl);
 
             return $availableSlots;
         } catch (\Exception $e) {
@@ -601,10 +698,16 @@ class ChatbotRealTimeDataService
      * Get all appointments for admin view
      * 
      * @param int $limit
+     * @param User|null $requestingUser Optional – when data_ownership is on, only elevated roles may call this
      * @return array
      */
-    public function getAllAppointments(int $limit = 50): array
+    public function getAllAppointments(int $limit = 50, ?User $requestingUser = null): array
     {
+        // Gate: only elevated roles may list all appointments
+        if (config('chatbot_unified.features.data_ownership', true) && !$this->isElevatedRole($requestingUser)) {
+            return [];
+        }
+
         try {
             $cacheKey = 'chatbot_all_appointments';
 
@@ -635,7 +738,7 @@ class ChatbotRealTimeDataService
                     ];
                 })->toArray();
 
-            Cache::put($cacheKey, $appointments, self::CRITICAL_DATA_TTL);
+            Cache::put($cacheKey, $appointments, $this->criticalDataTtl);
 
             return $appointments;
         } catch (\Exception $e) {
@@ -647,10 +750,16 @@ class ChatbotRealTimeDataService
     /**
      * Get system analytics for admin dashboard
      * 
+     * @param User|null $requestingUser Optional – when data_ownership is on, only admin/staff may call this
      * @return array
      */
-    public function getSystemAnalytics(): array
+    public function getSystemAnalytics(?User $requestingUser = null): array
     {
+        // Gate: only elevated roles may view analytics
+        if (config('chatbot_unified.features.data_ownership', true) && !$this->isElevatedRole($requestingUser)) {
+            return [];
+        }
+
         try {
             $cacheKey = 'chatbot_system_analytics';
 
@@ -681,7 +790,7 @@ class ChatbotRealTimeDataService
                 'completion_rate' => $this->calculateCompletionRate(),
             ];
 
-            Cache::put($cacheKey, $analytics, self::CACHE_TTL);
+            Cache::put($cacheKey, $analytics, $this->cacheTtl);
 
             return $analytics;
         } catch (\Exception $e) {
@@ -747,7 +856,7 @@ class ChatbotRealTimeDataService
                 'new_this_month' => User::where('created_at', '>=', now()->startOfMonth())->count(),
             ];
 
-            Cache::put($cacheKey, $stats, self::CACHE_TTL);
+            Cache::put($cacheKey, $stats, $this->cacheTtl);
 
             return $stats;
         } catch (\Exception $e) {
@@ -770,14 +879,25 @@ class ChatbotRealTimeDataService
      * Get refund details by ID
      * 
      * @param int $refundId
+     * @param User|null $requestingUser Optional – enforces data ownership when flag is on
      * @return array|null
      */
-    public function getRefundDetails(int $refundId): ?array
+    public function getRefundDetails(int $refundId, ?User $requestingUser = null): ?array
     {
         try {
             $refund = Refund::with(['appointment', 'requestedBy', 'approvedBy'])->find($refundId);
 
             if (!$refund) {
+                return null;
+            }
+
+            // Enforce ownership – refund belongs to the user who requested it
+            if (!$this->isAccessAllowed($requestingUser, $refund->requested_by)) {
+                Log::warning('Data ownership denied for refund', [
+                    'refund_id' => $refundId,
+                    'requesting_user' => $requestingUser?->id,
+                    'owner_id' => $refund->requested_by,
+                ]);
                 return null;
             }
 
@@ -891,10 +1011,10 @@ class ChatbotRealTimeDataService
                 'appointments_today' => Appointment::whereDate('appointment_date', now())->count(),
                 'pending_payments' => Appointment::whereIn('payment_status', ['pending', 'partial'])->count(),
                 'pending_refunds' => Refund::where('status', 'pending')->count(),
-                'total_revenue' => Payment::where('status', 'paid')->sum('amount'),
+                'total_revenue' => Payment::where('payment_status', 'paid')->sum('amount_paid'),
             ];
 
-            Cache::put($cacheKey, $stats, self::CACHE_TTL);
+            Cache::put($cacheKey, $stats, $this->cacheTtl);
 
             return $stats;
         } catch (\Exception $e) {
@@ -928,14 +1048,14 @@ class ChatbotRealTimeDataService
                 'approved' => $appointments->where('status', 'approved')->count(),
                 'completed' => $appointments->where('status', 'completed')->count(),
                 'cancelled' => $appointments->where('status', 'cancelled')->count(),
-                'collections' => Payment::whereDate('created_at', $today)->where('status', 'paid')->sum('amount'),
+                'collections' => Payment::whereDate('created_at', $today)->where('payment_status', 'paid')->sum('amount_paid'),
                 'refunds' => Refund::whereDate('updated_at', $today)->where('status', 'completed')->sum('amount'),
                 'appointments_for_payment' => Appointment::whereDate('appointment_date', $today)
                     ->whereIn('payment_status', ['pending', 'partial'])
                     ->count(),
             ];
 
-            Cache::put($cacheKey, $summary, self::CACHE_TTL);
+            Cache::put($cacheKey, $summary, $this->cacheTtl);
 
             return $summary;
         } catch (\Exception $e) {

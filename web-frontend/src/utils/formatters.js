@@ -1,4 +1,10 @@
 /**
+ * @deprecated This file is NOT imported anywhere in the codebase.
+ * Use utils/format.js instead for formatting utilities.
+ * Safe to remove after verifying no new imports reference it.
+ */
+
+/**
  * Format date to readable format
  */
 export const formatDate = (date) => {

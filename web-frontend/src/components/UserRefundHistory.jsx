@@ -9,6 +9,7 @@ import {
   ChevronRightIcon
 } from '@heroicons/react/24/outline';
 import LoadingSpinner from './LoadingSpinner';
+import { formatDateDisplay } from '../utils/format';
 
 const UserRefundHistory = () => {
   const [refunds, setRefunds] = useState([]);
@@ -17,6 +18,7 @@ const UserRefundHistory = () => {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [expandedRefundId, setExpandedRefundId] = useState(null);
 
   const refundsPerPage = 5;
 
@@ -174,7 +176,7 @@ const UserRefundHistory = () => {
                       </span>
                     </div>
                     <p className="text-sm mt-1">
-                      {new Date(refund.appointment?.appointment_date).toLocaleDateString()}{' '}
+                      {formatDateDisplay(refund.appointment?.appointment_date)}{' '}
                       at {refund.appointment?.appointment_time}
                     </p>
                     <p className="text-xs mt-1">
@@ -201,32 +203,71 @@ const UserRefundHistory = () => {
                 </div>
               </div>
 
-              {/* Rejection Reason */}
-              {refund.status === 'rejected' && refund.rejection_reason && (
-                <div className="mt-3 pt-3 border-t border-current border-opacity-20">
-                  <p className="text-xs font-semibold">Rejection Reason:</p>
-                  <p className="text-sm mt-1">{refund.rejection_reason}</p>
-                </div>
-              )}
+              {/* View Details Toggle */}
+              <button
+                onClick={() => setExpandedRefundId(expandedRefundId === refund.id ? null : refund.id)}
+                className="mt-3 text-xs font-medium text-blue-600 hover:text-blue-800 transition-colors"
+              >
+                {expandedRefundId === refund.id ? '▲ Hide Details' : '▼ View Details'}
+              </button>
 
-              {/* Approval Notes */}
-              {refund.approval_notes && (
-                <div className="mt-3 pt-3 border-t border-current border-opacity-20">
-                  <p className="text-xs font-semibold">Admin Notes:</p>
-                  <p className="text-sm mt-1">{refund.approval_notes}</p>
-                </div>
-              )}
+              {expandedRefundId === refund.id && (
+                <div className="mt-3 pt-3 border-t border-current border-opacity-20 space-y-3">
+                  {/* Refund Type */}
+                  <div className="flex items-center gap-4 text-xs">
+                    <span className="font-semibold">Type:</span>
+                    <span>{refund.is_partial ? 'Partial Refund' : 'Full Refund'}</span>
+                  </div>
 
-              {/* Completion Info */}
-              {refund.status === 'completed' && refund.completed_at && (
-                <div className="mt-3 pt-3 border-t border-current border-opacity-20">
-                  <p className="text-xs font-semibold">
-                    Completed on {new Date(refund.completed_at).toLocaleDateString()}
-                  </p>
-                  {refund.transaction_id && (
-                    <p className="text-xs mt-1">
-                      Transaction ID: <span className="font-mono">{refund.transaction_id}</span>
-                    </p>
+                  {/* Appointment Details */}
+                  {refund.appointment && (
+                    <div className="text-xs space-y-1">
+                      <p className="font-semibold">Appointment Details:</p>
+                      {refund.appointment.service?.name && (
+                        <p>Service: <span className="font-medium">{refund.appointment.service.name}</span></p>
+                      )}
+                      <p>Date: <span className="font-medium">{formatDateDisplay(refund.appointment.appointment_date)}</span>
+                        {refund.appointment.appointment_time && ` at ${refund.appointment.appointment_time}`}
+                      </p>
+                      {refund.appointment.status && (
+                        <p>Appointment Status: <span className="font-medium capitalize">{refund.appointment.status}</span></p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Requested Date */}
+                  <div className="text-xs">
+                    <span className="font-semibold">Requested:</span> {new Date(refund.created_at).toLocaleString()}
+                  </div>
+
+                  {/* Rejection Reason */}
+                  {refund.status === 'rejected' && refund.rejection_reason && (
+                    <div>
+                      <p className="text-xs font-semibold">Rejection Reason:</p>
+                      <p className="text-sm mt-1">{refund.rejection_reason}</p>
+                    </div>
+                  )}
+
+                  {/* Approval Notes */}
+                  {refund.approval_notes && (
+                    <div>
+                      <p className="text-xs font-semibold">Admin Notes:</p>
+                      <p className="text-sm mt-1">{refund.approval_notes}</p>
+                    </div>
+                  )}
+
+                  {/* Completion Info */}
+                  {refund.status === 'completed' && refund.completed_at && (
+                    <div>
+                      <p className="text-xs font-semibold">
+                        Completed on {new Date(refund.completed_at).toLocaleString()}
+                      </p>
+                      {refund.transaction_id && (
+                        <p className="text-xs mt-1">
+                          Transaction ID: <span className="font-mono">{refund.transaction_id}</span>
+                        </p>
+                      )}
+                    </div>
                   )}
                 </div>
               )}

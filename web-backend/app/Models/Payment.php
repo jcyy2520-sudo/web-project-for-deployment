@@ -10,19 +10,24 @@ class Payment extends Model
 {
     use HasFactory, SoftDeletes;
 
+    /**
+     * Mass-assignable fields.
+     *
+     * SECURITY: payment_status, shortfall, amount_after_discount, is_edited
+     * are deliberately EXCLUDED. These must be set explicitly in controller
+     * logic to prevent clients from manipulating payment state via crafted
+     * POST data.
+     */
     protected $fillable = [
         'appointment_id',
         'recorded_by',
         'service_price',
         'amount_paid',
         'discount_amount',
-        'shortfall',
         'payment_method_id',
-        'payment_status',
         'notes',
         'goods_description',
         'payment_date',
-        'is_edited',
         'edit_notes',
         'is_pwd',
         'pwd_discount_amount',
@@ -31,7 +36,6 @@ class Payment extends Model
         'is_student',
         'student_discount_amount',
         'total_discount_applied',
-        'amount_after_discount',
         'last_edited_at',
         'last_edited_by'
     ];

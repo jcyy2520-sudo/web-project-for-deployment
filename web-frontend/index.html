@@ -7,7 +7,8 @@
     <link rel="icon" type="image/png" sizes="512x512" href="/logo-512.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Law Notary Appointment System" />
-    <meta name="theme-color" content="#000000" />
+    <meta name="theme-color" content="#1E3A8A" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#111827" media="(prefers-color-scheme: dark)" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Legal Ease" />
@@ -17,6 +18,14 @@
   </head>
   <body>
     <div id="root"></div>
+    <noscript>
+      <div style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:system-ui,sans-serif;padding:2rem;text-align:center;background:#f9fafb;">
+        <div>
+          <h1 style="font-size:1.5rem;margin-bottom:1rem;">JavaScript Required</h1>
+          <p>Please enable JavaScript in your browser to use Legal Ease.</p>
+        </div>
+      </div>
+    </noscript>
     <script type="module" src="/src/main.jsx"></script>
     <script>
       // PWA Event Listeners - Safe error handling to prevent crashes

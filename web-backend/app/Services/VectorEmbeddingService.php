@@ -14,9 +14,11 @@ use Illuminate\Support\Facades\File;
  * This service replaces keyword/pattern matching with true semantic understanding.
  * 
  * How it works:
- * 1. TEXT → EMBEDDING: Convert text to high-dimensional vector (using Ollama or OpenAI)
+ * 1. TEXT → EMBEDDING: Convert text to high-dimensional vector (using Ollama, HuggingFace, or OpenAI)
  * 2. SIMILARITY SEARCH: Find documents with similar vectors (cosine similarity)
  * 3. RANKED RESULTS: Return most relevant documents by similarity score
+ *
+ * Fallback chain: Ollama all-minilm → HuggingFace all-MiniLM-L6-v2 → OpenAI text-embedding-3-small
  * 
  * Key Features:
  * - Pre-computed embeddings for knowledge base (stored in DB)
@@ -27,29 +29,49 @@ use Illuminate\Support\Facades\File;
  */
 class VectorEmbeddingService
 {
-    // Embedding service configuration
-    private const OLLAMA_EMBEDDINGS_URL = 'http://localhost:11434/api/embeddings';
-    private const OPENAI_EMBEDDINGS_URL = 'https://api.openai.com/v1/embeddings';
-    private const HUGGINGFACE_EMBEDDINGS_URL = 'https://router.huggingface.co/hf-inference/models/BAAI/bge-small-en-v1.5';
-    
-    private const OLLAMA_MODEL = 'nomic-embed-text'; // Good for semantic search
-    private const OPENAI_MODEL = 'text-embedding-3-small';
-    
-    private const REQUEST_TIMEOUT = 30;
-    private const CACHE_TTL = 86400; // 24 hours for embeddings
-    private const SIMILARITY_THRESHOLD = 0.5;
-    private const MAX_CHUNK_SIZE = 500;
-    private const CHUNK_OVERLAP = 50;
-    
+    // Instance properties loaded from config
+    private string $ollamaEmbeddingsUrl;
+    private string $openaiEmbeddingsUrl;
+    private string $huggingfaceEmbeddingsUrl;
+    private string $voyageEmbeddingsUrl;
+    private string $ollamaModel;
+    private string $openaiModel;
+    private string $voyageModel;
+    private int $requestTimeout;
+    private int $cacheTtl;
+    private float $similarityThreshold;
+    private float $bm25Weight;
+    private float $vectorWeight;
+    private int $maxChunkSize;
+    private int $chunkOverlap;
+
     private ?string $openaiApiKey;
     private ?string $huggingfaceApiKey;
+    private ?string $voyageApiKey;
     private bool $useOllama;
-    
+
     public function __construct()
     {
-        $this->openaiApiKey = env('OPENAI_API_KEY');
-        $this->huggingfaceApiKey = env('HUGGINGFACE_API_KEY');
-        $this->useOllama = env('USE_OLLAMA_EMBEDDINGS', true);
+        $this->openaiApiKey = config('services.openai.api_key');
+        $this->huggingfaceApiKey = config('services.huggingface.api_key');
+        $this->voyageApiKey = config('services.voyage.api_key');
+        $this->useOllama = config('services.ollama.embeddings_enabled', true);
+
+        $embConf = 'chatbot_unified.embeddings.';
+        $this->ollamaEmbeddingsUrl = config($embConf . 'ollama_url', 'http://localhost:11434/api/embeddings');
+        $this->openaiEmbeddingsUrl = config($embConf . 'openai_url', 'https://api.openai.com/v1/embeddings');
+        $this->huggingfaceEmbeddingsUrl = config($embConf . 'huggingface_url', 'https://router.huggingface.co/hf-inference/models/sentence-transformers/all-MiniLM-L6-v2');
+        $this->voyageEmbeddingsUrl = config($embConf . 'voyage_url', 'https://api.voyageai.com/v1/embeddings');
+        $this->ollamaModel = config($embConf . 'ollama_model', 'all-minilm');
+        $this->openaiModel = config($embConf . 'openai_model', 'text-embedding-3-small');
+        $this->voyageModel = config($embConf . 'voyage_model', 'voyage-3');
+        $this->requestTimeout = (int) config($embConf . 'request_timeout', 30);
+        $this->cacheTtl = (int) config($embConf . 'cache_ttl', 86400);
+        $this->similarityThreshold = (float) config($embConf . 'similarity_threshold', 0.3);
+        $this->bm25Weight = (float) config($embConf . 'bm25_weight', 0.4);
+        $this->vectorWeight = (float) config($embConf . 'vector_weight', 0.6);
+        $this->maxChunkSize = (int) config($embConf . 'max_chunk_size', 500);
+        $this->chunkOverlap = (int) config($embConf . 'chunk_overlap', 50);
     }
     
     /**
@@ -66,30 +88,64 @@ class VectorEmbeddingService
         if ($cached) {
             return $cached;
         }
-        
+
         $embedding = null;
-        
-        // Try Ollama first (local, free)
+
+        // PRIMARY: Try Ollama (local ML model, free)
         if ($this->useOllama) {
             $embedding = $this->generateViaOllama($text);
         }
-        
-        // Try HuggingFace second (free API)
+
+        // FALLBACK 1: Voyage AI (highly accurate, fast)
+        if (!$embedding && $this->voyageApiKey) {
+            $embedding = $this->generateViaVoyage($text);
+        }
+
+        // FALLBACK 2: Try HuggingFace (free API)
         if (!$embedding && $this->huggingfaceApiKey) {
             $embedding = $this->generateViaHuggingFace($text);
         }
-        
-        // Fallback to OpenAI if others fail and API key exists
+
+        // FALLBACK 3: OpenAI (paid, cloud)
         if (!$embedding && $this->openaiApiKey) {
             $embedding = $this->generateViaOpenAI($text);
         }
-        
+
         // Cache successful embeddings
         if ($embedding) {
-            Cache::put($cacheKey, $embedding, self::CACHE_TTL);
+            Cache::put($cacheKey, $embedding, $this->cacheTtl);
         }
-        
+
         return $embedding;
+    }
+
+    /**
+     * Generate embedding via Voyage AI
+     */
+    private function generateViaVoyage(string $text): ?array
+    {
+        try {
+            $response = Http::withHeaders([
+                'Authorization' => 'Bearer ' . $this->voyageApiKey,
+            ])
+            ->timeout($this->requestTimeout)
+            ->post($this->voyageEmbeddingsUrl, [
+                'model' => $this->voyageModel,
+                'input' => $text,
+            ]);
+            
+            if (!$response->successful()) {
+                Log::debug('Voyage embedding failed: ' . $response->status());
+                return null;
+            }
+            
+            $data = $response->json();
+            return $data['data'][0]['embedding'] ?? null;
+            
+        } catch (\Exception $e) {
+            Log::debug('Voyage embedding error: ' . $e->getMessage());
+            return null;
+        }
     }
     
     /**
@@ -98,9 +154,9 @@ class VectorEmbeddingService
     private function generateViaOllama(string $text): ?array
     {
         try {
-            $response = Http::timeout(self::REQUEST_TIMEOUT)
-                ->post(self::OLLAMA_EMBEDDINGS_URL, [
-                    'model' => self::OLLAMA_MODEL,
+            $response = Http::timeout($this->requestTimeout)
+                ->post($this->ollamaEmbeddingsUrl, [
+                    'model' => $this->ollamaModel,
                     'prompt' => $text,
                 ]);
             
@@ -127,9 +183,9 @@ class VectorEmbeddingService
             $response = Http::withHeaders([
                 'Authorization' => 'Bearer ' . $this->openaiApiKey,
             ])
-            ->timeout(self::REQUEST_TIMEOUT)
-            ->post(self::OPENAI_EMBEDDINGS_URL, [
-                'model' => self::OPENAI_MODEL,
+            ->timeout($this->requestTimeout)
+            ->post($this->openaiEmbeddingsUrl, [
+                'model' => $this->openaiModel,
                 'input' => $text,
             ]);
             
@@ -157,8 +213,8 @@ class VectorEmbeddingService
             $response = Http::withHeaders([
                 'Authorization' => 'Bearer ' . $this->huggingfaceApiKey,
             ])
-            ->timeout(self::REQUEST_TIMEOUT)
-            ->post(self::HUGGINGFACE_EMBEDDINGS_URL, [
+            ->timeout($this->requestTimeout)
+            ->post($this->huggingfaceEmbeddingsUrl, [
                 'inputs' => $text,
                 'options' => ['wait_for_model' => true],
             ]);
@@ -198,61 +254,156 @@ class VectorEmbeddingService
     public function semanticSearch(string $query, ?string $category = null, int $limit = 5): array
     {
         try {
+            // Check if there are any documents at all before spending time/money on embeddings
+            $query_builder = KnowledgeBase::where('is_active', true);
+
+            if ($category) {
+                $query_builder->where('category', $category);
+            }
+
+            $documents = $query_builder->get();
+
+            if ($documents->isEmpty()) {
+                Log::debug('No documents in knowledge base for semantic search - skipping embedding generation');
+                return [];
+            }
+
             // Generate embedding for query
             $queryEmbedding = $this->generateEmbedding($query);
-            
+
             // If embedding generation fails, fall back to keyword search
             if (!$queryEmbedding) {
                 Log::info('Falling back to keyword search - embedding generation failed');
                 return $this->keywordFallbackSearch($query, $category, $limit);
             }
-            
-            // Query knowledge base
-            $query_builder = KnowledgeBase::where('is_active', true);
-            
-            if ($category) {
-                $query_builder->where('category', $category);
+
+            // When reranker is enabled, fetch more candidates than final limit
+            $rerankerEnabled = config('chatbot_unified.features.reranker', false);
+            $fetchLimit = $rerankerEnabled
+                ? config('chatbot_unified.reranker.candidates', 10)
+                : max($limit * 2, 10); // Fetch more for hybrid scoring
+
+            // ── HYBRID SEARCH: Vector similarity + BM25 keyword scoring ──
+            $queryKeywords = $this->extractKeywords($query);
+
+            // Get document boosts from learning service
+            $documentBoosts = [];
+            try {
+                $learningService = app(ChatbotLearningService::class);
+                $documentBoosts = $learningService->getDocumentBoosts();
+            } catch (\Exception $e) {
+                // Learning service not available, no boosts
             }
-            
-            $documents = $query_builder->get();
-            
-            if ($documents->isEmpty()) {
-                Log::debug('No documents in knowledge base for semantic search');
-                return [];
-            }
-            
-            // Calculate similarity for each document
+
             $results = [];
             foreach ($documents as $doc) {
                 $docEmbedding = json_decode($doc->embedding, true);
-                
-                if (!$docEmbedding || !is_array($docEmbedding)) {
-                    continue;
+
+                // Vector similarity score
+                $vectorScore = 0.0;
+                if ($docEmbedding && is_array($docEmbedding)) {
+                    $vectorScore = $this->cosineSimilarity($queryEmbedding, $docEmbedding);
                 }
-                
-                $similarity = $this->cosineSimilarity($queryEmbedding, $docEmbedding);
-                
-                if ($similarity >= self::SIMILARITY_THRESHOLD) {
+
+                // BM25-style keyword score
+                $bm25Score = $this->calculateBM25Score(
+                    $queryKeywords,
+                    ($doc->title ?? '') . ' ' . ($doc->content_chunk ?? ''),
+                    $documents->count()
+                );
+
+                // Hybrid score: weighted combination
+                $hybridScore = ($this->vectorWeight * max(0, $vectorScore))
+                             + ($this->bm25Weight * $bm25Score);
+
+                // Apply learning boost if available
+                $boost = $documentBoosts[$doc->id] ?? 1.0;
+                $hybridScore *= $boost;
+
+                if ($hybridScore >= $this->similarityThreshold) {
                     $results[] = [
                         'id' => $doc->id,
                         'title' => $doc->title,
                         'content' => $doc->content_chunk,
                         'category' => $doc->category,
                         'type' => $doc->document_type,
-                        'similarity' => $similarity,
+                        'similarity' => $hybridScore,
+                        'vector_score' => $vectorScore,
+                        'bm25_score' => $bm25Score,
+                        'boost' => $boost,
                         'metadata' => json_decode($doc->metadata, true) ?? [],
                     ];
                 }
             }
-            
-            // Sort by similarity (descending) and limit results
+
+            // Sort by hybrid similarity (descending) and limit to candidate pool
             usort($results, fn($a, $b) => $b['similarity'] <=> $a['similarity']);
+            $results = array_slice($results, 0, $fetchLimit);
+
+            // ── Reranking pass (feature-flagged) ──────────────────────
+            if ($rerankerEnabled && count($results) > 1) {
+                $reranked = $this->rerank($query, $results);
+                if (!empty($reranked)) {
+                    $results = $reranked;
+                }
+            }
+
             return array_slice($results, 0, $limit);
-            
+
         } catch (\Exception $e) {
             Log::error('Semantic search failed: ' . $e->getMessage());
             return $this->keywordFallbackSearch($query, $category, $limit);
         }
+    }
+
+    /**
+     * Calculate BM25-style keyword relevance score
+     *
+     * @param array $queryTerms Extracted query keywords
+     * @param string $document Document text
+     * @param int $totalDocs Total documents in collection
+     * @return float Score between 0.0 and 1.0
+     */
+    private function calculateBM25Score(array $queryTerms, string $document, int $totalDocs): float
+    {
+        if (empty($queryTerms) || empty($document)) {
+            return 0.0;
+        }
+
+        $k1 = 1.2;
+        $b = 0.75;
+        $avgDocLen = 200; // approximate average document length in words
+
+        $docLower = mb_strtolower($document);
+        $docWords = preg_split('/\s+/', $docLower);
+        $docLen = count($docWords);
+        $docTermFreq = array_count_values($docWords);
+
+        $score = 0.0;
+        foreach ($queryTerms as $term) {
+            $tf = $docTermFreq[$term] ?? 0;
+            if ($tf === 0) {
+                // Also check for partial match (substring)
+                $partialMatches = 0;
+                foreach ($docWords as $word) {
+                    if (str_contains($word, $term) || str_contains($term, $word)) {
+                        $partialMatches++;
+                    }
+                }
+                $tf = $partialMatches * 0.5; // Partial matches count as half
+            }
+
+            if ($tf > 0) {
+                // Simplified IDF: assume term appears in ~10% of docs
+                $idf = log(($totalDocs + 1) / (max($totalDocs * 0.1, 1)));
+                // BM25 TF normalization
+                $tfNorm = ($tf * ($k1 + 1)) / ($tf + $k1 * (1 - $b + $b * ($docLen / $avgDocLen)));
+                $score += $idf * $tfNorm;
+            }
+        }
+
+        // Normalize to 0-1 range (sigmoid-like)
+        return min(1.0, $score / (count($queryTerms) * 3));
     }
     
     /**
@@ -412,29 +563,29 @@ class VectorEmbeddingService
         $text = trim($text);
         $length = strlen($text);
         
-        if ($length <= self::MAX_CHUNK_SIZE) {
+        if ($length <= $this->maxChunkSize) {
             return [$text];
         }
         
         $position = 0;
         while ($position < $length) {
-            $chunk = substr($text, $position, self::MAX_CHUNK_SIZE);
+            $chunk = substr($text, $position, $this->maxChunkSize);
             
             // Try to break at sentence boundary
-            if ($position + self::MAX_CHUNK_SIZE < $length) {
+            if ($position + $this->maxChunkSize < $length) {
                 $lastPeriod = strrpos($chunk, '.');
                 $lastQuestion = strrpos($chunk, '?');
                 $lastExclaim = strrpos($chunk, '!');
                 
                 $breakPoint = max($lastPeriod, $lastQuestion, $lastExclaim);
                 
-                if ($breakPoint !== false && $breakPoint > self::MAX_CHUNK_SIZE / 2) {
+                if ($breakPoint !== false && $breakPoint > $this->maxChunkSize / 2) {
                     $chunk = substr($chunk, 0, $breakPoint + 1);
                 }
             }
             
             $chunks[] = trim($chunk);
-            $position += strlen($chunk) - self::CHUNK_OVERLAP;
+            $position += strlen($chunk) - $this->chunkOverlap;
         }
         
         return $chunks;
@@ -653,7 +804,7 @@ class VectorEmbeddingService
      */
     public function isAvailable(): bool
     {
-        // Try to generate a test embedding
+        // Try to generate a test embedding via API providers
         $testEmbedding = $this->generateEmbedding('test');
         return $testEmbedding !== null;
     }
@@ -690,5 +841,104 @@ class VectorEmbeddingService
         }
         
         return $context;
+    }
+
+    // ─── CROSS-ENCODER RERANKING ──────────────────────────────────
+
+    /**
+     * Rerank candidate documents using a cross-encoder model via HuggingFace API.
+     *
+     * Cross-encoders receive (query, document) pairs and produce a single
+     * relevance score, which is generally more accurate than bi-encoder
+     * cosine similarity alone.
+     *
+     * @param  string $query      The user query
+     * @param  array  $candidates Array of candidate documents (each with 'content', 'title', etc.)
+     * @return array  Reranked candidates sorted by cross-encoder score (descending)
+     */
+    public function rerank(string $query, array $candidates): array
+    {
+        if (empty($candidates) || !$this->huggingfaceApiKey) {
+            return $candidates;
+        }
+
+        $model = config('chatbot_unified.reranker.model', 'cross-encoder/ms-marco-MiniLM-L-6-v2');
+        $topK  = config('chatbot_unified.reranker.top_k', 3);
+
+        try {
+            // Build input pairs for the cross-encoder
+            $inputs = [];
+            foreach ($candidates as $doc) {
+                $text = $doc['title'] . '. ' . substr($doc['content'], 0, 400);
+                $inputs[] = [
+                    'source_sentence' => $query,
+                    'sentences'       => [$text],
+                ];
+            }
+
+            // Call HuggingFace cross-encoder
+            $url = "https://router.huggingface.co/hf-inference/models/{$model}";
+
+            // Cross-encoders on HF Inference API accept the text-classification format
+            $pairs = [];
+            foreach ($candidates as $doc) {
+                $text = $doc['title'] . '. ' . substr($doc['content'], 0, 400);
+                $pairs[] = ['text' => $query, 'text_pair' => $text];
+            }
+
+            $response = Http::withHeaders([
+                'Authorization' => 'Bearer ' . $this->huggingfaceApiKey,
+                'Content-Type'  => 'application/json',
+            ])->timeout($this->requestTimeout)->post($url, [
+                'inputs' => $pairs,
+            ]);
+
+            if (!$response->successful()) {
+                Log::warning('Reranker API failed, keeping original order', [
+                    'status' => $response->status(),
+                    'body'   => substr($response->body(), 0, 200),
+                ]);
+                return $candidates;
+            }
+
+            $scores = $response->json();
+
+            // Parse scores — HuggingFace cross-encoder returns array of arrays of {label, score}
+            // or a flat array of scores depending on the model
+            $parsedScores = [];
+            foreach ($scores as $i => $item) {
+                if (is_array($item) && isset($item[0]['score'])) {
+                    // text-classification format: [[{label, score}, ...], ...]
+                    $parsedScores[$i] = (float) $item[0]['score'];
+                } elseif (is_array($item) && isset($item['score'])) {
+                    $parsedScores[$i] = (float) $item['score'];
+                } elseif (is_numeric($item)) {
+                    $parsedScores[$i] = (float) $item;
+                } else {
+                    $parsedScores[$i] = 0.0;
+                }
+            }
+
+            // Attach reranker scores to candidates
+            foreach ($candidates as $i => &$doc) {
+                $doc['rerank_score'] = $parsedScores[$i] ?? 0.0;
+            }
+            unset($doc);
+
+            // Sort by reranker score descending
+            usort($candidates, fn($a, $b) => ($b['rerank_score'] ?? 0) <=> ($a['rerank_score'] ?? 0));
+
+            Log::debug('Reranker completed', [
+                'model'      => $model,
+                'candidates' => count($candidates),
+                'top_score'  => $candidates[0]['rerank_score'] ?? 0,
+            ]);
+
+            return array_slice($candidates, 0, $topK);
+
+        } catch (\Exception $e) {
+            Log::warning('Reranker failed, keeping original order: ' . $e->getMessage());
+            return $candidates;
+        }
     }
 }

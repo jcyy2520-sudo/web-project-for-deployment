@@ -10,8 +10,8 @@ use Illuminate\Support\Facades\Log;
  * 
  * Provides non-private, public information about the system including:
  * - System purpose and description
- * - Developer information (John Christian Fajutagana)
- * - Educational background (Mindoro State University - Bongabong Campus, Third Year IT Student)
+ * - Developer information (IT Student, Mindoro State University)
+ * - Educational background
  * - Features and capabilities
  * - Current system status
  * 
@@ -104,7 +104,7 @@ class SystemInfoProvider
     private function getDeveloperInfo(): array
     {
         return [
-            'name' => 'John Christian Fajutagana',
+            'name' => 'IT Student Developer',
             'role' => 'Full-Stack Developer & System Architect',
             'education' => [
                 'school' => 'Mindoro State University - Bongabong Campus',
@@ -114,8 +114,6 @@ class SystemInfoProvider
             ],
             'specializations' => [
                 'Full-Stack Web Development',
-                'Backend Systems (PHP/Laravel)',
-                'Frontend Development (Vue.js/React)',
                 'Database Design & Optimization',
                 'AI/ML Integration (NLU Chatbots)',
                 'RESTful API Design',
@@ -311,7 +309,7 @@ class SystemInfoProvider
      */
     private function getSystemVersion(): string
     {
-        return env('APP_VERSION', '1.0.0');
+        return config('app.version', '1.0.0');
     }
 
     /**
@@ -331,7 +329,7 @@ class SystemInfoProvider
                         'purpose' => $info['system']['purpose'] ?? 'Appointment booking and management',
                     ],
                     'developer' => [
-                        'name' => $info['developer']['name'] ?? 'John Christian Fajutagana',
+                        'name' => $info['developer']['name'] ?? 'IT Student Developer',
                         'education' => $info['developer']['education']['school'] ?? 'Mindoro State University',
                     ],
                     'metadata' => $info['metadata'] ?? [],
@@ -418,10 +416,10 @@ class SystemInfoProvider
 
         // Developer info
         $response .= "👨‍💻 **Developer**\n";
-        $response .= "This system was developed by **" . $info['developer']['name'] . "**.\n";
+        $response .= "This system was developed by an **" . $info['developer']['name'] . "**.\n";
         if (isset($info['developer']['education'])) {
             $edu = $info['developer']['education'];
-            $response .= "He's a " . ($edu['year'] ?? '') . " student at " . ($edu['school'] ?? '') . " studying " . ($edu['program'] ?? '') . ".\n";
+            $response .= "A " . ($edu['year'] ?? '') . " student at " . ($edu['school'] ?? '') . " studying " . ($edu['program'] ?? '') . ".\n";
         }
         $response .= "\n";
 

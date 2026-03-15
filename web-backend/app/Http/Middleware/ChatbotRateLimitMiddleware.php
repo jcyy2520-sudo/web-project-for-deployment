@@ -22,7 +22,8 @@ class ChatbotRateLimitMiddleware
     public function handle(Request $request, Closure $next): Response
     {
         $userId = auth()->id();
-        $sessionId = $request->header('X-Session-ID') ?? $request->session()->getId() ?? null;
+        // Use server-side session ID (consistent with controller) — never trust client-supplied X-Session-ID for rate limiting
+        $sessionId = $request->hasSession() ? $request->session()->getId() : ($request->header('X-Session-ID') ?? null);
         $ipAddress = $request->ip();
         $conversationId = $request->input('conversation_id');
 
@@ -71,7 +72,7 @@ class ChatbotRateLimitMiddleware
             $responseData = json_decode($response->getContent(), true);
             
             // Only increment for actual message sends, not other chatbot endpoints
-            if ($request->is('*/chatbot/send-message') && ($responseData['success'] ?? false)) {
+            if ($request->is('*/send-message') && ($responseData['success'] ?? false)) {
                 ChatbotRateLimit::incrementCount($userId, $sessionId, $ipAddress, $conversationId);
             }
         }

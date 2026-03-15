@@ -25,16 +25,13 @@ class ChatbotSmartResponseBuilder
 {
     private ChatbotRoleAwarenessService $roleService;
     private ChatbotRealTimeDataService $dataService;
-    private ChatbotNLUService $nluService;
 
     public function __construct(
         ChatbotRoleAwarenessService $roleService,
-        ChatbotRealTimeDataService $dataService,
-        ChatbotNLUService $nluService
+        ChatbotRealTimeDataService $dataService
     ) {
         $this->roleService = $roleService;
         $this->dataService = $dataService;
-        $this->nluService = $nluService;
     }
 
     /**
@@ -2238,27 +2235,64 @@ class ChatbotSmartResponseBuilder
 
     /**
      * Build inappropriate content response
+     * Provides graduated responses based on severity
      * 
      * @param string $language Response language
+     * @param string $severity Severity level: 'mild', 'standard', 'severe'
      * @return array Response handling inappropriate content
      */
-    public function buildInappropriateContentResponse(string $language = 'english'): array
+    public function buildInappropriateContentResponse(string $language = 'english', string $severity = 'standard'): array
     {
-        if ($language === 'filipino') {
-            $responses = [
-                "Nandito po ako para tumulong sa mga system-related questions. Panatilihin natin na may respeto at professional ang ating usapan. Paano ko po kayo matutulungan sa appointments, services, o payments?",
-                "Naiintindihan ko po na maaaring frustrated kayo, pero hindi ko po masagot ang inappropriate language. Masaya po akong tumulong kung mayroon kayong tanong tungkol sa aming services, appointments, o account niyo.",
-            ];
+        if ($severity === 'mild') {
+            // Mild: User is frustrated, not directly abusive - be empathetic
+            if ($language === 'filipino') {
+                $responses = [
+                    "Naiintindihan ko po na nakaka-frustrate minsan. Nandito po ako para tumulong! Ano po ba ang problema niyo sa system?",
+                    "Okay lang po, gets ko na medyo nakakalito minsan. Paano ko po kayo matutulungan?",
+                    "Pasensya na po kung may problema. Gusto ko po kayong tulungan - sa ano po kayo nahihirapan?",
+                ];
+            } else {
+                $responses = [
+                    "I can see you're frustrated - I'm here to help! Could you tell me what specific issue you're experiencing?",
+                    "I understand this can be confusing sometimes. Let's work together to solve your concern. What do you need help with?",
+                    "No worries, I get it! Let me help you out. What exactly are you trying to do?",
+                ];
+            }
+        } elseif ($severity === 'severe') {
+            // Severe: Direct harassment, threats - firm boundary
+            if ($language === 'filipino') {
+                $responses = [
+                    "Hindi ko po kayang i-process ang ganitong uri ng mensahe. Kung kailangan niyo po ng tulong sa appointments, services, o account niyo, nandito po ako.",
+                    "Para po makatulong ako nang maayos, kailangan po nating panatilihing respectful ang usapan. Ano po ang matutulungan ko sa inyo?",
+                ];
+            } else {
+                $responses = [
+                    "I'm not able to process that kind of message. If you need help with appointments, services, or your account, I'm here for you.",
+                    "To help you effectively, I need our conversation to remain respectful. What can I assist you with today?",
+                ];
+            }
         } else {
-            $responses = [
-                "I'm here to help with system-related questions. Let's keep our conversation respectful and professional. How can I assist you with appointments, services, or payments?",
-                "I understand you may be frustrated, but I'm unable to respond to inappropriate language. I'm happy to help if you have questions about our services, appointments, or your account.",
-            ];
+            // Standard: Direct profanity - polite redirect
+            if ($language === 'filipino') {
+                $responses = [
+                    "Nandito po ako para tumulong sa mga system-related questions. Panatilihin po natin na may respeto at professional ang ating usapan. Paano ko po kayo matutulungan sa appointments, services, o payments?",
+                    "Naiintindihan ko po na maaaring frustrated kayo, pero hindi ko po masagot ang inappropriate language. Masaya po akong tumulong kung mayroon kayong tanong tungkol sa aming services, appointments, o account niyo.",
+                    "Gusto ko po talagang tumulong sa inyo. Pwede po bang i-rephrase ang tanong niyo? Nandito po ako para sa appointments, services, at payments.",
+                ];
+            } else {
+                $responses = [
+                    "I'm here to help with system-related questions. Let's keep our conversation respectful and professional. How can I assist you with appointments, services, or payments?",
+                    "I understand you may be frustrated, but I'm unable to respond to inappropriate language. I'm happy to help if you have questions about our services, appointments, or your account.",
+                    "I genuinely want to help you - could you please rephrase your question? I can assist with bookings, appointments, payments, and more.",
+                    "I want to help you, but I need our conversation to remain respectful. What specific issue can I help you resolve today?",
+                ];
+            }
         }
 
         return [
             'response' => $responses[array_rand($responses)],
             'content_filtered' => true,
+            'severity' => $severity,
             'has_data' => false,
         ];
     }

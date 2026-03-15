@@ -11,11 +11,9 @@ const getApiBaseUrl = () => {
   if (import.meta.env.PROD) {
     // Get from environment variable
     const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-    console.log('📡 Using production API URL:', backendUrl);
     return backendUrl;
   }
   // Development: Use proxy (no baseURL needed)
-  console.log('📡 Using development proxy configuration');
   return null;
 };
 
@@ -25,7 +23,7 @@ if (apiBaseUrl) {
 }
 
 axios.defaults.withCredentials = true;
-axios.defaults.timeout = 15000;
+axios.defaults.timeout = 60000; // Increased to 60 seconds for slower API/LLM requests
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
@@ -38,6 +36,7 @@ export const useAuth = () => {
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [connectionError, setConnectionError] = useState(false);
   
   // Get token from localStorage on initial load AND set axios header immediately
   const [token, setToken] = useState(() => {
@@ -45,7 +44,6 @@ export const AuthProvider = ({ children }) => {
     // Set axios header synchronously during initialization to prevent race conditions
     if (storedToken) {
       axios.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
-      console.log('[AuthContext] Token loaded from localStorage, axios header set');
     }
     return storedToken;
   });
@@ -59,7 +57,7 @@ export const AuthProvider = ({ children }) => {
     }
   }, [token]);
 
-  // Initialize auth state
+  // Initialize auth state - show cached data immediately, verify in background
   useEffect(() => {
     const initializeAuth = async () => {
       try {
@@ -68,36 +66,45 @@ export const AuthProvider = ({ children }) => {
 
         if (storedToken && storedUser) {
           try {
-            // Set token FIRST before making any API calls
+            // Set token and cached user IMMEDIATELY so UI renders without delay
             setToken(storedToken);
             axios.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
-            
+
             const parsedUser = JSON.parse(storedUser);
-            setUser(parsedUser);
-            
-            // Verify token is still valid by trying to fetch user (with timeout)
-            try {
-              const response = await axios.get('/api/user', {
-                headers: {
-                  'Authorization': `Bearer ${storedToken}`
-                },
-                timeout: 3000
-              });
+            // For security: use cached data for display but demote role to 'client'
+            // until the server verifies the actual role via /api/user
+            const safeUser = { ...parsedUser, role: parsedUser.role || 'client' };
+            setUser(safeUser);
+
+            // Mark loading as done IMMEDIATELY with cached data
+            // This eliminates the loading spinner delay on startup
+            setLoading(false);
+
+            // Verify token in the BACKGROUND (non-blocking)
+            // If it fails with 401, we log out; otherwise update with server-verified data
+            axios.get('/api/user', {
+              headers: { 'Authorization': `Bearer ${storedToken}` },
+              timeout: 5000
+            }).then(response => {
               const freshUserData = response.data.data || response.data;
-              
-              // Update with fresh data
               setUser(freshUserData);
               localStorage.setItem('user', JSON.stringify(freshUserData));
-            } catch (verifyError) {
-              // Check if this is an authentication error (401)
+              setConnectionError(false);
+            }).catch(verifyError => {
               if (verifyError.response?.status === 401) {
                 console.warn('Token expired or invalid, logging out...');
                 handleLogout();
-                return; // Exit early, don't keep invalid state
+              } else if (!verifyError.response) {
+                // No response at all = actual network/connection failure
+                console.warn('Token validation failed (network), keeping cached data:', verifyError.message);
+                setConnectionError(true);
+              } else {
+                // Server responded (e.g. 500) — not a connection issue, just a server error
+                console.warn('Token validation returned error status:', verifyError.response?.status);
               }
-              // For other errors (network issues, etc.), keep user logged in with cached data
-              console.warn('Token validation failed due to non-auth error, keeping user logged in:', verifyError.message);
-            }
+            });
+
+            return; // Skip the finally block's setLoading since we already set it
             
           } catch (error) {
             console.error('Auth parsing failed:', error);
@@ -115,34 +122,38 @@ export const AuthProvider = ({ children }) => {
       }
     };
 
-    // Set a maximum timeout for auth initialization (5 seconds)
-    const timeoutId = setTimeout(() => {
-      setLoading(false);
-    }, 5000);
-
-    initializeAuth().finally(() => {
-      clearTimeout(timeoutId);
-    });
-
-    return () => clearTimeout(timeoutId);
+    initializeAuth();
   }, []);
+
+  // Auto-recover connection banner after transient startup/network failures
+  useEffect(() => {
+    if (!connectionError) return;
+
+    const checkConnection = async () => {
+      try {
+        await axios.get('/api/health', { timeout: 5000 });
+        setConnectionError(false);
+      } catch {
+        // Keep banner visible until backend becomes reachable
+      }
+    };
+
+    checkConnection();
+    const intervalId = setInterval(checkConnection, 10000);
+
+    return () => clearInterval(intervalId);
+  }, [connectionError]);
 
   const login = async (email, password) => {
     try {
-      console.log('🔐 Starting login process...');
-      
       // Ensure CSRF cookie is set before login
-      console.log('🛡️ Getting CSRF token...');
       await axios.get('/sanctum/csrf-cookie');
-      
-      console.log('📤 Sending login request...');
-      const response = await axios.post('/api/login', { 
-        email, 
-        password 
+
+      const response = await axios.post('/api/login', {
+        email,
+        password
       });
-      
-      console.log('✅ Login response received:', response.data);
-      
+
       // FIXED: Handle different response structures
       let userData, authToken;
       
@@ -165,32 +176,23 @@ export const AuthProvider = ({ children }) => {
       }
       
       if (!userData || !authToken) {
-        console.error('❌ Missing user data or token in response:', response.data);
-        return { 
-          success: false, 
-          message: 'Invalid response format from server' 
+        return {
+          success: false,
+          message: 'Invalid response format from server'
         };
       }
-      
-      console.log('💾 Storing auth data...');
+
       // Store both token and user data in localStorage
       localStorage.setItem('token', authToken);
       localStorage.setItem('user', JSON.stringify(userData));
-      
+
       // Update state
       setToken(authToken);
       setUser(userData);
-      
-      console.log('🎉 Login successful! User:', userData);
+
       return { success: true, user: userData };
       
     } catch (error) {
-      console.error('❌ Login failed:', {
-        status: error.response?.status,
-        data: error.response?.data,
-        message: error.message
-      });
-      
       let errorMessage = 'Login failed';
       
       if (error.response?.status === 422) {
@@ -259,11 +261,26 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  /**
+   * Update the current user data in state and localStorage.
+   * Use this after profile updates (e.g., profile picture change) to keep
+   * the user object in sync without a full page reload.
+   */
+  const updateUser = (updatedFields) => {
+    setUser((prev) => {
+      const merged = { ...prev, ...updatedFields };
+      localStorage.setItem('user', JSON.stringify(merged));
+      return merged;
+    });
+  };
+
   const value = {
     user,
     login,
     logout,
+    updateUser,
     loading,
+    connectionError,
     isAuthenticated: !!user && !!token,
     isAdmin: user?.role === 'admin',
     isStaff: user?.role === 'staff',

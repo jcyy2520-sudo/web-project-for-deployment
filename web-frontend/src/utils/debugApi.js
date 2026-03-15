@@ -53,8 +53,8 @@ export const debugApiConfig = () => {
   logger.groupEnd();
 };
 
-// Call on window load
-if (typeof window !== 'undefined') {
+// Expose only in development to avoid polluting production global scope
+if (typeof window !== 'undefined' && import.meta.env.DEV) {
   window.debugApiConfig = debugApiConfig;
   logger.info('💡 Debug utility available. Run: window.debugApiConfig()');
 }

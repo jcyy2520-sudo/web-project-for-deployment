@@ -20,8 +20,15 @@ class AnalyticsService
         $endDate = now();
         $startDate = now()->subDays($dateRange);
 
-        // Get all time slots available
-        $timeSlots = TimeSlotCapacity::where('is_active', true)->get();
+        // Get all time slots available (handle missing table gracefully)
+        $timeSlots = collect();
+        try {
+            if (\Schema::hasTable('time_slot_capacities')) {
+                $timeSlots = TimeSlotCapacity::where('is_active', true)->get();
+            }
+        } catch (\Exception $e) {
+            \Log::warning('TimeSlotCapacity table not available: ' . $e->getMessage());
+        }
         
         // Get appointments in range (both completed and pending - not cancelled or no_show)
         $appointments = Appointment::whereBetween('appointment_date', [$startDate, $endDate])
@@ -478,23 +485,24 @@ class AnalyticsService
         $startDate = now()->subDays($dateRange);
 
         // Get ALL appointments in the date range (don't filter out cancelled yet)
-        $appointments = Appointment::whereBetween('created_at', [$startDate, now()])->get();
+        $appointments = Appointment::whereBetween('appointment_date', [$startDate, now()])->get();
 
         // Average appointment duration (assuming duration comes from service)
         $avgDuration = $appointments
             ->groupBy('service_id')
             ->map(function ($group) {
-                $service = Service::find($group->first()->service_id);
+                $service = Service::withTrashed()->find($group->first()->service_id);
                 return $service ? $service->duration : 30;
             })
             ->avg();
 
         // Service statistics - include revenue with refunds subtracted
-        $serviceStats = Service::where('is_active', true)
+        // Include all services (active, inactive, and soft-deleted) for complete analytics
+        $serviceStats = Service::withTrashed()
             ->get()
             ->map(function ($service) use ($startDate) {
                 $serviceAppointments = Appointment::where('service_id', $service->id)
-                    ->whereBetween('created_at', [$startDate, now()])
+                    ->whereBetween('appointment_date', [$startDate, now()])
                     ->get();
 
                 $totalCount = $serviceAppointments->count();
@@ -505,10 +513,18 @@ class AnalyticsService
                 $baseRevenue = $completedCount * ($service->price ?? 0);
                 
                 // Subtract approved refunds for completed appointments of this service
-                $refundedAmount = DB::table('refunds')
-                    ->whereIn('status', ['completed', 'approved'])
-                    ->whereIn('appointment_id', $serviceAppointments->where('status', 'completed')->pluck('id'))
-                    ->sum('refund_amount');
+                $refundedAmount = 0;
+                try {
+                    if (\Schema::hasTable('refunds')) {
+                        $refundedAmount = DB::table('refunds')
+                            ->whereIn('status', ['completed', 'approved'])
+                            ->whereIn('appointment_id', $serviceAppointments->where('status', 'completed')->pluck('id'))
+                            ->sum('refund_amount');
+                    }
+                } catch (\Exception $e) {
+                    // Refunds table may not exist yet - skip refund calculation
+                    \Log::warning('Refunds table query failed in analytics: ' . $e->getMessage());
+                }
 
                 $actualRevenue = max(0, $baseRevenue - $refundedAmount);
 
@@ -558,9 +574,9 @@ class AnalyticsService
                 'completion_rate' => $completionRate,
                 'cancellation_rate' => $cancellationRate,
             ],
-            'service_stats' => $serviceStats,
-            'most_popular_services' => $mostPopular,
-            'least_popular_services' => $leastPopular,
+            'service_stats' => $serviceStats->values()->all(),
+            'most_popular_services' => $mostPopular->values()->all(),
+            'least_popular_services' => $leastPopular->values()->all(),
             'average_appointment_duration' => round($avgDuration, 0),
             'total_revenue' => $totalRevenue,
             'avg_revenue_per_appointment' => $completedAppointments > 0 ? round($totalRevenue / $completedAppointments, 2) : 0,
@@ -621,9 +637,17 @@ class AnalyticsService
                 ->whereNotIn('status', ['cancelled', 'no_show'])
                 ->count();
 
-            $timeSlots = TimeSlotCapacity::where('is_active', true)
-                ->where('day_of_week', now()->addDay()->format('l'))
-                ->sum('max_appointments_per_slot');
+            $timeSlots = 0;
+            try {
+                if (\Schema::hasTable('time_slot_capacities')) {
+                    $timeSlots = TimeSlotCapacity::where('is_active', true)
+                        ->where('day_of_week', now()->addDay()->format('l'))
+                        ->sum('max_appointments_per_slot');
+                }
+            } catch (\Exception $e) {
+                // TimeSlotCapacity table may not exist - use default capacity estimate
+                $timeSlots = 10; // Default assumption
+            }
             
             $utilizationRate = $timeSlots > 0 ? ($tomorrowAppointments / $timeSlots) * 100 : 0;
             
@@ -655,8 +679,12 @@ class AnalyticsService
 
             // Check for high no-show times
             $noShowData = $this->getNoShowPatterns(30);
-            if (!empty($noShowData['high_risk_time_slots'])) {
-                $riskSlots = implode(', ', array_map(fn($s) => $s['time'], $noShowData['high_risk_time_slots']));
+            $highRiskSlots = $noShowData['high_risk_time_slots'] ?? [];
+            if ($highRiskSlots instanceof \Illuminate\Support\Collection) {
+                $highRiskSlots = $highRiskSlots->toArray();
+            }
+            if (!empty($highRiskSlots)) {
+                $riskSlots = implode(', ', array_map(fn($s) => $s['time'] ?? 'unknown', $highRiskSlots));
                 $alerts[] = [
                     'type' => 'warning',
                     'severity' => 'medium',
@@ -680,9 +708,16 @@ class AnalyticsService
             }
 
             // Check for pending refunds
-            $pendingRefunds = DB::table('refunds')
-                ->where('status', 'pending')
-                ->count();
+            $pendingRefunds = 0;
+            try {
+                if (\Schema::hasTable('refunds')) {
+                    $pendingRefunds = DB::table('refunds')
+                        ->where('status', 'pending')
+                        ->count();
+                }
+            } catch (\Exception $e) {
+                // Refunds table may not exist - skip
+            }
 
             if ($pendingRefunds > 0) {
                 $alerts[] = [

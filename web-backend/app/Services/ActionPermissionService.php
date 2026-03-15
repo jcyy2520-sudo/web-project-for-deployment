@@ -343,4 +343,68 @@ class ActionPermissionService
         }
         return $results;
     }
+
+    // ─── AGENT TOOL PERMISSIONS ───────────────────────────────────
+
+    /**
+     * Agent tool → role mapping for the AgentToolRegistry.
+     * Maps each tool name to the minimum role required.
+     */
+    private const AGENT_TOOL_ROLES = [
+        // Read tools — open to clients (and above)
+        'get_my_appointments'        => ['client', 'cashier', 'staff', 'admin'],
+        'get_appointment_details'    => ['client', 'cashier', 'staff', 'admin'],
+        'get_available_services'     => ['guest', 'client', 'cashier', 'staff', 'admin'],
+        'get_available_slots'        => ['guest', 'client', 'cashier', 'staff', 'admin'],
+        'get_unavailable_dates'      => ['guest', 'client', 'cashier', 'staff', 'admin'],
+        'get_alternative_slots'      => ['guest', 'client', 'cashier', 'staff', 'admin'],
+        'get_my_payments'            => ['client', 'admin'],
+        'check_payment_status'       => ['client', 'cashier', 'admin'],
+        'check_booking_limit'        => ['client', 'admin'],
+        'get_notifications'          => ['client', 'cashier', 'staff', 'admin'],
+
+        // Write tools — destructive, role-restricted
+        'cancel_appointment'         => ['client', 'admin'],
+        'book_appointment'           => ['client', 'admin'],
+        'reschedule_appointment'     => ['client', 'admin'],
+        'request_refund'             => ['client', 'admin'],
+
+        // Admin operations
+        'admin_get_pending_appointments'  => ['admin', 'staff'],
+        'admin_approve_appointment'       => ['admin'],
+        'admin_decline_appointment'       => ['admin'],
+        'admin_get_system_stats'          => ['admin'],
+        'admin_get_appointment_stats'     => ['admin'],
+        'admin_bulk_cancel_appointments'  => ['admin'],
+
+        // Analytics tools — admin only
+        'get_demand_forecast'             => ['admin'],
+        'get_no_show_patterns'            => ['admin'],
+        'get_auto_alerts'                 => ['admin'],
+        'get_quality_report'              => ['admin'],
+
+        // AI Decision Support tools
+        'get_risk_assessment'             => ['admin', 'staff', 'cashier'],
+        'get_scheduling_recommendation'   => ['client', 'admin', 'staff'],
+        'get_workload_optimization'       => ['admin'],
+        'get_customer_insights'           => ['admin', 'staff', 'cashier'],
+        'get_client_engagement_scores'    => ['admin'],
+        'get_operational_recommendations' => ['admin'],
+
+        // ML prediction tools — staff and admin
+        'predict_busy_days'               => ['staff', 'admin', 'cashier'],
+        'predict_no_show'                 => ['staff', 'admin', 'cashier'],
+
+        // Notification tool — staff and admin
+        'send_notification'               => ['staff', 'admin'],
+    ];
+
+    /**
+     * Check if a role can use a specific agent tool.
+     */
+    public function canUseAgentTool(string $role, string $toolName): bool
+    {
+        $allowedRoles = self::AGENT_TOOL_ROLES[$toolName] ?? [];
+        return in_array($role, $allowedRoles);
+    }
 }

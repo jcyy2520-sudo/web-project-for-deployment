@@ -77,6 +77,25 @@ class NotificationService
     }
 
     /**
+     * Notify user about appointment cancellation
+     */
+    public static function appointmentCancelled($appointment): void
+    {
+        self::create(
+            $appointment->user_id,
+            'appointment_cancelled',
+            'Appointment Cancelled',
+            "Your appointment for {$appointment->appointment_date->format('M d, Y')} at {$appointment->appointment_time} has been cancelled.",
+            [
+                'icon' => 'x-circle',
+                'color' => 'red',
+                'related_id' => $appointment->id,
+                'related_type' => 'Appointment'
+            ]
+        );
+    }
+
+    /**
      * Notify user about appointment completion
      */
     public static function appointmentCompleted($appointment): void
@@ -193,8 +212,8 @@ class NotificationService
      */
     public static function notifyCashiersAppointmentApproved($appointment): void
     {
-        // Get all active cashiers using Spatie roles
-        $cashiers = User::role('cashier')->where('is_active', true)->get();
+        // Get all active cashiers using role column (not Spatie)
+        $cashiers = User::where('role', 'cashier')->where('is_active', true)->get();
         
         $serviceName = $appointment->service->name ?? $appointment->service_type ?? 'Service';
         $appointmentDate = $appointment->appointment_date->format('M d, Y');
@@ -231,8 +250,8 @@ class NotificationService
      */
     public static function notifyCashiersRefundRequested($refund): void
     {
-        // Get all active cashiers using Spatie roles
-        $cashiers = User::role('cashier')->where('is_active', true)->get();
+        // Get all active cashiers using role column (not Spatie)
+        $cashiers = User::where('role', 'cashier')->where('is_active', true)->get();
         
         $clientName = $refund->appointment->user->first_name . ' ' . $refund->appointment->user->last_name;
         $amount = $refund->refund_amount;

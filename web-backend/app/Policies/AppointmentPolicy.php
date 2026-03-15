@@ -14,8 +14,7 @@ class AppointmentPolicy
     {
         return $user->isAdmin() || 
                $user->isStaff() || 
-               $appointment->user_id === $user->id ||
-               $appointment->staff_id === $user->id;
+               $appointment->user_id === $user->id;
     }
 
     public function update(User $user, Appointment $appointment)

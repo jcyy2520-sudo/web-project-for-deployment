@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\FeedbackSettings;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
 
 class FeedbackSettingsController extends Controller
 {
@@ -22,12 +23,12 @@ class FeedbackSettingsController extends Controller
 
         } catch (\Exception $e) {
             Log::error('Feedback settings fetch error', [
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred'
             ]);
 
             return response()->json([
                 'message' => 'Failed to fetch settings',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred'
             ], 500);
         }
     }
@@ -54,6 +55,9 @@ class FeedbackSettingsController extends Controller
 
             $settings->update(array_filter($validated));
 
+            // Clear cached feedback settings so users get updated values immediately
+            Cache::forget('feedback_settings');
+
             return response()->json([
                 'message' => 'Settings updated successfully',
                 'data' => $settings
@@ -61,12 +65,12 @@ class FeedbackSettingsController extends Controller
 
         } catch (\Exception $e) {
             Log::error('Feedback settings update error', [
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred'
             ]);
 
             return response()->json([
                 'message' => 'Failed to update settings',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred'
             ], 500);
         }
     }

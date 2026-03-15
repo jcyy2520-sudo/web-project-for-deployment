@@ -13,7 +13,9 @@ return new class extends Migration
     public function up(): void
     {
         // Alter the enum to include 'interpreter' and 'guest'
-        DB::statement("ALTER TABLE chat_messages MODIFY COLUMN source ENUM('user', 'huggingface', 'interpreter', 'guest') DEFAULT 'user'");
+        if (DB::getDriverName() !== 'sqlite') {
+            DB::statement("ALTER TABLE chat_messages MODIFY COLUMN source ENUM('user', 'huggingface', 'interpreter', 'guest') DEFAULT 'user'");
+        }
     }
 
     /**
@@ -22,6 +24,8 @@ return new class extends Migration
     public function down(): void
     {
         // Revert to original enum values
-        DB::statement("ALTER TABLE chat_messages MODIFY COLUMN source ENUM('user', 'huggingface') DEFAULT 'user'");
+        if (DB::getDriverName() !== 'sqlite') {
+            DB::statement("ALTER TABLE chat_messages MODIFY COLUMN source ENUM('user', 'huggingface') DEFAULT 'user'");
+        }
     }
 };

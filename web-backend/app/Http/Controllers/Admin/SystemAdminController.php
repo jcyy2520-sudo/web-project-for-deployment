@@ -159,24 +159,37 @@ class SystemAdminController extends Controller
         $last24h = now()->subHours(24);
         $last7d = now()->subDays(7);
 
+        // Consolidate audit log queries into one
+        $auditStats = AuditLog::where('action', 'login_failed')
+            ->where('created_at', '>=', $last7d)
+            ->selectRaw("
+                SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) as failed_24h,
+                COUNT(*) as failed_7d
+            ", [$last24h])
+            ->first();
+
+        $suspiciousIps = AuditLog::where('action', 'login_failed')
+            ->where('created_at', '>=', $last24h)
+            ->groupBy('ip_address')
+            ->havingRaw('COUNT(*) >= 5')
+            ->count();
+
+        // Consolidate frontend error log queries into one
+        $errorStats = FrontendErrorLog::where('created_at', '>=', $last24h)
+            ->selectRaw("
+                COUNT(*) as total,
+                SUM(CASE WHEN severity = 'critical' THEN 1 ELSE 0 END) as critical_count
+            ")
+            ->first();
+
         return [
-            'failed_logins_24h' => AuditLog::where('action', 'login_failed')
-                ->where('created_at', '>=', $last24h)
-                ->count(),
-            'failed_logins_7d' => AuditLog::where('action', 'login_failed')
-                ->where('created_at', '>=', $last7d)
-                ->count(),
-            'suspicious_ips' => AuditLog::where('action', 'login_failed')
-                ->where('created_at', '>=', $last24h)
-                ->groupBy('ip_address')
-                ->havingRaw('COUNT(*) >= 5')
-                ->count(),
+            'failed_logins_24h' => (int) ($auditStats->failed_24h ?? 0),
+            'failed_logins_7d' => (int) ($auditStats->failed_7d ?? 0),
+            'suspicious_ips' => $suspiciousIps,
             'blocked_ips' => $this->getBlockedIpsCount(),
             'last_security_scan' => Cache::get('last_security_scan', 'Never'),
-            'frontend_errors_24h' => FrontendErrorLog::where('created_at', '>=', $last24h)->count(),
-            'critical_errors_24h' => FrontendErrorLog::where('created_at', '>=', $last24h)
-                ->where('severity', 'critical')
-                ->count(),
+            'frontend_errors_24h' => (int) ($errorStats->total ?? 0),
+            'critical_errors_24h' => (int) ($errorStats->critical_count ?? 0),
             'configuration_issues' => count($this->getConfigurationWarnings()),
         ];
     }
@@ -186,14 +199,22 @@ class SystemAdminController extends Controller
      */
     private function getUserStatistics(): array
     {
+        // Single query for basic user counts
+        $userStats = User::selectRaw("
+            COUNT(*) as total_users,
+            SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END) as active_users,
+            SUM(CASE WHEN DATE(created_at) = CURDATE() THEN 1 ELSE 0 END) as new_users_today,
+            SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END) as new_users_this_week
+        ", [now()->subDays(7)])->first();
+
         return [
-            'total_users' => User::count(),
-            'active_users' => User::where('is_active', true)->count(),
+            'total_users' => (int) $userStats->total_users,
+            'active_users' => (int) $userStats->active_users,
             'users_by_role' => User::groupBy('role')
                 ->selectRaw('role, COUNT(*) as count')
                 ->pluck('count', 'role'),
-            'new_users_today' => User::whereDate('created_at', today())->count(),
-            'new_users_this_week' => User::where('created_at', '>=', now()->subDays(7))->count(),
+            'new_users_today' => (int) $userStats->new_users_today,
+            'new_users_this_week' => (int) $userStats->new_users_this_week,
             'admins' => User::where('role', 'admin')->select('id', 'username', 'email', 'last_login_at')->get(),
         ];
     }
@@ -416,7 +437,8 @@ class SystemAdminController extends Controller
     public function toggleUserStatus(User $user): JsonResponse
     {
         $oldStatus = $user->is_active;
-        $user->update(['is_active' => !$user->is_active]);
+        $user->is_active = !$user->is_active;
+        $user->save();
 
         $action = $user->is_active ? 'activated' : 'deactivated';
         $this->logAdminAction(
@@ -458,7 +480,7 @@ class SystemAdminController extends Controller
         } catch (\Exception $e) {
             Log::error('Manual backup failed: ' . $e->getMessage());
             return response()->json([
-                'message' => 'Backup failed: ' . $e->getMessage(),
+                'message' => config('app.debug') ? 'Backup failed: ' . $e->getMessage() : 'Backup failed',
             ], 500);
         }
     }
@@ -480,7 +502,7 @@ class SystemAdminController extends Controller
             ]);
         } catch (\Exception $e) {
             return response()->json([
-                'message' => 'Failed to clear cache: ' . $e->getMessage(),
+                'message' => config('app.debug') ? 'Failed to clear cache: ' . $e->getMessage() : 'Failed to clear cache',
             ], 500);
         }
     }

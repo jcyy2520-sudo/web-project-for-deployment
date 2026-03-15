@@ -62,8 +62,9 @@ const InteractiveCalendar = ({
     };
     loadUnavailableDates();
     
-    // Poll for updates every 30 seconds to sync with admin changes
-    const interval = setInterval(loadUnavailableDates, 30000);
+    // Poll for updates every 120 seconds (reduced from 30s to minimize duplicate API calls
+    // since the parent CashierDashboard already polls calendar data every 30s)
+    const interval = setInterval(loadUnavailableDates, 120000);
     return () => clearInterval(interval);
   }, []);
 
@@ -159,9 +160,9 @@ const InteractiveCalendar = ({
     
     if (dateAppts.length === 0) return false;
 
-    // If no filters applied, show all dates with appointments
+    // If no filters applied, show all dates with approved or completed appointments
     if (!filters || Object.keys(filters).length === 0) {
-      return dateAppts.some(a => a.status === 'approved');
+      return dateAppts.some(a => a.status === 'approved' || a.status === 'completed' || a.payment_status === 'paid');
     }
 
     // Apply active filters

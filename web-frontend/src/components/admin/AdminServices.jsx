@@ -15,12 +15,33 @@ const AdminServices = ({ isDarkMode = true }) => {
   const [services, setServices] = useState([]);
   const [archivedServices, setArchivedServices] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
+  // Auto-clear success messages after 3 seconds
+  useEffect(() => {
+    if (success) {
+      const timer = setTimeout(() => setSuccess(''), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [success]);
+
+  // Auto-clear error messages after 5 seconds
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => setError(''), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
   const [searchTerm, setSearchTerm] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [showArchive, setShowArchive] = useState(false);
   const [editingService, setEditingService] = useState(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+  const [modalError, setModalError] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 12;
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -94,6 +115,7 @@ const AdminServices = ({ isDarkMode = true }) => {
   };
 
   const handleOpenModal = (service = null) => {
+    setModalError('');
     if (service) {
       setEditingService(service);
       setFormData({
@@ -113,6 +135,7 @@ const AdminServices = ({ isDarkMode = true }) => {
   const handleCloseModal = () => {
     setShowModal(false);
     setEditingService(null);
+    setModalError('');
     setFormData({ name: '', description: '', price: '', duration: '' });
   };
 
@@ -128,68 +151,109 @@ const AdminServices = ({ isDarkMode = true }) => {
     e.preventDefault();
     setError('');
     setSuccess('');
+    setModalError('');
+
+    if (!formData.name.trim()) {
+      setModalError('Service name is required');
+      return;
+    }
 
     try {
-      setLoading(true);
+      setSaving(true);
+      
+      // Convert empty strings to null for optional numeric fields
+      const submitData = {
+        name: formData.name.trim(),
+        description: formData.description || null,
+        price: formData.price !== '' && formData.price !== undefined && formData.price !== null ? Number(formData.price) : null,
+        duration: formData.duration !== '' && formData.duration !== undefined && formData.duration !== null ? Number(formData.duration) : null,
+      };
       
       if (editingService) {
-        await axios.put(`/api/admin/services/${editingService.id}`, formData);
+        const response = await axios.put(`/api/admin/services/${editingService.id}`, submitData);
+        if (response.data?.success === false) {
+          setModalError(response.data.message || 'Failed to update service');
+          return;
+        }
         setSuccess('Service updated successfully');
       } else {
-        await axios.post('/api/admin/services', formData);
+        const response = await axios.post('/api/admin/services', submitData);
+        if (response.data?.success === false) {
+          setModalError(response.data.message || 'Failed to create service');
+          return;
+        }
         setSuccess('Service created successfully');
       }
       
       handleCloseModal();
-      loadServices();
+      await loadServices();
       
       // Notify Dashboard to refresh appointment types by dispatching a custom event
       window.dispatchEvent(new CustomEvent('servicesUpdated', { detail: { timestamp: new Date() } }));
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to save service');
+      console.error('Service save error:', err);
+      const errorMsg = err.response?.data?.message || err.response?.data?.error || 'Failed to save service';
+      // Show validation errors if available
+      if (err.response?.data?.errors) {
+        const validationErrors = Object.values(err.response.data.errors).flat().join(', ');
+        setModalError(validationErrors);
+      } else {
+        setModalError(errorMsg);
+      }
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   };
 
   const handleDelete = async (serviceId) => {
-    if (!window.confirm('Are you sure you want to archive this service?')) return;
-
     try {
-      setLoading(true);
+      setSaving(true);
       await axios.delete(`/api/admin/services/${serviceId}`);
       setSuccess('Service archived successfully');
-      loadServices();
+      setDeleteConfirm(null);
+      await loadServices();
       
       // Notify Dashboard to refresh appointment types
       window.dispatchEvent(new CustomEvent('servicesUpdated', { detail: { timestamp: new Date() } }));
     } catch (err) {
+      console.error('Service delete error:', err);
       setError(err.response?.data?.message || 'Failed to archive service');
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   };
 
   const handleRestore = async (serviceId) => {
     try {
-      setLoading(true);
+      setSaving(true);
       await axios.put(`/api/admin/services/${serviceId}/restore`);
       setSuccess('Service restored successfully');
-      loadServices();
-      loadArchivedServices();
+      await loadServices();
+      await loadArchivedServices();
       
       // Notify Dashboard to refresh appointment types
       window.dispatchEvent(new CustomEvent('servicesUpdated', { detail: { timestamp: new Date() } }));
     } catch (err) {
       setError(err.response?.data?.message || 'Failed to restore service');
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   };
 
   const filteredServices = services.filter(service =>
     service.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     service.description?.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  // Reset to page 1 when search changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
+
+  const totalPages = Math.ceil(filteredServices.length / itemsPerPage);
+  const paginatedServices = filteredServices.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
   );
 
   return (
@@ -319,8 +383,9 @@ const AdminServices = ({ isDarkMode = true }) => {
           </p>
         </div>
       ) : (
+        <>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredServices.map(service => (
+          {paginatedServices.map(service => (
             <div
               key={service.id}
               className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20 hover:border-amber-500/40' : 'bg-white border-amber-300/40 hover:border-amber-400'} border rounded-lg shadow p-4 transition-all duration-300`}
@@ -345,7 +410,7 @@ const AdminServices = ({ isDarkMode = true }) => {
                     <PencilIcon className="h-3 w-3" />
                   </button>
                   <button
-                    onClick={() => handleDelete(service.id)}
+                    onClick={() => setDeleteConfirm(service)}
                     className={`p-1.5 ${isDarkMode ? 'text-red-400 hover:bg-red-500/10 border-red-500/30' : 'text-red-600 hover:bg-red-100 border-red-300'} border rounded transition-all duration-200`}
                     title="Delete"
                   >
@@ -360,7 +425,7 @@ const AdminServices = ({ isDarkMode = true }) => {
                     <div className={`flex justify-between ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
                       <span>Price:</span>
                       <span className={isDarkMode ? 'text-amber-400' : 'text-amber-600'}>
-                        ${parseFloat(service.price).toFixed(2)}
+                        ₱{parseFloat(service.price).toFixed(2)}
                       </span>
                     </div>
                   )}
@@ -377,6 +442,55 @@ const AdminServices = ({ isDarkMode = true }) => {
             </div>
           ))}
         </div>
+
+        {/* Pagination Controls */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between pt-2">
+            <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+              Showing {(currentPage - 1) * itemsPerPage + 1}–{Math.min(currentPage * itemsPerPage, filteredServices.length)} of {filteredServices.length}
+            </p>
+            <div className="flex gap-1">
+              <button
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className={`px-3 py-1 text-xs rounded ${isDarkMode ? 'bg-gray-800 text-gray-300 hover:bg-gray-700 disabled:opacity-40' : 'bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-40'} transition-colors`}
+              >
+                Previous
+              </button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1)
+                .filter(p => p === 1 || p === totalPages || Math.abs(p - currentPage) <= 1)
+                .reduce((acc, p, idx, arr) => {
+                  if (idx > 0 && p - arr[idx - 1] > 1) acc.push('...');
+                  acc.push(p);
+                  return acc;
+                }, [])
+                .map((p, idx) =>
+                  p === '...' ? (
+                    <span key={`ellipsis-${idx}`} className={`px-2 py-1 text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>…</span>
+                  ) : (
+                    <button
+                      key={p}
+                      onClick={() => setCurrentPage(p)}
+                      className={`px-3 py-1 text-xs rounded ${currentPage === p
+                        ? (isDarkMode ? 'bg-amber-600 text-white' : 'bg-amber-500 text-white')
+                        : (isDarkMode ? 'bg-gray-800 text-gray-300 hover:bg-gray-700' : 'bg-gray-100 text-gray-700 hover:bg-gray-200')
+                      } transition-colors`}
+                    >
+                      {p}
+                    </button>
+                  )
+                )}
+              <button
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                className={`px-3 py-1 text-xs rounded ${isDarkMode ? 'bg-gray-800 text-gray-300 hover:bg-gray-700 disabled:opacity-40' : 'bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-40'} transition-colors`}
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
+        </>
       )}
 
       {/* Modal */}
@@ -396,6 +510,14 @@ const AdminServices = ({ isDarkMode = true }) => {
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
+              {modalError && (
+                <div className={`${isDarkMode ? 'bg-red-500/10 border-red-500/30 text-red-400' : 'bg-red-100 border-red-300 text-red-700'} border rounded-lg p-3`}>
+                  <div className="flex items-center">
+                    <ExclamationTriangleIcon className="h-4 w-4 mr-2 flex-shrink-0" />
+                    <p className="text-sm">{modalError}</p>
+                  </div>
+                </div>
+              )}
               <div>
                 <label className={`block text-xs font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-1`}>
                   Service Name *
@@ -428,7 +550,7 @@ const AdminServices = ({ isDarkMode = true }) => {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className={`block text-xs font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-1`}>
-                    Price ($)
+                    Price (₱)
                   </label>
                   <input
                     type="number"
@@ -468,13 +590,51 @@ const AdminServices = ({ isDarkMode = true }) => {
                 </button>
                 <button
                   type="submit"
-                  disabled={loading}
+                  disabled={saving}
                   className={`flex-1 px-4 py-2 ${isDarkMode ? 'bg-amber-600 text-white hover:bg-amber-700' : 'bg-amber-500 text-white hover:bg-amber-600'} rounded-lg transition-all duration-200 font-medium text-sm disabled:opacity-50`}
                 >
-                  {loading ? 'Saving...' : 'Save Service'}
+                  {saving ? 'Saving...' : 'Save Service'}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow-lg p-6 max-w-sm w-full mx-4`}>
+            <div className="flex items-start gap-3 mb-4">
+              <div className={`p-2 rounded-full ${isDarkMode ? 'bg-red-500/10' : 'bg-red-100'}`}>
+                <ExclamationTriangleIcon className={`h-5 w-5 ${isDarkMode ? 'text-red-400' : 'text-red-600'}`} />
+              </div>
+              <div>
+                <h3 className={`font-bold text-base ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>
+                  Delete Service
+                </h3>
+                <p className={`text-sm mt-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                  Are you sure you want to archive <strong>{deleteConfirm.name}</strong>? Users will no longer be able to select this service for new appointments.
+                </p>
+              </div>
+            </div>
+            <div className="flex space-x-3">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirm(null)}
+                className={`flex-1 px-4 py-2 ${isDarkMode ? 'bg-gray-800 text-gray-300 hover:bg-gray-700' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'} rounded-lg transition-all duration-200 font-medium text-sm`}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDelete(deleteConfirm.id)}
+                disabled={saving}
+                className="flex-1 px-4 py-2 bg-red-600 text-white hover:bg-red-700 rounded-lg transition-all duration-200 font-medium text-sm disabled:opacity-50"
+              >
+                {saving ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
           </div>
         </div>
       )}

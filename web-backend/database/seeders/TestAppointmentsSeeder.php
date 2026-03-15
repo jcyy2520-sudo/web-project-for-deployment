@@ -84,16 +84,13 @@ class TestAppointmentsSeeder extends Seeder
                     $paymentAmount = $service->price;
                 }
 
-                Appointment::create([
+                $appointment = Appointment::create([
                     'user_id' => $user->id,
                     'service_id' => $service->id,
                     'appointment_date' => $date,
                     'appointment_time' => $timeStr,
                     'start_time' => $startTime->format('H:i:s'),
                     'end_time' => $endTime->format('H:i:s'),
-                    'status' => $status,
-                    'payment_status' => $paymentStatus,
-                    'payment_amount' => $paymentStatus === 'paid' ? $paymentAmount : ($paymentStatus === 'partial' ? $paymentAmount * 0.5 : 0),
                     'discount_amount' => 0,
                     'discount_type' => null,
                     'type' => 'in-person',
@@ -102,6 +99,11 @@ class TestAppointmentsSeeder extends Seeder
                     'notes' => 'Appointment for ' . $user->first_name . ' ' . $user->last_name,
                     'payment_date' => ($paymentStatus === 'paid' || $paymentStatus === 'partial') ? now() : null,
                 ]);
+                // Set protected fields explicitly (not mass-assignable)
+                $appointment->status = $status;
+                $appointment->payment_status = $paymentStatus;
+                $appointment->payment_amount = $paymentStatus === 'paid' ? $paymentAmount : ($paymentStatus === 'partial' ? $paymentAmount * 0.5 : 0);
+                $appointment->save();
                 
                 $appointmentCreated++;
             }

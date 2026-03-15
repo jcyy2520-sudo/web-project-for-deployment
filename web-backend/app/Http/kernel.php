@@ -1,5 +1,11 @@
 <?php
 
+/**
+ * @deprecated This file is DEAD CODE in Laravel 11+.
+ * Middleware configuration is handled in bootstrap/app.php via withMiddleware().
+ * This file is safe to delete — the framework does not load it.
+ */
+
 namespace App\Http;
 
 use Illuminate\Foundation\Http\Kernel as HttpKernel;

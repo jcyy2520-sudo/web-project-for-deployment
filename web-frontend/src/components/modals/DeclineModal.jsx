@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { XMarkIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline';
+import { formatDateDisplay } from '../../utils/format';
 
 const DeclineModal = ({ isOpen, onClose, appointment, onConfirm, loading, isDarkMode = true }) => {
   const [reason, setReason] = useState('');
@@ -45,7 +46,7 @@ const DeclineModal = ({ isOpen, onClose, appointment, onConfirm, loading, isDark
               <strong>Client:</strong> {appointment.user?.first_name} {appointment.user?.last_name}
             </p>
             <p className={`text-xs ${isDarkMode ? 'text-red-200' : 'text-red-700'} mt-1`}>
-              <strong>Date:</strong> {new Date(appointment.appointment_date).toLocaleDateString()} at {appointment.appointment_time}
+              <strong>Date:</strong> {formatDateDisplay(appointment.appointment_date)} at {appointment.appointment_time}
             </p>
           </div>
 

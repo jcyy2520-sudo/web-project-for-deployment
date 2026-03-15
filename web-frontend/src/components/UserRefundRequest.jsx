@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { XMarkIcon } from '@heroicons/react/24/outline';
 import axios from 'axios';
+import { formatDateDisplay } from '../utils/format';
 
 const UserRefundRequest = ({ isOpen, onClose, appointment, onSuccess }) => {
   const [refundAmount, setRefundAmount] = useState(appointment?.payment_amount || '');
@@ -55,7 +56,7 @@ const UserRefundRequest = ({ isOpen, onClose, appointment, onSuccess }) => {
 
     setLoading(true);
     try {
-      const response = await axios.post('/api/cashier/refunds/request', {
+      const response = await axios.post('/api/refunds/request', {
         appointment_id: appointment?.id,
         refund_amount: parseFloat(refundAmount),
         reason,
@@ -70,7 +71,7 @@ const UserRefundRequest = ({ isOpen, onClose, appointment, onSuccess }) => {
             'success'
           );
         } else {
-          alert('Refund request submitted successfully!');
+          window.showToast?.('Success', 'Refund request submitted successfully!', 'success');
         }
         onSuccess?.();
         handleClose();
@@ -123,7 +124,7 @@ const UserRefundRequest = ({ isOpen, onClose, appointment, onSuccess }) => {
                 {appointment.service?.name || 'Appointment'}
               </p>
               <p className="text-xs text-gray-600 mt-1">
-                {new Date(appointment.appointment_date).toLocaleDateString()} at{' '}
+                {formatDateDisplay(appointment.appointment_date)} at{' '}
                 {appointment.appointment_time}
               </p>
             </div>

@@ -41,7 +41,7 @@ const SecurityMonitor = () => {
       setIpToBlock('');
       fetchSecurityData();
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to block IP');
+      window.showToast?.('Error', err.response?.data?.message || 'Failed to block IP', 'error');
     }
   };
 
@@ -50,7 +50,7 @@ const SecurityMonitor = () => {
       await axios.post('/api/security/ip/unblock', { ip_address: ip });
       fetchSecurityData();
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to unblock IP');
+      window.showToast?.('Error', err.response?.data?.message || 'Failed to unblock IP', 'error');
     }
   };
 

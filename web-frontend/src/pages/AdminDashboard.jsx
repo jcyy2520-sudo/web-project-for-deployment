@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { useApi } from '../hooks/useApi';
+import { useApi, clearApiCache } from '../hooks/useApi';
 import axios from 'axios';
 import { 
   UserGroupIcon, 
@@ -42,9 +43,13 @@ import {
   ChatBubbleBottomCenterTextIcon,
   Bars3Icon,
   UserMinusIcon,
-  StarIcon
+  StarIcon,
+  MegaphoneIcon,
+  NoSymbolIcon,
+  GlobeAltIcon
 } from '@heroicons/react/24/outline';
-import AdminFeedbackSettings from '../components/admin/AdminFeedbackSettings';
+import AdminSettings from '../components/admin/AdminSettings';
+import UserStatusManagement from '../components/admin/UserStatusManagement';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { formatServiceName, formatPrice } from '../utils/format';
 import AdminMessages from '../components/admin/AdminMessages';
@@ -55,12 +60,13 @@ import AdminFeedback from '../components/admin/AdminFeedback';
 import DocumentManagement from '../components/admin/DocumentManagement';
 import DeclineModal from '../components/modals/DeclineModal';
 import CompletionModal from '../components/modals/CompletionModal';
-import CalendarManagement from '../components/admin/CalendarManagement';
-import AppointmentSettingsManagement from '../components/admin/AppointmentSettingsManagement';
-import AdminDecisionSupport from '../components/admin/AdminDecisionSupport';
 import AffectedAppointmentsModal from '../components/admin/AffectedAppointmentsModal';
 import CancelBulkAppointmentsModal from '../components/admin/CancelBulkAppointmentsModal';
+import AppointmentCalendarModal from '../components/admin/AppointmentCalendarModal';
 import AdminRefundManagement from '../components/admin/AdminRefundManagement';
+import AdminAppeals from '../components/admin/AdminAppeals';
+import AdminAnnouncements from '../components/admin/AdminAnnouncements';
+
 
 // Chart Components
 const BarChart = ({ data, title, color = 'amber', height = 160, isDarkMode = true }) => {
@@ -964,6 +970,24 @@ const AdminFormModal = ({ isOpen, onClose, admin, onSave, loading }) => {
             </div>
           )}
 
+          <div>
+            <label className="block text-xs font-medium text-amber-50 mb-1">
+              Role *
+            </label>
+            <select
+              value={formData.role}
+              onChange={(e) => setFormData(prev => ({ ...prev, role: e.target.value }))}
+              className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm text-white"
+              disabled={loading}
+            >
+              <option value="admin">Admin</option>
+              <option value="cashier">Cashier</option>
+            </select>
+            <p className="text-xs mt-1 text-gray-400">
+              {formData.role === 'admin' ? 'Full access to admin dashboard' : 'Access to cashier functions (payments, shift reports)'}
+            </p>
+          </div>
+
           <div className="flex justify-end space-x-3 pt-4 border-t border-gray-700">
             <button
               type="button"
@@ -1297,12 +1321,6 @@ const UserDetailModal = ({ isOpen, onClose, user, onDeactivate, loading }) => {
                   <button className="w-full text-left p-1.5 rounded hover:bg-amber-500/10 transition-colors duration-200 text-amber-50 text-sm">
                     View Appointments
                   </button>
-                  <button 
-                    onClick={() => onDeactivate(user)}
-                    className="w-full text-left p-1.5 rounded hover:bg-red-500/10 transition-colors duration-200 text-red-400 text-sm"
-                  >
-                    {user.is_active ? 'Deactivate User' : 'Activate User'}
-                  </button>
                 </div>
               </div>
             </div>
@@ -1320,8 +1338,6 @@ const QuickStats = ({ stats, onStatClick, isDarkMode = true }) => {
       value: stats.totalUsers?.toString() || '0',
       icon: UsersIcon,
       color: 'bg-purple-500',
-      change: '+12%',
-      trend: 'up',
       key: 'users'
     },
     {
@@ -1329,8 +1345,6 @@ const QuickStats = ({ stats, onStatClick, isDarkMode = true }) => {
       value: stats.totalAppointments?.toString() || '0',
       icon: CalendarDaysIcon,
       color: 'bg-blue-500',
-      change: '+8%',
-      trend: 'up',
       key: 'appointments'
     },
     {
@@ -1338,17 +1352,13 @@ const QuickStats = ({ stats, onStatClick, isDarkMode = true }) => {
       value: stats.pendingAppointments?.toString() || '0',
       icon: ClockIcon,
       color: 'bg-amber-500',
-      change: '+5%',
-      trend: 'up',
       key: 'appointments'
     },
     {
       name: 'Revenue',
-      value: `$${stats.revenue?.toLocaleString() || '0'}`,
+      value: `₱${stats.revenue?.toLocaleString() || '0'}`,
       icon: BuildingLibraryIcon,
       color: 'bg-green-500',
-      change: '+15%',
-      trend: 'up',
       key: 'revenue'
     }
   ];
@@ -1369,12 +1379,6 @@ const QuickStats = ({ stats, onStatClick, isDarkMode = true }) => {
               <p className={`text-lg font-bold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mt-0.5 group-hover:scale-105 transition-transform`}>
                 {card.value}
               </p>
-              <div className={`flex items-center mt-1 text-xs ${
-                card.trend === 'up' ? 'text-green-500' : 'text-red-500'
-              }`}>
-                <span>{card.change}</span>
-                <span className="ml-1">from last month</span>
-              </div>
             </div>
             <div className={`${card.color} p-2 rounded-lg shadow group-hover:scale-110 transition-transform`}>
               <card.icon className="h-5 w-5 text-white" />
@@ -1542,6 +1546,7 @@ const ReportModal = ({ isOpen, onClose, onGenerate, loading }) => {
 // Main Admin Dashboard Component
 const AdminDashboard = () => {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const { callApi, loading: apiLoading, error, clearError } = useApi();
   
   // Ref for AdminMessages component to trigger refresh
@@ -1565,7 +1570,13 @@ const AdminDashboard = () => {
   const [deactivatedAdmins, setDeactivatedAdmins] = useState([]);
   const [archiveTab, setArchiveTab] = useState('users');
   const [deactivatedTab, setDeactivatedTab] = useState('users');
+  const [deactSearch, setDeactSearch] = useState('');
+  const [deactRoleFilter, setDeactRoleFilter] = useState('all');
   const [restoreLoading, setRestoreLoading] = useState(null);
+  const [unreadMessageCount, setUnreadMessageCount] = useState(0);
+  const [archiveSearch, setArchiveSearch] = useState('');
+  const [archiveRoleFilter, setArchiveRoleFilter] = useState('all');
+  const [archiveSort, setArchiveSort] = useState('newest');
   
   // Modal states
   const [showUserModal, setShowUserModal] = useState(false);
@@ -1577,6 +1588,7 @@ const AdminDashboard = () => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showUserDetailModal, setShowUserDetailModal] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
+  const [reportStats, setReportStats] = useState(null);
   const [showMessageModal, setShowMessageModal] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [showDeclineModal, setShowDeclineModal] = useState(false);
@@ -1588,6 +1600,14 @@ const AdminDashboard = () => {
   const [itemToDelete, setItemToDelete] = useState(null);
   const [appointmentToDecline, setAppointmentToDecline] = useState(null);
   const [appointmentToComplete, setAppointmentToComplete] = useState(null);
+  
+  // Account action modal state (delete/block/deactivate with reason)
+  const [showAccountActionModal, setShowAccountActionModal] = useState(false);
+  const [accountActionUser, setAccountActionUser] = useState(null);
+  const [accountActionType, setAccountActionType] = useState('deactivated');
+  const [accountActionReason, setAccountActionReason] = useState('');
+  const [accountActionLoading, setAccountActionLoading] = useState(false);
+  const [accountActionError, setAccountActionError] = useState('');
   
   // Search and filter states
   const [searchTerm, setSearchTerm] = useState('');
@@ -1605,6 +1625,13 @@ const AdminDashboard = () => {
   const [statusFilter, setStatusFilter] = useState('all');
   const [roleFilter, setRoleFilter] = useState('all');
   const [appointmentTab, setAppointmentTab] = useState('all'); // 'all', 'pending', 'approved', 'declined'
+  const [servicePerformancePage, setServicePerformancePage] = useState(1);
+  const [servicePerformancePageSize] = useState(10);
+
+  // Calendar date filter state (admin appointments section)
+  const [showCalendarModal, setShowCalendarModal] = useState(false);
+  const [dateFilter, setDateFilter] = useState(null);
+  const [dateFilterLabel, setDateFilterLabel] = useState('All Appointments');
 
   // Data loaded tracking
   const [dataLoaded, setDataLoaded] = useState({
@@ -1751,14 +1778,9 @@ const AdminDashboard = () => {
           key: 'appointments'
         },
         { 
-          name: `Calendar Settings (${unavailableDates.length || 0})`, 
-          icon: CalendarDaysIcon, 
-          key: 'calendar'
-        },
-        { 
-          name: 'Appointment Settings', 
+          name: 'Operation', 
           icon: CogIcon, 
-          key: 'appointment-settings'
+          key: 'system-config'
         },
         { 
           name: `Services (${services.length || 0})`, 
@@ -1786,9 +1808,14 @@ const AdminDashboard = () => {
           key: 'adminProfile'
         },
         { 
-          name: `Deactivated Accounts (${deactivatedUsers.length + deactivatedAdmins.length || 0})`, 
+          name: `Deactivated & Blocked (${deactivatedUsers.length + deactivatedAdmins.length || 0})`, 
           icon: UserMinusIcon, 
-          key: 'deactivated'
+          key: 'user-status'
+        },
+        { 
+          name: 'Appeals', 
+          icon: ExclamationTriangleIcon, 
+          key: 'appeals'
         }
       ]
     },
@@ -1796,9 +1823,10 @@ const AdminDashboard = () => {
       section: 'Communication',
       items: [
         { 
-          name: 'Messages', 
+          name: unreadMessageCount > 0 ? `Messages (${unreadMessageCount})` : 'Messages', 
           icon: ChatBubbleBottomCenterTextIcon, 
-          key: 'messages'
+          key: 'messages',
+          badge: unreadMessageCount > 0 ? unreadMessageCount : null
         },
         { 
           name: 'Action Logs', 
@@ -1809,11 +1837,11 @@ const AdminDashboard = () => {
           name: 'Feedback', 
           icon: StarIcon, 
           key: 'feedback'
-        }
-        ,{ 
-          name: 'Feedback Settings', 
-          icon: CogIcon, 
-          key: 'feedback-settings'
+        },
+        {
+          name: 'Announcements',
+          icon: MegaphoneIcon,
+          key: 'announcements'
         }
       ]
     },
@@ -1842,7 +1870,7 @@ const AdminDashboard = () => {
       icon: CogIcon, 
       key: 'settings'
     }
-  ], [stats.totalAppointments, unavailableDates.length, users, admins.length, deactivatedUsers.length, deactivatedAdmins.length, services.length]);
+  ], [stats.totalAppointments, unavailableDates.length, users, admins.length, deactivatedUsers.length, deactivatedAdmins.length, services.length, unreadMessageCount]);
 
   // Debounced search optimization
   useEffect(() => {
@@ -1893,13 +1921,46 @@ const AdminDashboard = () => {
     }
   }, []);
 
+  // Load report statistics from real data
+  const loadReportStats = useCallback(async () => {
+    try {
+      const [statsRes, analyticsRes] = await Promise.allSettled([
+        axios.get('/api/admin/stats', { params: { timeframe: 'all' }, timeout: 10000 }),
+        axios.get('/api/admin/analytics/dashboard', { params: { realtime: 'true' }, timeout: 15000 })
+      ]);
+
+      const statsData = statsRes.status === 'fulfilled' ? (statsRes.value?.data?.data || statsRes.value?.data || {}) : {};
+      const analyticsData = analyticsRes.status === 'fulfilled' ? (analyticsRes.value?.data?.data || {}) : {};
+
+      setReportStats({
+        totalAppointments: statsData.totalAppointments || 0,
+        completedAppointments: statsData.completedAppointments || 0,
+        cancelledAppointments: statsData.cancelledAppointments || 0,
+        pendingAppointments: statsData.pendingAppointments || 0,
+        approvedAppointments: statsData.approvedAppointments || 0,
+        totalUsers: statsData.totalUsers || 0,
+        totalStaff: statsData.totalStaff || 0,
+        revenue: statsData.revenue || 0,
+        appointmentsByStatus: statsData.appointmentsByStatus || [],
+        completionRate: statsData.totalAppointments > 0 ? ((statsData.completedAppointments || 0) / statsData.totalAppointments * 100).toFixed(1) : '0.0',
+        cancellationRate: statsData.totalAppointments > 0 ? ((statsData.cancelledAppointments || 0) / statsData.totalAppointments * 100).toFixed(1) : '0.0',
+        qualityReport: analyticsData.quality_report || {},
+        slotUtilization: analyticsData.slot_utilization || {},
+        lastUpdated: new Date(),
+      });
+    } catch (error) {
+      console.error('Failed to load report stats:', error);
+    }
+  }, []);
+
   // Fixed API calls with proper error handling
   const loadDashboardData = useCallback(async (tf, realtime = false) => {
     try {
       setDashboardLoading(true);
       const startTime = performance.now();
+      const effectiveTimeframe = tf || timeframe || 'monthly';
       const result = await callApi(async () => {
-        const params = { timeframe: tf };
+        const params = { timeframe: effectiveTimeframe };
         if (realtime) params.realtime = true;
         const response = await axios.get('/api/admin/stats', { 
           timeout: 10000,
@@ -1908,7 +1969,7 @@ const AdminDashboard = () => {
 
         const payload = response.data?.data || response.data || {};
         return { data: { stats: payload } };
-      });
+      }, { abortPrevious: false });
 
       const loadTime = performance.now() - startTime;
       if (loadTime > 500) {
@@ -1933,7 +1994,7 @@ const AdminDashboard = () => {
   const loadUsers = useCallback(async () => {
     try {
       const result = await callApi(async () => {
-        const response = await axios.get('/api/users?role=client&limit=1000', { 
+        const response = await axios.get('/api/admin/users?role=client&limit=1000&include_self=true', { 
           timeout: 10000
         });
         
@@ -1959,7 +2020,7 @@ const AdminDashboard = () => {
             status: user.is_active ? 'active' : 'inactive'
           })) 
         };
-      });
+      }, { abortPrevious: false });
 
       if (result.success) {
         setUsers(result.data || []);
@@ -1975,7 +2036,7 @@ const AdminDashboard = () => {
   const loadAdmins = useCallback(async () => {
     try {
       const result = await callApi(async () => {
-        const response = await axios.get('/api/admin/users?role=admin', { 
+        const response = await axios.get('/api/admin/users?role=admin&include_self=true&limit=1000', { 
           timeout: 10000
         });
         
@@ -2001,7 +2062,7 @@ const AdminDashboard = () => {
             status: admin.is_active ? 'active' : 'inactive'
           })) 
         };
-      });
+      }, { abortPrevious: false });
 
       if (result.success) {
         setAdmins(result.data || []);
@@ -2033,7 +2094,7 @@ const AdminDashboard = () => {
         // Filter only active services (not deleted)
         const activeServices = servicesData.filter(s => !s.deleted_at);
         return { data: activeServices };
-      });
+      }, { abortPrevious: false });
 
       if (result.success) {
         setServices(result.data || []);
@@ -2049,7 +2110,7 @@ const AdminDashboard = () => {
       const result = await callApi(async () => {
         const response = await axios.get('/api/admin/appointments?limit=1000', { 
           timeout: 10000,
-          params: { timeframe: timeframe }
+          params: { timeframe: 'all' }
         });
         
         let appointmentsData = [];
@@ -2069,7 +2130,7 @@ const AdminDashboard = () => {
         });
         
         return { data: appointmentsData };
-      });
+      }, { abortPrevious: false });
 
       if (result.success) {
         setAppointments(result.data || []);
@@ -2107,7 +2168,7 @@ const AdminDashboard = () => {
         });
         
         return { data: salesData };
-      });
+      }, { abortPrevious: false });
 
       if (result.success) {
         setSales(result.data || []);
@@ -2137,7 +2198,7 @@ const AdminDashboard = () => {
         }
         
         return { data: datesData };
-      });
+      }, { abortPrevious: false });
 
       if (result.success) {
         setUnavailableDates(result.data || []);
@@ -2167,7 +2228,7 @@ const AdminDashboard = () => {
         }
         
         return { data: userData };
-      });
+      }, { abortPrevious: false });
 
       if (result.success) {
         setArchivedUsers(result.data || []);
@@ -2195,7 +2256,7 @@ const AdminDashboard = () => {
         }
         
         return { data: appointmentData };
-      });
+      }, { abortPrevious: false });
 
       if (result.success) {
         setArchivedAppointments(result.data || []);
@@ -2209,8 +2270,8 @@ const AdminDashboard = () => {
   const loadDeactivatedAccounts = useCallback(async () => {
     try {
       const result = await callApi(async () => {
-        // Fetch all users with high per_page to get them all in one call
-        const response = await axios.get('/api/users?per_page=1000', { 
+        // Fetch all users including self to find deactivated accounts
+        const response = await axios.get('/api/admin/users?limit=1000&include_self=true', { 
           timeout: 10000
         });
         
@@ -2223,19 +2284,30 @@ const AdminDashboard = () => {
           userData = Object.values(payload).filter(item => item && typeof item === 'object');
         }
         
-        // Filter deactivated users (is_active === false)
-        const deactivatedUsers = userData.filter(user => user.is_active === false && user.role === 'client');
-        const deactivatedAdmins = userData.filter(user => user.is_active === false && user.role === 'admin');
+        // Filter deactivated users (is_active === false AND account_status is 'deactivated' or not 'blocked')
+        const deactivatedUsers = userData.filter(user => 
+          user.is_active === false && 
+          user.account_status !== 'blocked' && 
+          user.account_status !== 'deleted' && 
+          user.role === 'client'
+        );
+        const deactivatedAdmins = userData.filter(user => 
+          user.is_active === false && 
+          user.account_status !== 'blocked' && 
+          user.account_status !== 'deleted' && 
+          user.role === 'admin'
+        );
         
         return { 
           deactivatedUsers,
           deactivatedAdmins
         };
-      });
+      }, { abortPrevious: false });
 
       if (result.success) {
-        setDeactivatedUsers(result.deactivatedUsers || []);
-        setDeactivatedAdmins(result.deactivatedAdmins || []);
+        const data = result.data || {};
+        setDeactivatedUsers(data.deactivatedUsers || []);
+        setDeactivatedAdmins(data.deactivatedAdmins || []);
       }
       setDataLoaded(prev => ({ ...prev, deactivated: true }));
     } catch (error) {
@@ -2246,13 +2318,14 @@ const AdminDashboard = () => {
     }
   }, [callApi]);
 
-  // Load data when component mounts - preload critical data in parallel for faster UX
+  // Load data when component mounts - only load essential dashboard data initially
+  // Other tab data loads lazily when the tab is visited for the first time
   useEffect(() => {
     const loadInitialData = async () => {
-      // Load dashboard stats and commonly-used data in parallel
+      // Only load dashboard stats and services (needed for sidebar counts) initially
       await Promise.all([
         loadDashboardData(),
-        loadServices() // Preload services as they're used often
+        loadServices(),
       ]);
     };
     
@@ -2263,13 +2336,14 @@ const AdminDashboard = () => {
   useEffect(() => {
     const handleServicesUpdate = () => {
       loadServices();
+      loadReportStats(); // Also refresh report stats when services change
     };
 
     window.addEventListener('servicesUpdated', handleServicesUpdate);
     return () => window.removeEventListener('servicesUpdated', handleServicesUpdate);
-  }, [loadServices]);
+  }, [loadServices, loadReportStats]);
 
-  // Load data based on active tab - optimized with parallel loading
+  // Load data based on active tab - only load if not already loaded (data was preloaded on mount)
   useEffect(() => {
     const loadTabData = async () => {
       switch (activeTab) {
@@ -2338,6 +2412,50 @@ const AdminDashboard = () => {
     loadDeactivatedAccounts
   ]);
 
+  // Real-time polling: auto-refresh users/admins every 60 seconds when on those tabs
+  useEffect(() => {
+    if (activeTab !== 'users' && activeTab !== 'adminProfile') return;
+
+    const interval = setInterval(() => {
+      if (activeTab === 'users') {
+        loadUsers();
+      } else if (activeTab === 'adminProfile') {
+        loadAdmins();
+      }
+    }, 60000); // 60 seconds
+
+    return () => clearInterval(interval);
+  }, [activeTab, loadUsers, loadAdmins]);
+
+  // Poll for unread message count every 30 seconds for sidebar badge
+  useEffect(() => {
+    const fetchUnreadCount = async () => {
+      try {
+        const result = await callApi(() =>
+          axios.get('/api/messages', { timeout: 10000 }),
+          { skipCache: true, showLoading: false }
+        );
+        if (result.success) {
+          const convs = Array.isArray(result.data?.data) ? result.data.data : (Array.isArray(result.data) ? result.data : []);
+          const total = convs.reduce((sum, conv) => sum + (conv.unread_count || 0), 0);
+          setUnreadMessageCount(total);
+        }
+      } catch (e) {
+        // Silently fail - badge just won't update
+      }
+    };
+    fetchUnreadCount();
+    const interval = setInterval(fetchUnreadCount, 30000);
+    return () => clearInterval(interval);
+  }, [callApi]);
+
+  // Reset unread count when viewing messages tab
+  useEffect(() => {
+    if (activeTab === 'messages') {
+      setUnreadMessageCount(0);
+    }
+  }, [activeTab]);
+
   // Helper: check if a date is within the selected timeframe
   const isWithinTimeframe = useCallback((dateStr, tf) => {
     if (!dateStr) return false;
@@ -2369,6 +2487,9 @@ const AdminDashboard = () => {
     // Fixed: Only show clients in "All Users" tab
     filtered = filtered.filter(user => user.role === 'client');
     
+    // Exclude deactivated/blocked/deleted users - they appear in their own sections
+    filtered = filtered.filter(user => user.is_active !== false && user.account_status !== 'blocked' && user.account_status !== 'deactivated' && user.account_status !== 'deleted');
+    
     if (debouncedSearchTerm) {
       const searchLower = debouncedSearchTerm.toLowerCase();
       filtered = filtered.filter(user => 
@@ -2383,13 +2504,11 @@ const AdminDashboard = () => {
       filtered = filtered.filter(user => user.role === roleFilter);
     }
 
-    // Apply global timeframe filter to users (based on account creation date)
-    if (timeframe) {
-      filtered = filtered.filter(user => isWithinTimeframe(user.created_at || user.createdAt, timeframe));
-    }
+    // NOTE: Timeframe filter removed from user listings - shows ALL users regardless of timeframe
+    // Timeframe filter only applies to dashboard stats/charts
 
     return filtered;
-  }, [users, debouncedSearchTerm, roleFilter, timeframe, isWithinTimeframe]);
+  }, [users, debouncedSearchTerm, roleFilter]);
 
   
 
@@ -2417,16 +2536,48 @@ const AdminDashboard = () => {
     if (timeframe) {
       list = list.filter(u => isWithinTimeframe(u.deleted_at || u.deletedAt || u.created_at, timeframe));
     }
+    if (archiveSearch) {
+      const s = archiveSearch.toLowerCase();
+      list = list.filter(u =>
+        (u.first_name?.toLowerCase() || '').includes(s) ||
+        (u.last_name?.toLowerCase() || '').includes(s) ||
+        (u.email?.toLowerCase() || '').includes(s)
+      );
+    }
+    if (archiveRoleFilter !== 'all') {
+      list = list.filter(u => u.role === archiveRoleFilter);
+    }
+    list = [...list].sort((a, b) => {
+      if (archiveSort === 'newest') return new Date(b.deleted_at || 0) - new Date(a.deleted_at || 0);
+      if (archiveSort === 'oldest') return new Date(a.deleted_at || 0) - new Date(b.deleted_at || 0);
+      if (archiveSort === 'name') return (a.first_name || '').localeCompare(b.first_name || '');
+      return 0;
+    });
     return list;
-  }, [archivedUsers, timeframe, isWithinTimeframe]);
+  }, [archivedUsers, timeframe, isWithinTimeframe, archiveSearch, archiveRoleFilter, archiveSort]);
 
   const filteredArchivedAppointments = useMemo(() => {
     let list = archivedAppointments || [];
     if (timeframe) {
       list = list.filter(a => isWithinTimeframe(a.deleted_at || a.deletedAt || a.appointment_date || a.appointmentDate, timeframe));
     }
+    if (archiveSearch) {
+      const s = archiveSearch.toLowerCase();
+      list = list.filter(a =>
+        (a.user?.first_name?.toLowerCase() || '').includes(s) ||
+        (a.user?.last_name?.toLowerCase() || '').includes(s) ||
+        (a.appointment_date || '').includes(s) ||
+        (formatServiceName(a) || '').toLowerCase().includes(s)
+      );
+    }
+    list = [...list].sort((a, b) => {
+      if (archiveSort === 'newest') return new Date(b.deleted_at || 0) - new Date(a.deleted_at || 0);
+      if (archiveSort === 'oldest') return new Date(a.deleted_at || 0) - new Date(b.deleted_at || 0);
+      if (archiveSort === 'name') return (a.user?.first_name || '').localeCompare(b.user?.first_name || '');
+      return 0;
+    });
     return list;
-  }, [archivedAppointments, timeframe, isWithinTimeframe]);
+  }, [archivedAppointments, timeframe, isWithinTimeframe, archiveSearch, archiveSort]);
 
   const filteredDeactivatedUsers = useMemo(() => {
     let list = deactivatedUsers || [];
@@ -2457,13 +2608,12 @@ const AdminDashboard = () => {
         (admin.phone?.toLowerCase() || '').includes(searchLower)
       );
     }
-    // Apply global timeframe filter to admins (based on account creation date)
-    if (timeframe) {
-      filtered = filtered.filter(admin => isWithinTimeframe(admin.created_at || admin.createdAt, timeframe));
-    }
+
+    // NOTE: Timeframe filter removed from admin listings - shows ALL admins regardless of timeframe
+    // Timeframe filter only applies to dashboard stats/charts
 
     return filtered;
-  }, [admins, debouncedSearchTerm, timeframe, isWithinTimeframe]);
+  }, [admins, debouncedSearchTerm]);
 
   const sortedAdmins = useMemo(() => {
     if (!sortConfig.key) return filteredAdmins;
@@ -2528,7 +2678,7 @@ const AdminDashboard = () => {
   // Fixed CRUD Operations
   const handleSaveUser = useCallback(async (userData) => {
     try {
-      const url = selectedUser ? `/api/users/${selectedUser.id}` : '/api/users';
+      const url = selectedUser ? `/api/admin/users/${selectedUser.id}` : '/api/admin/users';
       const method = selectedUser ? 'PUT' : 'POST';
 
       const requestData = {
@@ -2564,6 +2714,9 @@ const AdminDashboard = () => {
         setShowUserModal(false);
         setSelectedUser(null);
         
+        // Clear cache to ensure fresh data
+        clearApiCache();
+        
         setDataLoaded(prev => ({ 
           ...prev, 
           users: false, 
@@ -2594,7 +2747,7 @@ const AdminDashboard = () => {
         email: adminData.email,
         phone: adminData.phone,
         address: adminData.address || '',
-        role: 'admin',
+        role: adminData.role || 'admin',
         ...(adminData.password && { password: adminData.password })
       };
 
@@ -2620,6 +2773,9 @@ const AdminDashboard = () => {
 
         setShowAdminModal(false);
         setSelectedAdmin(null);
+        
+        // Clear cache to ensure fresh data
+        clearApiCache();
         
         setDataLoaded(prev => ({ ...prev, adminProfile: false }));
         await loadAdmins();
@@ -2708,7 +2864,7 @@ const AdminDashboard = () => {
       const userIds = [...new Set(appointments.map(apt => apt.user_id || apt.user?.id))].filter(Boolean);
       
       if (userIds.length === 0) {
-        alert('No users to send message to');
+        window.showToast?.('Warning', 'No users to send message to', 'warning');
         return;
       }
 
@@ -2728,13 +2884,13 @@ const AdminDashboard = () => {
       }));
 
       if (result.success) {
-        alert(`Message sent successfully to ${userIds.length} user${userIds.length !== 1 ? 's' : ''}!`);
+        window.showToast?.('Success', 'Message sent successfully!', 'success');
       } else {
-        alert('Failed to send message. Please try again.');
+        window.showToast?.('Error', 'Failed to send message. Please try again.', 'error');
       }
     } catch (error) {
       console.error('Error sending message to affected users:', error);
-      alert('Failed to send message. Please try again.');
+      window.showToast?.('Error', 'Failed to send message. Please try again.', 'error');
     }
   }, [callApi]);
 
@@ -2778,11 +2934,11 @@ const AdminDashboard = () => {
         await loadAppointments();
         await loadUnavailableDates();
 
-        alert(`Successfully cancelled ${appointmentIds.length} appointment${appointmentIds.length !== 1 ? 's' : ''} and notified users.`);
+        window.showToast?.('Success', 'Appointments cancelled successfully!', 'success');
       }
     } catch (error) {
       console.error('Error cancelling bulk appointments:', error);
-      alert('Failed to cancel appointments. Please try again.');
+      window.showToast?.('Error', 'Failed to cancel appointments. Please try again.', 'error');
     }
   }, [callApi, loadAppointments, loadUnavailableDates]);
 
@@ -2794,7 +2950,7 @@ const AdminDashboard = () => {
       setAdmins(prev => prev.filter(admin => admin.id !== itemToDelete.id));
 
       const result = await callApi(() => 
-        axios.delete(`/api/users/${itemToDelete.id}`, { 
+        axios.delete(`/api/admin/users/${itemToDelete.id}`, { 
           timeout: 15000 
         })
       );
@@ -2802,6 +2958,9 @@ const AdminDashboard = () => {
       if (result.success) {
         setShowDeleteModal(false);
         setItemToDelete(null);
+        
+        // Clear cache to ensure fresh data
+        clearApiCache();
         
         setDataLoaded(prev => ({ 
           ...prev, 
@@ -2853,6 +3012,9 @@ const AdminDashboard = () => {
         setShowDeleteModal(false);
         setItemToDelete(null);
         
+        // Clear cache to ensure fresh data
+        clearApiCache();
+        
         setDataLoaded(prev => ({ ...prev, adminProfile: false, archive: false }));
         await loadAdmins();
         // Reload archived users so they appear in Archive tab
@@ -2876,6 +3038,9 @@ const AdminDashboard = () => {
       );
 
       if (result.success) {
+        // Clear cache to ensure fresh data
+        clearApiCache();
+        
         setDataLoaded(prev => ({ ...prev, users: false, adminProfile: false, deactivated: false }));
         
         // Always reload both users and admins to ensure proper display regardless of current tab
@@ -2934,6 +3099,47 @@ const AdminDashboard = () => {
     }
   }, [callApi, loadUsers, loadAdmins, loadDeactivatedAccounts]);
 
+  // Handle admin account action (delete/block/deactivate with reason)
+  const handleAccountAction = useCallback(async () => {
+    if (!accountActionUser || !accountActionReason || accountActionReason.length < 10) {
+      setAccountActionError('Please provide a reason (at least 10 characters).');
+      return;
+    }
+
+    try {
+      setAccountActionLoading(true);
+      setAccountActionError('');
+
+      const result = await callApi(() =>
+        axios.post(`/api/admin/users/${accountActionUser.id}/account-action`, {
+          action: accountActionType,
+          reason: accountActionReason,
+        }, { timeout: 15000 })
+      );
+
+      if (result.success) {
+        clearApiCache();
+        setShowAccountActionModal(false);
+        setAccountActionUser(null);
+        setAccountActionType('deactivated');
+        setAccountActionReason('');
+        setDataLoaded(prev => ({ ...prev, users: false, adminProfile: false, deactivated: false }));
+        await Promise.all([
+          loadUsers(),
+          loadAdmins(),
+          loadDeactivatedAccounts(),
+          loadArchivedUsers(),
+        ]);
+      } else {
+        setAccountActionError(result.error || 'Failed to perform action.');
+      }
+    } catch (error) {
+      setAccountActionError(error.response?.data?.message || 'Failed to perform action.');
+    } finally {
+      setAccountActionLoading(false);
+    }
+  }, [accountActionUser, accountActionType, accountActionReason, callApi, loadUsers, loadAdmins, loadDeactivatedAccounts, loadArchivedUsers]);
+
   const handleDeleteUnavailableDate = useCallback(async (dateId) => {
     try {
       setUnavailableDates(prev => prev.filter(date => date.id !== dateId));
@@ -2985,14 +3191,22 @@ const AdminDashboard = () => {
 
       const payload = (action === 'decline' && data) ? { decline_reason: data } : {};
 
+      // 'pending' (Reset) uses the /status endpoint since there's no dedicated /pending route
+      const url = (action === 'pending')
+        ? `/api/appointments/${appointmentId}/status`
+        : `/api/appointments/${appointmentId}/${action}`;
+      const body = (action === 'pending') ? { status: 'pending' } : payload;
+
       const result = await callApi(() => 
-        axios.put(`/api/appointments/${appointmentId}/${action}`, payload, { 
+        axios.put(url, body, { 
           timeout: 15000 
         })
       );
 
       if (result.success) {
         console.log(`Appointment ${action}ed successfully:`, result.data);
+        // Clear all frontend API cache to ensure fresh data after status change
+        clearApiCache();
         // Success - refresh data to ensure consistency
         setDataLoaded(prev => ({ ...prev, appointments: false, dashboard: false }));
         await loadAppointments();
@@ -3130,13 +3344,17 @@ const AdminDashboard = () => {
 
   // Refresh function
   const handleRefresh = useCallback(async () => {
+    // Clear all API cache to ensure truly fresh data
+    clearApiCache();
+    
     setDataLoaded({
       dashboard: false,
       users: false,
       appointments: false,
       calendar: false,
       adminProfile: false,
-      archive: false
+      archive: false,
+      deactivated: false
     });
     
     switch (activeTab) {
@@ -3167,7 +3385,10 @@ const AdminDashboard = () => {
       loadDashboardData(timeframeRef.current);
       loadSales(timeframeRef.current);
     }
-  }, [activeTab, loadDashboardData, loadSales]);
+    if (activeTab === 'reports') {
+      loadReportStats();
+    }
+  }, [activeTab, loadDashboardData, loadSales, loadReportStats]);
 
   // When timeframe changes, reload dashboard stats with new timeframe
   // This ensures charts and data reflect the selected period
@@ -3230,7 +3451,7 @@ const AdminDashboard = () => {
         item_type: itemType
       });
       if (response.data?.success) {
-        alert('Item restored successfully!');
+        window.showToast?.('Success', 'Item restored successfully!', 'success');
         setDataLoaded(prev => ({ 
           ...prev, 
           archive: false, 
@@ -3245,7 +3466,7 @@ const AdminDashboard = () => {
         await loadDeactivatedAccounts();
       }
     } catch (error) {
-      alert('Failed to restore item: ' + error.message);
+      window.showToast?.('Error', 'Failed to restore item: ' + (config?.debug ? error.message : ''), 'error');
     } finally {
       setRestoreLoading(null);
     }
@@ -3259,12 +3480,12 @@ const AdminDashboard = () => {
     try {
       const response = await axios.delete(`/api/${itemType === 'user' ? 'users' : 'appointments'}/permanent/${itemId}`);
       if (response.data?.success) {
-        alert('Item permanently deleted');
+        window.showToast?.('Success', 'Item permanently deleted', 'success');
         loadArchivedUsers();
         loadArchivedAppointments();
       }
     } catch (error) {
-      alert('Failed to delete item: ' + error.message);
+      window.showToast?.('Error', 'Failed to delete item: ' + (config?.debug ? error.message : ''), 'error');
     }
   };
 
@@ -3325,6 +3546,38 @@ const AdminDashboard = () => {
             <CalendarIcon className={`h-8 w-8 ${archiveTab === 'appointments' ? 'text-green-400' : 'text-gray-500'}`} />
           </div>
         </button>
+      </div>
+
+      {/* Search, Filter & Sort Controls */}
+      <div className="flex flex-col sm:flex-row gap-2">
+        <input
+          type="text"
+          placeholder={archiveTab === 'users' ? 'Search by name or email...' : 'Search by name, date, or service...'}
+          value={archiveSearch}
+          onChange={e => setArchiveSearch(e.target.value)}
+          className="flex-1 px-3 py-2 rounded-lg text-sm border bg-gray-800/50 border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500"
+        />
+        {archiveTab === 'users' && (
+          <select
+            value={archiveRoleFilter}
+            onChange={e => setArchiveRoleFilter(e.target.value)}
+            className="px-3 py-2 rounded-lg text-sm border bg-gray-800/50 border-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+          >
+            <option value="all">All Roles</option>
+            <option value="client">Client</option>
+            <option value="admin">Admin</option>
+            <option value="staff">Staff</option>
+          </select>
+        )}
+        <select
+          value={archiveSort}
+          onChange={e => setArchiveSort(e.target.value)}
+          className="px-3 py-2 rounded-lg text-sm border bg-gray-800/50 border-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+        >
+          <option value="newest">Newest First</option>
+          <option value="oldest">Oldest First</option>
+          <option value="name">Name A-Z</option>
+        </select>
       </div>
 
       {/* Empty State */}
@@ -3569,7 +3822,7 @@ const AdminDashboard = () => {
             type="button"
             onClick={() => {
               localStorage.setItem('systemSettings', JSON.stringify(systemSettings));
-              alert('System settings saved successfully!');
+              window.showToast?.('Success', 'System settings saved successfully!', 'success');
             }}
             className="w-full px-4 py-2 bg-gradient-to-r from-amber-600 to-amber-700 text-white rounded-lg hover:from-amber-700 hover:to-amber-800 transition-all duration-200 font-medium text-sm shadow border border-amber-500/30"
           >
@@ -3823,21 +4076,24 @@ const AdminDashboard = () => {
       <QuickStats 
         stats={stats}
         onStatClick={setActiveTab}
+        isDarkMode={isDarkMode}
       />
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         <PieChart 
           data={appointmentStatusData} 
           title="Appointment Status" 
+          isDarkMode={isDarkMode}
         />
         <PieChart 
           data={userRoleData} 
           title="User Roles" 
+          isDarkMode={isDarkMode}
         />
       </div>
 
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-amber-50">Trends</h3>
+        <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>Trends</h3>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
@@ -3845,12 +4101,14 @@ const AdminDashboard = () => {
           data={appointmentsByPeriod} 
           title={`${timeframe.charAt(0).toUpperCase() + timeframe.slice(1)} Appointments`} 
           color="blue"
+          isDarkMode={isDarkMode}
         />
         <BarChart 
           data={revenueByPeriod} 
           title="Revenue" 
           color="green"
           height={160}
+          isDarkMode={isDarkMode}
         />
       </div>
 
@@ -4009,29 +4267,17 @@ const AdminDashboard = () => {
                       <ChatBubbleLeftRightIcon className="h-3 w-3" />
                     </button>
                     <button
-                      onClick={() => handleToggleUserStatus(userItem)}
-                      className={`p-1 rounded border transition-colors duration-200 ${
-                        userItem.is_active 
-                          ? 'text-red-400 hover:text-red-300 hover:bg-red-500/10 border-red-500/30' 
-                          : 'text-green-400 hover:text-green-300 hover:bg-green-500/10 border-green-500/30'
-                      }`}
-                      title={userItem.is_active ? 'Deactivate user' : 'Activate user'}
-                    >
-                      {userItem.is_active ? (
-                        <XCircleIcon className="h-3 w-3" />
-                      ) : (
-                        <CheckCircleIcon className="h-3 w-3" />
-                      )}
-                    </button>
-                    <button
                       onClick={() => {
-                        setItemToDelete(userItem);
-                        setShowDeleteModal(true);
+                        setAccountActionUser(userItem);
+                        setAccountActionType('deactivated');
+                        setAccountActionReason('');
+                        setAccountActionError('');
+                        setShowAccountActionModal(true);
                       }}
                       className="text-orange-400 hover:text-orange-300 transition-colors duration-200 p-1 rounded hover:bg-orange-500/10 border border-orange-500/30"
-                      title="Archive user"
+                      title="Account action (delete/block/deactivate)"
                     >
-                      <ArchiveBoxIcon className="h-3 w-3" />
+                      <ExclamationTriangleIcon className="h-3 w-3" />
                     </button>
                   </td>
                 </tr>
@@ -4111,6 +4357,29 @@ const AdminDashboard = () => {
 
   // Appointments render function
   const renderAppointments = () => {
+    // Today's date string for comparisons
+    const _t = new Date();
+    const todayDateStr = `${_t.getFullYear()}-${String(_t.getMonth()+1).padStart(2,'0')}-${String(_t.getDate()).padStart(2,'0')}`;
+
+    // Helper to normalize any date value to YYYY-MM-DD string
+    const normalizeDate = (dateVal) => {
+      if (!dateVal) return '';
+      if (typeof dateVal === 'string') {
+        const match = dateVal.match(/^(\d{4}-\d{2}-\d{2})/);
+        return match ? match[1] : '';
+      }
+      return '';
+    };
+
+    // Helper to display a date string without timezone shift issues
+    // Uses local Date constructor (year, month, day) to avoid UTC→local conversion
+    const formatDateDisplay = (dateVal) => {
+      const d = normalizeDate(dateVal);
+      if (!d) return '';
+      const [y, m, day] = d.split('-');
+      return new Date(+y, +m - 1, +day).toLocaleDateString();
+    };
+
     // Filter appointments by tab
     const tabFilteredAppointments = appointmentTab === 'all' 
       ? appointments 
@@ -4126,8 +4395,27 @@ const AdminDashboard = () => {
     const approvedCount = appointments.filter(apt => apt.status === 'approved').length;
     const declinedCount = appointments.filter(apt => apt.status === 'declined').length;
 
-    // Apply existing filters to tab-filtered appointments
-    let filtered = tabFilteredAppointments.filter(apt => {
+    // Apply date filter FIRST (calendar modal selection)
+    let dateFiltered = tabFilteredAppointments;
+    if (dateFilter) {
+      if (dateFilter.includes('..')) {
+        // Range filter: "YYYY-MM-DD..YYYY-MM-DD"
+        const [startStr, endStr] = dateFilter.split('..');
+        dateFiltered = tabFilteredAppointments.filter(apt => {
+          const aptDate = normalizeDate(apt.appointment_date);
+          return aptDate >= startStr && aptDate <= endStr;
+        });
+      } else {
+        // Single date filter
+        dateFiltered = tabFilteredAppointments.filter(apt => {
+          const aptDate = normalizeDate(apt.appointment_date);
+          return aptDate === dateFilter;
+        });
+      }
+    }
+
+    // Apply existing filters to date-filtered appointments
+    let filtered = dateFiltered.filter(apt => {
       const matchesSearch = !debouncedSearchTerm || 
         apt.user?.first_name?.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
         apt.user?.last_name?.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
@@ -4180,20 +4468,101 @@ const AdminDashboard = () => {
 
     return (
     <div className="space-y-4">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
         <div>
-          <h2 className="text-lg font-bold text-amber-50">Appointment Management</h2>
-          <p className="text-gray-400 text-sm">Manage and review all appointments</p>
+          <h2 className={`text-lg font-bold ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>Appointment Management</h2>
+          <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Manage and review all appointments</p>
         </div>
-        <button
-          onClick={handleRefresh}
-          className="px-3 py-1.5 border border-amber-500/30 text-amber-50 rounded hover:bg-amber-500/10 transition-all duration-200 font-medium text-sm flex items-center"
-          title="Refresh data"
-        >
-          <ArrowPathIcon className="h-3 w-3 mr-1" />
-          Refresh
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowCalendarModal(true)}
+            className={`px-3 py-1.5 border rounded text-sm font-medium flex items-center gap-1.5 transition-all duration-200 ${
+              isDarkMode
+                ? 'border-amber-500/40 text-amber-300 hover:bg-amber-500/10'
+                : 'border-amber-400 text-amber-700 hover:bg-amber-50'
+            }`}
+            title="Open calendar filter"
+          >
+            <CalendarDaysIcon className="h-4 w-4" />
+            Calendar
+          </button>
+          {dateFilter && (
+            <button
+              type="button"
+              onClick={() => { setDateFilter(null); setDateFilterLabel('All Appointments'); setAppointmentPage(1); }}
+              className={`px-3 py-1.5 border rounded text-sm font-medium flex items-center gap-1 transition-all duration-200 ${
+                isDarkMode
+                  ? 'border-gray-600 text-gray-300 hover:bg-gray-800'
+                  : 'border-gray-300 text-gray-600 hover:bg-gray-100'
+              }`}
+              title="View all appointments"
+            >
+              📋 View All
+            </button>
+          )}
+          {dateFilter !== todayDateStr && (
+            <button
+              type="button"
+              onClick={() => {
+                setDateFilter(todayDateStr);
+                setDateFilterLabel(`Today (${todayDateStr})`);
+                setAppointmentTab('all');
+                setStatusFilter('all');
+                setAppointmentPage(1);
+              }}
+              className={`px-3 py-1.5 border rounded text-sm font-medium flex items-center gap-1 transition-all duration-200 ${
+                isDarkMode
+                  ? 'border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10'
+                  : 'border-emerald-400 text-emerald-700 hover:bg-emerald-50'
+              }`}
+              title="Show today's appointments"
+            >
+              📅 Today
+            </button>
+          )}
+          <button
+            onClick={handleRefresh}
+            className={`px-3 py-1.5 border rounded font-medium text-sm flex items-center transition-all duration-200 ${
+              isDarkMode
+                ? 'border-amber-500/30 text-amber-50 hover:bg-amber-500/10'
+                : 'border-amber-300 text-amber-700 hover:bg-amber-50'
+            }`}
+            title="Refresh data"
+          >
+            <ArrowPathIcon className="h-3 w-3 mr-1" />
+            Refresh
+          </button>
+        </div>
       </div>
+
+      {/* Date filter indicator */}
+      <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm ${
+        isDarkMode
+          ? 'bg-gray-800/60 border border-gray-700/50 text-gray-300'
+          : 'bg-gray-50 border border-gray-200 text-gray-600'
+      }`}>
+        <CalendarDaysIcon className={`h-4 w-4 flex-shrink-0 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`} />
+        <span>
+          Showing appointments for: <strong className={isDarkMode ? 'text-amber-200' : 'text-amber-700'}>{dateFilterLabel}</strong>
+        </span>
+        <span className={`ml-auto text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+          {filtered.length} result{filtered.length !== 1 ? 's' : ''}
+        </span>
+      </div>
+
+      {/* Calendar Modal */}
+      <AppointmentCalendarModal
+        isOpen={showCalendarModal}
+        onClose={() => setShowCalendarModal(false)}
+        onSelectDate={(date, label) => {
+          setDateFilter(date);
+          setDateFilterLabel(label);
+          setAppointmentPage(1);
+        }}
+        selectedDate={dateFilter}
+        isDarkMode={isDarkMode}
+      />
 
       {/* Appointment Tabs */}
       <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow overflow-x-auto`}>
@@ -4357,7 +4726,7 @@ const AdminDashboard = () => {
                   </td>
                   <td className="px-3 py-2">
                     <div className="text-xs text-amber-50">
-                      {new Date(appointment.appointment_date).toLocaleDateString()}
+                      {formatDateDisplay(appointment.appointment_date)}
                     </div>
                     <div className="text-xs text-gray-400 hidden sm:block">{appointment.appointment_time}</div>
                   </td>
@@ -4420,18 +4789,24 @@ const AdminDashboard = () => {
             <CalendarIcon className="mx-auto h-12 w-12 text-gray-600" />
             <h3 className="mt-1 text-xs font-medium text-amber-50">No appointments found</h3>
             <p className="mt-0.5 text-xs text-gray-400">
-              {debouncedSearchTerm || statusFilter !== 'all' ? 'Try adjusting your search terms or filters' : 'No appointments in this category'}
+              {dateFilter
+                ? `No appointments scheduled for ${dateFilterLabel}`
+                : debouncedSearchTerm || statusFilter !== 'all'
+                  ? 'Try adjusting your search terms or filters'
+                  : 'No appointments in this category'}
             </p>
-            {(debouncedSearchTerm || statusFilter !== 'all') && (
+            {(dateFilter || debouncedSearchTerm || statusFilter !== 'all') && (
               <button
                 onClick={() => {
                   setSearchTerm('');
                   setStatusFilter('all');
+                  setDateFilter(null);
+                  setDateFilterLabel('All Appointments');
                   setAppointmentPage(1);
                 }}
                 className="mt-2 px-2 py-1 text-amber-400 hover:text-amber-300 text-xs font-medium"
               >
-                Clear filters
+                Clear all filters
               </button>
             )}
           </div>
@@ -4561,161 +4936,293 @@ const AdminDashboard = () => {
     );
   };
 
-  // Calendar render function - full width with optional decision support section
-  const renderCalendar = () => {
-    return (
-      <div className="space-y-6">
-        {/* Calendar Management - Full Width */}
-        <div>
-          <CalendarManagement isDarkMode={isDarkMode} />
-        </div>
-
-        {/* Decision Support - Optional, below calendar */}
-        <div className={`rounded-lg shadow-lg border ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-          <div className={`p-4 border-b ${isDarkMode ? 'border-gray-700 bg-gray-900' : 'border-gray-200 bg-gray-50'}`}>
-            <h3 className={`text-lg font-bold flex items-center gap-2 ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>
-              <span>📊 Quick Analytics & Insights</span>
-              <span className={`text-xs font-normal px-2 py-1 rounded ${isDarkMode ? 'bg-amber-500/20 text-amber-300' : 'bg-amber-100 text-amber-700'}`}>
-                Optional
-              </span>
-            </h3>
-            <p className={`text-sm mt-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-              Suggested time slots and booking analytics to assist with scheduling decisions
-            </p>
-          </div>
-          <div className="p-4">
-            <AdminDecisionSupport isDarkMode={isDarkMode} onRefresh={loadUnavailableDates} />
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  // Appointment Settings render function
-  const renderAppointmentSettings = () => {
-    return (
-      <div className="space-y-6">
-        <div>
-          <AppointmentSettingsManagement isDarkMode={isDarkMode} />
-        </div>
-      </div>
-    );
-  };
-
+  // Calendar render function - full width
   // Reports render function
-  const renderReports = () => (
+  const renderReports = () => {
+    const rs = reportStats || {};
+    const totalAppts = rs.totalAppointments || 0;
+    const completedAppts = rs.completedAppointments || 0;
+    const cancelledAppts = rs.cancelledAppointments || 0;
+    const pendingAppts = rs.pendingAppointments || 0;
+    const approvedAppts = rs.approvedAppointments || 0;
+    const totalUsersCount = rs.totalUsers || 0;
+    const totalStaffCount = rs.totalStaff || 0;
+    const revenue = rs.revenue || 0;
+    const completionRate = rs.completionRate || '0.0';
+    const cancellationRate = rs.cancellationRate || '0.0';
+    const qualityReport = rs.qualityReport || {};
+    const slotUtil = rs.slotUtilization || {};
+    const overallUtil = slotUtil.overall || {};
+    const serviceStats = qualityReport.service_stats || [];
+    const mostPopular = qualityReport.most_popular_services || [];
+
+    return (
     <div className="space-y-4">
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-lg font-bold text-amber-50">Reports & Analytics</h2>
-          <p className="text-gray-400 text-sm">Generate and export system reports</p>
+          <p className="text-gray-400 text-sm">Live system reports and statistics</p>
         </div>
-        <button 
-          onClick={() => setShowReportModal(true)}
-          className="px-3 py-1.5 bg-gradient-to-r from-amber-600 to-amber-700 text-white rounded hover:from-amber-700 hover:to-amber-800 transition-all duration-200 font-medium text-sm flex items-center shadow transform hover:-translate-y-0.5 border border-amber-500/30"
-        >
-          <DocumentArrowDownIcon className="h-3 w-3 mr-1" />
-          Generate Report
-        </button>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4 hover:border-amber-500/40 transition-all duration-300 cursor-pointer group`}>
-          <div className="flex items-center justify-between mb-3">
-            <DocumentChartBarIcon className="h-6 w-6 text-blue-400 group-hover:scale-110 transition-transform" />
-            <span className="text-xs font-medium text-blue-400 bg-blue-500/20 px-2 py-0.5 rounded-full">PDF</span>
-          </div>
-          <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-1.5`}>Appointments Report</h3>
-          <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-600'} text-xs mb-3`}>Detailed analysis of all appointments with status breakdown</p>
-          <div className="flex justify-between items-center text-xs text-gray-500">
-            <span>Last generated: 2 days ago</span>
-            <span className="text-amber-400">Ready</span>
-          </div>
-        </div>
-
-        <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4 hover:border-amber-500/40 transition-all duration-300 cursor-pointer group`}>
-          <div className="flex items-center justify-between mb-3">
-            <UsersIcon className="h-6 w-6 text-green-400 group-hover:scale-110 transition-transform" />
-            <span className="text-xs font-medium text-green-400 bg-green-500/20 px-2 py-0.5 rounded-full">Excel</span>
-          </div>
-          <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-1.5`}>Users Report</h3>
-          <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-600'} text-xs mb-3`}>Complete user database with role distribution</p>
-          <div className="flex justify-between items-center text-xs text-gray-500">
-            <span>Last generated: 1 week ago</span>
-            <span className="text-amber-400">Ready</span>
-          </div>
-        </div>
-
-        <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4 hover:border-amber-500/40 transition-all duration-300 cursor-pointer group`}>
-          <div className="flex items-center justify-between mb-3">
-            <BuildingLibraryIcon className="h-6 w-6 text-purple-400 group-hover:scale-110 transition-transform" />
-            <span className="text-xs font-medium text-purple-400 bg-purple-500/20 px-2 py-0.5 rounded-full">CSV</span>
-          </div>
-          <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-1.5`}>Revenue Report</h3>
-          <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-600'} text-xs mb-3`}>Financial overview and revenue analytics</p>
-          <div className="flex justify-between items-center text-xs text-gray-500">
-            <span>Last generated: 3 days ago</span>
-            <span className="text-amber-400">Ready</span>
-          </div>
+        <div className="flex gap-2">
+          <button
+            onClick={loadReportStats}
+            className="px-3 py-1.5 border border-amber-500/30 text-amber-50 rounded hover:bg-amber-500/10 transition-all duration-200 font-medium text-sm flex items-center"
+          >
+            <ArrowPathIcon className="h-3 w-3 mr-1" />
+            Refresh
+          </button>
+          <button 
+            onClick={() => setShowReportModal(true)}
+            className="px-3 py-1.5 bg-gradient-to-r from-amber-600 to-amber-700 text-white rounded hover:from-amber-700 hover:to-amber-800 transition-all duration-200 font-medium text-sm flex items-center shadow transform hover:-translate-y-0.5 border border-amber-500/30"
+          >
+            <DocumentArrowDownIcon className="h-3 w-3 mr-1" />
+            Generate Report
+          </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-6">
+      {/* Key Metrics Row */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4`}>
+          <p className="text-gray-400 text-xs font-medium">Total Appointments</p>
+          <p className="text-2xl font-bold text-amber-50 mt-1">{totalAppts}</p>
+          <p className="text-xs text-gray-500 mt-1">{completedAppts} completed</p>
+        </div>
+        <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4`}>
+          <p className="text-gray-400 text-xs font-medium">Total Users</p>
+          <p className="text-2xl font-bold text-amber-50 mt-1">{totalUsersCount}</p>
+          <p className="text-xs text-gray-500 mt-1">{totalStaffCount} staff members</p>
+        </div>
+        <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4`}>
+          <p className="text-gray-400 text-xs font-medium">Total Revenue</p>
+          <p className="text-2xl font-bold text-green-400 mt-1">₱{Number(revenue).toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+          <p className="text-xs text-gray-500 mt-1">from {completedAppts} completed</p>
+        </div>
+        <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4`}>
+          <p className="text-gray-400 text-xs font-medium">Slot Utilization</p>
+          <p className="text-2xl font-bold text-blue-400 mt-1">{overallUtil.overall_utilization_rate || 0}%</p>
+          <p className="text-xs text-gray-500 mt-1">{overallUtil.total_booked || 0} / {overallUtil.total_capacity || 0} slots</p>
+        </div>
+      </div>
+
+      {/* Appointment Status Breakdown & Rates */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4`}>
           <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-3 flex items-center`}>
             <ChartBarIcon className="h-4 w-4 mr-2" />
-            Report Statistics
+            Appointment Breakdown
           </h3>
           <div className="space-y-2">
             <div className={`flex justify-between items-center p-2 ${isDarkMode ? 'bg-gray-800/50' : 'bg-gray-100'} rounded`}>
-              <span className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} text-xs`}>Total Reports Generated</span>
-              <span className="text-amber-400 font-bold text-xs">47</span>
+              <span className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} text-xs flex items-center`}>
+                <span className="w-2 h-2 rounded-full bg-yellow-400 mr-2"></span>Pending
+              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-amber-400 font-bold text-xs">{pendingAppts}</span>
+                <span className="text-gray-500 text-xs">({totalAppts > 0 ? ((pendingAppts / totalAppts) * 100).toFixed(1) : '0.0'}%)</span>
+              </div>
             </div>
             <div className={`flex justify-between items-center p-2 ${isDarkMode ? 'bg-gray-800/50' : 'bg-gray-100'} rounded`}>
-              <span className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} text-xs`}>Most Popular Format</span>
-              <span className="text-blue-400 font-bold text-xs">PDF</span>
+              <span className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} text-xs flex items-center`}>
+                <span className="w-2 h-2 rounded-full bg-blue-400 mr-2"></span>Approved
+              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-blue-400 font-bold text-xs">{approvedAppts}</span>
+                <span className="text-gray-500 text-xs">({totalAppts > 0 ? ((approvedAppts / totalAppts) * 100).toFixed(1) : '0.0'}%)</span>
+              </div>
             </div>
             <div className={`flex justify-between items-center p-2 ${isDarkMode ? 'bg-gray-800/50' : 'bg-gray-100'} rounded`}>
-              <span className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} text-xs`}>Average Generation Time</span>
-              <span className="text-green-400 font-bold text-xs">2.3s</span>
+              <span className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} text-xs flex items-center`}>
+                <span className="w-2 h-2 rounded-full bg-green-400 mr-2"></span>Completed
+              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-green-400 font-bold text-xs">{completedAppts}</span>
+                <span className="text-gray-500 text-xs">({completionRate}%)</span>
+              </div>
+            </div>
+            <div className={`flex justify-between items-center p-2 ${isDarkMode ? 'bg-gray-800/50' : 'bg-gray-100'} rounded`}>
+              <span className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'} text-xs flex items-center`}>
+                <span className="w-2 h-2 rounded-full bg-red-400 mr-2"></span>Cancelled
+              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-red-400 font-bold text-xs">{cancelledAppts}</span>
+                <span className="text-gray-500 text-xs">({cancellationRate}%)</span>
+              </div>
             </div>
           </div>
         </div>
 
         <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4`}>
           <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-3 flex items-center`}>
-            <ClockIcon className="h-4 w-4 mr-2" />
-            Recent Reports
+            <ChartPieIcon className="h-4 w-4 mr-2" />
+            Performance Rates
           </h3>
-          <div className="space-y-2">
-            {[
-              { name: 'Monthly Appointments', date: '2024-01-15', format: 'PDF' },
-              { name: 'User Activity', date: '2024-01-14', format: 'Excel' },
-              { name: 'Revenue Q4 2023', date: '2024-01-10', format: 'CSV' }
-            ].map((report, index) => (
-              <div key={index} className="flex justify-between items-center p-2 bg-gray-800/50 rounded hover:bg-gray-800 transition-colors">
-                <div>
-                  <div className="text-amber-50 font-medium text-xs">{report.name}</div>
-                  <div className="text-gray-400 text-xs">{report.date}</div>
+          <div className="space-y-4">
+            {/* Completion Rate Bar */}
+            <div>
+              <div className="flex justify-between text-xs mb-1">
+                <span className="text-gray-400">Completion Rate</span>
+                <span className="text-green-400 font-bold">{completionRate}%</span>
+              </div>
+              <div className="w-full bg-gray-700 rounded-full h-2.5">
+                <div className="bg-green-500 h-2.5 rounded-full transition-all duration-500" style={{ width: `${Math.min(100, parseFloat(completionRate))}%` }}></div>
+              </div>
+            </div>
+            {/* Cancellation Rate Bar */}
+            <div>
+              <div className="flex justify-between text-xs mb-1">
+                <span className="text-gray-400">Cancellation Rate</span>
+                <span className="text-red-400 font-bold">{cancellationRate}%</span>
+              </div>
+              <div className="w-full bg-gray-700 rounded-full h-2.5">
+                <div className="bg-red-500 h-2.5 rounded-full transition-all duration-500" style={{ width: `${Math.min(100, parseFloat(cancellationRate))}%` }}></div>
+              </div>
+            </div>
+            {/* Utilization Rate Bar */}
+            <div>
+              <div className="flex justify-between text-xs mb-1">
+                <span className="text-gray-400">Slot Utilization</span>
+                <span className="text-blue-400 font-bold">{overallUtil.overall_utilization_rate || 0}%</span>
+              </div>
+              <div className="w-full bg-gray-700 rounded-full h-2.5">
+                <div className="bg-blue-500 h-2.5 rounded-full transition-all duration-500" style={{ width: `${Math.min(100, parseFloat(overallUtil.overall_utilization_rate || 0))}%` }}></div>
+              </div>
+            </div>
+            {/* Revenue per Appointment */}
+            <div className={`flex justify-between items-center p-2 ${isDarkMode ? 'bg-gray-800/50' : 'bg-gray-100'} rounded mt-2`}>
+              <span className="text-gray-400 text-xs">Avg Revenue / Appointment</span>
+              <span className="text-amber-400 font-bold text-xs">₱{completedAppts > 0 ? (revenue / completedAppts).toFixed(2) : '0.00'}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Service Performance Table */}
+      {serviceStats.length > 0 && (
+        <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4`}>
+          <div className="flex justify-between items-center mb-3">
+            <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} flex items-center`}>
+              <BuildingLibraryIcon className="h-4 w-4 mr-2" />
+              Service Performance
+            </h3>
+            <span className="text-xs text-gray-400">
+              Page {servicePerformancePage} of {Math.ceil(serviceStats.length / servicePerformancePageSize)} ({serviceStats.length} total)
+            </span>
+          </div>
+          <div className={`${isDarkMode ? 'bg-gray-800/30' : 'bg-gray-100/30'} rounded overflow-hidden`} style={{maxHeight: '400px', overflowY: 'auto'}}>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 z-10">
+                  <tr className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-200 border-gray-300'} border-b`}>
+                    <th className="text-left py-2 px-3 text-amber-50">Service</th>
+                    <th className="text-center py-2 px-3 text-amber-50">Total</th>
+                    <th className="text-center py-2 px-3 text-amber-50">Completed</th>
+                    <th className="text-center py-2 px-3 text-amber-50">Cancelled</th>
+                    <th className="text-center py-2 px-3 text-amber-50">Rate</th>
+                    <th className="text-right py-2 px-3 text-amber-50">Revenue</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {serviceStats.slice(
+                    (servicePerformancePage - 1) * servicePerformancePageSize,
+                    servicePerformancePage * servicePerformancePageSize
+                  ).map((service, idx) => (
+                    <tr key={idx} className="border-b border-gray-800 hover:bg-gray-800/30">
+                      <td className="py-2 px-3 text-gray-300 font-medium">{service.service_name}</td>
+                      <td className="py-2 px-3 text-gray-400 text-center">{service.total_appointments || 0}</td>
+                      <td className="py-2 px-3 text-green-400 text-center">{service.completed || 0}</td>
+                      <td className="py-2 px-3 text-red-400 text-center">{service.cancelled || 0}</td>
+                      <td className="py-2 px-3 text-center">
+                        <span className={`px-1.5 py-0.5 rounded-full text-xs font-medium ${
+                          (service.completion_rate || 0) >= 80 ? 'text-green-400 bg-green-500/20' :
+                          (service.completion_rate || 0) >= 50 ? 'text-yellow-400 bg-yellow-500/20' :
+                          'text-red-400 bg-red-500/20'
+                        }`}>
+                          {service.completion_rate || 0}%
+                        </span>
+                      </td>
+                      <td className="py-2 px-3 text-amber-400 text-right">₱{Number(service.revenue || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          
+          {/* Pagination Controls */}
+          {Math.ceil(serviceStats.length / servicePerformancePageSize) > 1 && (
+            <div className="mt-3 flex items-center justify-between">
+              <button
+                onClick={() => setServicePerformancePage(p => Math.max(1, p - 1))}
+                disabled={servicePerformancePage === 1}
+                className="px-2.5 py-1 text-xs border border-gray-600 text-gray-300 rounded hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                ← Previous
+              </button>
+              <div className="flex items-center gap-1">
+                {Array.from({ length: Math.ceil(serviceStats.length / servicePerformancePageSize) }, (_, i) => i + 1).map(page => (
+                  <button
+                    key={page}
+                    onClick={() => setServicePerformancePage(page)}
+                    className={`px-2 py-1 text-xs rounded transition-colors ${
+                      servicePerformancePage === page
+                        ? 'bg-amber-600 text-white'
+                        : 'border border-gray-600 text-gray-300 hover:bg-gray-700'
+                    }`}
+                  >
+                    {page}
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={() => setServicePerformancePage(p => Math.min(Math.ceil(serviceStats.length / servicePerformancePageSize), p + 1))}
+                disabled={servicePerformancePage === Math.ceil(serviceStats.length / servicePerformancePageSize)}
+                className="px-2.5 py-1 text-xs border border-gray-600 text-gray-300 rounded hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                Next →
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Most Popular Services */}
+      {mostPopular.length > 0 && (
+        <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4`}>
+          <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-3 flex items-center`}>
+            <StarIcon className="h-4 w-4 mr-2" />
+            Top Services
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {mostPopular.map((service, idx) => (
+              <div key={idx} className={`p-3 ${isDarkMode ? 'bg-gray-800/50' : 'bg-gray-100'} rounded-lg`}>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-amber-400 font-bold text-sm">#{idx + 1}</span>
+                  <span className="text-amber-50 font-medium text-xs">{service.service_name}</span>
                 </div>
-                <span className={`text-xs font-medium px-1.5 py-0.5 rounded-full ${
-                  report.format === 'PDF' ? 'text-blue-400 bg-blue-500/20' :
-                  report.format === 'Excel' ? 'text-green-400 bg-green-500/20' :
-                  'text-purple-400 bg-purple-500/20'
-                }`}>
-                  {report.format}
-                </span>
+                <div className="flex justify-between text-xs text-gray-400">
+                  <span>{service.total_appointments || 0} appointments</span>
+                  <span className="text-green-400">₱{Number(service.revenue || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                </div>
               </div>
             ))}
           </div>
         </div>
-      </div>
+      )}
+
+      {/* Last Updated */}
+      {rs.lastUpdated && (
+        <div className="text-xs text-gray-500 text-right">
+          Last updated: {rs.lastUpdated.toLocaleTimeString()}
+        </div>
+      )}
 
       <div className="mt-6">
         <DocumentManagement isDarkMode={isDarkMode} />
       </div>
     </div>
-  );
+    );
+  };
 
   // Messages render function
   const renderMessages = () => (
@@ -4723,94 +5230,148 @@ const AdminDashboard = () => {
   );
 
   // Deactivated Accounts render function
-  const renderDeactivatedAccounts = () => (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h2 className="text-lg font-bold text-amber-50">Deactivated Accounts</h2>
-          <p className="text-gray-400 text-sm">Manage and reactivate deactivated user and admin accounts</p>
-        </div>
-        <button
-          onClick={() => {
-            setDataLoaded(prev => ({ ...prev, deactivated: false }));
-            loadDeactivatedAccounts();
-          }}
-          className="px-3 py-1.5 border border-amber-500/30 text-amber-50 rounded hover:bg-amber-500/10 transition-all duration-200 font-medium text-sm flex items-center"
-          title="Refresh deactivated accounts"
-        >
-          <ArrowPathIcon className="h-3 w-3 mr-1" />
-          Refresh
-        </button>
-      </div>
+  const renderDeactivatedAccounts = () => {
+    // Filter deactivated users based on search and role
+    const searchFilteredUsers = filteredDeactivatedUsers.filter(user => {
+      const matchesSearch = deactSearch === '' || 
+        user.first_name?.toLowerCase().includes(deactSearch.toLowerCase()) ||
+        user.last_name?.toLowerCase().includes(deactSearch.toLowerCase()) ||
+        user.email?.toLowerCase().includes(deactSearch.toLowerCase()) ||
+        user.username?.toLowerCase().includes(deactSearch.toLowerCase());
+      const matchesRole = deactRoleFilter === 'all' || user.role === deactRoleFilter;
+      return matchesSearch && matchesRole;
+    });
 
-      {/* Statistics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <button
-          onClick={() => setDeactivatedTab('users')}
-          className={`p-4 rounded-lg border-2 transition-all duration-200 text-left ${
-            deactivatedTab === 'users'
-              ? 'bg-blue-500/20 border-blue-500 shadow-lg shadow-blue-500/20'
-              : 'bg-gray-800/50 border-gray-700 hover:border-blue-500/50'
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-gray-400 text-xs">Deactivated Users</p>
-              <p className="text-2xl font-bold text-blue-400 mt-1">{filteredDeactivatedUsers.length}</p>
-            </div>
-            <UserGroupIcon className={`h-8 w-8 ${deactivatedTab === 'users' ? 'text-blue-400' : 'text-gray-500'}`} />
+    // Filter deactivated admins based on search and role
+    const searchFilteredAdmins = filteredDeactivatedAdmins.filter(admin => {
+      const matchesSearch = deactSearch === '' || 
+        admin.first_name?.toLowerCase().includes(deactSearch.toLowerCase()) ||
+        admin.last_name?.toLowerCase().includes(deactSearch.toLowerCase()) ||
+        admin.email?.toLowerCase().includes(deactSearch.toLowerCase()) ||
+        admin.username?.toLowerCase().includes(deactSearch.toLowerCase());
+      const matchesRole = deactRoleFilter === 'all' || admin.role === deactRoleFilter;
+      return matchesSearch && matchesRole;
+    });
+
+    return (
+      <div className="space-y-4">
+        {/* Header */}
+        <div className="flex justify-between items-center">
+          <div>
+            <h2 className="text-lg font-bold text-amber-50">Deactivated Accounts</h2>
+            <p className="text-gray-400 text-sm">Manage and reactivate deactivated user and admin accounts</p>
           </div>
-        </button>
+          <button
+            onClick={() => {
+              setDataLoaded(prev => ({ ...prev, deactivated: false }));
+              loadDeactivatedAccounts();
+            }}
+            className="px-3 py-1.5 border border-amber-500/30 text-amber-50 rounded hover:bg-amber-500/10 transition-all duration-200 font-medium text-sm flex items-center"
+            title="Refresh deactivated accounts"
+          >
+            <ArrowPathIcon className="h-3 w-3 mr-1" />
+            Refresh
+          </button>
+        </div>
 
-        <button
-          onClick={() => setDeactivatedTab('admins')}
-          className={`p-4 rounded-lg border-2 transition-all duration-200 text-left ${
-            deactivatedTab === 'admins'
-              ? 'bg-purple-500/20 border-purple-500 shadow-lg shadow-purple-500/20'
-              : 'bg-gray-800/50 border-gray-700 hover:border-purple-500/50'
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-gray-400 text-xs">Deactivated Admin Accounts</p>
-              <p className="text-2xl font-bold text-purple-400 mt-1">{filteredDeactivatedAdmins.length}</p>
+        {/* Filters */}
+        <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-3 transition-colors`}>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+            <div className="relative md:col-span-2">
+              <MagnifyingGlassIcon className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-amber-400" />
+              <input
+                type="text"
+                placeholder="Search by name, email, or username..."
+                value={deactSearch}
+                onChange={e => setDeactSearch(e.target.value)}
+                className="w-full pl-7 pr-3 py-1.5 bg-gray-800 border border-gray-600 text-white rounded-lg placeholder-gray-400 focus:ring-1 focus:ring-amber-500 focus:border-amber-500 text-sm"
+              />
             </div>
-            <ShieldCheckIcon className={`h-8 w-8 ${deactivatedTab === 'admins' ? 'text-purple-400' : 'text-gray-500'}`} />
+            <select
+              value={deactRoleFilter}
+              onChange={e => setDeactRoleFilter(e.target.value)}
+              className="px-3 py-1.5 bg-gray-800 border border-gray-600 text-white rounded-lg focus:ring-1 focus:ring-amber-500 text-sm"
+            >
+              <option value="all">All Roles</option>
+              <option value="admin">Admin</option>
+              <option value="staff">Staff</option>
+              <option value="client">Client</option>
+            </select>
+            <div className="flex items-center text-xs text-gray-400">
+              <FunnelIcon className="h-3 w-3 mr-1" />
+              <span>{searchFilteredUsers.length + searchFilteredAdmins.length} deactivated</span>
+            </div>
           </div>
-        </button>
-      </div>
-
-      {/* Empty State */}
-      {deactivatedTab === 'users' && filteredDeactivatedUsers.length === 0 && (
-        <div className="bg-gray-800/30 border border-gray-700 rounded-lg p-8 text-center">
-          <UserGroupIcon className="h-12 w-12 text-gray-500 mx-auto mb-2 opacity-50" />
-          <p className="text-gray-400">No deactivated users</p>
         </div>
-      )}
 
-      {deactivatedTab === 'admins' && filteredDeactivatedAdmins.length === 0 && (
-        <div className="bg-gray-800/30 border border-gray-700 rounded-lg p-8 text-center">
-          <ShieldCheckIcon className="h-12 w-12 text-gray-500 mx-auto mb-2 opacity-50" />
-          <p className="text-gray-400">No deactivated admin accounts</p>
+        {/* Statistics Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <button
+            onClick={() => setDeactivatedTab('users')}
+            className={`p-4 rounded-lg border-2 transition-all duration-200 text-left ${
+              deactivatedTab === 'users'
+                ? 'bg-blue-500/20 border-blue-500 shadow-lg shadow-blue-500/20'
+                : 'bg-gray-800/50 border-gray-700 hover:border-blue-500/50'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-400 text-xs">Deactivated Users</p>
+                <p className="text-2xl font-bold text-blue-400 mt-1">{searchFilteredUsers.length}</p>
+              </div>
+              <UserGroupIcon className={`h-8 w-8 ${deactivatedTab === 'users' ? 'text-blue-400' : 'text-gray-500'}`} />
+            </div>
+          </button>
+
+          <button
+            onClick={() => setDeactivatedTab('admins')}
+            className={`p-4 rounded-lg border-2 transition-all duration-200 text-left ${
+              deactivatedTab === 'admins'
+                ? 'bg-purple-500/20 border-purple-500 shadow-lg shadow-purple-500/20'
+                : 'bg-gray-800/50 border-gray-700 hover:border-purple-500/50'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-400 text-xs">Deactivated Admin Accounts</p>
+                <p className="text-2xl font-bold text-purple-400 mt-1">{searchFilteredAdmins.length}</p>
+              </div>
+              <ShieldCheckIcon className={`h-8 w-8 ${deactivatedTab === 'admins' ? 'text-purple-400' : 'text-gray-500'}`} />
+            </div>
+          </button>
         </div>
-      )}
 
-      {/* Deactivated Users Table */}
-      {deactivatedTab === 'users' && filteredDeactivatedUsers.length > 0 && (
-        <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow overflow-x-auto`}>
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="bg-gray-800/50 border-b border-gray-700">
-                <th className="px-4 py-3 text-left font-semibold text-amber-50">Name</th>
-                <th className="px-3 py-3 text-left font-semibold text-amber-50">Email</th>
-                <th className="px-3 py-3 text-left font-semibold text-amber-50">Phone</th>
-                <th className="px-3 py-3 text-left font-semibold text-amber-50">Deactivated Date</th>
-                <th className="px-3 py-3 text-left font-semibold text-amber-50">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredDeactivatedUsers.map((user) => (
+        {/* Empty State */}
+        {deactivatedTab === 'users' && searchFilteredUsers.length === 0 && (
+          <div className="bg-gray-800/30 border border-gray-700 rounded-lg p-8 text-center">
+            <UserGroupIcon className="h-12 w-12 text-gray-500 mx-auto mb-2 opacity-50" />
+            <p className="text-gray-400">No deactivated users</p>
+          </div>
+        )}
+
+        {deactivatedTab === 'admins' && searchFilteredAdmins.length === 0 && (
+          <div className="bg-gray-800/30 border border-gray-700 rounded-lg p-8 text-center">
+            <ShieldCheckIcon className="h-12 w-12 text-gray-500 mx-auto mb-2 opacity-50" />
+            <p className="text-gray-400">No deactivated admin accounts</p>
+          </div>
+        )}
+
+        {/* Deactivated Users Table */}
+        {deactivatedTab === 'users' && searchFilteredUsers.length > 0 && (
+          <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow overflow-x-auto`}>
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-gray-800/50 border-b border-gray-700">
+                  <th className="px-4 py-3 text-left font-semibold text-amber-50">Name</th>
+                  <th className="px-3 py-3 text-left font-semibold text-amber-50">Email</th>
+                  <th className="px-3 py-3 text-left font-semibold text-amber-50">Phone</th>
+                  <th className="px-3 py-3 text-left font-semibold text-amber-50">Deactivated Date</th>
+                  <th className="px-3 py-3 text-left font-semibold text-amber-50">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+
+              {searchFilteredUsers.map((user) => (
                 <tr key={user.id} className="border-b border-gray-700 hover:bg-gray-800/30 transition-colors duration-200">
                   <td className="px-4 py-3 text-amber-50 font-medium">{user.first_name} {user.last_name}</td>
                   <td className="px-3 py-3 text-gray-300">{user.email}</td>
@@ -4847,7 +5408,7 @@ const AdminDashboard = () => {
               </tr>
             </thead>
             <tbody>
-              {filteredDeactivatedAdmins.map((admin) => (
+              {searchFilteredAdmins.map((admin) => (
                 <tr key={admin.id} className="border-b border-gray-700 hover:bg-gray-800/30 transition-colors duration-200">
                   <td className="px-4 py-3 text-amber-50 font-medium">{admin.first_name} {admin.last_name}</td>
                   <td className="px-3 py-3 text-gray-300">{admin.email}</td>
@@ -4894,7 +5455,183 @@ const AdminDashboard = () => {
         </div>
       </div>
     </div>
-  );
+    );
+  };
+
+  // Account Action Modal (rendered inline with other content)
+  const renderAccountActionModal = () => {
+    if (!showAccountActionModal || !accountActionUser) return null;
+
+    const actionOptions = [
+      { value: 'deactivated', label: 'Deactivate', desc: 'Disable the account temporarily. User cannot log in but data is preserved.', color: 'text-yellow-400', bg: 'bg-yellow-500/10 border-yellow-500/30' },
+      { value: 'blocked', label: 'Block', desc: 'Block the account and revoke sessions. User cannot log in.', color: 'text-orange-400', bg: 'bg-orange-500/10 border-orange-500/30' },
+      { value: 'deleted', label: 'Delete', desc: 'Archive the account (soft delete). Can be restored from Archive.', color: 'text-red-400', bg: 'bg-red-500/10 border-red-500/30' },
+    ];
+
+    const predefinedReasons = {
+      deactivated: [
+        'Account inactive for extended period',
+        'User requested temporary account suspension',
+        'Pending identity verification',
+        'Violation of terms of service',
+        'Suspicious account activity detected',
+      ],
+      blocked: [
+        'Repeated violation of community guidelines',
+        'Harassment or abusive behavior',
+        'Fraudulent activity detected',
+        'Spam or misleading content',
+        'Unauthorized access attempts',
+        'Impersonation of another user',
+      ],
+      deleted: [
+        'User requested permanent account deletion',
+        'Duplicate account',
+        'Account created with false information',
+        'Severe terms of service violation',
+        'Legal compliance requirement',
+      ],
+    };
+
+    const currentReasons = predefinedReasons[accountActionType] || [];
+
+    return (
+      <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => setShowAccountActionModal(false)}>
+        <div className="bg-gray-900 border border-amber-500/30 rounded-xl shadow-2xl w-full max-w-lg mx-auto overflow-hidden max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+          {/* Header */}
+          <div className="px-6 py-4 border-b border-amber-500/20 bg-gray-900 sticky top-0 z-10">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-red-500/20 flex items-center justify-center">
+                <ExclamationTriangleIcon className="w-6 h-6 text-red-400" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-amber-50">Account Action</h3>
+                <p className="text-xs text-gray-400">
+                  {accountActionUser.first_name} {accountActionUser.last_name} ({accountActionUser.email})
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Body */}
+          <div className="px-6 py-5 space-y-4">
+            {/* Action Type Selection */}
+            <div>
+              <label className="block text-sm font-medium text-amber-200 mb-2">Action Type</label>
+              <div className="space-y-2">
+                {actionOptions.map(opt => (
+                  <label
+                    key={opt.value}
+                    className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
+                      accountActionType === opt.value
+                        ? opt.bg + ' ring-1 ring-amber-500/30'
+                        : 'border-gray-700 hover:border-gray-600'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="accountAction"
+                      value={opt.value}
+                      checked={accountActionType === opt.value}
+                      onChange={e => {
+                        setAccountActionType(e.target.value);
+                        setAccountActionReason('');
+                      }}
+                      className="mt-0.5 accent-amber-500"
+                    />
+                    <div>
+                      <span className={`text-sm font-medium ${opt.color}`}>{opt.label}</span>
+                      <p className="text-xs text-gray-400 mt-0.5">{opt.desc}</p>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Predefined Reasons */}
+            <div>
+              <label className="block text-sm font-medium text-amber-200 mb-2">Quick Reason</label>
+              <div className="space-y-1.5">
+                {currentReasons.map((reason, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => setAccountActionReason(reason)}
+                    className={`w-full text-left px-3 py-2 rounded-lg border text-sm transition-all ${
+                      accountActionReason === reason
+                        ? 'border-amber-500 bg-amber-500/10 text-amber-200 ring-1 ring-amber-500/30'
+                        : 'border-gray-700 text-gray-300 hover:border-gray-500 hover:bg-gray-800/50'
+                    }`}
+                  >
+                    {reason}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Custom Reason */}
+            <div>
+              <label className="block text-sm font-medium text-amber-200 mb-1.5">
+                Reason <span className="text-red-400">*</span>
+                <span className="text-xs text-gray-500 font-normal ml-2">Select a quick reason above or type your own</span>
+              </label>
+              <textarea
+                value={accountActionReason}
+                onChange={e => setAccountActionReason(e.target.value)}
+                placeholder="Provide a detailed reason for this action (min 10 characters). This will be sent to the user via email."
+                rows={3}
+                maxLength={1000}
+                className="w-full px-3 py-2 rounded-lg border border-gray-600 bg-gray-800 text-white text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none placeholder-gray-500 resize-none"
+              />
+              <p className="text-xs text-gray-500 mt-1">{accountActionReason.length}/1000 characters</p>
+            </div>
+
+            {/* Info notice */}
+            <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/30">
+              <p className="text-xs text-blue-300">
+                The user will receive an email notification with your reason and a link to submit an appeal.
+              </p>
+            </div>
+
+            {/* Error */}
+            {accountActionError && (
+              <div className="p-2.5 rounded-lg bg-red-500/10 border border-red-500/30">
+                <p className="text-sm text-red-400">{accountActionError}</p>
+              </div>
+            )}
+          </div>
+
+          {/* Footer */}
+          <div className="px-6 py-4 border-t border-gray-700 flex gap-3 sticky bottom-0 bg-gray-900">
+            <button
+              onClick={() => setShowAccountActionModal(false)}
+              className="flex-1 px-4 py-2.5 rounded-lg border border-gray-600 text-gray-300 text-sm font-medium hover:bg-gray-800 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleAccountAction}
+              disabled={!accountActionReason || accountActionReason.length < 10 || accountActionLoading}
+              className={`flex-1 px-4 py-2.5 rounded-lg text-sm font-medium text-white transition-colors ${
+                accountActionReason && accountActionReason.length >= 10 && !accountActionLoading
+                  ? 'bg-red-600 hover:bg-red-700'
+                  : 'bg-red-800 cursor-not-allowed opacity-50'
+              }`}
+            >
+              {accountActionLoading ? (
+                <span className="flex items-center justify-center gap-2">
+                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                  Processing...
+                </span>
+              ) : (
+                `Confirm ${actionOptions.find(o => o.value === accountActionType)?.label || 'Action'}`
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   const renderContent = () => {
     switch (activeTab) {
@@ -4902,18 +5639,18 @@ const AdminDashboard = () => {
       case 'users': return renderUsers();
       case 'adminProfile': return renderAdminProfile();
       case 'appointments': return renderAppointments();
-      case 'calendar': return renderCalendar();
-      case 'appointment-settings': return renderAppointmentSettings();
+      case 'system-config': return <AdminSettings isDarkMode={isDarkMode} />;
       case 'services': return <AdminServices isDarkMode={isDarkMode} />;
       case 'analytics': return <AdminAnalyticsDashboard />;
       case 'reports': return renderReports();
       case 'archive': return renderArchive();
-      case 'deactivated': return renderDeactivatedAccounts();
+      case 'user-status': return <UserStatusManagement isDarkMode={isDarkMode} deactivatedContent={renderDeactivatedAccounts()} onDataChange={() => { clearApiCache(); loadUsers(); loadAdmins(); loadDeactivatedAccounts(); loadArchivedUsers(); }} />;
       case 'messages': return renderMessages();
       case 'action-logs': return <AdminActionLogs isDarkMode={isDarkMode} />;
       case 'feedback': return <AdminFeedback />;
-      case 'feedback-settings': return <AdminFeedbackSettings />;
       case 'refunds': return <AdminRefundManagement isUserLight={!isDarkMode} />;
+      case 'appeals': return <AdminAppeals isDarkMode={isDarkMode} />;
+      case 'announcements': return <AdminAnnouncements isDarkMode={isDarkMode} />;
       case 'settings': return renderSettings();
       default: return renderDashboard();
     }
@@ -5016,11 +5753,19 @@ const AdminDashboard = () => {
                               } ${isCollapsedDesktop ? 'lg:justify-center lg:px-2' : ''}`}
                               title={isCollapsedDesktop ? subItem.name : ''}
                             >
-                              <div className="flex items-center min-w-0">
+                              <div className="flex items-center min-w-0 w-full">
                                 <subItem.icon className={`h-4 w-4 flex-shrink-0 transition-colors ${
                                   activeTab === subItem.key ? 'text-amber-400' : 'text-gray-500 group-hover:text-amber-400'
                                 } ${!isCollapsedDesktop ? 'mr-2' : ''}`} />
                                 {!isCollapsedDesktop && <span className="truncate">{subItem.name}</span>}
+                                {subItem.badge && !isCollapsedDesktop && (
+                                  <span className="ml-auto flex-shrink-0 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center animate-pulse">
+                                    {subItem.badge}
+                                  </span>
+                                )}
+                                {subItem.badge && isCollapsedDesktop && (
+                                  <span className="absolute top-0 right-0 bg-red-500 w-2 h-2 rounded-full"></span>
+                                )}
                               </div>
                             </button>
                           ))
@@ -5141,12 +5886,23 @@ const AdminDashboard = () => {
                     aria-label="Select timeframe"
                     className={`px-2 py-1 text-xs rounded bg-gray-800 border border-gray-700 text-gray-300 focus:outline-none focus:ring-1 focus:ring-amber-500 transition-colors`}
                   >
+                    <option value="all">All Time</option>
                     <option value="daily">Daily</option>
                     <option value="weekly">Weekly</option>
                     <option value="monthly">Monthly</option>
                     <option value="yearly">Yearly</option>
                   </select>
 
+                  {/* Landing Page CMS button — navigates to separate page */}
+                  <button
+                    type="button"
+                    onClick={() => navigate('/admin/cms')}
+                    className={`ml-2 px-2 py-1 text-xs rounded border transition-colors flex items-center gap-1 ${isDarkMode ? 'border-gray-600 text-gray-400 hover:bg-gray-700 hover:text-amber-400' : 'border-gray-300 text-gray-500 hover:bg-gray-50 hover:text-blue-500'}`}
+                    title="Landing Page CMS"
+                  >
+                    <GlobeAltIcon className="h-3.5 w-3.5" />
+                    <span className="hidden sm:inline">CMS</span>
+                  </button>
                   {/* Admin Login removed per request (no credential prompt in header) */}
                   <button
                     type="button"
@@ -5324,6 +6080,9 @@ const AdminDashboard = () => {
         loading={apiLoading}
         isDarkMode={isDarkMode}
       />
+
+      {/* Account Action Modal (delete/block/deactivate with reason) */}
+      {renderAccountActionModal()}
     </div>
   );
 };

@@ -36,8 +36,10 @@ class RateLimitingMiddleware
 
         $response = $next($request);
 
+        $remaining = max(0, $limit - $this->limiter->attempts($key));
+
         return $response->header('X-RateLimit-Limit', $limit)
-            ->header('X-RateLimit-Remaining', $this->limiter->attempts($key));
+            ->header('X-RateLimit-Remaining', $remaining);
     }
 
     /**

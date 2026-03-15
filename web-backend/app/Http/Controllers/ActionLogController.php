@@ -41,7 +41,7 @@ class ActionLogController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 'message' => 'Failed to fetch action logs',
-                'error' => $e->getMessage(),
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred',
                 'success' => false
             ], 500);
         }
@@ -50,9 +50,24 @@ class ActionLogController extends Controller
     public function userLogs(Request $request)
     {
         try {
-            $logs = ActionLog::where('user_id', $request->user()->id)
-                ->with('user')
-                ->orderBy('created_at', 'desc')
+            $query = ActionLog::where('user_id', $request->user()->id)
+                ->with('user');
+
+            // Filter by action type
+            if ($request->has('action') && $request->action) {
+                $query->where('action', $request->action);
+            }
+
+            // Search by description
+            if ($request->has('search') && $request->search) {
+                $search = $request->search;
+                $query->where('description', 'like', "%{$search}%");
+            }
+
+            // Sort direction (default: desc)
+            $sortDir = $request->get('sort', 'desc') === 'asc' ? 'asc' : 'desc';
+
+            $logs = $query->orderBy('created_at', $sortDir)
                 ->paginate($request->get('per_page', 10));
 
             return response()->json([
@@ -68,7 +83,7 @@ class ActionLogController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 'message' => 'Failed to fetch your action logs',
-                'error' => $e->getMessage(),
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred',
                 'success' => false
             ], 500);
         }
@@ -89,6 +104,19 @@ class ActionLogController extends Controller
                 $query->where('action', $request->action);
             }
 
+            // Search by description or user name
+            if ($request->has('search') && $request->search) {
+                $search = $request->search;
+                $query->where(function ($q) use ($search) {
+                    $q->where('description', 'like', "%{$search}%")
+                      ->orWhereHas('user', function ($uq) use ($search) {
+                          $uq->where('first_name', 'like', "%{$search}%")
+                            ->orWhere('last_name', 'like', "%{$search}%")
+                            ->orWhere('email', 'like', "%{$search}%");
+                      });
+                });
+            }
+
             $logs = $query->orderBy('created_at', 'desc')
                          ->paginate($request->get('per_page', 10));
 
@@ -105,7 +133,7 @@ class ActionLogController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 'message' => 'Failed to fetch admin logs',
-                'error' => $e->getMessage(),
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred',
                 'success' => false
             ], 500);
         }
@@ -124,10 +152,10 @@ class ActionLogController extends Controller
             $thisMonth = now()->startOfMonth();
 
             $stats = [
-                'total_actions' => $query->count(),
-                'today_actions' => $query->whereDate('created_at', $today)->count(),
-                'this_month_actions' => $query->whereDate('created_at', '>=', $thisMonth)->count(),
-                'by_action' => $query->selectRaw('action, COUNT(*) as count')
+                'total_actions' => (clone $query)->count(),
+                'today_actions' => (clone $query)->whereDate('created_at', $today)->count(),
+                'this_month_actions' => (clone $query)->whereDate('created_at', '>=', $thisMonth)->count(),
+                'by_action' => (clone $query)->selectRaw('action, COUNT(*) as count')
                     ->groupBy('action')
                     ->get()
                     ->pluck('count', 'action')
@@ -141,7 +169,7 @@ class ActionLogController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 'message' => 'Failed to fetch action log statistics',
-                'error' => $e->getMessage(),
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred',
                 'success' => false
             ], 500);
         }

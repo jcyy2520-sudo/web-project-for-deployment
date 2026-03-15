@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useApi } from '../../hooks/useApi';
 import {
@@ -18,10 +18,10 @@ const TimeSlotCapacityManagement = ({ isDarkMode = true }) => {
   const [mode, setMode] = useState('apply-all'); // 'apply-all' or 'customize'
   const [globalCapacity, setGlobalCapacity] = useState(3);
   const [customCapacities, setCustomCapacities] = useState({});
+  const [pendingChanges, setPendingChanges] = useState({});
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
-  const saveTimeoutRef = useRef(null);
-  const pendingSavesRef = useRef({});
+  const [saving, setSaving] = useState(false);
 
   // Present hours instead of 30-min slots to simplify the UI.
   // Each hour represents two 30-min slots (e.g., 08:00 -> applies to 08:00-08:30 and 08:30-09:00)
@@ -91,7 +91,7 @@ const TimeSlotCapacityManagement = ({ isDarkMode = true }) => {
       if (response.data.success) {
         setSuccess(`All time slots updated to ${globalCapacity} max appointments! (${response.data.data.total} slots configured)`);
         
-        // Update customCapacities state to reflect the change BEFORE switching modes
+        // Update customCapacities state to reflect the change
         const updatedCapacities = {};
         hours.forEach(hour => {
           updatedCapacities[hour] = globalCapacity;
@@ -100,11 +100,6 @@ const TimeSlotCapacityManagement = ({ isDarkMode = true }) => {
         
         // notify clients
         window.dispatchEvent(new CustomEvent('slotCapacitiesChanged'));
-        
-        // Switch to customize mode to show the updated values immediately
-        setTimeout(() => {
-          setMode('customize');
-        }, 200);
       } else {
         setError(response.data.message || 'Failed to apply capacity to all slots');
       }
@@ -112,7 +107,7 @@ const TimeSlotCapacityManagement = ({ isDarkMode = true }) => {
       setError('An error occurred: ' + (err.response?.data?.message || err.message || 'Unknown error'));
     }
   };
-  // Save capacities for an hour (applies to both half-hour slots in that hour)
+  // Update local state only — changes are saved when the user clicks Save
   const handleCustomizeHour = (hourStart, capacity) => {
     if (capacity < 1 || capacity > 20) {
       setError('Capacity must be between 1 and 20');
@@ -125,45 +120,53 @@ const TimeSlotCapacityManagement = ({ isDarkMode = true }) => {
     // Update local state immediately
     setCustomCapacities(prev => ({ ...prev, [hourStart]: capacity }));
 
-    // Debounce actual API saves so rapid typing won't spam the server
-    pendingSavesRef.current[hourStart] = capacity;
-    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    // Track this hour as having a pending (unsaved) change
+    setPendingChanges(prev => ({ ...prev, [hourStart]: capacity }));
+  };
 
-    saveTimeoutRef.current = setTimeout(async () => {
-      const saves = { ...pendingSavesRef.current };
-      pendingSavesRef.current = {};
+  // Save only the hours that were changed
+  const handleSaveCustomized = async () => {
+    if (Object.keys(pendingChanges).length === 0) {
+      setError('No changes to save');
+      return;
+    }
 
-      try {
-        // For each hour, post two half-hour entries
-        for (const [h, cap] of Object.entries(saves)) {
-          const [hh, mm] = h.split(':');
+    setError(null);
+    setSuccess(null);
+    setSaving(true);
 
-          // First half slot: hh:00 - hh:30
-          await axios.post('/api/admin/slot-capacities', {
-            start_time: `${hh}:00`,
-            end_time: `${hh}:30`,
-            day_of_week: null,
-            max_appointments_per_slot: cap
-          });
+    try {
+      for (const [h, cap] of Object.entries(pendingChanges)) {
+        const [hh] = h.split(':');
 
-          // Second half slot: hh:30 - (hh+1):00
-          const nextHour = String(Number(hh) + 1).padStart(2, '0');
-          await axios.post('/api/admin/slot-capacities', {
-            start_time: `${hh}:30`,
-            end_time: `${nextHour}:00`,
-            day_of_week: null,
-            max_appointments_per_slot: cap
-          });
-        }
+        // First half slot: hh:00 - hh:30
+        await axios.post('/api/admin/slot-capacities', {
+          start_time: `${hh}:00`,
+          end_time: `${hh}:30`,
+          day_of_week: null,
+          max_appointments_per_slot: cap
+        });
 
-        setSuccess('Updated selected hours');
-        await loadCapacities();
-        // notify clients that capacities changed
-        window.dispatchEvent(new CustomEvent('slotCapacitiesChanged'));
-      } catch (err) {
-        setError('An error occurred: ' + (err.response?.data?.message || err.message || 'Unknown error'));
+        // Second half slot: hh:30 - (hh+1):00
+        const nextHour = String(Number(hh) + 1).padStart(2, '0');
+        await axios.post('/api/admin/slot-capacities', {
+          start_time: `${hh}:30`,
+          end_time: `${nextHour}:00`,
+          day_of_week: null,
+          max_appointments_per_slot: cap
+        });
       }
-    }, 700);
+
+      const changedCount = Object.keys(pendingChanges).length;
+      setSuccess(`Updated ${changedCount} hour${changedCount > 1 ? 's' : ''} successfully`);
+      setPendingChanges({});
+      await loadCapacities();
+      window.dispatchEvent(new CustomEvent('slotCapacitiesChanged'));
+    } catch (err) {
+      setError('An error occurred: ' + (err.response?.data?.message || err.message || 'Unknown error'));
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -190,7 +193,7 @@ const TimeSlotCapacityManagement = ({ isDarkMode = true }) => {
         </p>
         <div className="flex gap-3">
           <button
-            onClick={() => setMode('apply-all')}
+            onClick={() => { setMode('apply-all'); setPendingChanges({}); setError(null); setSuccess(null); }}
             className={`flex-1 px-4 py-3 rounded-lg border-2 transition-all font-medium text-sm ${
               mode === 'apply-all'
                 ? isDarkMode
@@ -204,7 +207,7 @@ const TimeSlotCapacityManagement = ({ isDarkMode = true }) => {
             Apply to All Hours
           </button>
           <button
-            onClick={() => setMode('customize')}
+            onClick={() => { setMode('customize'); setPendingChanges({}); setError(null); setSuccess(null); loadCapacities(); }}
             className={`flex-1 px-4 py-3 rounded-lg border-2 transition-all font-medium text-sm ${
               mode === 'customize'
                 ? isDarkMode
@@ -285,7 +288,11 @@ const TimeSlotCapacityManagement = ({ isDarkMode = true }) => {
                 </h4>
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                   {hours.map(h => (
-                    <div key={h} className={`flex items-center justify-between p-3 rounded-lg border ${isDarkMode ? 'bg-gray-700 border-gray-600' : 'bg-gray-50 border-gray-200'}`}>
+                    <div key={h} className={`flex items-center justify-between p-3 rounded-lg border ${
+                      pendingChanges[h] !== undefined
+                        ? isDarkMode ? 'bg-amber-500/10 border-amber-500/50' : 'bg-amber-50 border-amber-300'
+                        : isDarkMode ? 'bg-gray-700 border-gray-600' : 'bg-gray-50 border-gray-200'
+                    }`}>
                       <label className={`text-sm font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>{formatTimeAmPm(h)}</label>
                       <input
                         type="number"
@@ -299,10 +306,29 @@ const TimeSlotCapacityManagement = ({ isDarkMode = true }) => {
                   ))}
                 </div>
 
-                <p className={`text-xs mt-3 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                  💡 Change any value above and it will be saved automatically (applies to both 30-min slots within the hour)
-                </p>
+                {Object.keys(pendingChanges).length > 0 && (
+                  <p className={`text-xs mt-3 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
+                    ⚠️ You have unsaved changes for {Object.keys(pendingChanges).length} hour{Object.keys(pendingChanges).length > 1 ? 's' : ''}. Click Save to apply.
+                  </p>
+                )}
+
+                {Object.keys(pendingChanges).length === 0 && (
+                  <p className={`text-xs mt-3 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                    💡 Change any value above, then click Save to apply only to the hours you changed
+                  </p>
+                )}
               </div>
+
+              <button
+                onClick={handleSaveCustomized}
+                disabled={saving || Object.keys(pendingChanges).length === 0}
+                className="w-full px-4 py-3 bg-amber-600 text-white rounded-lg font-medium hover:bg-amber-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {saving && <ArrowPathIcon className="h-4 w-4 animate-spin" />}
+                {Object.keys(pendingChanges).length > 0
+                  ? `Save Changes (${Object.keys(pendingChanges).length} hour${Object.keys(pendingChanges).length > 1 ? 's' : ''})`
+                  : 'Save Changes'}
+              </button>
             </div>
           )}
         </div>

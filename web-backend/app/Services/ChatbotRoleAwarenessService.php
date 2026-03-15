@@ -346,33 +346,206 @@ class ChatbotRoleAwarenessService
     /**
      * Get quick actions available for a role
      */
-    private function getQuickActionsForRole(string $role): array
+    public function getQuickActionsForRole(string $role): array
     {
         return match($role) {
             'admin' => [
-                ['action' => 'view_pending', 'label' => 'View Pending Appointments', 'command' => 'show pending appointments'],
-                ['action' => 'analytics', 'label' => 'View Analytics', 'command' => 'show analytics'],
-                ['action' => 'system_health', 'label' => 'System Health', 'command' => 'system health'],
-                ['action' => 'pending_refunds', 'label' => 'Pending Refunds', 'command' => 'show pending refunds'],
+                ['action' => 'view_pending', 'label' => 'Pending Appointments', 'message' => 'Show pending appointments', 'icon' => '📋'],
+                ['action' => 'analytics', 'label' => 'Analytics', 'message' => 'Show system analytics', 'icon' => '📊'],
+                ['action' => 'weekly_appointments', 'label' => 'This Week', 'message' => 'How many appointments this week?', 'icon' => '📅'],
+                ['action' => 'revenue', 'label' => 'Revenue', 'message' => 'What is the revenue for this month?', 'icon' => '💰'],
+                ['action' => 'system_health', 'label' => 'System Health', 'message' => 'Show system health', 'icon' => '🔧'],
+                ['action' => 'pending_refunds', 'label' => 'Pending Refunds', 'message' => 'Show pending refunds', 'icon' => '💸'],
             ],
             'cashier' => [
-                ['action' => 'pending_payments', 'label' => 'Pending Payments', 'command' => 'show pending payments'],
-                ['action' => 'shift_report', 'label' => 'Shift Report', 'command' => 'shift report'],
-                ['action' => 'daily_summary', 'label' => 'Daily Summary', 'command' => 'daily summary'],
-                ['action' => 'pending_refunds', 'label' => 'Process Refunds', 'command' => 'show approved refunds'],
+                ['action' => 'pending_payments', 'label' => 'Pending Payments', 'message' => 'Show pending payments', 'icon' => '💳'],
+                ['action' => 'shift_report', 'label' => 'Shift Report', 'message' => 'Show my shift report', 'icon' => '📊'],
+                ['action' => 'daily_summary', 'label' => 'Daily Summary', 'message' => 'Show daily summary', 'icon' => '📋'],
+                ['action' => 'pending_refunds', 'label' => 'Process Refunds', 'message' => 'Show approved refunds', 'icon' => '💸'],
             ],
             'staff' => [
-                ['action' => 'view_pending', 'label' => 'Pending Appointments', 'command' => 'show pending appointments'],
-                ['action' => 'today_schedule', 'label' => "Today's Schedule", 'command' => 'show today appointments'],
+                ['action' => 'view_pending', 'label' => 'Pending Appointments', 'message' => 'Show pending appointments', 'icon' => '📋'],
+                ['action' => 'today_schedule', 'label' => "Today's Schedule", 'message' => 'Show today appointments', 'icon' => '📅'],
             ],
             'client' => [
-                ['action' => 'my_appointments', 'label' => 'My Appointments', 'command' => 'show my appointments'],
-                ['action' => 'book', 'label' => 'Book Appointment', 'command' => 'I want to book'],
-                ['action' => 'services', 'label' => 'View Services', 'command' => 'show services'],
+                ['action' => 'my_appointments', 'label' => 'My Appointments', 'message' => 'Show my appointments', 'icon' => '📅'],
+                ['action' => 'book', 'label' => 'Book Appointment', 'message' => 'I want to book an appointment', 'icon' => '➕'],
+                ['action' => 'services', 'label' => 'View Services', 'message' => 'What services are available?', 'icon' => '📋'],
+                ['action' => 'payments', 'label' => 'My Payments', 'message' => 'Show my payment history', 'icon' => '💳'],
             ],
             default => [
-                ['action' => 'services', 'label' => 'View Services', 'command' => 'show services'],
-                ['action' => 'register', 'label' => 'Register', 'command' => 'how to register'],
+                ['action' => 'services', 'label' => 'View Services', 'message' => 'What services are available?', 'icon' => '📋'],
+                ['action' => 'register', 'label' => 'Register', 'message' => 'How do I register?', 'icon' => '📝'],
+            ],
+        };
+    }
+
+    /**
+     * Get contextual quick actions based on conversation topic.
+     * Returns suggestions relevant to what the user is currently talking about.
+     */
+    public function getContextualSuggestions(string $role, string $userMessage, string $aiResponse): array
+    {
+        $combined = strtolower($userMessage . ' ' . $aiResponse);
+        $suggestions = [];
+
+        // Topic detection with expanded keyword matching for dynamic buttons
+        $topics = [
+            'appointment' => ['appointment', 'book', 'schedule', 'reschedule', 'slot', 'available', 'cancel appointment',
+                              'decline', 'approve', 'booking', 'reserve', 'set a date', 'meeting', 'visit',
+                              'loan signing', 'consultation', 'notary', 'affidavit', 'legal', 'document'],
+            'payment'     => ['payment', 'pay', 'paid', 'unpaid', 'invoice', 'receipt', 'transaction', 'revenue',
+                              'billing', 'amount', 'fee', 'total', 'charge'],
+            'refund'      => ['refund', 'reimburse', 'money back', 'return payment', 'cancel and refund'],
+            'service'     => ['service', 'offer', 'price', 'cost', 'how much', 'available services', 'what can you do',
+                              'what services', 'list services', 'rates', 'pricing'],
+            'profile'     => ['profile', 'account', 'my info', 'my details', 'edit profile', 'update profile',
+                              'my name', 'my email', 'settings', 'preferences'],
+            'user'        => ['user', 'block', 'deactivate', 'register', 'login', 'manage user', 'user list'],
+            'analytics'   => ['analytics', 'report', 'statistic', 'metric', 'dashboard', 'performance', 'data',
+                              'summary', 'overview', 'revenue', 'insight'],
+            'system'      => ['system', 'health', 'status', 'server', 'error', 'uptime'],
+            'help'        => ['help', 'what can you', 'how do i', 'guide', 'tutorial', 'assist', 'support'],
+        ];
+
+        $detectedTopics = [];
+        foreach ($topics as $topic => $keywords) {
+            foreach ($keywords as $keyword) {
+                if (str_contains($combined, $keyword)) {
+                    $detectedTopics[$topic] = true;
+                    break;
+                }
+            }
+        }
+
+
+        // Build contextual suggestions based on detected topics and role
+        $pool = $this->getContextualPool($role);
+
+        foreach ($detectedTopics as $topic => $_) {
+            if (isset($pool[$topic])) {
+                foreach ($pool[$topic] as $action) {
+                    $suggestions[] = $action;
+                }
+            }
+        }
+
+        // If no topics detected, return a small set of general suggestions
+        if (empty($suggestions)) {
+            $suggestions = $pool['general'] ?? [];
+        }
+
+        // Limit to 4 contextual suggestions
+        return array_slice($suggestions, 0, 4);
+    }
+
+    /**
+     * Get the pool of contextual suggestions organized by topic and role.
+     */
+    private function getContextualPool(string $role): array
+    {
+        $common = [
+            'service' => [
+                ['label' => 'View Services', 'message' => 'What services are available?', 'icon' => '📋'],
+                ['label' => 'Book Appointment', 'message' => 'I want to book an appointment', 'icon' => '➕'],
+            ],
+            'general' => [
+                ['label' => 'View Services', 'message' => 'What services are available?', 'icon' => '📋'],
+                ['label' => 'Help', 'message' => 'What can you help me with?', 'icon' => '❓'],
+            ],
+        ];
+
+        return match($role) {
+            'admin' => [
+                'appointment' => [
+                    ['label' => 'Pending Appointments', 'message' => 'Show pending appointments', 'icon' => '📋'],
+                    ['label' => 'This Week', 'message' => 'How many appointments this week?', 'icon' => '📅'],
+                    ['label' => 'Approve All Pending', 'message' => 'Show me pending appointments to approve', 'icon' => '✅'],
+                ],
+                'payment' => [
+                    ['label' => 'Revenue', 'message' => 'What is the revenue for this month?', 'icon' => '💰'],
+                    ['label' => 'Pending Payments', 'message' => 'Show pending payments', 'icon' => '💳'],
+                ],
+                'refund' => [
+                    ['label' => 'Pending Refunds', 'message' => 'Show pending refunds', 'icon' => '💸'],
+                    ['label' => 'Process Refund', 'message' => 'Show refunds to process', 'icon' => '💰'],
+                ],
+                'user' => [
+                    ['label' => 'Manage Users', 'message' => 'Show user management options', 'icon' => '👥'],
+                    ['label' => 'View User Details', 'message' => 'Search for a user', 'icon' => '🔍'],
+                ],
+                'analytics' => [
+                    ['label' => 'System Analytics', 'message' => 'Show system analytics', 'icon' => '📊'],
+                    ['label' => 'Performance Report', 'message' => 'Show performance report', 'icon' => '📈'],
+                ],
+                'system' => [
+                    ['label' => 'System Health', 'message' => 'Show system health', 'icon' => '🔧'],
+                    ['label' => 'Analytics', 'message' => 'Show system analytics', 'icon' => '📊'],
+                ],
+                'service' => $common['service'],
+                'general' => [
+                    ['label' => 'Pending Appointments', 'message' => 'Show pending appointments', 'icon' => '📋'],
+                    ['label' => 'Analytics', 'message' => 'Show system analytics', 'icon' => '📊'],
+                ],
+            ],
+            'cashier' => [
+                'appointment' => [
+                    ['label' => 'Today Schedule', 'message' => 'Show today\'s appointments', 'icon' => '📅'],
+                ],
+                'payment' => [
+                    ['label' => 'Pending Payments', 'message' => 'Show pending payments', 'icon' => '💳'],
+                    ['label' => 'Shift Report', 'message' => 'Show my shift report', 'icon' => '📊'],
+                    ['label' => 'Daily Summary', 'message' => 'Show daily summary', 'icon' => '📋'],
+                ],
+                'refund' => [
+                    ['label' => 'Process Refunds', 'message' => 'Show approved refunds', 'icon' => '💸'],
+                ],
+                'service' => $common['service'],
+                'general' => [
+                    ['label' => 'Pending Payments', 'message' => 'Show pending payments', 'icon' => '💳'],
+                    ['label' => 'Shift Report', 'message' => 'Show my shift report', 'icon' => '📊'],
+                ],
+            ],
+            'staff' => [
+                'appointment' => [
+                    ['label' => 'Pending Appointments', 'message' => 'Show pending appointments', 'icon' => '📋'],
+                    ['label' => 'Today Schedule', 'message' => 'Show today\'s appointments', 'icon' => '📅'],
+                ],
+                'service' => $common['service'],
+                'general' => [
+                    ['label' => 'Pending Appointments', 'message' => 'Show pending appointments', 'icon' => '📋'],
+                    ['label' => 'Today Schedule', 'message' => 'Show today\'s appointments', 'icon' => '📅'],
+                ],
+            ],
+            'client' => [
+                'appointment' => [
+                    ['label' => 'My Appointments', 'message' => 'Show my appointments', 'icon' => '📅'],
+                    ['label' => 'Book Appointment', 'message' => 'I want to book an appointment', 'icon' => '➕'],
+                ],
+                'payment' => [
+                    ['label' => 'My Payments', 'message' => 'Show my payment history', 'icon' => '💳'],
+                ],
+                'refund' => [
+                    ['label' => 'Request Refund', 'message' => 'I want to request a refund', 'icon' => '💸'],
+                ],
+                'service' => $common['service'],
+                'profile' => [
+                    ['label' => 'My Profile', 'route' => '/profile', 'icon' => '👤'],
+                    ['label' => 'My Appointments', 'message' => 'Show my appointments', 'icon' => '📅'],
+                ],
+                'help' => [
+                    ['label' => 'Book Appointment', 'message' => 'I want to book an appointment', 'icon' => '➕'],
+                    ['label' => 'View Services', 'message' => 'What services are available?', 'icon' => '📋'],
+                ],
+                'general' => [
+                    ['label' => 'My Appointments', 'message' => 'Show my appointments', 'icon' => '📅'],
+                    ['label' => 'Book Appointment', 'message' => 'I want to book an appointment', 'icon' => '➕'],
+                ],
+
+            ],
+            default => [
+                'service' => $common['service'],
+                'general' => $common['general'],
             ],
         };
     }

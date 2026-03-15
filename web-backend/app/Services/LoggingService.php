@@ -30,7 +30,8 @@ class LoggingService
 
             return $log;
         } catch (Exception $e) {
-            throw new Exception('Failed to log action: ' . $e->getMessage());
+            \Illuminate\Support\Facades\Log::warning('LoggingService::logAction failed (non-blocking): ' . $e->getMessage());
+            return new ActionLog();
         }
     }
 

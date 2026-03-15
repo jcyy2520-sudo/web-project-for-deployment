@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { XMarkIcon } from '@heroicons/react/24/outline';
 import { CheckCircleIcon } from '@heroicons/react/24/solid';
+import { formatDateDisplay } from '../../utils/format';
 
 const CompletionModal = ({ isOpen, onClose, appointment, onConfirm, loading, isDarkMode = true }) => {
   const [completionNotes, setCompletionNotes] = useState('');
@@ -24,12 +25,7 @@ const CompletionModal = ({ isOpen, onClose, appointment, onConfirm, loading, isD
     onClose();
   };
 
-  const formattedDate = new Date(appointment.appointment_date).toLocaleDateString('en-US', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
+  const formattedDate = formatDateDisplay(appointment.appointment_date);
 
   const formattedTime = new Date(`${appointment.appointment_date}T${appointment.appointment_time}`).toLocaleTimeString('en-US', {
     hour: '2-digit',

@@ -31,6 +31,15 @@ const BlackoutDateManagement = ({ isDarkMode = true }) => {
   const [affectedAppointments, setAffectedAppointments] = useState([]);
   const [pendingDateData, setPendingDateData] = useState(null);
 
+  // Delete confirmation state
+  const [deleteConfirmId, setDeleteConfirmId] = useState(null);
+  const [deleteConfirmReason, setDeleteConfirmReason] = useState('');
+
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 5;
+  const [searchFilter, setSearchFilter] = useState('');
+
   const [formData, setFormData] = useState({
     date: '',
     reason: '',
@@ -58,7 +67,10 @@ const BlackoutDateManagement = ({ isDarkMode = true }) => {
     );
 
     if (result.success) {
-      setBlackoutDates(result.data.data || []);
+      const dates = result.data.data || [];
+      // Sort newest first so newly created blockdates appear at the top
+      dates.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+      setBlackoutDates(dates);
     }
   };
 
@@ -160,6 +172,7 @@ const BlackoutDateManagement = ({ isDarkMode = true }) => {
         if (result.success) {
           setSuccess('Blackout date updated successfully!');
           await loadBlackoutDates();
+          window.dispatchEvent(new CustomEvent('unavailableDatesChanged'));
         } else {
           setError(result.message || 'Failed to update blackout date');
         }
@@ -171,6 +184,7 @@ const BlackoutDateManagement = ({ isDarkMode = true }) => {
         if (result.success) {
           setSuccess('Blackout date created successfully!');
           await loadBlackoutDates();
+          window.dispatchEvent(new CustomEvent('unavailableDatesChanged'));
         } else {
           setError(result.message || 'Failed to create blackout date');
         }
@@ -186,7 +200,8 @@ const BlackoutDateManagement = ({ isDarkMode = true }) => {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this blackout date?')) return;
+    setError(null);
+    setSuccess(null);
 
     const result = await callApi(() =>
       axios.delete(`/api/admin/blackout-dates/${id}`)
@@ -194,7 +209,10 @@ const BlackoutDateManagement = ({ isDarkMode = true }) => {
 
     if (result.success) {
       setSuccess('Blackout date deleted successfully!');
+      setDeleteConfirmId(null);
+      setDeleteConfirmReason('');
       await loadBlackoutDates();
+      window.dispatchEvent(new CustomEvent('unavailableDatesChanged'));
     } else {
       setError('Failed to delete blackout date');
     }
@@ -301,9 +319,49 @@ const BlackoutDateManagement = ({ isDarkMode = true }) => {
             <p>No blackout dates configured</p>
             <p className="text-xs mt-1">All dates and times are available for booking</p>
           </div>
-        ) : (
-          <div className="space-y-2">
-            {blackoutDates.map((blackout) => (
+        ) : (() => {
+          // Filter and paginate
+          const filteredDates = searchFilter
+            ? blackoutDates.filter(b => 
+                (b.reason || '').toLowerCase().includes(searchFilter.toLowerCase()) ||
+                (b.date || '').toString().includes(searchFilter)
+              )
+            : blackoutDates;
+          const totalPages = Math.ceil(filteredDates.length / itemsPerPage);
+          const startIdx = (currentPage - 1) * itemsPerPage;
+          const paginatedDates = filteredDates.slice(startIdx, startIdx + itemsPerPage);
+
+          return (
+          <div className="space-y-3">
+            {/* Search filter */}
+            {blackoutDates.length > itemsPerPage && (
+              <div className="mb-3">
+                <input
+                  type="text"
+                  value={searchFilter}
+                  onChange={(e) => { setSearchFilter(e.target.value); setCurrentPage(1); }}
+                  placeholder="Search by reason or date..."
+                  className={`w-full px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500 ${
+                    isDarkMode
+                      ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-500'
+                      : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'
+                  }`}
+                />
+              </div>
+            )}
+
+            {/* Items count */}
+            <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+              Showing {startIdx + 1}-{Math.min(startIdx + itemsPerPage, filteredDates.length)} of {filteredDates.length} blocked date{filteredDates.length !== 1 ? 's' : ''}
+            </div>
+
+            {paginatedDates.length === 0 ? (
+              <div className={`text-center py-4 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                <p className="text-sm">No matching blocked dates found</p>
+              </div>
+            ) : (
+            <div className="space-y-2">
+            {paginatedDates.map((blackout) => (
               <div
                 key={blackout.id}
                 className={`p-3 rounded-lg border flex justify-between items-start ${
@@ -353,7 +411,10 @@ const BlackoutDateManagement = ({ isDarkMode = true }) => {
                     <PencilIcon className="h-4 w-4" />
                   </button>
                   <button
-                    onClick={() => handleDelete(blackout.id)}
+                    onClick={() => {
+                      setDeleteConfirmId(blackout.id);
+                      setDeleteConfirmReason(blackout.reason || blackout.date || '');
+                    }}
                     className={`p-1 rounded transition-colors ${isDarkMode ? 'text-red-400 hover:bg-red-500/10' : 'text-red-600 hover:bg-red-100'}`}
                     title="Delete"
                   >
@@ -363,7 +424,57 @@ const BlackoutDateManagement = ({ isDarkMode = true }) => {
               </div>
             ))}
           </div>
-        )}
+            )}
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between pt-3 border-t border-gray-700">
+                <button
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
+                    currentPage === 1
+                      ? 'opacity-50 cursor-not-allowed'
+                      : isDarkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'
+                  } ${isDarkMode ? 'border-gray-600 text-gray-300' : 'border-gray-300 text-gray-700'}`}
+                >
+                  ← Previous
+                </button>
+
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                    <button
+                      key={page}
+                      onClick={() => setCurrentPage(page)}
+                      className={`w-8 h-8 text-xs font-medium rounded-lg transition-colors ${
+                        page === currentPage
+                          ? 'bg-red-600 text-white border border-red-500'
+                          : isDarkMode
+                            ? 'text-gray-300 hover:bg-gray-700 border border-gray-600'
+                            : 'text-gray-700 hover:bg-gray-100 border border-gray-300'
+                      }`}
+                    >
+                      {page}
+                    </button>
+                  ))}
+                </div>
+
+                <button
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
+                    currentPage === totalPages
+                      ? 'opacity-50 cursor-not-allowed'
+                      : isDarkMode ? 'hover:bg-gray-700' : 'hover:bg-gray-100'
+                  } ${isDarkMode ? 'border-gray-600 text-gray-300' : 'border-gray-300 text-gray-700'}`}
+                >
+                  Next →
+                </button>
+              </div>
+            )}
+          </div>
+          );
+        })()}
       </div>
 
       {/* Modal */}
@@ -517,6 +628,54 @@ const BlackoutDateManagement = ({ isDarkMode = true }) => {
             </button>
           </div>
         </form>
+      </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        isOpen={deleteConfirmId !== null}
+        onClose={() => { setDeleteConfirmId(null); setDeleteConfirmReason(''); }}
+        title="Delete Blackout Date"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <div className={`p-3 rounded-lg border flex items-start gap-2 ${isDarkMode ? 'bg-red-500/10 border-red-500/30' : 'bg-red-50 border-red-200'}`}>
+            <ExclamationTriangleIcon className={`h-5 w-5 mt-0.5 flex-shrink-0 ${isDarkMode ? 'text-red-400' : 'text-red-600'}`} />
+            <div>
+              <p className={`text-sm font-medium ${isDarkMode ? 'text-red-300' : 'text-red-800'}`}>
+                Are you sure you want to delete this blackout date?
+              </p>
+              {deleteConfirmReason && (
+                <p className={`text-xs mt-1 ${isDarkMode ? 'text-red-400/70' : 'text-red-600'}`}>
+                  "{deleteConfirmReason}"
+                </p>
+              )}
+              <p className={`text-xs mt-2 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                This will re-open this date/time for bookings.
+              </p>
+            </div>
+          </div>
+          <div className="flex justify-end gap-3">
+            <button
+              type="button"
+              onClick={() => { setDeleteConfirmId(null); setDeleteConfirmReason(''); }}
+              className={`px-4 py-2 border rounded-lg text-sm font-medium transition-colors ${
+                isDarkMode
+                  ? 'border-gray-600 text-gray-300 hover:bg-gray-700'
+                  : 'border-gray-300 text-gray-700 hover:bg-gray-100'
+              }`}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => handleDelete(deleteConfirmId)}
+              disabled={loading}
+              className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-colors disabled:opacity-50"
+            >
+              {loading ? 'Deleting...' : 'Delete'}
+            </button>
+          </div>
+        </div>
       </Modal>
 
       {/* Affected Appointments Modal */}

@@ -128,7 +128,7 @@ export default function InstallPrompt() {
       // For development/localhost environments, show instructions
       try {
         const platform = getPlatformInstructions();
-        alert(`📱 Install Instructions for ${platform.name}:\n\n${platform.instructions}`);
+        window.showToast?.('Info', `📱 Install Instructions for ${platform.name}:\n\n${platform.instructions}`, 'info');
         setError(null);
       } catch (err) {
         console.error('Error showing platform instructions:', err);

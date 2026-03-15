@@ -38,6 +38,49 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(\App\Services\ChatbotMetricsService::class, function ($app) {
             return new \App\Services\ChatbotMetricsService();
         });
+
+        // MANDATORY: ChatbotSecurityService — always-on security layer (not feature-flagged)
+        $this->app->singleton(\App\Services\ChatbotSecurityService::class, function ($app) {
+            return new \App\Services\ChatbotSecurityService();
+        });
+
+
+        $this->app->singleton(\App\Services\ChatbotLearningService::class, function ($app) {
+            return new \App\Services\ChatbotLearningService();
+        });
+
+        // MANDATORY: Explicitly bind UnifiedChatbotService so that AgentReasoningService
+        // and AgentToolRegistry are properly injected (not silently null from auto-resolution)
+        $this->app->singleton(\App\Services\UnifiedChatbotService::class, function ($app) {
+            return new \App\Services\UnifiedChatbotService(
+                $app->make(\App\Services\LLMService::class),
+                $app->make(\App\Services\VectorEmbeddingService::class),
+                $app->make(\App\Services\ChatbotRealTimeDataService::class),
+                $app->make(\App\Services\ChatbotFeedbackService::class),
+                $app->make(\App\Services\DynamicSystemPromptService::class),
+                $app->make(\App\Services\DynamicKnowledgeFeedService::class),
+                $app->make(\App\Services\ChatbotSecurityService::class),
+                $this->resolveOptional(\App\Services\StreamingLLMService::class),
+                $this->resolveOptional(\App\Services\ChatbotMemoryService::class),
+                $this->resolveOptional(\App\Services\ChatbotGuardService::class),
+                $this->resolveOptional(\App\Services\ChatbotAnalyticsService::class),
+                $app->make(\App\Services\AgentReasoningService::class),     // NOT optional
+                $app->make(\App\Services\AgentToolRegistry::class),         // NOT optional
+                $this->resolveOptional(\App\Services\IntelligentFallbackService::class),
+            );
+        });
+    }
+
+    /**
+     * Safely resolve an optional service, returning null if it doesn't exist or fails.
+     */
+    private function resolveOptional(string $class): mixed
+    {
+        try {
+            return class_exists($class) ? $this->app->make($class) : null;
+        } catch (\Exception $e) {
+            return null;
+        }
     }
 
     /**
@@ -67,11 +110,15 @@ class AppServiceProvider extends ServiceProvider
         }
 
         // Register Analytics Observers for real-time analytics updates
-        // This ensures analytics cache is invalidated whenever appointments or refunds change
+        // This ensures analytics cache is invalidated whenever appointments, refunds, or services change
         $analyticsObserver = \App\Observers\AnalyticsObserver::class;
         
         \App\Models\Appointment::observe($analyticsObserver);
         \App\Models\Refund::observe($analyticsObserver);
+        \App\Models\Service::observe($analyticsObserver);
+
+        // Register ML Outcome Observer for automatic feedback loop
+        \App\Models\Appointment::observe(\App\Observers\MlOutcomeObserver::class);
 
         // Configure granular rate limiting for different API endpoints
         RateLimiter::for('api', function (Request $request) {
@@ -103,8 +150,5 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('verification', function (Request $request) {
             return Limit::perMinute(3)->by($request->ip());
         });
-
-        // REMOVED: $this->syncDefaultServices(); - This was causing 500 errors!
-        // Moved database logic to a Command or Job instead
     }
 }

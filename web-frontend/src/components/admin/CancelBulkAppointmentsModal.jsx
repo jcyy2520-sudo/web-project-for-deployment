@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { XMarkIcon, ExclamationTriangleIcon, EnvelopeIcon } from '@heroicons/react/24/outline';
-import { formatServiceName } from '../../utils/format';
+import { formatServiceName, formatDateDisplay } from '../../utils/format';
 
 /**
  * CancelBulkAppointmentsModal
@@ -48,12 +48,12 @@ const CancelBulkAppointmentsModal = ({
 
   const handleConfirm = () => {
     if (selectedForCancel.length === 0) {
-      alert('Please select at least one appointment to cancel');
+      window.showToast?.('Warning', 'Please select at least one appointment to cancel', 'warning');
       return;
     }
 
     if (!cancellationReason.trim()) {
-      alert('Please provide a reason for cancellation');
+      window.showToast?.('Warning', 'Please provide a reason for cancellation', 'warning');
       return;
     }
 
@@ -135,7 +135,7 @@ const CancelBulkAppointmentsModal = ({
                         <div className="text-xs text-gray-400 mt-1">
                           <span>{formatServiceName(apt)}</span>
                           <span className="mx-2">•</span>
-                          <span>{new Date(apt.appointment_date).toLocaleDateString()} at {apt.appointment_time}</span>
+                          <span>{formatDateDisplay(apt.appointment_date)} at {apt.appointment_time}</span>
                         </div>
                         {apt.notes && (
                           <div className="text-xs text-gray-500 mt-1">

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { XMarkIcon, ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline';
 import axios from 'axios';
+import { formatDateDisplay } from '../../utils/format';
 
 const RefundDetailsModal = ({ isOpen, onClose, appointment, onConfirm }) => {
   const [expandedSections, setExpandedSections] = useState({
@@ -93,7 +94,7 @@ const RefundDetailsModal = ({ isOpen, onClose, appointment, onConfirm }) => {
     setError('');
 
     try {
-      const response = await axios.post('/api/cashier/refunds/request', {
+      const response = await axios.post('/api/refunds/request', {
         appointment_id: appointment.id,
         refund_amount: parseFloat(appointment.payment_amount || 0),
         reason: selectedReason,
@@ -108,7 +109,7 @@ const RefundDetailsModal = ({ isOpen, onClose, appointment, onConfirm }) => {
             'success'
           );
         } else {
-          alert('Refund request submitted successfully! You will receive an email notification.');
+          window.showToast?.('Success', 'Refund request submitted successfully! You will receive an email notification.', 'success');
         }
         onConfirm?.();
         handleClose();
@@ -228,12 +229,7 @@ const RefundDetailsModal = ({ isOpen, onClose, appointment, onConfirm }) => {
                   <div>
                     <p className="text-xs font-medium text-gray-500 uppercase">Date & Time</p>
                     <p className="text-sm font-semibold text-gray-900 mt-1">
-                      {new Date(appointment.appointment_date).toLocaleDateString('en-US', {
-                        weekday: 'long',
-                        month: 'short',
-                        day: 'numeric',
-                        year: 'numeric'
-                      })} at {appointment.appointment_time}
+                      {formatDateDisplay(appointment.appointment_date)} at {appointment.appointment_time}
                     </p>
                   </div>
                   <div>
