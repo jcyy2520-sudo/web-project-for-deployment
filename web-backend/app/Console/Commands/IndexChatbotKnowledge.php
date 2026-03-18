@@ -38,8 +38,8 @@ class IndexChatbotKnowledge extends Command
         // Check if embedding service is available
         $this->info('Checking embedding service availability...');
         if (!$this->embeddingService->isAvailable()) {
-            $this->warn('⚠️  Embedding service (Ollama/OpenAI) is not available.');
-            $this->warn('   Make sure Ollama is running or OPENAI_API_KEY is set.');
+            $this->warn('⚠️  Embedding service (Ollama/Voyage) is not available.');
+            $this->warn('   Make sure Ollama is running or VOYAGE_API_KEY is set.');
             $this->warn('   Continuing with keyword-based fallback...');
             $this->line('');
         } else {

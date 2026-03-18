@@ -157,7 +157,7 @@ class GoogleOAuthController extends Controller
                 ]);
             }
 
-            $newUser = User::create([
+            $newUser = new User([
                 'uuid' => (string) Str::uuid(),
                 'username' => $this->generateUniqueUsername($googleName ?: $googleEmail),
                 'email' => $googleEmail,
@@ -293,6 +293,17 @@ class GoogleOAuthController extends Controller
     {
         $token = $user->createToken('google_oauth_token', ['*'], now()->addDays(7))->plainTextToken;
         $params['token'] = $token;
+        
+        // Pass basic user info to the frontend
+        $params['user'] = json_encode([
+            'id' => $user->id,
+            'username' => $user->username,
+            'email' => $user->email,
+            'first_name' => $user->first_name,
+            'last_name' => $user->last_name,
+            'role' => $user->role,
+        ]);
+        
         return $this->redirectToFrontend($params);
     }
 }

@@ -78,6 +78,13 @@ class Appointment extends Model
         return $this->belongsTo(Service::class, 'service_id');
     }
 
+    public function services()
+    {
+        return $this->belongsToMany(Service::class, 'appointment_service')
+                    ->withPivot('price_at_booking')
+                    ->withTimestamps();
+    }
+
     public function completedBy()
     {
         return $this->belongsTo(User::class, 'completed_by');

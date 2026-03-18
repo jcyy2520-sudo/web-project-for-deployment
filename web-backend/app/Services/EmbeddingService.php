@@ -19,7 +19,6 @@ use Illuminate\Support\Facades\Log;
  */
 class EmbeddingService
 {
-    private const OPENAI_EMBEDDING_URL = 'https://api.openai.com/v1/embeddings';
     private const VOYAGE_EMBEDDING_URL = 'https://api.voyageai.com/v1/embeddings';
     private const OLLAMA_EMBEDDING_URL = 'http://localhost:11434/api/embeddings';
 
@@ -38,11 +37,10 @@ class EmbeddingService
     public function __construct()
     {
         $this->config = [
-            'openai_key' => config('services.openai.api_key'),
             'voyage_key' => config('services.voyage.api_key'),
             'use_ollama' => config('services.ollama.embeddings_enabled', false),
             'ollama_model' => config('services.ollama.embedding_model', 'nomic-embed-text'),
-            'default_model' => config('services.embedding.model', 'text-embedding-3-small'),
+            'default_model' => config('services.embedding.model', 'voyage-2'),
         ];
 
         $this->provider = $this->determineProvider();
@@ -57,8 +55,6 @@ class EmbeddingService
 
         try {
             switch ($this->provider) {
-                case 'openai':
-                    return $this->generateViaOpenAI($text);
                 case 'voyage':
                     return $this->generateViaVoyage($text);
                 case 'ollama':
@@ -73,26 +69,6 @@ class EmbeddingService
         }
     }
 
-    /**
-     * Generate embedding via OpenAI
-     */
-    private function generateViaOpenAI(string $text): array
-    {
-        $response = Http::withHeaders([
-            'Authorization' => 'Bearer ' . $this->config['openai_key'],
-        ])
-        ->timeout(30)
-        ->post(self::OPENAI_EMBEDDING_URL, [
-            'input' => $text,
-            'model' => $this->config['default_model'],
-        ]);
-
-        if (!$response->successful()) {
-            throw new \Exception('OpenAI embedding error: ' . $response->status());
-        }
-
-        return $response->json()['data'][0]['embedding'];
-    }
 
     /**
      * Generate embedding via Voyage AI
@@ -459,10 +435,6 @@ class EmbeddingService
             return 'ollama';
         }
 
-        if (!empty($this->config['openai_key'])) {
-            return 'openai';
-        }
-
         if (!empty($this->config['voyage_key'])) {
             return 'voyage';
         }
@@ -506,8 +478,6 @@ class EmbeddingService
     private function getModelName(): string
     {
         switch ($this->provider) {
-            case 'openai':
-                return $this->config['default_model'];
             case 'voyage':
                 return 'voyage-2';
             case 'ollama':

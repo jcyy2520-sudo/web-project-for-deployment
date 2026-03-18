@@ -20,7 +20,7 @@ class StatsController extends Controller
     {
         return $this->wrapExperimental(function () {
             $cacheKey = 'admin_stats_summary';
-            $ttl = 15; // seconds - shorter TTL for near-real-time
+            $ttl = 60; // seconds - longer TTL for better performance on high traffic
 
             $stats = Cache::remember($cacheKey, $ttl, function () {
                 // Use a single query with conditional aggregation instead of 5 separate queries

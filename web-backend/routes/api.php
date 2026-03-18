@@ -168,23 +168,32 @@ Route::get('/landing-page', [LandingPageController::class, 'index']);
 // to eliminate multiple sequential API calls on landing page load
 Route::get('/public/init', function () {
     try {
-        // Fetch all landing page data in one shot, cached for 60 seconds
-        $data = \Illuminate\Support\Facades\Cache::remember('public_init_data', 60, function () {
-            // Stats
+        // Fetch all landing page data in one shot, cached for 5 minutes (300 seconds)
+        $data = \Illuminate\Support\Facades\Cache::remember('public_init_data', 300, function () {
+            // Stats - use aggregate query for performance
+            $aptStats = \Illuminate\Support\Facades\DB::table('appointments')
+                ->whereNull('deleted_at')
+                ->selectRaw("
+                    COUNT(*) as total,
+                    SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
+                    SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed
+                ")
+                ->first();
+
             $stats = [
                 'totalUsers' => \App\Models\User::where('role', 'client')->where('is_active', true)->count(),
-                'totalAppointments' => \App\Models\Appointment::count(),
-                'pendingAppointments' => \App\Models\Appointment::where('status', 'pending')->count(),
-                'completedAppointments' => \App\Models\Appointment::where('status', 'completed')->count(),
+                'totalAppointments' => (int)($aptStats->total ?? 0),
+                'pendingAppointments' => (int)($aptStats->pending ?? 0),
+                'completedAppointments' => (int)($aptStats->completed ?? 0),
                 'totalServices' => \App\Models\Service::where('is_active', true)->count(),
             ];
 
-            // Services (top 4 active)
+            // Services (cached)
             $services = \App\Models\Service::where('is_active', true)
                 ->orderBy('name')
                 ->get();
 
-            // Testimonials
+            // Testimonials (subset)
             $testimonials = [];
             try {
                 $feedbackController = app(\App\Http\Controllers\FeedbackController::class);

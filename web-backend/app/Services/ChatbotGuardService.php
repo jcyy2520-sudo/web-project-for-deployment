@@ -58,7 +58,7 @@ class ChatbotGuardService
         // Leetspeak / character substitution patterns
         '/\bf[\W_]*[u\x{00fc}v][\W_]*[ck][\W_]*[ck]/iu',
         '/\b[s5][\W_]*h[\W_]*[i1!][\W_]*[t7]/i',
-        '/\b[a4@][\W_]*[s5$][\W_]*[s5$]/i',
+        '/\b[a4@][\W_]*[s5$][\W_]*[s5$]\b/i',
         '/\b[b8][\W_]*[i1!][\W_]*[t7][\W_]*[ck][\W_]*h/i',
         
         // Filipino/Tagalog profanity patterns (with common variations)

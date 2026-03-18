@@ -107,6 +107,7 @@ class DynamicSystemPromptService
      * @param array $feedbackInsights   Learned corrections / patterns
      * @param string $language    Detected language preference
      * @param string|null $conversationId Conversation ID for caching
+     * @param array $options       Optimization options (e.g., ['minimal' => true])
      */
     public function build(
         array  $userContext,
@@ -115,8 +116,10 @@ class DynamicSystemPromptService
         array  $conversationMemory = [],
         array  $feedbackInsights = [],
         string $language = 'english',
-        ?string $conversationId = null
+        ?string $conversationId = null,
+        array $options = []
     ): string {
+        $isMinimal = $options['minimal'] ?? false;
 
         $role     = $userContext['role'] ?? 'guest';
         $userName = $userContext['user']['name'] ?? null;
@@ -136,6 +139,18 @@ class DynamicSystemPromptService
             ];
 
             return $staticPrompt . "\n\n" . implode("\n\n", array_filter($dynamicSections));
+        }
+
+        // Fast path for minimal prompt
+        if ($isMinimal) {
+            $sections = [
+                $this->buildIdentitySection($language),
+                $this->buildRoleSection($role, $userName),
+                $this->buildKnowledgeBaseSection($retrievedKB),
+                $this->buildConversationMemorySection($conversationMemory),
+                "\n## CORE DIRECTIVE\nGive a very brief, polite, and helpful response. If you don't know the answer based on the knowledge base, say so politely. Do NOT offer complex services or workflows unless specifically asked.",
+            ];
+            return implode("\n\n", array_filter($sections));
         }
 
         // Original path: build all sections from scratch

@@ -22,10 +22,18 @@ class Service extends Model
         'is_active' => 'boolean'
     ];
 
-    // Relationship to appointments using service_id foreign key
+    // Relationship to appointments using service_id foreign key (legacy)
     public function appointments()
     {
         return $this->hasMany(Appointment::class, 'service_id');
+    }
+
+    // New many-to-many relationship
+    public function manyAppointments()
+    {
+        return $this->belongsToMany(Appointment::class, 'appointment_service')
+                    ->withPivot('price_at_booking')
+                    ->withTimestamps();
     }
 
     public static function getServiceStats()

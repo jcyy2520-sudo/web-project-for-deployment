@@ -426,15 +426,15 @@ class AgentToolRegistry
     }
 
     /**
-     * Get tool definitions in Claude's native tool-use format (JSON Schema).
-     * This enables Claude's native function-calling API instead of text-based tool calling.
+     * Get tool definitions in native tool-use format (JSON Schema).
+     * This enables native function-calling API instead of text-based tool calling.
      *
      * @param string $role User role for permission filtering
-     * @return array Claude-format tool definitions
+     * @return array Native-format tool definitions
      */
-    public function getClaudeToolDefinitions(string $role): array
+    public function getNativeToolDefinitions(string $role): array
     {
-        $claudeTools = [];
+        $nativeTools = [];
         foreach ($this->tools as $name => $tool) {
             if (!$this->permissionService->canUseAgentTool($role, $name)) {
                 continue;
@@ -468,14 +468,14 @@ class AgentToolRegistry
                 $description = '[DESTRUCTIVE - requires confirmation] ' . $description;
             }
 
-            $claudeTools[] = [
+            $nativeTools[] = [
                 'name' => $name,
                 'description' => $description,
                 'input_schema' => $inputSchema,
             ];
         }
 
-        return $claudeTools;
+        return $nativeTools;
     }
 
     // ─── CORE TOOL REGISTRATIONS ──────────────────────────────────

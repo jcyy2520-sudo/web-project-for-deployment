@@ -118,7 +118,7 @@ class AdminController extends Controller
     private function fetchAppointments($request)
     {
         // Only get appointments with existing users (eager load with has to ensure user exists)
-        $query = Appointment::has('user')->with(['user', 'staff', 'service']);
+        $query = Appointment::has('user')->with(['user', 'staff', 'service', 'services']);
 
         // Apply filters
         if ($request->has('status')) {

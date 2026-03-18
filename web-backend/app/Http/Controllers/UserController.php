@@ -189,7 +189,7 @@ class UserController extends Controller
                 $counter++;
             }
             
-            $user = User::create([
+            $user = new User([
                 'username' => $username,
                 'email' => $request->email,
                 'first_name' => $request->first_name,

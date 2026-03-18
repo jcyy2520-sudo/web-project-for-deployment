@@ -4,6 +4,7 @@ namespace App\Services;
 
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Config;
 
 /**
  * LLMService - Intelligent AI Backend Service
@@ -21,22 +22,22 @@ use Illuminate\Support\Facades\Http;
  */
 class LLMService
 {
-    private const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages';
-    private const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
     private const MISTRAL_API_URL = 'https://api.mistral.ai/v1/chat/completions';
     private const HUGGINGFACE_API_URL = 'https://router.huggingface.co/v1/chat/completions';
+    private const GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
     
-    private $claudeApiKey;
-    private $claudeModel;
-    private $openaiApiKey;
     private $mistralApiKey;
     private $ollamaBaseUrl;
     private $huggingfaceApiKey;
+    private $geminiApiKey;
     private $useOllama;
     private $ollamaModel = 'mistral';
     private $huggingfaceModel = 'meta-llama/Llama-3.3-70B-Instruct';
-    private $openaiModel = 'gpt-4o';
     private $mistralModel = 'mistral-large-latest';
+    private $geminiModel = 'gemini-1.5-pro-latest';
+    private $githubToken;
+    private $githubModel;
+    private $githubEndpoint;
     private $fallbackModel;
     private $lastUsedModel = null;
     private $lastUsedProvider = null;
@@ -46,13 +47,14 @@ class LLMService
 
     public function __construct()
     {
-        $this->claudeApiKey = config('services.anthropic.api_key');
-        $this->claudeModel = config('services.anthropic.model', 'claude-sonnet-4-20250514');
-        $this->openaiApiKey = config('services.openai.api_key');
-        $this->openaiModel = config('services.openai.model', 'gpt-4o');
         $this->mistralApiKey = config('services.mistral.api_key');
         $this->mistralModel = config('services.mistral.model', 'mistral-large-latest');
         $this->huggingfaceApiKey = config('services.huggingface.api_key');
+        $this->geminiApiKey = config('services.gemini.api_key');
+        $this->geminiModel = config('services.gemini.model', 'gemini-1.5-pro-latest');
+        $this->githubToken = config('services.github_gpt5.api_key');
+        $this->githubModel = config('services.github_gpt5.model', 'openai/gpt-5');
+        $this->githubEndpoint = config('services.github_gpt5.api_url', 'https://models.github.ai/inference');
         $this->useOllama = filter_var(config('services.ollama.enabled', false), FILTER_VALIDATE_BOOLEAN);
         $this->ollamaBaseUrl = rtrim(config('chatbot_unified.llm.ollama.base_url', 'http://localhost:11434'), '/');
         $this->ollamaModel = config('chatbot_unified.llm.ollama.model', 'mistral');
@@ -89,91 +91,92 @@ class LLMService
             $nativeTools = $systemContext['native_tools'] ?? [];
             $rawMessages = $systemContext['raw_messages'] ?? [];
 
-            // Try Claude first if API key exists
-            if ($this->claudeApiKey && !$this->useOllama) {
-                try {
-                    Log::debug('Attempting Claude API call', ['has_native_tools' => !empty($nativeTools)]);
-                    return $this->generateViaClaudeAPI(
-                        $userMessage,
-                        $conversationHistory,
-                        $systemPrompt,
-                        $nativeTools,
-                        $rawMessages
-                    );
-                } catch (\Exception $e) {
-                    Log::warning('Claude API failed, trying fallbacks: ' . $e->getMessage());
-                }
-            }
+            // Get provider order from config/env
+            $providerOrder = config('chatbot_unified.llm.provider_order', 'github_gpt5,gemini,huggingface,mistral');
+            $providers = array_map('trim', explode(',', $providerOrder));
 
-            // Try HuggingFace with primary model (free, cloud-based)
-            if ($this->huggingfaceApiKey) {
+            foreach ($providers as $provider) {
                 try {
-                    Log::debug('Attempting HuggingFace API call with primary model: ' . $this->huggingfaceModel);
-                    return $this->generateViaHuggingFace(
-                        $userMessage,
-                        $conversationHistory,
-                        $systemPrompt,
-                        $this->huggingfaceModel
-                    );
-                } catch (\Exception $e) {
-                    Log::warning('HuggingFace primary model failed: ' . $e->getMessage());
-                    
-                    // â”€â”€ FALLBACK MODEL on HuggingFace (feature-flagged) â”€â”€
-                    if (config('chatbot_unified.features.fallback_model', false) && $this->fallbackModel) {
-                        try {
-                            Log::info('Attempting HuggingFace fallback model: ' . $this->fallbackModel);
-                            return $this->generateViaHuggingFace(
-                                $userMessage,
-                                $conversationHistory,
-                                $systemPrompt,
-                                $this->fallbackModel
-                            );
-                        } catch (\Exception $fallbackE) {
-                            Log::warning('HuggingFace fallback model also failed: ' . $fallbackE->getMessage());
-                        }
+                    switch ($provider) {
+                        case 'gemini':
+                            if ($this->geminiApiKey) {
+                                Log::debug('Attempting Gemini API call with model: ' . $this->geminiModel);
+                                return $this->generateViaGemini(
+                                    $userMessage,
+                                    $conversationHistory,
+                                    $systemPrompt,
+                                    $systemContext
+                                );
+                            }
+                            break;
+
+                        case 'github_gpt5':
+                            if ($this->githubToken) {
+                                Log::debug('Attempting GitHub GPT-5 API call with model: ' . $this->githubModel);
+                                return $this->generateViaGithubGPT5(
+                                    $userMessage,
+                                    $conversationHistory,
+                                    $systemPrompt,
+                                    $systemContext
+                                );
+                            }
+                            break;
+
+                        case 'huggingface':
+                            if ($this->huggingfaceApiKey) {
+                                Log::debug('Attempting HuggingFace API call with model: ' . $this->huggingfaceModel);
+                                try {
+                                    return $this->generateViaHuggingFace(
+                                        $userMessage,
+                                        $conversationHistory,
+                                        $systemPrompt,
+                                        $this->huggingfaceModel,
+                                        $systemContext
+                                    );
+                                } catch (\Exception $hfE) {
+                                    // Fallback model support inside HuggingFace
+                                    if (config('chatbot_unified.features.fallback_model', false) && $this->fallbackModel) {
+                                        Log::info('Attempting HuggingFace fallback model: ' . $this->fallbackModel);
+                                        return $this->generateViaHuggingFace(
+                                            $userMessage,
+                                            $conversationHistory,
+                                            $systemPrompt,
+                                            $this->fallbackModel,
+                                            $systemContext
+                                        );
+                                    }
+                                    throw $hfE;
+                                }
+                            }
+                            break;
+
+                        case 'mistral':
+                            if ($this->mistralApiKey) {
+                                Log::info('Attempting Mistral Cloud API call with model: ' . $this->mistralModel);
+                                return $this->generateViaMistralCloud(
+                                    $userMessage,
+                                    $conversationHistory,
+                                    $systemPrompt,
+                                    $systemContext
+                                );
+                            }
+                            break;
+
+                        case 'ollama':
+                            if ($this->useOllama) {
+                                Log::debug('Attempting Ollama API call with model: ' . $this->ollamaModel);
+                                return $this->generateViaOllama(
+                                    $userMessage,
+                                    $conversationHistory,
+                                    $systemPrompt,
+                                    $systemContext
+                                );
+                            }
+                            break;
                     }
-                }
-            }
-
-            // Try OpenAI as next fallback (paid but reliable)
-            if ($this->openaiApiKey) {
-                try {
-                    Log::info('Attempting OpenAI API call with model: ' . $this->openaiModel);
-                    return $this->generateViaOpenAI(
-                        $userMessage,
-                        $conversationHistory,
-                        $systemPrompt
-                    );
                 } catch (\Exception $e) {
-                    Log::warning('OpenAI API failed: ' . $e->getMessage());
-                }
-            }
-
-            // Try Mistral Cloud as next fallback
-            if ($this->mistralApiKey) {
-                try {
-                    Log::info('Attempting Mistral Cloud API call with model: ' . $this->mistralModel);
-                    return $this->generateViaMistralCloud(
-                        $userMessage,
-                        $conversationHistory,
-                        $systemPrompt
-                    );
-                } catch (\Exception $e) {
-                    Log::warning('Mistral Cloud API failed: ' . $e->getMessage());
-                }
-            }
-
-            // Try Ollama as last resort (self-hosted)
-            if ($this->useOllama) {
-                try {
-                    Log::debug('Attempting Ollama API call with model: ' . $this->ollamaModel);
-                    return $this->generateViaOllama(
-                        $userMessage,
-                        $conversationHistory,
-                        $systemPrompt
-                    );
-                } catch (\Exception $e) {
-                    Log::error('Ollama API failed: ' . $e->getMessage());
+                    Log::warning("$provider API failed: " . $e->getMessage());
+                    // Continue to next provider in the loop
                 }
             }
 
@@ -196,163 +199,115 @@ class LLMService
     }
 
     /**
-     * Generate response via Claude API (Anthropic)
+     * Generate response via GitHub Models API (GPT-5)
      */
-    private function generateViaClaudeAPI(
+    private function generateViaGithubGPT5(
         string $userMessage,
         array $conversationHistory,
         string $systemPrompt,
-        array $tools = [],
-        array $rawMessages = []
+        array $options = []
     ): array {
         try {
-            // Use raw messages if provided (for multi-turn tool-use), otherwise build from history
-            $messages = !empty($rawMessages) ? $rawMessages : $this->buildClaudeMessages($userMessage, $conversationHistory);
+            $rawMessages = $options['raw_messages'] ?? [];
+            $nativeTools = $options['native_tools'] ?? [];
+            
+            $messages = [['role' => 'system', 'content' => $systemPrompt]];
 
-            $requestBody = [
-                'model' => $this->claudeModel,
-                'max_tokens' => $this->maxTokens,
-                'temperature' => $this->temperature,
-                'system' => $systemPrompt,
+            if (!empty($rawMessages)) {
+                foreach ($rawMessages as $msg) {
+                    $role = ($msg['role'] === 'assistant' || $msg['role'] === 'bot') ? 'assistant' : 'user';
+                    $content = $msg['content'] ?? $msg['message'] ?? '';
+                    
+                    // Convert Claude-style tool results to OpenAI-style if needed
+                    if (is_array($content)) {
+                        $textContent = '';
+                        foreach ($content as $part) {
+                            if ($part['type'] === 'text') $textContent .= $part['text'];
+                            if ($part['type'] === 'tool_result') {
+                                // For now, just append as text as a simple fallback
+                                $textContent .= "\nTool result: " . $part['content'];
+                            }
+                        }
+                        $messages[] = ['role' => $role, 'content' => $textContent];
+                    } else {
+                        $messages[] = ['role' => $role, 'content' => $content];
+                    }
+                }
+            } else {
+                foreach ($conversationHistory as $msg) {
+                    $role = ($msg['role'] === 'assistant' || $msg['role'] === 'bot') ? 'assistant' : 'user';
+                    $messages[] = ['role' => $role, 'content' => $msg['message'] ?? $msg['content'] ?? ''];
+                }
+                $messages[] = ['role' => 'user', 'content' => $userMessage];
+            }
+
+            $payload = [
+                'model' => $this->githubModel,
                 'messages' => $messages,
+                'max_completion_tokens' => $this->maxTokens,
             ];
 
-            // Include native tools if provided — enables Claude's structured function-calling
-            if (!empty($tools)) {
-                $requestBody['tools'] = $tools;
-            }
-
-            $response = Http::withHeaders([
-                'x-api-key' => $this->claudeApiKey,
-                'anthropic-version' => '2023-06-01',
-            ])
-            ->timeout($this->requestTimeout)
-            ->post(self::CLAUDE_API_URL, $requestBody);
-
-            if (!$response->successful()) {
-                Log::error('Claude API error', [
-                    'status' => $response->status(),
-                    'body' => $response->body(),
-                ]);
-                throw new \Exception('Claude API returned ' . $response->status());
-            }
-
-            $data = $response->json();
-
-            // Parse response — Claude may return text blocks, tool_use blocks, or both
-            $responseText = '';
-            $toolUseBlocks = [];
-
-            foreach ($data['content'] ?? [] as $block) {
-                if (($block['type'] ?? '') === 'text') {
-                    $responseText .= $block['text'];
-                } elseif (($block['type'] ?? '') === 'tool_use') {
-                    $toolUseBlocks[] = [
-                        'id' => $block['id'],
-                        'name' => $block['name'],
-                        'input' => $block['input'] ?? [],
+            // Add OpenAI-style tools if provided
+            if (!empty($nativeTools)) {
+                $payload['tools'] = array_map(function($tool) {
+                    return [
+                        'type' => 'function',
+                        'function' => [
+                            'name' => $tool['name'],
+                            'description' => $tool['description'],
+                            'parameters' => $tool['input_schema'] ?? $tool['parameters'] ?? [],
+                        ]
                     ];
-                }
+                }, $nativeTools);
             }
-
-            if (empty($responseText) && empty($toolUseBlocks)) {
-                throw new \Exception('Empty response from Claude');
-            }
-
-            $this->lastUsedProvider = 'claude';
-            $this->lastUsedModel = $this->claudeModel;
-
-            $result = [
-                'success' => true,
-                'response' => $this->cleanResponse($responseText),
-                'provider' => 'claude',
-                'model' => $this->claudeModel,
-                'tokens_used' => $data['usage']['output_tokens'] ?? 0,
-                'stop_reason' => $data['stop_reason'] ?? 'end_turn',
-                'raw_content' => $data['content'] ?? [],
-            ];
-
-            // Include native tool calls if present
-            if (!empty($toolUseBlocks)) {
-                $result['tool_calls'] = $toolUseBlocks;
-            }
-
-            return $result;
-        } catch (\Exception $e) {
-            Log::error('Claude API generation failed: ' . $e->getMessage());
-            throw $e;
-        }
-    }
-
-    /**
-     * Generate response via OpenAI API (GPT-4o-mini / GPT-4o)
-     * Used as fallback when HuggingFace is unavailable.
-     */
-    private function generateViaOpenAI(
-        string $userMessage,
-        array $conversationHistory,
-        string $systemPrompt
-    ): array {
-        try {
-            // Build messages array (OpenAI format)
-            $messages = [
-                ['role' => 'system', 'content' => $systemPrompt],
-            ];
-
-            // Add conversation history
-            $historyLimit = min(count($conversationHistory), 12);
-            $recentHistory = array_slice($conversationHistory, -$historyLimit);
-
-            foreach ($recentHistory as $msg) {
-                $role = ($msg['role'] === 'assistant' || $msg['role'] === 'bot') ? 'assistant' : 'user';
-                $content = $msg['message'] ?? $msg['content'] ?? '';
-                if ($content) {
-                    $messages[] = ['role' => $role, 'content' => $content];
-                }
-            }
-
-            // Add current message
-            $messages[] = ['role' => 'user', 'content' => $userMessage];
 
             $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . $this->openaiApiKey,
+                'Authorization' => 'Bearer ' . $this->githubToken,
+                'Accept' => 'application/json',
                 'Content-Type' => 'application/json',
             ])
             ->timeout($this->requestTimeout)
-            ->post(self::OPENAI_API_URL, [
-                'model' => $this->openaiModel,
-                'messages' => $messages,
-                'max_tokens' => $this->maxTokens,
-                'temperature' => $this->temperature,
-            ]);
+            ->post($this->githubEndpoint . '/chat/completions', $payload);
 
             if (!$response->successful()) {
-                Log::error('OpenAI error', [
-                    'status' => $response->status(),
-                    'body' => $response->body(),
-                ]);
-                throw new \Exception('OpenAI returned ' . $response->status() . ': ' . $response->body());
+                throw new \Exception('GitHub Models API error: ' . $response->status() . ' - ' . $response->body());
             }
 
             $data = $response->json();
-            $responseText = $data['choices'][0]['message']['content'] ?? '';
+            $choice = $data['choices'][0]['message'] ?? [];
+            $responseText = $choice['content'] ?? '';
+            $toolCalls = [];
 
-            if (!$responseText) {
-                throw new \Exception('Empty response from OpenAI');
+            if (isset($choice['tool_calls'])) {
+                foreach ($choice['tool_calls'] as $tc) {
+                    if ($tc['type'] === 'function') {
+                        $toolCalls[] = [
+                            'id' => $tc['id'],
+                            'name' => $tc['function']['name'],
+                            'input' => json_decode($tc['function']['arguments'], true),
+                        ];
+                    }
+                }
             }
 
-            $this->lastUsedProvider = 'openai';
-            $this->lastUsedModel = $this->openaiModel;
+            if (!$responseText && empty($toolCalls)) {
+                throw new \Exception('Empty response from GitHub Models');
+            }
+
+            $this->lastUsedProvider = 'github_gpt5';
+            $this->lastUsedModel = $this->githubModel;
 
             return [
                 'success' => true,
                 'response' => $this->cleanResponse($responseText),
-                'provider' => 'openai',
-                'model' => $this->openaiModel,
+                'tool_calls' => $toolCalls,
+                'raw_content' => $choice,
+                'provider' => 'github_gpt5',
+                'model' => $this->githubModel,
                 'tokens_used' => $data['usage']['total_tokens'] ?? 0,
             ];
         } catch (\Exception $e) {
-            Log::error('OpenAI generation failed: ' . $e->getMessage());
+            Log::error('GitHub GPT-5 generation failed: ' . $e->getMessage());
             throw $e;
         }
     }
@@ -363,25 +318,51 @@ class LLMService
     private function generateViaOllama(
         string $userMessage,
         array $conversationHistory,
-        string $systemPrompt
+        string $systemPrompt,
+        array $options = []
     ): array {
         try {
-            // Format conversation for Ollama
-            $prompt = $this->buildOllamaPrompt(
-                $userMessage,
-                $conversationHistory,
-                $systemPrompt
-            );
+            $rawMessages = $options['raw_messages'] ?? [];
+            
+            // Format for Ollama
+            $messages = [['role' => 'system', 'content' => $systemPrompt]];
 
-            $response = Http::timeout($this->requestTimeout * 2) // Ollama can be slower
-                ->post($this->ollamaBaseUrl . '/api/generate', [
-                    'model' => $this->ollamaModel,
-                    'prompt' => $prompt,
-                    'stream' => false,
+            if (!empty($rawMessages)) {
+                foreach ($rawMessages as $msg) {
+                    $role = ($msg['role'] === 'assistant' || $msg['role'] === 'bot') ? 'assistant' : 'user';
+                    $content = $msg['content'] ?? $msg['message'] ?? '';
+                    
+                    if (is_array($content)) {
+                        $textContent = '';
+                        foreach ($content as $part) {
+                            if ($part['type'] === 'text') $textContent .= $part['text'];
+                            if ($part['type'] === 'tool_result') {
+                                $textContent .= "\n[Tool Result]: " . $part['content'];
+                            }
+                        }
+                        $messages[] = ['role' => $role, 'content' => $textContent];
+                    } else {
+                        $messages[] = ['role' => $role, 'content' => $content];
+                    }
+                }
+            } else {
+                foreach ($conversationHistory as $msg) {
+                    $role = ($msg['role'] === 'assistant' || $msg['role'] === 'bot') ? 'assistant' : 'user';
+                    $messages[] = ['role' => $role, 'content' => $msg['message'] ?? $msg['content'] ?? ''];
+                }
+                $messages[] = ['role' => 'user', 'content' => $userMessage];
+            }
+
+            $response = Http::timeout($this->requestTimeout)
+            ->post($this->ollamaBaseUrl . '/api/chat', [
+                'model' => $this->ollamaModel,
+                'messages' => $messages,
+                'stream' => false,
+                'options' => [
                     'num_predict' => $this->maxTokens,
                     'temperature' => $this->temperature,
-                    'top_p' => 0.9,
-                ]);
+                ]
+            ]);
 
             if (!$response->successful()) {
                 Log::error('Ollama error', [
@@ -412,6 +393,124 @@ class LLMService
     }
 
     /**
+     * Generate response via Google Gemini API (NATIVE generateContent)
+     */
+    private function generateViaGemini(
+        string $userMessage,
+        array $conversationHistory,
+        string $systemPrompt,
+        array $options = []
+    ): array {
+        try {
+            $rawMessages = $options['raw_messages'] ?? [];
+            
+            // Build Gemini contents array (NATIVE format)
+            $contents = [];
+
+            if (!empty($rawMessages)) {
+                foreach ($rawMessages as $msg) {
+                    $role = ($msg['role'] === 'assistant' || $msg['role'] === 'bot' || $msg['role'] === 'model') ? 'model' : 'user';
+                    $content = $msg['content'] ?? $msg['message'] ?? '';
+                    
+                    if (is_array($content)) {
+                        $parts = [];
+                        foreach ($content as $part) {
+                            if ($part['type'] === 'text') $parts[] = ['text' => $part['text']];
+                            if ($part['type'] === 'tool_result') {
+                                // Gemini tool results are different, but we'll try to flatten for now
+                                $parts[] = ['text' => "Tool result: " . $part['content']];
+                            }
+                        }
+                        $contents[] = ['role' => $role, 'parts' => $parts];
+                    } else if ($content) {
+                        $contents[] = ['role' => $role, 'parts' => [['text' => $content]]];
+                    }
+                }
+            } else {
+                // Add conversation history
+                $historyLimit = min(count($conversationHistory), 12);
+                $recentHistory = array_slice($conversationHistory, -$historyLimit);
+
+                foreach ($recentHistory as $msg) {
+                    $role = ($msg['role'] === 'assistant' || $msg['role'] === 'bot') ? 'model' : 'user';
+                    $content = $msg['message'] ?? $msg['content'] ?? '';
+                    if ($content) {
+                        $contents[] = [
+                            'role' => $role,
+                            'parts' => [['text' => $content]]
+                        ];
+                    }
+                }
+
+                // Add current message
+                $contents[] = [
+                    'role' => 'user',
+                    'parts' => [['text' => $userMessage]]
+                ];
+            }
+
+            // Build full prompt for Gemini (including system prompt)
+            $url = self::GEMINI_API_BASE_URL . '/' . $this->geminiModel . ':generateContent?key=' . $this->geminiApiKey;
+
+            $requestBody = [
+                'contents' => $contents,
+                'system_instruction' => [
+                    'parts' => [['text' => $systemPrompt]]
+                ],
+                'generationConfig' => [
+                    'maxOutputTokens' => $this->maxTokens,
+                    'temperature' => $this->temperature,
+                ],
+                'safetySettings' => [
+                    ['category' => 'HARM_CATEGORY_HARASSMENT', 'threshold' => 'BLOCK_NONE'],
+                    ['category' => 'HARM_CATEGORY_HATE_SPEECH', 'threshold' => 'BLOCK_NONE'],
+                    ['category' => 'HARM_CATEGORY_SEXUALLY_EXPLICIT', 'threshold' => 'BLOCK_NONE'],
+                    ['category' => 'HARM_CATEGORY_DANGEROUS_CONTENT', 'threshold' => 'BLOCK_NONE'],
+                ]
+            ];
+
+            $response = Http::withHeaders([
+                'Content-Type' => 'application/json',
+            ])
+            ->timeout($this->requestTimeout)
+            ->post($url, $requestBody);
+
+            if (!$response->successful()) {
+                Log::error('Gemini Native error', [
+                    'status' => $response->status(),
+                    'body' => $response->body(),
+                ]);
+                throw new \Exception('Gemini returned ' . $response->status());
+            }
+
+            $data = $response->json();
+            $responseText = $data['candidates'][0]['content']['parts'][0]['text'] ?? '';
+
+            if (!$responseText) {
+                // Check for safety filter blocks
+                if (isset($data['promptFeedback']['blockReason'])) {
+                    throw new \Exception('Gemini blocked response: ' . $data['promptFeedback']['blockReason']);
+                }
+                throw new \Exception('Empty response from Gemini');
+            }
+
+            $this->lastUsedProvider = 'gemini';
+            $this->lastUsedModel = $this->geminiModel;
+
+            return [
+                'success' => true,
+                'response' => $this->cleanResponse($responseText),
+                'provider' => 'gemini',
+                'model' => $this->geminiModel,
+                'tokens_used' => 0, // Gemini native doesn't return easy token counts in this variant
+            ];
+        } catch (\Exception $e) {
+            Log::error('Gemini Native generation failed: ' . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    /**
      * Generate response via HuggingFace Inference API (FREE!)
      * Uses Llama 3.2 via OpenAI-compatible endpoint.
      * Supports model parameter for fallback model switching.
@@ -426,30 +525,53 @@ class LLMService
         string $userMessage,
         array $conversationHistory,
         string $systemPrompt,
-        ?string $model = null
+        ?string $model = null,
+        array $options = []
     ): array {
         $modelToUse = $model ?? $this->huggingfaceModel;
         
         try {
+            $rawMessages = $options['raw_messages'] ?? [];
+            
             // Build messages array (OpenAI format)
             $messages = [
                 ['role' => 'system', 'content' => $systemPrompt]
             ];
             
-            // Add conversation history
-            $historyLimit = min(count($conversationHistory), 12);
-            $recentHistory = array_slice($conversationHistory, -$historyLimit);
-            
-            foreach ($recentHistory as $msg) {
-                $role = ($msg['role'] === 'assistant' || $msg['role'] === 'bot') ? 'assistant' : 'user';
-                $content = $msg['message'] ?? $msg['content'] ?? '';
-                if ($content) {
-                    $messages[] = ['role' => $role, 'content' => $content];
+            if (!empty($rawMessages)) {
+                foreach ($rawMessages as $msg) {
+                    $role = ($msg['role'] === 'assistant' || $msg['role'] === 'bot') ? 'assistant' : 'user';
+                    $content = $msg['content'] ?? $msg['message'] ?? '';
+                    
+                    if (is_array($content)) {
+                        $textContent = '';
+                        foreach ($content as $part) {
+                            if ($part['type'] === 'text') $textContent .= $part['text'];
+                            if ($part['type'] === 'tool_result') {
+                                $textContent .= "\n[Tool Result]: " . $part['content'];
+                            }
+                        }
+                        $messages[] = ['role' => $role, 'content' => $textContent];
+                    } else {
+                        $messages[] = ['role' => $role, 'content' => $content];
+                    }
                 }
+            } else {
+                // Add conversation history
+                $historyLimit = min(count($conversationHistory), 12);
+                $recentHistory = array_slice($conversationHistory, -$historyLimit);
+                
+                foreach ($recentHistory as $msg) {
+                    $role = ($msg['role'] === 'assistant' || $msg['role'] === 'bot') ? 'assistant' : 'user';
+                    $content = $msg['message'] ?? $msg['content'] ?? '';
+                    if ($content) {
+                        $messages[] = ['role' => $role, 'content' => $content];
+                    }
+                }
+                
+                // Add current message
+                $messages[] = ['role' => 'user', 'content' => $userMessage];
             }
-            
-            // Add current message
-            $messages[] = ['role' => 'user', 'content' => $userMessage];
 
             $response = Http::withHeaders([
                 'Authorization' => 'Bearer ' . $this->huggingfaceApiKey,
@@ -942,34 +1064,6 @@ When answering complex queries, ALWAYS structure your response as follows:
         return $prompt;
     }
 
-    /**
-     * Build messages array for Claude API
-     * Enhanced with history trimming to stay within context windows.
-     */
-    private function buildClaudeMessages(string $userMessage, array $conversationHistory): array
-    {
-        $messages = [];
-        
-        // Limit history to last 15 messages to prevent context bloat
-        // RAG and current message take priority over deep history
-        $recentHistory = array_slice($conversationHistory, -15);
-
-        // Add conversation history
-        foreach ($recentHistory as $msg) {
-            $messages[] = [
-                'role' => ($msg['role'] ?? 'user') === 'assistant' ? 'assistant' : 'user',
-                'content' => $msg['message'] ?? $msg['content'] ?? '',
-            ];
-        }
-
-        // Add current user message
-        $messages[] = [
-            'role' => 'user',
-            'content' => $userMessage,
-        ];
-
-        return $messages;
-    }
 
     /**
      * Build prompt string for Ollama
@@ -1005,17 +1099,38 @@ When answering complex queries, ALWAYS structure your response as follows:
     private function generateViaMistralCloud(
         string $userMessage,
         array $conversationHistory,
-        string $systemPrompt
+        string $systemPrompt,
+        array $options = []
     ): array {
         try {
+            $rawMessages = $options['raw_messages'] ?? [];
             $messages = [['role' => 'system', 'content' => $systemPrompt]];
 
-            foreach ($conversationHistory as $msg) {
-                $role = ($msg['role'] === 'assistant' || $msg['role'] === 'bot') ? 'assistant' : 'user';
-                $messages[] = ['role' => $role, 'content' => $msg['message'] ?? $msg['content'] ?? ''];
+            if (!empty($rawMessages)) {
+                foreach ($rawMessages as $msg) {
+                    $role = ($msg['role'] === 'assistant' || $msg['role'] === 'bot') ? 'assistant' : 'user';
+                    $content = $msg['content'] ?? $msg['message'] ?? '';
+                    
+                    if (is_array($content)) {
+                        $textContent = '';
+                        foreach ($content as $part) {
+                            if ($part['type'] === 'text') $textContent .= $part['text'];
+                            if ($part['type'] === 'tool_result') {
+                                $textContent .= "\n[Tool Result]: " . $part['content'];
+                            }
+                        }
+                        $messages[] = ['role' => $role, 'content' => $textContent];
+                    } else {
+                        $messages[] = ['role' => $role, 'content' => $content];
+                    }
+                }
+            } else {
+                foreach ($conversationHistory as $msg) {
+                    $role = ($msg['role'] === 'assistant' || $msg['role'] === 'bot') ? 'assistant' : 'user';
+                    $messages[] = ['role' => $role, 'content' => $msg['message'] ?? $msg['content'] ?? ''];
+                }
+                $messages[] = ['role' => 'user', 'content' => $userMessage];
             }
-
-            $messages[] = ['role' => 'user', 'content' => $userMessage];
 
             $response = Http::withHeaders([
                 'Authorization' => 'Bearer ' . $this->mistralApiKey,
@@ -1095,44 +1210,28 @@ When answering complex queries, ALWAYS structure your response as follows:
     public function healthCheck(): array
     {
         $status = [
-            'claude' => false,
-            'openai' => (bool) $this->openaiApiKey,
-            'ollama' => false,
+            'gemini' => (bool) $this->geminiApiKey,
+            'github_gpt5' => (bool) $this->githubToken,
             'huggingface' => (bool) $this->huggingfaceApiKey,
+            'ollama' => false,
             'available_provider' => null,
         ];
 
-        // Check Claude
-        if ($this->claudeApiKey) {
-            try {
-                $response = Http::withHeaders([
-                    'x-api-key' => $this->claudeApiKey,
-                    'anthropic-version' => '2023-06-01',
-                ])
-                ->timeout(5)
-                ->get('https://api.anthropic.com/v1/models');
-
-                $status['claude'] = $response->successful();
-            } catch (\Exception $e) {
-                Log::debug('Claude health check failed: ' . $e->getMessage());
-            }
-        }
-
         // Check Ollama
         try {
-            $response = Http::timeout(5)->get($this->ollamaBaseUrl . '/api/tags');
+            $response = Http::timeout(3)->get($this->ollamaBaseUrl . '/api/tags');
             $status['ollama'] = $response->successful();
         } catch (\Exception $e) {
             Log::debug('Ollama health check failed: ' . $e->getMessage());
         }
 
         // Determine available provider (in priority order)
-        if ($status['claude'] && !$this->useOllama) {
-            $status['available_provider'] = 'claude';
+        if ($status['gemini']) {
+            $status['available_provider'] = 'gemini';
+        } elseif ($status['github_gpt5']) {
+            $status['available_provider'] = 'github_gpt5';
         } elseif ($status['huggingface']) {
             $status['available_provider'] = 'huggingface';
-        } elseif ($status['openai']) {
-            $status['available_provider'] = 'openai';
         } elseif ($status['ollama']) {
             $status['available_provider'] = 'ollama';
         }

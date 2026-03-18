@@ -18,7 +18,7 @@ use Illuminate\Support\Facades\File;
  * 2. SIMILARITY SEARCH: Find documents with similar vectors (cosine similarity)
  * 3. RANKED RESULTS: Return most relevant documents by similarity score
  *
- * Fallback chain: Ollama all-minilm → HuggingFace all-MiniLM-L6-v2 → OpenAI text-embedding-3-small
+ * Fallback chain: Ollama all-minilm → Voyage Voyage-3 → HuggingFace all-MiniLM-L6-v2
  * 
  * Key Features:
  * - Pre-computed embeddings for knowledge base (stored in DB)
@@ -30,12 +30,9 @@ use Illuminate\Support\Facades\File;
 class VectorEmbeddingService
 {
     // Instance properties loaded from config
-    private string $ollamaEmbeddingsUrl;
-    private string $openaiEmbeddingsUrl;
     private string $huggingfaceEmbeddingsUrl;
     private string $voyageEmbeddingsUrl;
     private string $ollamaModel;
-    private string $openaiModel;
     private string $voyageModel;
     private int $requestTimeout;
     private int $cacheTtl;
@@ -45,25 +42,21 @@ class VectorEmbeddingService
     private int $maxChunkSize;
     private int $chunkOverlap;
 
-    private ?string $openaiApiKey;
     private ?string $huggingfaceApiKey;
     private ?string $voyageApiKey;
     private bool $useOllama;
 
     public function __construct()
     {
-        $this->openaiApiKey = config('services.openai.api_key');
         $this->huggingfaceApiKey = config('services.huggingface.api_key');
         $this->voyageApiKey = config('services.voyage.api_key');
         $this->useOllama = config('services.ollama.embeddings_enabled', true);
 
         $embConf = 'chatbot_unified.embeddings.';
         $this->ollamaEmbeddingsUrl = config($embConf . 'ollama_url', 'http://localhost:11434/api/embeddings');
-        $this->openaiEmbeddingsUrl = config($embConf . 'openai_url', 'https://api.openai.com/v1/embeddings');
         $this->huggingfaceEmbeddingsUrl = config($embConf . 'huggingface_url', 'https://router.huggingface.co/hf-inference/models/sentence-transformers/all-MiniLM-L6-v2');
         $this->voyageEmbeddingsUrl = config($embConf . 'voyage_url', 'https://api.voyageai.com/v1/embeddings');
         $this->ollamaModel = config($embConf . 'ollama_model', 'all-minilm');
-        $this->openaiModel = config($embConf . 'openai_model', 'text-embedding-3-small');
         $this->voyageModel = config($embConf . 'voyage_model', 'voyage-3');
         $this->requestTimeout = (int) config($embConf . 'request_timeout', 30);
         $this->cacheTtl = (int) config($embConf . 'cache_ttl', 86400);
@@ -104,11 +97,6 @@ class VectorEmbeddingService
         // FALLBACK 2: Try HuggingFace (free API)
         if (!$embedding && $this->huggingfaceApiKey) {
             $embedding = $this->generateViaHuggingFace($text);
-        }
-
-        // FALLBACK 3: OpenAI (paid, cloud)
-        if (!$embedding && $this->openaiApiKey) {
-            $embedding = $this->generateViaOpenAI($text);
         }
 
         // Cache successful embeddings
@@ -175,35 +163,6 @@ class VectorEmbeddingService
     }
     
     /**
-     * Generate embedding via OpenAI
-     */
-    private function generateViaOpenAI(string $text): ?array
-    {
-        try {
-            $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . $this->openaiApiKey,
-            ])
-            ->timeout($this->requestTimeout)
-            ->post($this->openaiEmbeddingsUrl, [
-                'model' => $this->openaiModel,
-                'input' => $text,
-            ]);
-            
-            if (!$response->successful()) {
-                Log::debug('OpenAI embedding failed: ' . $response->status());
-                return null;
-            }
-            
-            $data = $response->json();
-            return $data['data'][0]['embedding'] ?? null;
-            
-        } catch (\Exception $e) {
-            Log::debug('OpenAI embedding error: ' . $e->getMessage());
-            return null;
-        }
-    }
-    
-    /**
      * Generate embedding via HuggingFace (free!)
      * Uses sentence-transformers/all-MiniLM-L6-v2 - a great free model
      */
@@ -253,6 +212,17 @@ class VectorEmbeddingService
      */
     public function semanticSearch(string $query, ?string $category = null, int $limit = 5): array
     {
+        // ── CACHING: Check for cached search results first (Speed optimization) ──
+        $queryHash = md5(mb_strtolower(trim($query)));
+        $categoryKey = $category ?? 'all';
+        $searchCacheKey = "chatbot_search_{$categoryKey}_{$queryHash}_{$limit}";
+        
+        $cachedResults = Cache::get($searchCacheKey);
+        if ($cachedResults !== null) {
+            Log::debug('Returning cached semantic search results', ['query' => $query]);
+            return $cachedResults;
+        }
+
         try {
             // Check if there are any documents at all before spending time/money on embeddings
             $query_builder = KnowledgeBase::where('is_active', true);
@@ -341,14 +311,28 @@ class VectorEmbeddingService
             $results = array_slice($results, 0, $fetchLimit);
 
             // ── Reranking pass (feature-flagged) ──────────────────────
+            // OPTIMIZATION: Only rerank if we have multiple candidates and low confidence
+            // or if the query is complex (more than 5 words).
             if ($rerankerEnabled && count($results) > 1) {
-                $reranked = $this->rerank($query, $results);
-                if (!empty($reranked)) {
-                    $results = $reranked;
+                $isComplexQuery = count(explode(' ', $query)) > 5;
+                $topScore = $results[0]['similarity'] ?? 0;
+                
+                if ($isComplexQuery || $topScore < 0.8) {
+                    $reranked = $this->rerank($query, $results);
+                    if (!empty($reranked)) {
+                        $results = $reranked;
+                    }
+                } else {
+                    Log::debug('Skipping reranker due to high initial confidence', ['score' => $topScore]);
                 }
             }
 
-            return array_slice($results, 0, $limit);
+            $finalResults = array_slice($results, 0, $limit);
+            
+            // Cache successful search results for 15 minutes
+            Cache::put($searchCacheKey, $finalResults, 900);
+            
+            return $finalResults;
 
         } catch (\Exception $e) {
             Log::error('Semantic search failed: ' . $e->getMessage());

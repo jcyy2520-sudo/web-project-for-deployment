@@ -79,11 +79,11 @@ class AgentReasoningService
         // SECURITY: Neutralize any tool_call blocks injected in the user message
         $sanitizedMessage = $this->neutralizeToolCallInjection($userMessage);
 
-        // Get Claude-native tool definitions for the user's role
-        $nativeTools = $this->toolRegistry->getClaudeToolDefinitions($role);
+        // Get native tool definitions for the user's role
+        $nativeTools = $this->toolRegistry->getNativeToolDefinitions($role);
 
-        // Build Claude-format messages from conversation history
-        $claudeMessages = $this->buildClaudeStyleMessages($conversationHistory, $sanitizedMessage);
+        // Build raw-format messages from conversation history
+        $rawMessages = $this->buildRawMessages($conversationHistory, $sanitizedMessage);
 
         $maxSteps = (int) config('chatbot_unified.agent.max_reasoning_steps', 5);
 
@@ -91,20 +91,20 @@ class AgentReasoningService
             $step++;
 
             Log::debug('AgentReasoning: Step ' . $step, [
-                'message_count' => count($claudeMessages),
+                'message_count' => count($rawMessages),
                 'has_native_tools' => !empty($nativeTools),
             ]);
 
             // Generate LLM response with native tool definitions
             $llmResult = $this->llmService->generateResponse(
-                $sanitizedMessage, // user message (used by non-Claude providers as fallback)
+                $sanitizedMessage, // user message (used by non-native providers as fallback)
                 [], // conversation history handled by raw_messages
                 [
                     'system_prompt' => $systemPrompt,
                     'role' => $role,
                     'skip_internal_prompt' => true,
                     'native_tools' => $nativeTools,
-                    'raw_messages' => $claudeMessages,
+                    'raw_messages' => $rawMessages,
                 ]
             );
 
@@ -139,8 +139,8 @@ class AgentReasoningService
                 if (!preg_match('/^[a-z_]+$/', $toolName) || !$this->toolRegistry->toolExists($toolName)) {
                     Log::warning('AgentReasoning: Invalid native tool name', ['tool' => $toolName]);
                     // Add assistant response and error tool_result to messages
-                    $claudeMessages[] = ['role' => 'assistant', 'content' => $rawContent];
-                    $claudeMessages[] = [
+                    $rawMessages[] = ['role' => 'assistant', 'content' => $rawContent];
+                    $rawMessages[] = [
                         'role' => 'user',
                         'content' => [
                             ['type' => 'tool_result', 'tool_use_id' => $toolUseId, 'content' => 'Error: Unknown tool name.', 'is_error' => true],
@@ -183,9 +183,9 @@ class AgentReasoningService
                     $toolResultJson = substr($toolResultJson, 0, 4000) . "\n... (truncated)";
                 }
 
-                // Feed tool result back using Claude's native tool_result format
-                $claudeMessages[] = ['role' => 'assistant', 'content' => $rawContent];
-                $claudeMessages[] = [
+                // Feed tool result back using native tool_result format
+                $rawMessages[] = ['role' => 'assistant', 'content' => $rawContent];
+                $rawMessages[] = [
                     'role' => 'user',
                     'content' => [
                         ['type' => 'tool_result', 'tool_use_id' => $toolUseId, 'content' => $toolResultJson],
@@ -206,8 +206,8 @@ class AgentReasoningService
                         'step' => $step,
                         'response_snippet' => mb_substr($llmResponse, 0, 200),
                     ]);
-                    $claudeMessages[] = ['role' => 'assistant', 'content' => $llmResponse];
-                    $claudeMessages[] = ['role' => 'user', 'content' =>
+                    $rawMessages[] = ['role' => 'assistant', 'content' => $llmResponse];
+                    $rawMessages[] = ['role' => 'user', 'content' =>
                         "SYSTEM OVERRIDE: You described performing an action but did NOT actually call a tool. " .
                         "The action was NOT performed — the database was NOT changed. " .
                         "You MUST use the tool to actually execute the action. Call the appropriate tool now."
@@ -234,8 +234,8 @@ class AgentReasoningService
 
             if (!preg_match('/^[a-z_]+$/', $toolName)) {
                 Log::warning('AgentReasoning: Invalid tool name attempted', ['tool' => $toolName]);
-                $claudeMessages[] = ['role' => 'assistant', 'content' => $llmResponse];
-                $claudeMessages[] = ['role' => 'user', 'content' => "Tool error: Invalid tool name '{$toolName}'."];
+                $rawMessages[] = ['role' => 'assistant', 'content' => $llmResponse];
+                $rawMessages[] = ['role' => 'user', 'content' => "Tool error: Invalid tool name '{$toolName}'."];
                 continue;
             }
 
@@ -268,8 +268,8 @@ class AgentReasoningService
                 $toolResultContext = substr($toolResultContext, 0, 4000) . "\n... (truncated)";
             }
 
-            $claudeMessages[] = ['role' => 'assistant', 'content' => $llmResponse];
-            $claudeMessages[] = ['role' => 'user', 'content' => "Tool `{$toolName}` executed successfully. Result:\n```json\n{$toolResultContext}\n```\nIMPORTANT: Now respond to the user with the results. Present SPECIFIC data from the tool output (appointment IDs, dates, times, names, amounts, statuses). Do NOT call another tool unless the user's original question requires additional data."];
+            $rawMessages[] = ['role' => 'assistant', 'content' => $llmResponse];
+            $rawMessages[] = ['role' => 'user', 'content' => "Tool `{$toolName}` executed successfully. Result:\n```json\n{$toolResultContext}\n```\nIMPORTANT: Now respond to the user with the results. Present SPECIFIC data from the tool output (appointment IDs, dates, times, names, amounts, statuses). Do NOT call another tool unless the user's original question requires additional data."];
         }
 
         // Max steps reached — return what we have
@@ -283,10 +283,10 @@ class AgentReasoningService
     }
 
     /**
-     * Build Claude-format messages array from conversation history.
-     * Handles the proper alternation required by Claude's API.
+     * Build raw-format messages array from conversation history.
+     * Handles the proper alternation required by many AI APIs.
      */
-    private function buildClaudeStyleMessages(array $conversationHistory, string $currentUserMessage): array
+    private function buildRawMessages(array $conversationHistory, string $currentUserMessage): array
     {
         $messages = [];
         $lastRole = null;

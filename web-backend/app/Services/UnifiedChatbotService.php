@@ -9,6 +9,7 @@ use App\Models\Appointment;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Config;
 
 /**
  * UnifiedChatbotService - Fully Dynamic, LLM-First AI Chatbot Architecture
@@ -137,6 +138,29 @@ class UnifiedChatbotService
                 );
             }
 
+            // ── 0c. FAST PATH for trivial messages (greetings, thanks) ──
+            if ($this->isTrivialMessage($userMessage)) {
+                // Try static fallback first (0ms latency, high reliability)
+                $staticFallback = $this->getStaticGreetingFallback($userMessage);
+                if ($staticFallback) {
+                    return $this->createResponse($staticFallback, 'static_fallback', [
+                        'processing_time_ms' => round((microtime(true) - $startTime) * 1000, 2),
+                        'role' => $role,
+                    ]);
+                }
+
+                // If no static fallback, try a lightweight LLM (Fast Path)
+                $fastResponse = $this->handleFastPath($userMessage, $role, $userId);
+                if ($fastResponse) {
+                    $resultMeta = [
+                        'provider' => 'fast_path',
+                        'processing_time_ms' => round((microtime(true) - $startTime) * 1000, 2),
+                        'role' => $role,
+                    ];
+                    return $this->createResponse($fastResponse, 'fast_path', $resultMeta);
+                }
+            }
+
             // Create cryptographic role assertion for this request
             $roleAssertion = $this->securityService->createRoleAssertion($userId, $role);
 
@@ -172,6 +196,9 @@ class UnifiedChatbotService
             
             // 3. DETECT LANGUAGE from the user's message
             $detectedLanguage = $this->detectLanguage($userMessage);
+
+            // ── 3a. INTENT DETECTION (Speed Optimization) ──
+            $isMinimal = $this->isTrivialMessage($userMessage);
             
             // 4. GET CONVERSATION HISTORY (critical for context continuity)
             $conversationHistory = $this->getConversationHistory($userId, $conversationId);
@@ -208,10 +235,16 @@ class UnifiedChatbotService
             }
             
             // 6. GATHER REAL-TIME DATA (appointments, services, payments, stats)
-            $realTimeData = $this->gatherRealTimeData($userId, $role, $userMessage);
+            $realTimeData = [];
+            if (!$isMinimal) {
+                $realTimeData = $this->gatherRealTimeData($userId, $role, $userMessage);
+            }
             
             // 7. GATHER CONVERSATION MEMORY (past interactions, preferences)
-            $conversationMemory = $this->gatherConversationMemory($userId, $conversationId);
+            $conversationMemory = [];
+            if (!$isMinimal) {
+                $conversationMemory = $this->gatherConversationMemory($userId, $conversationId);
+            }
             
             // ── 7a. LONG-TERM MEMORY — cross-session summaries (feature-flagged) ──
             if (config('chatbot_unified.features.long_term_memory', false) && $this->memoryService && $userId) {
@@ -241,6 +274,7 @@ class UnifiedChatbotService
             );
             
             // 10. BUILD FULLY DYNAMIC SYSTEM PROMPT (zero hard-coded content)
+            $isMinimal = $this->isTrivialMessage($userMessage);
             $systemPrompt = $this->promptService->build(
                 $userContext,
                 $retrievedContext,
@@ -248,7 +282,8 @@ class UnifiedChatbotService
                 $conversationMemory,
                 $feedbackInsights,
                 $detectedLanguage,
-                $conversationId
+                $conversationId,
+                ['minimal' => $isMinimal]
             );
             
             // Append knowledge feed as additional context
@@ -1276,29 +1311,32 @@ class UnifiedChatbotService
     }
 
     /**
-     * Detect if a message is trivial (greeting, thanks, single word)
-     * so we can skip expensive RAG embedding search.
+     * Detect if a message is trivial (greeting, thanks, etc.)
+     * and doesn't require RAG or complex reasoning.
      */
     private function isTrivialMessage(string $message): bool
     {
-        $lower = mb_strtolower(trim($message));
-        $wordCount = str_word_count($lower);
+        $message = mb_strtolower(trim($message));
+        $len = mb_strlen($message);
 
-        // Single word or very short
-        if ($wordCount <= 2) {
-            $trivialPatterns = [
-                'hi', 'hello', 'hey', 'yo', 'sup', 'oi',
-                'thanks', 'thank you', 'thankyou', 'tnx', 'thx', 'ty',
-                'salamat', 'salamat po', 'maraming salamat',
-                'okay', 'ok', 'oki', 'sige', 'ge', 'k', 'g',
-                'bye', 'goodbye', 'exit', 'quit',
-                'yes', 'no', 'oo', 'hindi', 'opo', 'ayaw',
-                'kamusta', 'kumusta', 'hello po', 'hi po',
-                'good morning', 'good afternoon', 'good evening',
-                'magandang umaga', 'magandang hapon', 'magandang gabi',
-            ];
+        if ($len < 2) return true;
+        if ($len > 60) return false;
 
-            return in_array($lower, $trivialPatterns);
+        $trivialPatterns = [
+            '/^(hi|hello|hey|hola|kumusta|halu|helo|hi there|hello there)[!.]*$/i',
+            '/^(thanks|thank you|salamat|ty|thnx|thanks a lot)[!.]*$/i',
+            '/^(good morning|good afternoon|good evening|magandang umaga|magandang hapon|magandang gabi)[!.]*$/i',
+            '/^(bye|goodbye|paalam|see you)[!.]*$/i',
+            '/^(ok|okay|sige|got it|noted)[!.]*$/i',
+            '/^who are you[?]*$/i',
+            '/^what is your name[?]*$/i',
+            '/^how are you[?]*$/i',
+        ];
+
+        foreach ($trivialPatterns as $pattern) {
+            if (preg_match($pattern, $message)) {
+                return true;
+            }
         }
 
         return false;
@@ -1665,5 +1703,64 @@ class UnifiedChatbotService
         }
 
         return ['safe' => true, 'reason' => null];
+    }
+
+    /**
+     * Handle trivial messages using a lightweight LLM call or cached responses.
+     */
+    private function handleFastPath(string $message, string $role, ?int $userId): ?string
+    {
+        try {
+            // Use a very light model for greetings/thanks
+            $result = $this->llmService->generateResponse(
+                $message,
+                [],
+                [
+                    'system_prompt' => "You are a friendly legal assistant. Give a very brief, polite response to this greeting or remark. Keep it to 1 sentence. Do not offer services unless asked.",
+                    'role' => $role,
+                    'max_tokens' => 50,
+                    'temperature' => 0.7,
+                    'model' => config('chatbot_unified.fallback_model_name', 'meta-llama/Llama-3.2-3B-Instruct'),
+                    'skip_internal_prompt' => true,
+                ]
+            );
+
+            return $result['success'] ? $result['response'] : null;
+        } catch (\Exception $e) {
+            // Log specifically if it's a quota issue to help user
+            if (stripos($e->getMessage(), 'quota') !== false || stripos($e->getMessage(), 'credit') !== false) {
+                Log::warning('Fast Path LLM quota exceeded, using static fallbacks.');
+            }
+            return null;
+        }
+    }
+
+    /**
+     * Static fallbacks for greetings and common phrases when LLM is unavailable/slow.
+     */
+    private function getStaticGreetingFallback(string $message): ?string
+    {
+        $message = mb_strtolower(trim($message));
+        
+        if (preg_match('/^(hi|hello|hey|hola|helo|hi there|hello there)[!.]*$/i', $message)) {
+            return "Hello! I'm your legal assistant. How can I help you today?";
+        }
+        if (preg_match('/^(thanks|thank you|salamat|ty|thnx)[!.]*$/i', $message)) {
+            return "You're very welcome! Let me know if you need anything else.";
+        }
+        if (preg_match('/^(good morning|magandang umaga)[!.]*$/i', $message)) {
+            return "Good morning! How can I assist you today?";
+        }
+        if (preg_match('/^(good afternoon|magandang hapon)[!.]*$/i', $message)) {
+            return "Good afternoon! How can I help you?";
+        }
+        if (preg_match('/^(good evening|magandang gabi)[!.]*$/i', $message)) {
+            return "Good evening! Is there anything I can help you with?";
+        }
+        if (preg_match('/^(bye|goodbye|paalam|see you)[!.]*$/i', $message)) {
+            return "Goodbye! Have a great day ahead.";
+        }
+        
+        return null;
     }
 }

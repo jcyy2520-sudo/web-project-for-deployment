@@ -35,25 +35,37 @@ return [
     */
     'llm' => [
         // Primary provider: huggingface, claude, openai, or ollama
-        'primary_provider' => env('LLM_PRIMARY_PROVIDER', 'huggingface'),
+        'primary_provider' => env('LLM_PRIMARY_PROVIDER', 'github_gpt5'),
+        
+        // Provider order for fallbacks
+        'provider_order' => env('LLM_PROVIDER_ORDER', 'github_gpt5,gemini,huggingface,mistral'),
         
         // HTTP request timeout in seconds
         'request_timeout' => env('LLM_REQUEST_TIMEOUT', 45),
         
         // Streaming timeout (longer for streaming)
         'streaming_timeout' => env('LLM_STREAMING_TIMEOUT', 300),
-        'streaming_max_tokens' => env('LLM_STREAMING_MAX_TOKENS', 2048),
+        'streaming_max_tokens' => env('LLM_STREAMING_MAX_TOKENS', 4096),
         
         // Generation parameters
         'temperature' => env('LLM_TEMPERATURE', 0.3),
         'top_p' => env('LLM_TOP_P', 0.9),
         
-        // Claude (Anthropic)
-        'claude' => [
-            'api_key' => env('ANTHROPIC_API_KEY'),
-            'model' => env('CLAUDE_MODEL', 'claude-sonnet-4-20250514'),
-            'max_tokens' => env('CLAUDE_MAX_TOKENS', 4096),
-            'temperature' => env('CLAUDE_TEMPERATURE', 0.3),
+        // Gemini (Primary)
+        'gemini' => [
+            'api_key' => env('GEMINI_API_KEY'),
+            'model' => env('GEMINI_MODEL', 'gemini-1.5-pro-latest'),
+            'max_tokens' => env('GEMINI_MAX_TOKENS', 4096),
+            'temperature' => env('GEMINI_TEMPERATURE', 0.3),
+        ],
+
+        // GitHub Models (GPT-5) - Secondary
+        'github_gpt5' => [
+            'api_key' => env('GITHUB_TOKEN'),
+            'model' => env('GITHUB_GPT5_MODEL', 'openai/gpt-5'),
+            'base_url' => env('GITHUB_ENDPOINT', 'https://models.github.ai/inference'),
+            'max_tokens' => env('GPT5_MAX_TOKENS', 4096),
+            'temperature' => env('GPT5_TEMPERATURE', 0.5),
         ],
         
         // Ollama (Self-hosted)
@@ -62,11 +74,10 @@ return [
             'base_url' => env('OLLAMA_BASE_URL', 'http://localhost:11434'),
             'model' => env('OLLAMA_MODEL', 'mistral'),
         ],
-        
-        // OpenAI (Fallback)
-        'openai' => [
-            'api_key' => env('OPENAI_API_KEY'),
-            'model' => env('OPENAI_MODEL', 'gpt-4o'),
+        // Mistral (Fallback)
+        'mistral' => [
+            'api_key' => env('MISTRAL_API_KEY'),
+            'model' => env('MISTRAL_MODEL', 'mistral-large-latest'),
         ],
     ],
     
@@ -82,13 +93,11 @@ return [
         
         // API URLs
         'ollama_url' => env('OLLAMA_EMBEDDINGS_URL', 'http://localhost:11434/api/embeddings'),
-        'openai_url' => env('OPENAI_EMBEDDINGS_URL', 'https://api.openai.com/v1/embeddings'),
         'huggingface_url' => env('HUGGINGFACE_EMBEDDINGS_URL', 'https://router.huggingface.co/hf-inference/models/sentence-transformers/all-MiniLM-L6-v2'),
         'voyage_url' => env('VOYAGE_EMBEDDINGS_URL', 'https://api.voyageai.com/v1/embeddings'),
         
         // Model names
         'ollama_model' => env('OLLAMA_EMBEDDING_MODEL', 'all-minilm'),
-        'openai_model' => env('OPENAI_EMBEDDING_MODEL', 'text-embedding-3-small'),
         'voyage_model' => env('VOYAGE_EMBEDDING_MODEL', 'voyage-3'),
         
         // Timeouts and caching

@@ -57,6 +57,7 @@ class AppointmentController extends Controller
             'user:id,email,first_name,last_name,phone', 
             'staff:id,email,first_name,last_name', 
             'service:id,name,price',
+            'services:id,name,price',
             'cashier:id,first_name,last_name',
             'refunds'
         ])
@@ -170,6 +171,8 @@ class AppointmentController extends Controller
         $request->validate([
             'type' => 'required|string|max:255', // Flexible type - can be from static types or service names
             'service_id' => 'nullable|exists:services,id',
+            'service_ids' => 'nullable|array',
+            'service_ids.*' => 'exists:services,id',
             'service_type' => 'nullable|string|max:255',
             'appointment_date' => 'required|date|after_or_equal:today', // Allow today
             'appointment_time' => 'required|date_format:H:i',
@@ -324,20 +327,42 @@ class AppointmentController extends Controller
                     throw new \Exception('USER_DUPLICATE');
                 }
 
-                $appointment = Appointment::create([
+                // Handle multiple services
+                $serviceIds = $request->service_ids ?: ($serviceId ? [$serviceId] : []);
+                $services = \App\Models\Service::whereIn('id', $serviceIds)->get();
+                $totalPrice = $services->sum('price');
+                $serviceNames = $services->pluck('name')->join(', ');
+
+                $appointmentData = [
                     'user_id' => $request->user()->id,
                     'type' => $request->type,
-                    'service_id' => $serviceId,
-                    'service_type' => $request->service_type,
+                    'service_id' => $serviceId ?: ($serviceIds[0] ?? null),
+                    'service_type' => $serviceNames ?: $request->service_type,
                     'appointment_date' => $request->appointment_date,
                     'appointment_time' => $request->appointment_time,
                     'purpose' => $request->purpose ?? null,
                     'documents' => $request->documents,
                     'notes' => $request->notes,
-                ]);
-                // Set protected field explicitly (not mass-assignable)
+                    'original_price' => $totalPrice,
+                ];
+
+                $appointment = Appointment::create($appointmentData);
+
+                // Set protected fields explicitly (not mass-assignable)
+                $appointment->payment_amount = $totalPrice;
                 $appointment->status = 'pending';
                 $appointment->save();
+
+                // Attach services with current prices via sync
+                if (!empty($serviceIds)) {
+                    $syncData = [];
+                    foreach ($services as $service) {
+                        $syncData[$service->id] = ['price_at_booking' => $service->price];
+                    }
+                    \Log::info('Syncing services', ['syncData' => $syncData]);
+                    $appointment->services()->sync($syncData);
+                }
+
                 return $appointment;
             });
         } catch (\Exception $e) {
@@ -462,7 +487,7 @@ class AppointmentController extends Controller
         }
 
         return response()->json([
-            'data' => $appointment->load(['user', 'staff', 'service']),
+            'data' => $appointment->load(['user', 'staff', 'service', 'services']),
             'success' => true
         ]);
     }
@@ -1071,7 +1096,7 @@ class AppointmentController extends Controller
         
         $perPage = $request->get('per_page', 50);
         $appointments = $user->appointments()
-            ->with(['staff', 'service'])
+            ->with(['staff', 'service', 'services'])
             ->orderBy('appointment_date', 'desc')
             ->orderBy('appointment_time', 'desc')
             ->paginate($perPage);
@@ -1091,7 +1116,7 @@ class AppointmentController extends Controller
         
         $perPage = $request->get('per_page', 50);
         $appointments = $user->staffAppointments()
-            ->with(['user', 'service'])
+            ->with(['user', 'service', 'services'])
             ->orderBy('appointment_date', 'desc')
             ->orderBy('appointment_time', 'desc')
             ->paginate($perPage);

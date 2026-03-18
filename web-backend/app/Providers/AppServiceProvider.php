@@ -78,7 +78,8 @@ class AppServiceProvider extends ServiceProvider
     {
         try {
             return class_exists($class) ? $this->app->make($class) : null;
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning("Failed to resolve optional service {$class}: " . $e->getMessage());
             return null;
         }
     }

@@ -18,16 +18,19 @@ class UserService
     public function createUser(array $data): User
     {
         try {
-            $user = User::create([
+            $user = new User([
                 'first_name' => $data['first_name'],
                 'last_name' => $data['last_name'],
                 'email' => $data['email'],
                 'phone' => $data['phone'] ?? null,
                 'address' => $data['address'] ?? null,
-                'role' => $data['role'] ?? 'client',
-                'password' => bcrypt($data['password']),
-                'is_active' => $data['is_active'] ?? true,
             ]);
+
+            // Set sensitive fields explicitly (they are excluded from $fillable)
+            $user->password = bcrypt($data['password']);
+            $user->role = $data['role'] ?? 'client';
+            $user->is_active = $data['is_active'] ?? true;
+            $user->save();
 
             return $user;
         } catch (Exception $e) {
