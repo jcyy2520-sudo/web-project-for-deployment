@@ -1,0 +1,72 @@
+# Environment Variables - CRITICAL FOR SECURITY
+.env
+.env.*
+!.env.example
+!.env.*.example
+!.env.llm.example
+
+# Dependencies
+node_modules/
+vendor/
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Runtime/Cache
+*.pyc
+__pycache__/
+.pytest_cache/
+*.log
+logs/
+
+# IDE & Editor
+.vscode/
+.idea/
+.phpactor.json
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.fleet
+.nova
+.zed
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Development
+Homestead.json
+Homestead.yaml
+.phpunit.result.cache
+.phpunit.cache
+
+# Build outputs
+/public/build
+/public/hot
+dist-ssr
+*.local
+
+# Storage (except public)
+/storage/*.key
+/storage/pail
+/storage/framework/cache/
+/storage/framework/sessions/
+/storage/framework/views/
+/storage/logs/
+
+# ML Service specific
+storage/models/*.joblib
+storage/models/*.joblib.sig
+storage/models/*.json
+storage/feedback/
+.ipynb_checkpoints/
+
+# Testing
+.coverage
+htmlcov/
+
+# Misc
+untracked_files.txt
