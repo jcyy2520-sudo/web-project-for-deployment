@@ -72,51 +72,54 @@ class StreamingLLMService
         try {
             $systemPrompt = $this->buildSystemPrompt($systemContext);
 
-            // Try Gemini first (Primary)
-            if ($this->geminiApiKey) {
-                try {
-                    return $this->streamViaGemini(
-                        $userMessage,
-                        $conversationHistory,
-                        $systemPrompt,
-                        $onToken,
-                        $onComplete,
-                        $systemContext
-                    );
-                } catch (\Exception $e) {
-                    Log::warning('Gemini streaming failed, falling back: ' . $e->getMessage());
-                }
-            }
+            // Get provider order from config/env
+            $providerOrder = config('chatbot_unified.llm.provider_order', 'github_gpt5,gemini,mistral,huggingface');
+            $providers = array_map('trim', explode(',', $providerOrder));
 
-            // Try GitHub GPT-5 secondary
-            if ($this->githubToken) {
+            foreach ($providers as $provider) {
                 try {
-                    return $this->streamViaGithubGPT5(
-                        $userMessage,
-                        $conversationHistory,
-                        $systemPrompt,
-                        $onToken,
-                        $onComplete,
-                        $systemContext
-                    );
+                    switch ($provider) {
+                        case 'gemini':
+                            if ($this->geminiApiKey) {
+                                return $this->streamViaGemini(
+                                    $userMessage,
+                                    $conversationHistory,
+                                    $systemPrompt,
+                                    $onToken,
+                                    $onComplete,
+                                    $systemContext
+                                );
+                            }
+                            break;
+
+                        case 'github_gpt5':
+                            if ($this->githubToken) {
+                                return $this->streamViaGithubGPT5(
+                                    $userMessage,
+                                    $conversationHistory,
+                                    $systemPrompt,
+                                    $onToken,
+                                    $onComplete,
+                                    $systemContext
+                                );
+                            }
+                            break;
+
+                        case 'ollama':
+                            if ($this->useOllama) {
+                                return $this->streamViaOllama(
+                                    $userMessage,
+                                    $conversationHistory,
+                                    $systemPrompt,
+                                    $onToken,
+                                    $onComplete,
+                                    $systemContext
+                                );
+                            }
+                            break;
+                    }
                 } catch (\Exception $e) {
-                    Log::warning('GitHub GPT-5 streaming failed, falling back: ' . $e->getMessage());
-                }
-            }
-            
-            // Try Ollama (self-hosted)
-            if ($this->useOllama) {
-                try {
-                    return $this->streamViaOllama(
-                        $userMessage,
-                        $conversationHistory,
-                        $systemPrompt,
-                        $onToken,
-                        $onComplete
-                    );
-                } catch (\Exception $e) {
-                    Log::error('Ollama streaming failed: ' . $e->getMessage());
-                    throw $e;
+                    Log::warning("$provider streaming failed, trying next: " . $e->getMessage());
                 }
             }
 

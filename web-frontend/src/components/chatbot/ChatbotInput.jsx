@@ -150,7 +150,7 @@ const ChatbotInput = ({
         }`}>
           <div className="flex items-center gap-1">
             <p className={`text-[11px] ${isDarkMode ? 'text-gray-500' : 'text-slate-400'}`}>
-              Enter to send &bull; Shift+Enter for new line
+              AI can make mistakes. Please verify important information.
             </p>
           </div>
           <div className="flex items-center gap-3">

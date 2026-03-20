@@ -142,20 +142,228 @@ const StatusBadge = ({ status }) => {
   );
 };
 
+// Booking Preview Modal Component
+const BookingPreviewModal = ({ 
+  isOpen, 
+  onClose, 
+  onConfirm, 
+  appointmentData, 
+  appointmentTypes, 
+  loading,
+  isDarkMode = true
+}) => {
+  if (!isOpen) return null;
+
+  const selectedServices = appointmentTypes.filter(t => 
+    Array.isArray(appointmentData.type) && appointmentData.type.includes(t.value)
+  );
+  
+  const totalPrice = selectedServices.reduce((sum, s) => sum + parseFloat(s.price || 0), 0);
+  
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className={`w-full max-w-md overflow-hidden rounded-2xl border shadow-2xl animate-in zoom-in-95 duration-200 ${
+        isDarkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'
+      }`}>
+        <div className="p-6">
+          <div className="flex items-center justify-between mb-6">
+            <h3 className={`text-lg font-bold tracking-tight ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+              Review Appointment
+            </h3>
+            <button 
+              onClick={onClose} 
+              className={`p-1 rounded-lg transition-colors ${
+                isDarkMode ? 'text-gray-400 hover:text-white hover:bg-gray-800' : 'text-gray-400 hover:text-gray-900 hover:bg-gray-100'
+              }`}
+            >
+              <XMarkIcon className="h-5 w-5" />
+            </button>
+          </div>
+
+          <div className="space-y-4">
+            <div className={`rounded-xl p-4 border ${
+              isDarkMode ? 'bg-gray-800/50 border-gray-700' : 'bg-gray-50 border-gray-100'
+            }`}>
+              <p className={`text-[10px] font-bold uppercase tracking-wider mb-3 ${
+                isDarkMode ? 'text-amber-500' : 'text-amber-600'
+              }`}>Selected Services</p>
+              
+              <div className="space-y-3">
+                {selectedServices.map(service => (
+                  <div key={service.value} className="flex justify-between items-center">
+                    <span className={`text-sm font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
+                      {service.label}
+                    </span>
+                    <span className={`text-sm font-mono ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                      ₱{parseFloat(service.price).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                ))}
+                
+                {Array.isArray(appointmentData.type) && appointmentData.type.includes('other') && (
+                  <div className={`pt-2 border-t mt-2 ${isDarkMode ? 'border-gray-700' : 'border-gray-100'}`}>
+                    <div className="flex justify-between items-center">
+                      <span className={`text-sm font-medium ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
+                        Other: {appointmentData.custom_service_type}
+                      </span>
+                      <span className="text-xs italic text-gray-500">TBD</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+              
+              <div className={`mt-4 pt-4 border-t flex justify-between items-center ${
+                isDarkMode ? 'border-gray-700' : 'border-gray-100'
+              }`}>
+                <span className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Total</span>
+                <span className={`text-lg font-bold ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
+                  ₱{totalPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className={`rounded-xl p-3 border ${
+                isDarkMode ? 'bg-gray-800/30 border-gray-700' : 'bg-gray-50 border-gray-100'
+              }`}>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">Date</p>
+                <div className="flex items-center gap-2">
+                  <CalendarDaysIcon className={`h-4 w-4 ${isDarkMode ? 'text-amber-500' : 'text-amber-600'}`} />
+                  <span className={`text-sm font-semibold ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>
+                    {new Date(appointmentData.appointment_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                  </span>
+                </div>
+              </div>
+              <div className={`rounded-xl p-3 border ${
+                isDarkMode ? 'bg-gray-800/30 border-gray-700' : 'bg-gray-50 border-gray-100'
+              }`}>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">Time</p>
+                <div className="flex items-center gap-2">
+                  <ClockIcon className={`h-4 w-4 ${isDarkMode ? 'text-amber-500' : 'text-amber-600'}`} />
+                  <span className={`text-sm font-semibold ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>
+                    {formatTime12Hour(appointmentData.appointment_time)}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {appointmentData.notes && (
+              <div className={`rounded-xl p-3 border ${
+                isDarkMode ? 'bg-gray-800/20 border-gray-700' : 'bg-gray-50 border-gray-100'
+              }`}>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">Notes</p>
+                <p className={`text-xs italic ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                  "{appointmentData.notes}"
+                </p>
+              </div>
+            )}
+          </div>
+
+          <div className="mt-6 flex flex-col gap-2">
+            <button
+              onClick={onConfirm}
+              disabled={loading}
+              className={`w-full py-3 rounded-xl font-bold transition-all shadow-sm flex items-center justify-center gap-2 ${
+                isDarkMode 
+                  ? 'bg-amber-600 hover:bg-amber-500 text-white' 
+                  : 'bg-amber-600 hover:bg-amber-700 text-white shadow-amber-200/50 shadow-lg'
+              } disabled:opacity-50`}
+            >
+              {loading ? (
+                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+              ) : (
+                <>
+                  <CheckCircleIcon className="h-5 w-5" />
+                  Confirm Booking
+                </>
+              )}
+            </button>
+            <button
+              onClick={onClose}
+              disabled={loading}
+              className={`w-full py-3 rounded-xl font-semibold transition-all ${
+                isDarkMode ? 'text-gray-400 hover:text-white hover:bg-gray-800' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+              }`}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Service Requirements Modal Component
+const ServiceRequirementsModal = ({ isOpen, onClose, services, isDarkMode = true }) => {
+  if (!isOpen || !services || services.length === 0) return null;
+
+  // Aggregate requirements across the provided services
+  const allReqs = [];
+  services.forEach(s => {
+    if (s.public_requirements && Array.isArray(s.public_requirements)) {
+      allReqs.push(...s.public_requirements);
+    }
+  });
+  const uniqueReqs = [...new Set(allReqs)];
+
+  if (uniqueReqs.length === 0) return null;
+
+  return (
+    <div className={`fixed inset-0 flex items-center justify-center z-[100] p-4 animate-fadeIn ${isDarkMode ? 'bg-black/70' : 'bg-gray-900/40 backdrop-blur-sm'}`}>
+      <div className={`rounded-xl shadow-2xl w-full max-w-sm transform animate-scaleIn border ${isDarkMode ? 'bg-gray-900 border-amber-500/30' : 'bg-white border-gray-200'}`}>
+        <div className={`p-4 border-b flex justify-between items-center ${isDarkMode ? 'border-gray-800' : 'border-gray-100'}`}>
+          <div className="flex items-center gap-2">
+            <InformationCircleIcon className={`h-5 w-5 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`} />
+            <h3 className={`font-bold text-sm ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>
+              Service Requirements
+            </h3>
+          </div>
+          <button onClick={onClose} className={`rounded-full p-1 transition-colors ${isDarkMode ? 'text-gray-400 hover:text-white hover:bg-gray-800' : 'text-gray-500 hover:text-gray-900 hover:bg-gray-100'}`}>
+            <XMarkIcon className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="p-4 space-y-3 max-h-[60vh] overflow-y-auto">
+          <p className={`text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+            Please prepare the following items before your appointment:
+          </p>
+          <ul className="space-y-2">
+            {uniqueReqs.map((req, idx) => (
+              <li key={idx} className="flex items-start gap-2">
+                <div className={`mt-1.5 flex-shrink-0 h-1.5 w-1.5 rounded-full ${isDarkMode ? 'bg-amber-400' : 'bg-amber-500'}`} />
+                <span className={`text-xs ${isDarkMode ? 'text-amber-50/90' : 'text-gray-800'}`}>{req}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className={`p-3 border-t flex justify-end ${isDarkMode ? 'border-gray-800 bg-gray-900' : 'border-gray-100 bg-gray-50 rounded-b-xl'}`}>
+          <button
+            onClick={onClose}
+            className="px-4 py-1.5 bg-gradient-to-r from-amber-600 to-amber-700 text-white rounded-lg hover:from-amber-700 hover:to-amber-800 font-medium text-xs shadow-md"
+          >
+            Got it
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // Enhanced Service Type Dropdown with Search
 const ServiceTypeDropdown = ({ 
-  value, 
+  value, // Now an array of values
   onChange, 
   options, 
   error, 
   onOtherChange,
   otherValue,
   disabled = false,
-  isDarkMode = true
+  isDarkMode = true,
+  onViewRequirements
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [showOtherInput, setShowOtherInput] = useState(value === 'other');
+  const [showOtherInput, setShowOtherInput] = useState(Array.isArray(value) && value.includes('other'));
   const dropdownRef = React.useRef(null);
 
   const filteredOptions = options.filter(option => 
@@ -181,17 +389,23 @@ const ServiceTypeDropdown = ({
     };
   }, [isOpen]);
 
-  const handleSelect = (optionValue, optionLabel) => {
+  const handleToggle = (optionValue) => {
     if (disabled) return;
-    if (optionValue === 'other') {
-      setShowOtherInput(true);
-      onChange('other');
+    
+    let newValue;
+    const currentValues = Array.isArray(value) ? value : (value ? [value] : []);
+    
+    if (currentValues.includes(optionValue)) {
+      newValue = currentValues.filter(v => v !== optionValue);
     } else {
-      setShowOtherInput(false);
-      onChange(optionValue);
-      setIsOpen(false);
-      setSearchTerm('');
+      newValue = [...currentValues, optionValue];
     }
+    
+    if (optionValue === 'other') {
+      setShowOtherInput(!currentValues.includes('other'));
+    }
+    
+    onChange(newValue);
   };
 
   const handleOtherInputChange = (e) => {
@@ -199,10 +413,13 @@ const ServiceTypeDropdown = ({
     onOtherChange(e.target.value);
   };
 
+  const selectedOptions = options.filter(opt => Array.isArray(value) && value.includes(opt.value));
+  const totalSelectedPrice = selectedOptions.reduce((sum, opt) => sum + parseFloat(opt.price || 0), 0);
+
   return (
-    <div className="relative" ref={dropdownRef}>
+    <div className={`relative ${isOpen && !disabled ? 'z-50' : 'z-10'}`} ref={dropdownRef}>
       <label className={`block text-xs font-medium mb-1 ${isDarkMode ? 'text-amber-50' : 'text-gray-700'}`}>
-        Service Type <span className="text-red-500">*</span>
+        Service Type(s) <span className="text-red-500">*</span>
       </label>
       
       {/* Dropdown Trigger */}
@@ -220,83 +437,145 @@ const ServiceTypeDropdown = ({
           error ? 'border-red-500' : isDarkMode ? 'border-gray-600 focus:border-amber-500' : 'border-gray-300 focus:border-amber-500'
         }`}
       >
-        <div className="flex flex-col gap-0.5">
-          <span className={!value ? 'text-gray-400' : (isDarkMode ? 'text-white' : 'text-gray-900')}>
-            {value ? options.find(opt => opt.value === value)?.label || 'Other (Custom)' : 'Select service type...'}
+        <div className="flex flex-col gap-0.5 overflow-hidden">
+          <span className={`truncate ${!value || (Array.isArray(value) && value.length === 0) ? 'text-gray-400' : (isDarkMode ? 'text-white' : 'text-gray-900')}`}>
+            {Array.isArray(value) && value.length > 0 
+              ? selectedOptions.map(opt => opt.label).join(', ') + (value.includes('other') ? (selectedOptions.length > 0 ? ', Other' : 'Other') : '')
+              : 'Select service(s)...'}
           </span>
-          {value && options.find(opt => opt.value === value)?.price && (
-            <span className="text-amber-400/70 text-xs">
-              ₱{parseFloat(options.find(opt => opt.value === value).price).toFixed(2)}
+          {totalSelectedPrice > 0 && (
+            <span className="text-amber-400 font-semibold text-xs">
+              Total: ₱{totalSelectedPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
           )}
         </div>
-        <ChevronDownIcon className={`h-4 w-4 text-amber-400 flex-shrink-0 ${isOpen ? 'rotate-180' : ''}`} />
+        <ChevronDownIcon className={`h-4 w-4 text-amber-400 flex-shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
       {/* Dropdown Menu */}
       {isOpen && !disabled && (
-        <div className="absolute z-50 w-full mt-1 bg-gray-800 border border-amber-500/30 rounded-lg shadow-lg shadow-amber-500/10 max-h-60 overflow-y-auto">
+        <div className="absolute z-50 w-full mt-1 bg-gray-900 border border-amber-500/30 rounded-lg shadow-xl shadow-black/50 overflow-hidden flex flex-col max-h-[400px]">
           {/* Search Input */}
-          <div className="p-2 border-b border-gray-600 sticky top-0 bg-gray-800">
+          <div className="p-2 border-b border-gray-700/50 bg-gray-900/95 backdrop-blur-sm sticky top-0 z-10">
             <div className="relative">
-              <MagnifyingGlassIcon className="absolute left-2 top-1/2 transform -translate-y-1/2 h-3 w-3 text-amber-400" />
+              <MagnifyingGlassIcon className="absolute left-2 top-1/2 transform -translate-y-1/2 h-3.5 w-3.5 text-amber-400/60" />
               <input
                 type="text"
                 placeholder="Search services..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-7 pr-3 py-1.5 bg-gray-700 border border-gray-600 rounded text-xs text-white placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                className="w-full pl-8 pr-3 py-2 bg-gray-800/80 border border-gray-700 rounded-md text-xs text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-amber-500/50 transition-all"
                 autoFocus
               />
             </div>
           </div>
 
           {/* Options List */}
-          <div className="py-1">
-            {filteredOptions.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => handleSelect(option.value, option.label)}
-                className="w-full px-3 py-2 text-left text-xs text-amber-50 hover:bg-amber-500/10 hover:text-amber-300 flex items-center justify-between"
-              >
-                <div className="flex flex-col gap-0.5">
-                  <span>{option.label}</span>
-                  {option.price && (
-                    <span className="text-amber-400/70 text-xs">₱{parseFloat(option.price).toFixed(2)}</span>
+          <div className="overflow-y-auto py-1 scrollbar-thin scrollbar-thumb-amber-500/20">
+            {filteredOptions.length > 0 ? (
+              filteredOptions.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => handleToggle(option.value)}
+                  className={`w-full px-3 py-2.5 text-left text-xs transition-colors group flex items-start gap-3 hover:bg-amber-500/10 ${
+                    Array.isArray(value) && value.includes(option.value) ? 'bg-amber-500/5' : ''
+                  }`}
+                >
+                  <div className={`mt-0.5 w-4 h-4 rounded border flex-shrink-0 flex items-center justify-center transition-all ${
+                    Array.isArray(value) && value.includes(option.value)
+                      ? 'bg-amber-500 border-amber-500'
+                      : 'border-gray-600 group-hover:border-amber-500/50'
+                  }`}>
+                    {Array.isArray(value) && value.includes(option.value) && (
+                      <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="4">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                    <span className={`font-medium truncate ${Array.isArray(value) && value.includes(option.value) ? 'text-amber-400' : 'text-gray-200'}`}>
+                      {option.label}
+                    </span>
+                    {option.price && (
+                      <span className="text-amber-400/60 text-[10px] font-mono">₱{parseFloat(option.price).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    )}
+                  </div>
+                  {/* View Requirements Icon */}
+                  {option.public_requirements && option.public_requirements.length > 0 && (
+                    <button
+                      type="button"
+                      title="View Requirements"
+                      onClick={(e) => {
+                        e.stopPropagation(); // Prevents toggling the selection
+                        if (onViewRequirements) onViewRequirements(option);
+                      }}
+                      className="ml-auto text-amber-500/70 hover:text-amber-400 px-1 py-1 rounded"
+                    >
+                      <InformationCircleIcon className="w-4 h-4 cursor-pointer" />
+                    </button>
                   )}
-                </div>
-                {option.value === value && (
-                  <CheckCircleIcon className="h-3 w-3 text-amber-400" />
-                )}
-              </button>
-            ))}
+                </button>
+              ))
+            ) : (
+              <div className="px-3 py-4 text-center">
+                <p className="text-xs text-gray-500 italic">No services found match your search</p>
+              </div>
+            )}
             
+            <div className="border-t border-gray-800 my-1"></div>
+
             {/* Always show "Other" option */}
             <button
               type="button"
-              onClick={() => handleSelect('other', 'Other (Specify)')}
-              className="w-full px-3 py-2 text-left text-xs text-amber-50 hover:bg-amber-500/10 hover:text-amber-300 flex items-center justify-between border-t border-gray-600"
+              onClick={() => handleToggle('other')}
+              className={`w-full px-3 py-2.5 text-left text-xs transition-colors group flex items-start gap-3 hover:bg-amber-500/10 ${
+                Array.isArray(value) && value.includes('other') ? 'bg-amber-500/5' : ''
+              }`}
             >
-              <span>Other (Specify)</span>
-              {value === 'other' && (
-                <CheckCircleIcon className="h-3 w-3 text-amber-400" />
-              )}
+              <div className={`mt-0.5 w-4 h-4 rounded border flex-shrink-0 flex items-center justify-center transition-all ${
+                Array.isArray(value) && value.includes('other')
+                  ? 'bg-amber-500 border-amber-500'
+                  : 'border-gray-600 group-hover:border-amber-500/50'
+              }`}>
+                {Array.isArray(value) && value.includes('other') && (
+                  <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="4">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                )}
+              </div>
+              <span className={`font-medium ${Array.isArray(value) && value.includes('other') ? 'text-amber-400' : 'text-gray-200'}`}>
+                Other (Specify)
+              </span>
             </button>
           </div>
+          
+          {/* Footer with summary */}
+          {Array.isArray(value) && value.length > 0 && (
+            <div className="p-2 border-t border-gray-700 bg-gray-900/90 backdrop-blur-sm sticky bottom-0 flex justify-between items-center">
+              <span className="text-[10px] text-gray-400">{value.length} selected</span>
+              <button 
+                type="button"
+                onClick={() => setIsOpen(false)}
+                className="text-xs px-2 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded font-medium transition-colors"
+              >
+                Done
+              </button>
+            </div>
+          )}
         </div>
       )}
 
       {/* Other Service Input */}
       {showOtherInput && (
-        <div className="mt-2">
+        <div className="mt-2 animate-in fade-in slide-in-from-top-1 duration-200">
           <input
             type="text"
             disabled={disabled}
             placeholder="Please specify the service type..."
             value={otherValue}
             onChange={handleOtherInputChange}
-            className={`w-full px-3 py-2 bg-gray-800 border border-amber-500/30 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 text-sm text-white placeholder-gray-400 ${
+            className={`w-full px-3 py-2 bg-gray-800 border border-amber-500/30 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 text-sm text-white placeholder-gray-500 ${
               disabled ? 'opacity-50 cursor-not-allowed bg-gray-900' : ''
             }`}
           />
@@ -304,8 +583,8 @@ const ServiceTypeDropdown = ({
       )}
 
       {error && (
-        <p className="text-red-400 text-xs mt-1 flex items-center">
-          <ExclamationTriangleIcon className="h-3 w-3 mr-1" />
+        <p className="text-red-400 text-xs mt-1.5 flex items-center gap-1.5 px-1">
+          <ExclamationTriangleIcon className="h-3.5 w-3.5 flex-shrink-0" />
           {error}
         </p>
       )}
@@ -815,87 +1094,168 @@ const AppointmentDetailModal = ({ isOpen, onClose, appointment, isDarkMode = tru
 
   if (!isOpen || !appointment) return null;
 
+  const hasMultipleServices = appointment.services && appointment.services.length > 0;
+  const servicesToDisplay = hasMultipleServices ? appointment.services : (appointment.service ? [appointment.service] : []);
+  const totalAmount = appointment.payment_amount || appointment.original_price || 0;
+
+  // Format creation date
+  const createdAtDate = appointment.created_at ? new Date(appointment.created_at) : null;
+  const bookedOnText = createdAtDate 
+    ? `Booked on ${createdAtDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} at ${createdAtDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`
+    : 'No booking record found';
+
   return (
-    <div className={`fixed inset-0 flex items-center justify-center z-50 p-4 animate-fadeIn ${isDarkMode ? 'bg-black/70' : 'bg-gray-900/40 backdrop-blur-sm'}`} role="dialog" aria-modal="true" aria-label="Appointment Details">
-      <div className={`rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto transform animate-scaleIn border ${isDarkMode ? 'bg-gray-900 border-amber-500/30' : 'bg-white border-gray-200'}`}>
-        <div className={`flex justify-between items-center p-4 border-b sticky top-0 ${isDarkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'}`}>
-          <div className="flex items-center">
-            <DocumentTextIcon className={`h-5 w-5 mr-2 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`} aria-hidden="true" />
-            <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>
-              Appointment Details
-            </h3>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className={`relative w-full max-w-lg overflow-hidden rounded-2xl border shadow-2xl animate-in zoom-in-95 duration-200 ${
+        isDarkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'
+      }`}>
+        {/* Header */}
+        <div className={`p-5 border-b flex items-center justify-between ${
+          isDarkMode ? 'border-gray-800 bg-gray-900/50' : 'border-gray-100 bg-gray-50/30'
+        }`}>
+          <div className="flex items-center gap-3">
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+              isDarkMode ? 'bg-amber-600/10 text-amber-500' : 'bg-amber-100 text-amber-700'
+            }`}>
+              <DocumentTextIcon className="h-5 w-5" />
+            </div>
+            <div>
+              <h3 className={`text-base font-bold tracking-tight ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                Appointment Details
+              </h3>
+              <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wider">
+                Ref ID: #{appointment.id}
+              </p>
+            </div>
           </div>
           <button 
             onClick={onClose} 
-            className={`rounded p-1 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-amber-500 ${isDarkMode ? 'text-gray-400 hover:text-amber-400' : 'text-gray-500 hover:text-amber-600'}`}
-            aria-label="Close dialog"
+            className={`p-2 rounded-lg transition-colors ${
+              isDarkMode ? 'text-gray-400 hover:text-white hover:bg-gray-800' : 'text-gray-400 hover:text-gray-900 hover:bg-gray-100'
+            }`}
           >
-            <XMarkIcon className="h-4 w-4" />
+            <XMarkIcon className="h-5 w-5" />
           </button>
         </div>
         
-        <div className="p-4 space-y-4">
-          {/* Appointment Header */}
-          <div className={`flex items-center justify-between p-3 rounded-lg border ${isDarkMode ? 'bg-gray-800/50 border-gray-600' : 'bg-gray-50 border-gray-200'}`}>
-            <div className="flex items-center space-x-3">
-              <div className={`w-10 h-10 rounded-full flex items-center justify-center border ${isDarkMode ? 'bg-amber-500/20 border-amber-500/30' : 'bg-amber-100 border-amber-300'}`}>
-                <DocumentTextIcon className={`h-5 w-5 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`} aria-hidden="true" />
-              </div>
-              <div>
-                <h4 className={`text-sm font-bold ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>{formatServiceName(appointment)}</h4>
-                <StatusBadge status={appointment.status} />
-              </div>
+        <div className="p-6 max-h-[75vh] overflow-y-auto scrollbar-hide space-y-6">
+          {/* Status and Creation Info */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <StatusBadge status={appointment.status} size="md" />
+            <div className={`text-[11px] font-medium ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+              <ClockIcon className="h-3 w-3 inline mr-1 mb-0.5" />
+              {bookedOnText}
             </div>
-            <div className="text-right">
-              <div className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>
+          </div>
+
+          {/* Schedule Card - Sharp & Professional */}
+          <div className={`grid grid-cols-2 divide-x rounded-xl border border-dashed ${
+            isDarkMode ? 'bg-gray-800/20 border-gray-700 divide-gray-700' : 'bg-gray-50 border-gray-200 divide-gray-200'
+          }`}>
+            <div className="p-4 space-y-1 text-center">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Scheduled Date</p>
+              <p className={`text-sm font-bold ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>
                 {formatDateDisplay(appointment.appointment_date)}
-              </div>
-              <div className={`text-xs ${isDarkMode ? 'text-amber-400/70' : 'text-gray-500'}`}>{appointment.appointment_time}</div>
+              </p>
+            </div>
+            <div className="p-4 space-y-1 text-center">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Scheduled Time</p>
+              <p className={`text-sm font-bold ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>
+                {appointment.appointment_time}
+              </p>
             </div>
           </div>
 
-          {/* Appointment Details Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-3">
-              <div className={`p-3 rounded-lg border ${isDarkMode ? 'bg-gray-800/30 border-gray-600' : 'bg-gray-50 border-gray-200'}`}>
-                <label className={`text-xs font-medium mb-2 block ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Service Information</label>
-                <div className="space-y-2">
-                  <div>
-                    <span className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>Service Type</span>
-                    <p className={`font-medium text-sm ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>{formatServiceName(appointment)}</p>
+          {/* Services Section */}
+          <div className="space-y-3">
+            <h4 className={`text-[11px] font-black uppercase tracking-widest ${
+              isDarkMode ? 'text-gray-500' : 'text-gray-400'
+            }`}>Services Requested</h4>
+            
+            <div className={`rounded-xl border border-dashed overflow-hidden ${
+              isDarkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-100'
+            }`}>
+              <div className={`divide-y divide-dashed ${isDarkMode ? 'divide-gray-800' : 'divide-gray-50'}`}>
+                {servicesToDisplay.map((service, idx) => (
+                  <div key={idx} className="p-4 flex items-center justify-between group transition-colors">
+                    <div className="flex items-center gap-3">
+                      <span className={`text-[11px] font-bold h-5 w-5 rounded flex items-center justify-center ${
+                         isDarkMode ? 'bg-gray-800 text-gray-400' : 'bg-gray-50 text-gray-500'
+                      }`}>
+                        {idx + 1}
+                      </span>
+                      <span className={`text-sm font-semibold ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
+                        {service.name || formatServiceName({service})}
+                      </span>
+                    </div>
+                    <span className={`text-sm font-mono font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                      ₱{parseFloat(service.price || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </span>
                   </div>
-                  {appointment.service?.price && (
-                    <div>
-                      <span className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>Price</span>
-                      <p className={`font-semibold text-sm ${isDarkMode ? 'text-amber-300' : 'text-amber-700'}`}>₱{parseFloat(appointment.service.price).toFixed(2)}</p>
-                    </div>
-                  )}
-                </div>
+                ))}
               </div>
-
-
-            </div>
-
-            <div className="space-y-3">
-              <div className={`p-3 rounded-lg border ${isDarkMode ? 'bg-gray-800/30 border-gray-600' : 'bg-gray-50 border-gray-200'}`}>
-                <label className={`text-xs font-medium mb-2 block ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Additional Information</label>
-                <div className="space-y-2">
-                  {appointment.notes && (
-                    <div>
-                      <span className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>Your Notes</span>
-                      <p className={`text-sm ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>{appointment.notes}</p>
-                    </div>
-                  )}
-                  {appointment.staff_notes && (
-                    <div>
-                      <span className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>Internal Notes</span>
-                      <p className={`text-sm ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>{appointment.staff_notes}</p>
-                    </div>
-                  )}
-                </div>
+              
+              <div className={`p-4 flex items-center justify-between border-t border-dashed ${
+                isDarkMode ? 'bg-gray-800/20 border-gray-800' : 'bg-gray-50/50 border-gray-100'
+              }`}>
+                <span className={`text-xs font-bold uppercase tracking-widest ${
+                  isDarkMode ? 'text-gray-300' : 'text-gray-900'
+                }`}>Grand Total</span>
+                <span className={`text-lg font-black ${
+                  isDarkMode ? 'text-amber-400' : 'text-amber-600'
+                }`}>
+                  ₱{parseFloat(totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </span>
               </div>
             </div>
           </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Staff Card */}
+            {appointment.staff && (
+              <div className={`p-4 rounded-xl border border-dashed ${
+                isDarkMode ? 'bg-gray-800/10 border-gray-800' : 'bg-gray-50/30 border-gray-100'
+              }`}>
+                <h4 className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-3">Assigned Staff</h4>
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-gray-200 dark:bg-gray-700 flex items-center justify-center font-bold text-xs">
+                    {appointment.staff.first_name?.[0]}{appointment.staff.last_name?.[0]}
+                  </div>
+                  <p className={`text-xs font-bold ${isDarkMode ? 'text-gray-300' : 'text-gray-800'}`}>
+                    {appointment.staff.first_name} {appointment.staff.last_name}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Notes Section */}
+            {appointment.notes && (
+              <div className={`p-4 rounded-xl border border-dashed ${
+                isDarkMode ? 'bg-gray-800/10 border-gray-800' : 'bg-gray-50/30 border-gray-100'
+              }`}>
+                <h4 className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-2">My Notes</h4>
+                <p className={`text-xs leading-relaxed italic ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                  "{appointment.notes}"
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className={`p-4 border-t flex justify-end ${
+          isDarkMode ? 'bg-gray-900 border-gray-800' : 'bg-gray-50 border-gray-100'
+        }`}>
+          <button
+            onClick={onClose}
+            className={`px-6 py-2 rounded-xl text-xs font-bold uppercase tracking-widest transition-all ${
+              isDarkMode 
+                ? 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700' 
+                : 'bg-white border text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            Close
+          </button>
         </div>
       </div>
     </div>
@@ -1324,6 +1684,17 @@ const AboutUsModal = ({ isOpen, onClose, onOpenTerms, isDarkMode = true }) => {
             </div>
           </div>
 
+          {/* Developers */}
+          <div className={`p-4 rounded-xl ${isDarkMode ? 'bg-amber-900/10 border border-amber-500/20' : 'bg-amber-50 border border-amber-200'}`}>
+            <h4 className={`text-xs font-semibold uppercase tracking-wider mb-2 ${isDarkMode ? 'text-amber-400' : 'text-amber-800'}`}>Development Team</h4>
+            <div className="flex items-start gap-2">
+              <span className="text-sm">🎓</span>
+              <p className={`text-xs leading-relaxed ${isDarkMode ? 'text-amber-50/90' : 'text-gray-800'}`}>
+                Developed with pride by the students from <strong>Mindoro State University - Bongabong Campus</strong> as part of their academic pursuit of excellence.
+              </p>
+            </div>
+          </div>
+
           {/* Legal Links */}
           <div className="flex gap-2">
             <button
@@ -1407,6 +1778,7 @@ const Dashboard = () => {
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false); // Track logout loading state
   const [showThankYouModal, setShowThankYouModal] = useState(false);
+  const [showRequirementsModalFor, setShowRequirementsModalFor] = useState(null);
   const [latestAppointment, setLatestAppointment] = useState(null);
   const { isDarkMode, setIsDarkMode } = useTheme(); // Use ThemeContext
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
@@ -1479,6 +1851,7 @@ const Dashboard = () => {
   const [showAppointmentDetail, setShowAppointmentDetail] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [showRefundModal, setShowRefundModal] = useState(false);
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState(null);
 
   // Settings state
@@ -1510,7 +1883,7 @@ const Dashboard = () => {
 
   // Appointment form state
   const [appointmentData, setAppointmentData] = useState({
-    type: '',
+    type: [], // Now an array of service values
     appointment_date: '',
     appointment_time: '',
     notes: '',
@@ -1765,7 +2138,8 @@ const Dashboard = () => {
           label: service.name,
           price: service.price,
           duration: service.duration,
-          id: service.id
+          id: service.id,
+          public_requirements: service.public_requirements
         }));
         
         // Also add the static types for backward compatibility
@@ -2211,7 +2585,7 @@ const Dashboard = () => {
   const handleServiceTypeChange = (value) => {
     setAppointmentData(prev => ({
       ...prev,
-      type: value
+      type: Array.isArray(value) ? value : [value]
     }));
 
     if (formErrors.type) {
@@ -2232,11 +2606,13 @@ const Dashboard = () => {
   const validateAppointmentForm = () => {
     const errors = {};
     
-    if (!appointmentData.type) errors.type = 'Appointment type is required';
+    if (!appointmentData.type || (Array.isArray(appointmentData.type) && appointmentData.type.length === 0)) {
+      errors.type = 'At least one service type is required';
+    }
     if (!appointmentData.appointment_date) errors.appointment_date = 'Date is required';
     if (!appointmentData.appointment_time) errors.appointment_time = 'Time is required';
-    if (appointmentData.type === 'other' && !appointmentData.custom_service_type) {
-      errors.type = 'Please specify the service type';
+    if (Array.isArray(appointmentData.type) && appointmentData.type.includes('other') && !appointmentData.custom_service_type) {
+      errors.type = 'Please specify the custom service type';
     }
     
     setFormErrors(errors);
@@ -2305,11 +2681,13 @@ const Dashboard = () => {
     }
   };
 
-  const handleAppointmentSubmit = async (e) => {
-    e.preventDefault();
-    
+  const handleAppointmentSubmit = (e) => {
+    if (e) e.preventDefault();
     if (!validateAppointmentForm()) return;
+    setShowPreviewModal(true);
+  };
 
+  const confirmAppointmentBooking = async () => {
     // Check if user has reached daily limit
     if (dailyLimitInfo.hasReachedLimit) {
       setFormErrors({
@@ -2318,36 +2696,40 @@ const Dashboard = () => {
       return;
     }
 
-    // Get the service ID from the selected appointment type
-    // First try exact match, then try case-insensitive match
-    let selectedService = appointmentTypes.find(t => t.value === appointmentData.type);
-    if (!selectedService?.id) {
-      // Try to find by label matching (case-insensitive)
-      const typeLabel = appointmentData.type.replace(/_/g, ' ');
-      selectedService = appointmentTypes.find(t => 
-        t.label?.toLowerCase() === typeLabel.toLowerCase() && t.id
-      ) || selectedService;
-    }
-    const serviceId = selectedService?.id || null;
+    // Collect all selected services
+    const selectedServices = appointmentTypes.filter(t => 
+      Array.isArray(appointmentData.type) && appointmentData.type.includes(t.value)
+    );
+    
+    // Extract service IDs (filter out non-Eloquent types if any)
+    const serviceIds = selectedServices.map(s => s.id).filter(id => id);
+    
+    // Calculate total price for confirmation/logging
+    const totalPrice = selectedServices.reduce((sum, s) => sum + parseFloat(s.price || 0), 0);
     
     // Debug log for service matching
-    console.log('[Booking] Service lookup:', { 
-      type: appointmentData.type, 
-      foundService: selectedService, 
-      serviceId,
+    console.log('[Booking] Multi-service lookup:', { 
+      types: appointmentData.type, 
+      foundServices: selectedServices.length, 
+      serviceIds,
+      totalPrice,
       availableTypes: appointmentTypes.length 
     });
+    
+    // Construct friendly service labels description
+    let serviceLabels = selectedServices.map(s => s.label).join(', ');
+    if (Array.isArray(appointmentData.type) && appointmentData.type.includes('other')) {
+      const otherLabel = appointmentData.custom_service_type || 'Other';
+      serviceLabels = serviceLabels ? `${serviceLabels}, ${otherLabel}` : otherLabel;
+    }
 
     const submitData = {
-      type: appointmentData.type,
-      service_id: serviceId,
+      service_ids: serviceIds,
+      type: Array.isArray(appointmentData.type) ? appointmentData.type[0] : appointmentData.type, // Fallback for legacy
       appointment_date: appointmentData.appointment_date,
       appointment_time: appointmentData.appointment_time,
       notes: appointmentData.notes,
-      // Store the human-friendly label when available so UI shows proper casing
-      service_type: appointmentData.type === 'other'
-        ? appointmentData.custom_service_type
-        : (selectedService?.label || appointmentData.type)
+      service_type: serviceLabels || 'General Service'
     };
 
     const result = await callApi((signal) => 
@@ -2358,12 +2740,9 @@ const Dashboard = () => {
       setLatestAppointment(result.data.appointment);
       setShowThankYouModal(true);
       
-      // Save the booked date before resetting the form so we can refresh the correct daily limit
-      const bookedDate = appointmentData.appointment_date;
-      
       // Reset form
       setAppointmentData({
-        type: '',
+        type: [],
         appointment_date: '',
         appointment_time: '',
         notes: '',
@@ -2372,10 +2751,12 @@ const Dashboard = () => {
       setAvailableSlots([]);
       setFormErrors({});
       
-      // Reload appointments and check daily limit for the booked date
+      // Reload appointments and check daily limit
       await loadAppointments();
       await checkDailyLimit();
+      setShowPreviewModal(false);
     } else {
+      setShowPreviewModal(false);
       // Handle different error cases
       if (result.error) {
         if (result.error.includes('daily booking limit') || result.error.includes('reached')) {
@@ -2736,17 +3117,46 @@ const Dashboard = () => {
           )}
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {/* Service Type with Enhanced Dropdown */}
-            <ServiceTypeDropdown
-              value={appointmentData.type}
-              onChange={handleServiceTypeChange}
-              options={appointmentTypes}
-              error={formErrors.type}
-              onOtherChange={handleCustomServiceChange}
-              otherValue={appointmentData.custom_service_type}
-              disabled={dailyLimitInfo.hasReachedLimit}
-              isDarkMode={isDarkMode}
-            />
+            {/* Service Type with Enhanced Dropdown & Requirements */}
+            <div className="flex flex-col gap-1.5">
+              <ServiceTypeDropdown
+                value={appointmentData.type}
+                onChange={handleServiceTypeChange}
+                options={appointmentTypes}
+                error={formErrors.type}
+                onOtherChange={handleCustomServiceChange}
+                otherValue={appointmentData.custom_service_type}
+                disabled={dailyLimitInfo.hasReachedLimit}
+                isDarkMode={isDarkMode}
+                onViewRequirements={setShowRequirementsModalFor}
+              />
+
+              {/* Service Requirements Presenter */}
+              {(() => {
+                const selectedServices = appointmentTypes.filter(t => 
+                  Array.isArray(appointmentData.type) && appointmentData.type.includes(t.value)
+                );
+                const hasRequirements = selectedServices.some(s => s.public_requirements && s.public_requirements.length > 0);
+                
+                if (hasRequirements && !dailyLimitInfo.hasReachedLimit) {
+                  return (
+                    <div className="flex justify-start">
+                      <button 
+                        type="button"
+                        onClick={() => setShowRequirementsModalFor(selectedServices)}
+                        className={`text-[11px] flex items-center gap-1.5 hover:underline transition-colors ${
+                          isDarkMode ? 'text-amber-400/90 hover:text-amber-300' : 'text-amber-600 hover:text-amber-700'
+                        }`}
+                      >
+                        <InformationCircleIcon className="w-3.5 h-3.5" />
+                        View setup requirements
+                      </button>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+            </div>
 
             {/* Enhanced Calendar Component */}
             <EnhancedCalendar
@@ -2846,6 +3256,24 @@ const Dashboard = () => {
           </div>
         </form>
       </div>
+
+      {/* Booking Preview Modal */}
+      <BookingPreviewModal
+        isOpen={showPreviewModal}
+        onClose={() => setShowPreviewModal(false)}
+        onConfirm={confirmAppointmentBooking}
+        appointmentData={appointmentData}
+        appointmentTypes={appointmentTypes}
+        loading={loading}
+      />
+
+      {/* Service Requirements Modal */}
+      <ServiceRequirementsModal 
+        isOpen={!!showRequirementsModalFor} 
+        onClose={() => setShowRequirementsModalFor(null)} 
+        services={showRequirementsModalFor ? (Array.isArray(showRequirementsModalFor) ? showRequirementsModalFor : [showRequirementsModalFor]) : []} 
+        isDarkMode={isDarkMode} 
+      />
     </div>
   );
 

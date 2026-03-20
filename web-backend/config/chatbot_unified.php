@@ -40,8 +40,8 @@ return [
         // Provider order for fallbacks
         'provider_order' => env('LLM_PROVIDER_ORDER', 'github_gpt5,gemini,huggingface,mistral'),
         
-        // HTTP request timeout in seconds
-        'request_timeout' => env('LLM_REQUEST_TIMEOUT', 45),
+        // HTTP request timeout in seconds (shortened for faster failover)
+        'request_timeout' => env('LLM_REQUEST_TIMEOUT', 60),
         
         // Streaming timeout (longer for streaming)
         'streaming_timeout' => env('LLM_STREAMING_TIMEOUT', 300),

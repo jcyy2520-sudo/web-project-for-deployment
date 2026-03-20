@@ -252,6 +252,21 @@ const LandingPage = () => {
   // Fetch services and testimonials
   useEffect(() => {
     const fetchServicesAndTestimonials = async () => {
+      // Prefer the combined cached endpoint to minimize DB work and roundtrips
+      try {
+        const resp = await axios.get('/api/public/init', { timeout: 3000 });
+        if (resp.data?.data) {
+          const data = resp.data.data;
+          if (Array.isArray(data.services)) setServices(data.services.slice(0, 4));
+          if (data.stats) setStats(data.stats);
+          if (Array.isArray(data.testimonials)) setTestimonials(data.testimonials);
+          return;
+        }
+      } catch (err) {
+        logger.debug('Public init endpoint unavailable, falling back to individual calls');
+      }
+
+      // Fallback to separate endpoints if combined init fails
       try {
         const servicesResponse = await axios.get('/api/services', { timeout: 3000 });
         if (servicesResponse.data?.data && Array.isArray(servicesResponse.data.data)) {

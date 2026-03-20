@@ -146,7 +146,7 @@ class ServiceController extends Controller
         try {
             $stats = Cache::remember('services_stats', 120, function () {
                 return Service::where('is_active', true)
-                    ->select(['id', 'name', 'description', 'is_active'])
+                    ->select(['id', 'name', 'description', 'public_requirements', 'is_active'])
                     ->orderBy('name')
                     ->get()
                     ->map(function($service) {
@@ -154,6 +154,7 @@ class ServiceController extends Controller
                             'id' => $service->id,
                             'name' => $service->name,
                             'description' => $service->description,
+                            'public_requirements' => $service->public_requirements,
                             'count' => 0,
                             'is_active' => $service->is_active
                         ];
@@ -188,7 +189,10 @@ class ServiceController extends Controller
                 'name' => 'required|string|max:255|unique:services,name,NULL,id,deleted_at,NULL',
                 'description' => 'nullable|string|max:1000',
                 'price' => 'nullable|numeric|min:0',
-                'duration' => 'nullable|integer|min:15'
+                'duration' => 'nullable|integer|min:15',
+                'public_requirements' => 'nullable|array',
+                'public_requirements.*' => 'nullable|string',
+                'internal_staff_notes' => 'nullable|string|max:2000'
             ]);
 
             $service = Service::create([
@@ -196,7 +200,9 @@ class ServiceController extends Controller
                 'description' => $request->description,
                 'price' => $request->price,
                 'duration' => $request->duration,
-                'is_active' => true
+                'is_active' => true,
+                'public_requirements' => $request->public_requirements ?? null,
+                'internal_staff_notes' => $request->internal_staff_notes ?? null
             ]);
 
             // Clear cache so new service appears immediately
@@ -239,7 +245,10 @@ class ServiceController extends Controller
                 'description' => 'nullable|string|max:1000',
                 'price' => 'nullable|numeric|min:0',
                 'duration' => 'nullable|integer|min:15',
-                'is_active' => 'boolean'
+                'is_active' => 'boolean',
+                'public_requirements' => 'nullable|array',
+                'public_requirements.*' => 'nullable|string',
+                'internal_staff_notes' => 'nullable|string|max:2000'
             ]);
 
             $service->update([
@@ -247,7 +256,9 @@ class ServiceController extends Controller
                 'description' => $request->description,
                 'price' => $request->price,
                 'duration' => $request->duration,
-                'is_active' => $request->is_active ?? $service->is_active
+                'is_active' => $request->is_active ?? $service->is_active,
+                'public_requirements' => $request->has('public_requirements') ? $request->public_requirements : $service->public_requirements,
+                'internal_staff_notes' => $request->has('internal_staff_notes') ? $request->internal_staff_notes : $service->internal_staff_notes
             ]);
 
             // Clear cache so changes appear immediately

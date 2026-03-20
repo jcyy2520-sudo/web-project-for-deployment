@@ -15,11 +15,14 @@ class Service extends Model
         'description',
         'price',
         'duration',
-        'is_active'
+        'is_active',
+        'public_requirements',
+        'internal_staff_notes'
     ];
 
     protected $casts = [
-        'is_active' => 'boolean'
+        'is_active' => 'boolean',
+        'public_requirements' => 'array'
     ];
 
     // Relationship to appointments using service_id foreign key (legacy)

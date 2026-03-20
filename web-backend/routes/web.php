@@ -12,7 +12,7 @@ Route::get('/', function () {
 Route::prefix('auth/google')->group(function () {
     Route::get('/redirect', [GoogleOAuthController::class, 'redirectToGoogle'])->name('google.redirect');
     Route::get('/callback', [GoogleOAuthController::class, 'handleGoogleCallback'])->name('google.callback');
-    Route::post('/verify-email/{verificationCode}', [GoogleOAuthController::class, 'verifyEmail'])->name('google.verify');
+    Route::get('/verify-email/{verificationCode}', [GoogleOAuthController::class, 'verifyEmail'])->name('google.verify');
 });
 
 Route::get('/auth/registration/confirm/{token}', [AuthController::class, 'confirmRegistration'])->name('registration.confirm');

@@ -65,7 +65,7 @@ export function useAppointmentForm(onSuccess) {
   const [formData, setFormData] = useState({
     appointment_date: '',
     appointment_time: '',
-    service_id: null,
+    service_ids: [], // Now an array of service IDs
     notes: '',
   });
   const [loading, setLoading] = useState(false);
@@ -101,7 +101,7 @@ export function useAppointmentForm(onSuccess) {
         setFormData({
           appointment_date: '',
           appointment_time: '',
-          service_id: null,
+          service_ids: [],
           notes: '',
         });
       } else {
@@ -118,7 +118,7 @@ export function useAppointmentForm(onSuccess) {
     setFormData({
       appointment_date: '',
       appointment_time: '',
-      service_id: null,
+      service_ids: [],
       notes: '',
     });
     setError(null);

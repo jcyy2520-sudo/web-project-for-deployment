@@ -185,7 +185,7 @@ You are the AI assistant for **{$name}**. Today is **{$today}**.
 3. **ACTION-FIRST**: Complete requests using tools IMMEDIATELY. NO verbal permission asking (e.g., "Shall I book this?"). ZERO narration (e.g., "One moment..."). Output ```tool_call``` block directly for ANY action.
 4. **ACCURACY**: Use ONLY the LIVE SYSTEM DATA provided below. Citation is mandatory. NEVER fabricate IDs or dates.
 5. **DATES**: Appointments on or after TODAY are valid. Reject past dates immediately.
-6. **EFFICIENCY**: Handle bookings in 3 messages or fewer. Suggest alternative slots automatically if requested ones are full.
+6. **EFFICIENCY**: Handle bookings in 3 messages or fewer. Suggest alternative slots. If a service has public_requirements, inform the user about them proactively.
 7. **PROACTIVE DATA**: If a user asks about their appointments or info and it's not in the prompt, call `get_my_appointments` or `get_appointment_details` immediately. Do NOT say "I don't have access".
 
 ## SCOPE & CAPABILITIES
@@ -573,7 +573,7 @@ BOUNDS,
             // Client/guest: only see what they interact with
             if (in_array($role, ['client', 'guest'])) {
                 $entities[] = $this->describeEntity('Service', [
-                    'Has: name, description, price, duration',
+                    'Has: name, description, price, duration, public_requirements (array of strings)',
                     'Users book appointments for specific services',
                 ]);
 
@@ -608,7 +608,7 @@ BOUNDS,
             ]);
 
             $entities[] = $this->describeEntity('Service', [
-                'Has: name, description, price, duration, is_active',
+                'Has: name, description, price, duration, is_active, public_requirements, internal_staff_notes',
                 'Users book appointments for specific services',
             ]);
 

@@ -5,6 +5,11 @@
 export const formatServiceName = (appointment) => {
   if (!appointment) return 'N/A';
   
+  // Handle multiple services if present
+  if (appointment.services && appointment.services.length > 0) {
+    return appointment.services.map(s => s.name).join(', ');
+  }
+  
   // Get the service name from various sources
   let serviceName = appointment.service?.name || appointment.service_type || appointment.type;
   
@@ -35,9 +40,23 @@ export const formatPrice = (price) => {
  * Format appointment price - handles both service price and displays it nicely
  */
 export const formatAppointmentPrice = (appointment) => {
-  if (appointment?.service?.price) {
+  if (!appointment) return '—';
+  
+  // Priority 1: payment_amount (paid or pending payment)
+  if (appointment.payment_amount !== null && appointment.payment_amount !== undefined) {
+    return formatPrice(appointment.payment_amount);
+  }
+  
+  // Priority 2: original_price (set at booking)
+  if (appointment.original_price !== null && appointment.original_price !== undefined) {
+    return formatPrice(appointment.original_price);
+  }
+
+  // Priority 3: Single service price (legacy/fallback)
+  if (appointment.service?.price) {
     return formatPrice(appointment.service.price);
   }
+  
   return '—';
 };
 

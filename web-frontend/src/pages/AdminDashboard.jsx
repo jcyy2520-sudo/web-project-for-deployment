@@ -4714,14 +4714,20 @@ const AdminDashboard = () => {
                     </div>
                   </td>
                   <td className="px-3 py-2">
-                    <div className="text-xs text-amber-50 font-medium">{formatServiceName(appointment)}</div>
+                    <div className="text-xs text-amber-50 font-medium">
+                      {appointment.services && appointment.services.length > 0 
+                        ? appointment.services.map(s => s.name).join(', ')
+                        : formatServiceName(appointment)}
+                    </div>
                     {appointment.decline_reason && (
                       <div className="text-xs text-red-400 mt-0.5 font-medium">Reason: {appointment.decline_reason}</div>
                     )}
                   </td>
                   <td className="px-3 py-2 hidden lg:table-cell">
                     <div className="text-xs text-amber-50 font-medium">
-                      {appointment.service?.price ? formatPrice(appointment.service.price) : '—'}
+                      {appointment.payment_amount ? formatPrice(appointment.payment_amount) : 
+                       appointment.original_price ? formatPrice(appointment.original_price) : 
+                       appointment.service?.price ? formatPrice(appointment.service.price) : '—'}
                     </div>
                   </td>
                   <td className="px-3 py-2">

@@ -259,6 +259,11 @@ class LLMService
                         ]
                     ];
                 }, $nativeTools);
+                
+                Log::debug('GitHub GPT-5: Sending tools to API', [
+                    'tool_count' => count($nativeTools),
+                    'tool_names' => array_map(fn($t) => $t['name'], $nativeTools),
+                ]);
             }
 
             $response = Http::withHeaders([
@@ -288,6 +293,14 @@ class LLMService
                         ];
                     }
                 }
+                Log::debug('GitHub GPT-5: Tool calls parsed from response', [
+                    'tool_call_count' => count($toolCalls),
+                    'tool_names' => array_map(fn($t) => $t['name'], $toolCalls),
+                ]);
+            } else {
+                Log::debug('GitHub GPT-5: No tool_calls in response', [
+                    'response_text_length' => strlen($responseText),
+                ]);
             }
 
             if (!$responseText && empty($toolCalls)) {
@@ -403,6 +416,7 @@ class LLMService
     ): array {
         try {
             $rawMessages = $options['raw_messages'] ?? [];
+            $nativeTools = $options['native_tools'] ?? [];
             
             // Build Gemini contents array (NATIVE format)
             $contents = [];
@@ -469,6 +483,26 @@ class LLMService
                 ]
             ];
 
+            // Add tools (Google Gemini format)
+            if (!empty($nativeTools)) {
+                $requestBody['tools'] = [
+                    [
+                        'function_declarations' => array_map(function($tool) {
+                            $parameters = $tool['input_schema'] ?? $tool['parameters'] ?? [];
+                            return [
+                                'name' => $tool['name'],
+                                'description' => $tool['description'],
+                                'parameters' => $parameters,
+                            ];
+                        }, $nativeTools)
+                    ]
+                ];
+                Log::debug('Gemini: Sending tools', [
+                    'tool_count' => count($nativeTools),
+                    'tool_names' => array_map(fn($t) => $t['name'], $nativeTools),
+                ]);
+            }
+
             $response = Http::withHeaders([
                 'Content-Type' => 'application/json',
             ])
@@ -484,9 +518,31 @@ class LLMService
             }
 
             $data = $response->json();
-            $responseText = $data['candidates'][0]['content']['parts'][0]['text'] ?? '';
+            $responseText = '';
+            $toolCalls = [];
 
-            if (!$responseText) {
+            // Extract both text content and tool calls from Gemini response
+            if (!empty($data['candidates'][0]['content']['parts'])) {
+                foreach ($data['candidates'][0]['content']['parts'] as $part) {
+                    if (isset($part['text'])) {
+                        $responseText .= $part['text'];
+                    }
+                    if (isset($part['functionCall'])) {
+                        $toolCall = [
+                            'id' => 'gemini_' . uniqid(), // Generate unique ID since Gemini doesn't provide one
+                            'name' => $part['functionCall']['name'],
+                            'input' => $part['functionCall']['args'] ?? [],
+                        ];
+                        $toolCalls[] = $toolCall;
+                        Log::debug('Gemini: Tool call received', [
+                            'tool_name' => $toolCall['name'],
+                            'tool_args' => $toolCall['input'],
+                        ]);
+                    }
+                }
+            }
+
+            if (empty($responseText) && empty($toolCalls)) {
                 // Check for safety filter blocks
                 if (isset($data['promptFeedback']['blockReason'])) {
                     throw new \Exception('Gemini blocked response: ' . $data['promptFeedback']['blockReason']);
@@ -503,6 +559,7 @@ class LLMService
                 'provider' => 'gemini',
                 'model' => $this->geminiModel,
                 'tokens_used' => 0, // Gemini native doesn't return easy token counts in this variant
+                'tool_calls' => $toolCalls,
             ];
         } catch (\Exception $e) {
             Log::error('Gemini Native generation failed: ' . $e->getMessage());
@@ -726,11 +783,16 @@ You exist ONLY to provide guidance, explanations, information, and clarification
 
 ## CORE RULES (MANDATORY)
 
-### RULE 1: ASSISTANT-ONLY BEHAVIOR
+### RULE 1: BEHAVIORAL SCOPE
+" . (!empty($systemContext['agent_mode']) ? "
+- You ARE an active agent. You CAN perform system actions via tools.
+- Your goal is to help the user complete their request by using the available tools accurately.
+" : "
 - You DO NOT do work. You do not create, update, delete, approve, reject, submit, process, or execute anything.
 - You NEVER perform system actions under any circumstance.
 - You only explain how things work and provide accurate information.
 - When users ask you to DO something, respond: 'I can't do that directly, but here's how you can: [steps]'
+") . "
 
 ### RULE 2: ROLE AWARENESS
 - You must always recognize and respect system roles: User (Client), Admin, Cashier.

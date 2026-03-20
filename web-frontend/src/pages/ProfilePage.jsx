@@ -888,6 +888,19 @@ const ProfilePage = ({ onBack, onTabChange, onLogout }) => {
                   </div>
                 </div>
 
+                {/* Developers */}
+                <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-500/20">
+                  <h4 className="font-semibold mb-2 text-sm text-amber-600 dark:text-amber-400">
+                    Development Team
+                  </h4>
+                  <div className="flex items-start gap-2 text-xs text-gray-700 dark:text-gray-300">
+                    <span className="text-sm">🎓</span>
+                    <p className="leading-relaxed">
+                      Developed with pride by the students from <strong>Mindoro State University - Bongabong Campus</strong> as part of their academic pursuit of excellence.
+                    </p>
+                  </div>
+                </div>
+
                 {/* Version */}
                 <div className="text-center pt-2 border-t border-gray-300 dark:border-gray-700 text-xs text-gray-500 dark:text-gray-500">
                   <p>Version 1.0.0 • © 2024 NotaryPro Services</p>

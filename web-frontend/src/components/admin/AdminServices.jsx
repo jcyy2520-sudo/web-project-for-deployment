@@ -46,7 +46,9 @@ const AdminServices = ({ isDarkMode = true }) => {
     name: '',
     description: '',
     price: '',
-    duration: ''
+    duration: '',
+    public_requirements: [],
+    internal_staff_notes: ''
   });
 
   useEffect(() => {
@@ -122,12 +124,14 @@ const AdminServices = ({ isDarkMode = true }) => {
         name: service.name,
         description: service.description || '',
         price: service.price || '',
-        duration: service.duration || ''
+        duration: service.duration || '',
+        public_requirements: service.public_requirements || [],
+        internal_staff_notes: service.internal_staff_notes || ''
       });
     } else {
       setEditingService(null);
       // Only initialize name, not description, price, duration
-      setFormData({ name: '', description: '', price: '', duration: '' });
+      setFormData({ name: '', description: '', price: '', duration: '', public_requirements: [], internal_staff_notes: '' });
     }
     setShowModal(true);
   };
@@ -136,7 +140,7 @@ const AdminServices = ({ isDarkMode = true }) => {
     setShowModal(false);
     setEditingService(null);
     setModalError('');
-    setFormData({ name: '', description: '', price: '', duration: '' });
+    setFormData({ name: '', description: '', price: '', duration: '', public_requirements: [], internal_staff_notes: '' });
   };
 
   const handleInputChange = (e) => {
@@ -144,6 +148,31 @@ const AdminServices = ({ isDarkMode = true }) => {
     setFormData(prev => ({
       ...prev,
       [name]: value
+    }));
+  };
+
+  const handleAddRequirement = () => {
+    setFormData(prev => ({
+      ...prev,
+      public_requirements: [...prev.public_requirements, '']
+    }));
+  };
+
+  const handleRequirementChange = (index, value) => {
+    const newRequirements = [...formData.public_requirements];
+    newRequirements[index] = value;
+    setFormData(prev => ({
+      ...prev,
+      public_requirements: newRequirements
+    }));
+  };
+
+  const handleRemoveRequirement = (index) => {
+    const newRequirements = [...formData.public_requirements];
+    newRequirements.splice(index, 1);
+    setFormData(prev => ({
+      ...prev,
+      public_requirements: newRequirements
     }));
   };
 
@@ -167,6 +196,8 @@ const AdminServices = ({ isDarkMode = true }) => {
         description: formData.description || null,
         price: formData.price !== '' && formData.price !== undefined && formData.price !== null ? Number(formData.price) : null,
         duration: formData.duration !== '' && formData.duration !== undefined && formData.duration !== null ? Number(formData.duration) : null,
+        public_requirements: formData.public_requirements.filter(req => req && req.trim() !== ''),
+        internal_staff_notes: formData.internal_staff_notes || null,
       };
       
       if (editingService) {
@@ -576,6 +607,67 @@ const AdminServices = ({ isDarkMode = true }) => {
                     min="15"
                     step="15"
                     className={`w-full px-3 py-2 ${isDarkMode ? 'bg-gray-800 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} border rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500 transition-all duration-200 text-sm`}
+                  />
+                </div>
+              </div>
+
+              <div className={`${isDarkMode ? 'border-gray-700' : 'border-gray-200'} border-t pt-4 mt-2 space-y-4`}>
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <label className={`block text-xs font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>
+                      Public Requirements <span className={`text-[10px] font-normal ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>(What clients must bring)</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleAddRequirement}
+                      className={`text-[10px] sm:text-xs flex items-center px-2 py-1 ${isDarkMode ? 'bg-amber-500/20 text-amber-300 hover:bg-amber-500/30' : 'bg-amber-100 text-amber-700 hover:bg-amber-200'} rounded transition-colors`}
+                    >
+                      <PlusIcon className="h-3 w-3 mr-1" /> Add Item
+                    </button>
+                  </div>
+                  {formData.public_requirements.length === 0 ? (
+                    <div className={`text-xs italic py-2 text-center rounded border border-dashed ${isDarkMode ? 'text-gray-500 border-gray-700' : 'text-gray-400 border-gray-300'}`}>
+                      No requirements set for this service.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {formData.public_requirements.map((req, idx) => (
+                        <div key={idx} className="flex gap-2 items-center">
+                          <input
+                            type="text"
+                            value={req}
+                            onChange={(e) => handleRequirementChange(idx, e.target.value)}
+                            placeholder="e.g., Valid ID, Previous Assessment Form"
+                            className={`flex-1 px-3 py-1.5 ${isDarkMode ? 'bg-gray-800 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} border rounded focus:outline-none focus:ring-1 focus:ring-amber-500 transition-all duration-200 text-xs`}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveRequirement(idx)}
+                            className={`p-1 flex-shrink-0 ${isDarkMode ? 'text-red-400 hover:bg-red-500/20' : 'text-red-500 hover:bg-red-50'} rounded transition-colors`}
+                            title="Remove"
+                          >
+                            <TrashIcon className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <div className={`flex justify-between items-center mb-1`}>
+                     <label className={`block text-xs font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>
+                      Internal Staff Notes
+                     </label>
+                     <span className={`text-[10px] font-normal ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>(Private, not visible to clients)</span>
+                  </div>
+                  <textarea
+                    name="internal_staff_notes"
+                    value={formData.internal_staff_notes}
+                    onChange={handleInputChange}
+                    placeholder="Private notes or instructions for staff regarding this service..."
+                    rows="2"
+                    className={`w-full px-3 py-2 ${isDarkMode ? 'bg-gray-800 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} border rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500 transition-all duration-200 text-sm resize-none`}
                   />
                 </div>
               </div>

@@ -625,7 +625,7 @@ class AgentToolRegistry
         ];
 
         $this->tools['book_appointment'] = [
-            'description' => 'Book a new appointment. Validates weekends, blackout dates, lunch breaks (12-1PM), daily booking limits, and slot capacity. ALWAYS use get_available_slots first to verify availability. Supports booking multiple services in one appointment.',
+            'description' => 'Book a new appointment. Validates weekends, blackout dates, lunch breaks (12-1PM), daily booking limits, and slot capacity. ALWAYS use get_available_slots first. If the service has public_requirements, proactively inform the user about them before or while booking. Supports booking multiple services.',
             'parameters' => [
                 ['name' => 'service_ids', 'type' => 'array', 'required' => false, 'description' => 'Array of Service IDs (numeric) or names. REQUIRED for multi-service bookings. Example: [1, 5] or ["Consultation", "Legal Advice"]'],
                 ['name' => 'service_id', 'type' => 'integer', 'required' => false, 'description' => 'Single Service ID or name. Use service_ids for multiple services.'],
@@ -1067,7 +1067,7 @@ class AgentToolRegistry
         $services = Cache::remember('agent_services_list', 300, function () {
             return Service::where('status', 'active')
                 ->orWhere('is_active', true)
-                ->select('id', 'name', 'description', 'price', 'duration')
+                ->select('id', 'name', 'description', 'price', 'duration', 'public_requirements')
                 ->get()
                 ->toArray();
         });

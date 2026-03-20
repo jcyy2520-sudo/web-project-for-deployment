@@ -365,7 +365,7 @@ class ActionPermissionService
 
         // Write tools — destructive, role-restricted
         'cancel_appointment'         => ['client', 'admin'],
-        'book_appointment'           => ['client', 'admin'],
+        'book_appointment'           => ['guest', 'client', 'admin'],
         'reschedule_appointment'     => ['client', 'admin'],
         'request_refund'             => ['client', 'admin'],
 

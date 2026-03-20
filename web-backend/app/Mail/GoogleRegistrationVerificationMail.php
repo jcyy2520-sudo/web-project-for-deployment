@@ -27,7 +27,7 @@ class GoogleRegistrationVerificationMail extends Mailable
 
     public function content(): Content
     {
-        $verificationLink = config('app.frontend_url') . '/auth/verify-google?code=' . $this->verificationCode;
+        $verificationLink = route('google.verify', ['verificationCode' => $this->verificationCode]);
 
         return new Content(
             view: 'emails.google-registration-verification',

@@ -44,6 +44,15 @@ This is an early reminder that your appointment is in approximately **{{ $timeLa
 - 📱 If you need to reschedule or cancel, please contact us as soon as possible
 @endif
 
+@if($appointment->service && !empty($appointment->service->public_requirements))
+## Important Requirements for your Service
+
+Please ensure you bring the following for your appointment:
+@foreach($appointment->service->public_requirements as $req)
+- {{ $req }}
+@endforeach
+@endif
+
 @if($appointment->notes)
 ## Your Notes
 

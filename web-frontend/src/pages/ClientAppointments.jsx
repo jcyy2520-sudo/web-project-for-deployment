@@ -67,6 +67,7 @@ const ClientAppointments = () => {
     type: 'consultation',
     notes: ''
   });
+  const [services, setServices] = useState([]);
   const [calendarMonth, setCalendarMonth] = useState(new Date());
   const [activeTab, setActiveTab] = useState('appointments');
   
@@ -174,6 +175,19 @@ const ClientAppointments = () => {
     loadAppointments();
     loadUnavailableDates();
     checkDailyLimit();
+
+    // Load available services
+    axios.get('/api/services')
+      .then(res => {
+        if (res.data?.success && res.data?.data) {
+          setServices(res.data.data);
+          // Set intelligent default for service type if available
+          if (res.data.data.length > 0) {
+            setFormData(prev => ({ ...prev, type: res.data.data[0].name }));
+          }
+        }
+      })
+      .catch(err => console.error('Failed to load services', err));
   }, [user?.id, loadAppointments, loadUnavailableDates, checkDailyLimit]);
 
   // Debug: Log when dailyLimitInfo changes
@@ -1241,32 +1255,64 @@ const ClientAppointments = () => {
           )}
 
           {/* Appointment Type */}
-          <div>
+          <div className="bg-white rounded-lg">
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Service Type <span className="text-red-500">*</span>
             </label>
             <select
               value={formData.type}
               onChange={(e) => setFormData(prev => ({ ...prev, type: e.target.value }))}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
               disabled={dailyLimitInfo.hasReachedLimit}
             >
-              <option value="consultation">Legal Consultation</option>
-              <option value="document_review">Document Review</option>
-              <option value="contract_drafting">Contract Drafting</option>
-              <option value="court_representation">Court Representation</option>
-              <option value="notary_services">Notary Services</option>
-              <option value="legal_opinion">Legal Opinion</option>
-              <option value="case_evaluation">Case Evaluation</option>
-              <option value="document_notarization">Document Notarization</option>
-              <option value="affidavit">Affidavit</option>
-              <option value="power_of_attorney">Power of Attorney</option>
-              <option value="loan_signing">Loan Signing</option>
-              <option value="real_estate_documents">Real Estate Documents</option>
-              <option value="will_and_testament">Will and Testament</option>
-              <option value="other">Other Legal Services</option>
+              {services.length > 0 ? (
+                services.map(s => (
+                  <option key={s.id} value={s.name}>{s.name} {s.price ? `(₱${s.price})` : ''}</option>
+                ))
+              ) : (
+                <>
+                  <option value="consultation">Legal Consultation</option>
+                  <option value="document_review">Document Review</option>
+                  <option value="contract_drafting">Contract Drafting</option>
+                  <option value="court_representation">Court Representation</option>
+                  <option value="notary_services">Notary Services</option>
+                  <option value="legal_opinion">Legal Opinion</option>
+                  <option value="case_evaluation">Case Evaluation</option>
+                  <option value="document_notarization">Document Notarization</option>
+                  <option value="affidavit">Affidavit</option>
+                  <option value="power_of_attorney">Power of Attorney</option>
+                  <option value="loan_signing">Loan Signing</option>
+                  <option value="real_estate_documents">Real Estate Documents</option>
+                  <option value="will_and_testament">Will and Testament</option>
+                  <option value="other">Other Legal Services</option>
+                </>
+              )}
             </select>
           </div>
+
+          {/* Service Requirements Presentation */}
+          {(() => {
+            const selectedService = services.find(s => s.name === formData.type);
+            if (selectedService && selectedService.public_requirements && selectedService.public_requirements.length > 0) {
+              return (
+                <div className="mt-2 p-3 sm:p-4 bg-amber-50 rounded-lg border border-amber-200">
+                  <div className="flex items-start gap-2">
+                    <ExclamationTriangleIcon className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="text-sm font-bold text-amber-800">What to Bring (Requirements)</h4>
+                      <p className="text-xs text-amber-700 mb-2 mt-0.5">Please ensure you have the following ready to avoid rescheduling:</p>
+                      <ul className="list-disc pl-4 text-xs text-amber-700 space-y-1 font-medium">
+                        {selectedService.public_requirements.map((req, i) => (
+                          <li key={i}>{req}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+            return null;
+          })()}
 
           {/* Notes */}
           <div>

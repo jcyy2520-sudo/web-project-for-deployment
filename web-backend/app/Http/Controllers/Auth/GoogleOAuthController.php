@@ -9,6 +9,9 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Laravel\Socialite\Facades\Socialite;
 use Exception;
+use App\Mail\GoogleRegistrationVerificationMail;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Log;
 
 class GoogleOAuthController extends Controller
 {
@@ -80,9 +83,17 @@ class GoogleOAuthController extends Controller
             if ($mode === 'login') {
                 if ($userByGoogle) {
                     if (!$userByGoogle->is_active || in_array($userByGoogle->account_status ?? 'active', ['blocked', 'deactivated', 'deleted'])) {
+                        $message = 'Your account is not active. Please contact support.';
+                        
+                        if (empty($userByGoogle->email_verified_at)) {
+                            $message = 'Your account is not verified yet. Please check your email for the verification link.';
+                        } else if (in_array($userByGoogle->account_status ?? 'active', ['blocked', 'deactivated', 'deleted'])) {
+                            $message = 'Your account has been ' . ($userByGoogle->account_status ?? 'restricted') . '. Please contact support.';
+                        }
+
                         return $this->redirectToFrontend([
                             'oauth' => 'error',
-                            'message' => 'Your account is not active. Please contact support.',
+                            'message' => $message,
                             'tab' => 'login',
                         ]);
                     }
@@ -96,9 +107,15 @@ class GoogleOAuthController extends Controller
 
                 if ($userByEmail && empty($userByEmail->google_id)) {
                     if (!$userByEmail->is_active || in_array($userByEmail->account_status ?? 'active', ['blocked', 'deactivated', 'deleted'])) {
+                        $message = 'Your account is not active. Please contact support.';
+                        
+                        if (empty($userByEmail->email_verified_at)) {
+                            $message = 'Your account is not verified yet. Please check your email for the verification link.';
+                        }
+
                         return $this->redirectToFrontend([
                             'oauth' => 'error',
-                            'message' => 'Your account is not active. Please contact support.',
+                            'message' => $message,
                             'tab' => 'login',
                         ]);
                     }
@@ -172,15 +189,29 @@ class GoogleOAuthController extends Controller
             // Set sensitive fields explicitly (not via mass assignment — these are excluded from $fillable)
             $newUser->password = Hash::make(Str::random(48));
             $newUser->role = 'client';
-            $newUser->is_active = true;
-            $newUser->email_verified_at = now();
+            $newUser->is_active = false; // Require verification
+            $newUser->email_verified_at = null; // Require verification
+            
+            // Generate verification code
+            $verificationCode = \Illuminate\Support\Str::random(32);
+            $newUser->verification_code = $verificationCode;
+            $newUser->verification_code_expires_at = now()->addHours(24);
             $newUser->save();
 
-            return $this->redirectWithToken($newUser, [
+            // Send verification email
+            try {
+                \Illuminate\Support\Facades\Mail::to($newUser->email)->send(new GoogleRegistrationVerificationMail($newUser, $verificationCode));
+                \Illuminate\Support\Facades\Log::info('Google registration verification email sent', ['user_id' => $newUser->id]);
+            } catch (Exception $e) {
+                \Illuminate\Support\Facades\Log::error('Failed to send Google registration verification email: ' . $e->getMessage());
+                // Even if mail fails, user is created, but they'll need to use "resend" later
+            }
+
+            return $this->redirectToFrontend([
                 'oauth' => 'success',
-                'message' => 'Google registration successful. Please complete your profile.',
-                'profile_completed' => '0',
-                'new_user' => '1',
+                'message' => 'Registration successful! Please check your email and verify your account before logging in.',
+                'tab' => 'login',
+                'registration' => 'pending'
             ]);
 
         } catch (Exception $e) {
@@ -229,13 +260,15 @@ class GoogleOAuthController extends Controller
 
         $user->update([
             'email_verified_at' => now(),
+            'is_active' => true,
             'verification_code' => null,
             'verification_code_expires_at' => null,
         ]);
 
         return $this->redirectToFrontend([
             'oauth' => 'success',
-            'message' => 'Email verified successfully. Please complete your profile.',
+            'registration' => 'confirmed',
+            'message' => 'Email verified successfully! You can now log in using Google.',
             'tab' => 'login',
         ]);
     }

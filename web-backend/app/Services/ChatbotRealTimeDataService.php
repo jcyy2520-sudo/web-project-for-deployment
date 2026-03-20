@@ -99,12 +99,12 @@ class ChatbotRealTimeDataService
      * @param int $limit
      * @return array Appointment data
      */
-    public function getUserAppointments(int $userId, ?string $status = null, int $limit = 20): array
+    public function getUserAppointments(int $userId, ?string $status = null, int $limit = 10): array
     {
         try {
-            $cacheKey = "chatbot_appointments_user_{$userId}_" . ($status ? $status : 'all');
+            $cacheKey = "chatbot_appointments_user_{$userId}_" . ($status ? strtolower($status) : 'all');
 
-            // Check cache first
+            // Check cache first (TTL: 2 minutes for fresh data)
             $cached = Cache::get($cacheKey);
             if ($cached !== null && is_array($cached)) {
                 return $cached;
@@ -136,8 +136,8 @@ class ChatbotRealTimeDataService
                 ];
             })->toArray();
 
-            // Cache the result
-            Cache::put($cacheKey, $appointments, $this->cacheTtl);
+            // Cache the result (2 minute TTL for real-time accuracy)
+            Cache::put($cacheKey, $appointments, 120);
 
             return $appointments;
         } catch (\Exception $e) {
@@ -156,7 +156,7 @@ class ChatbotRealTimeDataService
      * @param User|null $requestingUser Optional – when data_ownership is on, only elevated roles may call this
      * @return array
      */
-    public function getPendingAppointments(int $limit = 50, ?User $requestingUser = null): array
+    public function getPendingAppointments(int $limit = 20, ?User $requestingUser = null): array
     {
         // Gate: only elevated roles may list all pending appointments
         if (config('chatbot_unified.features.data_ownership', true) && !$this->isElevatedRole($requestingUser)) {
@@ -282,7 +282,7 @@ class ChatbotRealTimeDataService
      * @param int $limit
      * @return array
      */
-    public function getUserPayments(int $userId, ?string $status = null, int $limit = 20): array
+    public function getUserPayments(int $userId, ?string $status = null, int $limit = 10): array
     {
         try {
             $cacheKey = "chatbot_payments_user_{$userId}_" . ($status ? $status : 'all');
@@ -331,7 +331,7 @@ class ChatbotRealTimeDataService
      * @param User|null $requestingUser Optional – when data_ownership is on, only elevated roles may call this
      * @return array
      */
-    public function getPendingPayments(int $limit = 50, ?User $requestingUser = null): array
+    public function getPendingPayments(int $limit = 20, ?User $requestingUser = null): array
     {
         // Gate: only elevated roles may list all pending payments
         if (config('chatbot_unified.features.data_ownership', true) && !$this->isElevatedRole($requestingUser)) {
@@ -381,7 +381,7 @@ class ChatbotRealTimeDataService
      * @param int $limit
      * @return array
      */
-    public function getUserRefunds(int $userId, ?string $status = null, int $limit = 20): array
+    public function getUserRefunds(int $userId, ?string $status = null, int $limit = 10): array
     {
         try {
             $cacheKey = "chatbot_refunds_user_{$userId}_" . ($status ? $status : 'all');
@@ -431,7 +431,7 @@ class ChatbotRealTimeDataService
      * @param User|null $requestingUser Optional – when data_ownership is on, only elevated roles may call this
      * @return array
      */
-    public function getPendingRefunds(int $limit = 50, ?User $requestingUser = null): array
+    public function getPendingRefunds(int $limit = 20, ?User $requestingUser = null): array
     {
         // Gate: only elevated roles may list all pending refunds
         if (config('chatbot_unified.features.data_ownership', true) && !$this->isElevatedRole($requestingUser)) {
@@ -647,27 +647,11 @@ class ChatbotRealTimeDataService
     public function getDateAvailability(string $date): array
     {
         try {
-            $cacheKey = "chatbot_availability_{$date}";
-
-            $cached = Cache::get($cacheKey);
-            if ($cached !== null) {
-                return $cached;
-            }
-
-            // This assumes you have logic to determine available slots
-            // Adjust based on your actual availability system
-            $availableSlots = [
-                '09:00' => 'Available',
-                '10:00' => 'Available',
-                '11:00' => 'Available',
-                '14:00' => 'Available',
-                '15:00' => 'Available',
-                '16:00' => 'Available',
-            ];
-
-            Cache::put($cacheKey, $availableSlots, $this->cacheTtl);
-
-            return $availableSlots;
+            // NOTE: Primary availability logic resides in AgentToolRegistry for the chatbot.
+            // This method is a simplified wrapper that could be expanded for other uses.
+            // For now, it returns empty to avoid providing "fake" hardcoded data to the LLM.
+            
+            return [];
         } catch (\Exception $e) {
             Log::warning('Error fetching date availability', ['date' => $date, 'error' => $e->getMessage()]);
             return [];
@@ -701,7 +685,7 @@ class ChatbotRealTimeDataService
      * @param User|null $requestingUser Optional – when data_ownership is on, only elevated roles may call this
      * @return array
      */
-    public function getAllAppointments(int $limit = 50, ?User $requestingUser = null): array
+    public function getAllAppointments(int $limit = 20, ?User $requestingUser = null): array
     {
         // Gate: only elevated roles may list all appointments
         if (config('chatbot_unified.features.data_ownership', true) && !$this->isElevatedRole($requestingUser)) {
