@@ -9,9 +9,10 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Laravel\Socialite\Facades\Socialite;
 use Exception;
-use App\Mail\GoogleRegistrationVerificationMail;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\URL;
+use App\Mail\RegistrationDecisionMail;
 
 class GoogleOAuthController extends Controller
 {
@@ -192,19 +193,31 @@ class GoogleOAuthController extends Controller
             $newUser->is_active = false; // Require verification
             $newUser->email_verified_at = null; // Require verification
             
-            // Generate verification code
-            $verificationCode = \Illuminate\Support\Str::random(32);
+            // Generate verification code (consistent with AuthController - 64 chars)
+            $verificationCode = \Illuminate\Support\Str::random(64);
             $newUser->verification_code = $verificationCode;
             $newUser->verification_code_expires_at = now()->addHours(24);
             $newUser->save();
 
-            // Send verification email
+            // Send verification email (Using RegistrationDecisionMail - It is me / Its not me)
             try {
-                \Illuminate\Support\Facades\Mail::to($newUser->email)->send(new GoogleRegistrationVerificationMail($newUser, $verificationCode));
-                \Illuminate\Support\Facades\Log::info('Google registration verification email sent', ['user_id' => $newUser->id]);
+                $confirmUrl = URL::temporarySignedRoute(
+                    'registration.confirm',
+                    now()->addHours(24),
+                    ['token' => $newUser->verification_code]
+                );
+
+                $denyUrl = URL::temporarySignedRoute(
+                    'registration.reject',
+                    now()->addHours(24),
+                    ['token' => $newUser->verification_code]
+                );
+
+                Mail::to($newUser->email)->queue(new RegistrationDecisionMail($newUser, $confirmUrl, $denyUrl));
+                \Illuminate\Support\Facades\Log::info('Google registration decision email sent', ['user_id' => $newUser->id]);
             } catch (Exception $e) {
-                \Illuminate\Support\Facades\Log::error('Failed to send Google registration verification email: ' . $e->getMessage());
-                // Even if mail fails, user is created, but they'll need to use "resend" later
+                \Illuminate\Support\Facades\Log::error('Failed to send Google registration decision email: ' . $e->getMessage());
+                // User is created, they'll need to use "resend" later
             }
 
             return $this->redirectToFrontend([
@@ -295,11 +308,35 @@ class GoogleOAuthController extends Controller
             ], 429);
         }
 
-        $verificationCode = Str::random(32);
+        $verificationCode = Str::random(64);
         $user->update([
             'verification_code' => $verificationCode,
             'verification_code_expires_at' => now()->addHours(24),
         ]);
+
+        // Actually send the email (Using RegistrationDecisionMail - It is me / Its not me)
+        try {
+            $confirmUrl = URL::temporarySignedRoute(
+                'registration.confirm',
+                now()->addHours(24),
+                ['token' => $user->verification_code]
+            );
+
+            $denyUrl = URL::temporarySignedRoute(
+                'registration.reject',
+                now()->addHours(24),
+                ['token' => $user->verification_code]
+            );
+
+            Mail::to($user->email)->queue(new RegistrationDecisionMail($user, $confirmUrl, $denyUrl));
+            \Illuminate\Support\Facades\Log::info('Google verification email resent', ['user_id' => $user->id]);
+        } catch (Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Failed to resend Google verification email: ' . $e->getMessage());
+            return response()->json([
+                'message' => 'Failed to send verification email.',
+                'success' => false,
+            ], 500);
+        }
 
         return response()->json([
             'message' => 'Verification email resent.',

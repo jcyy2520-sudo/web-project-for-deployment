@@ -323,11 +323,11 @@ class AuthController extends Controller
 
         // Set sensitive fields explicitly (not via mass assignment for security)
         $user->password = Hash::make($request->password);
-        $user->is_active = false;
+        $user->is_active = true; // Auto-activate since email was already verified via 6-digit code
         $user->role = 'client';
         $user->password_login_enabled = true;
-        $user->verification_code = Str::random(64);
-        $user->verification_code_expires_at = now()->addHours(24);
+        $user->verification_code = null;
+        $user->verification_code_expires_at = null;
         $user->save();
 
         Log::info('✅ User created successfully', ['user_id' => $user->id]);
@@ -357,27 +357,6 @@ class AuthController extends Controller
         ], 500);
     }
 
-    try {
-        $confirmUrl = URL::temporarySignedRoute(
-            'registration.confirm',
-            now()->addHours(24),
-            ['token' => $user->verification_code]
-        );
-
-        $denyUrl = URL::temporarySignedRoute(
-            'registration.reject',
-            now()->addHours(24),
-            ['token' => $user->verification_code]
-        );
-
-        Mail::to($user->email)->queue(new RegistrationDecisionMail($user, $confirmUrl, $denyUrl));
-    } catch (\Exception $e) {
-        Log::error('Failed to send registration decision email: ' . $e->getMessage());
-        return response()->json([
-            'message' => 'Registration created, but we could not send the confirmation email. Please try again.',
-            'success' => false,
-        ], 500);
-    }
 
     // Clear registration rate limit
     RateLimiter::clear('register:' . ($request->ip() ?? 'unknown'));
@@ -395,7 +374,7 @@ class AuthController extends Controller
     ]);
 
     return response()->json([
-        'message' => 'Registration submitted. Check your email and click It is me to activate login.',
+        'message' => 'Registration successful. You can now log in to your account.',
         'user' => [
             'id' => $user->id,
             'username' => $user->username,
@@ -432,6 +411,33 @@ class AuthController extends Controller
         // Check if user already exists
         $existingUser = User::where('email', $request->email)->first();
         if ($existingUser) {
+            // Check if it's a pending Google user
+            if (!$existingUser->is_active && $existingUser->verification_method === 'google') {
+                Log::info('Resending Google registration decision email', ['email' => $request->email]);
+                
+                $existingUser->verification_code = Str::random(64);
+                $existingUser->verification_code_expires_at = now()->addHours(24);
+                $existingUser->save();
+
+                $confirmUrl = URL::temporarySignedRoute(
+                    'registration.confirm',
+                    now()->addHours(24),
+                    ['token' => $existingUser->verification_code]
+                );
+                $denyUrl = URL::temporarySignedRoute(
+                    'registration.reject',
+                    now()->addHours(24),
+                    ['token' => $existingUser->verification_code]
+                );
+
+                Mail::to($existingUser->email)->queue(new RegistrationDecisionMail($existingUser, $confirmUrl, $denyUrl));
+                
+                return response()->json([
+                    'message' => 'Verification email resent. Please check your inbox.',
+                    'email' => $request->email
+                ]);
+            }
+
             Log::warning('Cannot resend verification - email already registered: ' . $request->email);
             return response()->json([
                 'message' => 'Email already registered. Please sign in instead.'
