@@ -931,6 +931,23 @@ class UnifiedChatbotService
             
             // User-specific data
             if ($userId) {
+                // IMPORTANT: Preserve pending tool confirmation before flushing specific caches
+                // If user is confirming an action, we MUST NOT delete the pending confirmation
+                $pendingConfirmation = AgentReasoningService::getPendingConfirmation($userId);
+                
+                // Clear targeted caches for this user to ensure fresh data every request
+                \Illuminate\Support\Facades\Cache::forget("chatbot_appointments_user_{$userId}_all");
+                \Illuminate\Support\Facades\Cache::forget("chatbot_appointments_user_{$userId}_pending");
+                \Illuminate\Support\Facades\Cache::forget("chatbot_appointments_user_{$userId}_approved");
+                \Illuminate\Support\Facades\Cache::forget("chatbot_appointments_user_{$userId}_completed");
+                \Illuminate\Support\Facades\Cache::forget("chatbot_appointments_user_{$userId}_cancelled");
+                \Illuminate\Support\Facades\Cache::forget("chatbot_booking_limit_{$userId}");
+                
+                // Restore pending confirmation if it existed
+                if ($pendingConfirmation) {
+                    \Illuminate\Support\Facades\Cache::put('agent_confirm_' . $userId . '_pending', $pendingConfirmation, 300);
+                }
+                
                 $data['user_appointments'] = $this->dataService->getUserAppointments($userId, null, 8);
                 $data['user_payments'] = $this->dataService->getUserPayments($userId, null, 8);
 
@@ -989,70 +1006,80 @@ class UnifiedChatbotService
                         Log::debug('Failed to get monthly revenue: ' . $e->getMessage());
                     }
                     // ── Decision Support / Smart Analytics data ──
-                    // Inject summary analytics so the LLM can answer questions like
-                    // "which day will be busy?" directly from real data.
-                    try {
-                        $analyticsService = app(AnalyticsService::class);
-
-                        // Demand forecast — busy/slow days for next 14 days
-                        $forecast = $analyticsService->getDemandForecast(14);
-                        if (!empty($forecast)) {
-                            // Safely convert Collections to arrays before array_slice()
-                            $dailyForecast = $forecast['forecast'] ?? $forecast['daily_forecast'] ?? [];
-                            if ($dailyForecast instanceof \Illuminate\Support\Collection) $dailyForecast = $dailyForecast->toArray();
-                            $serviceDemand = $forecast['service_demand'] ?? [];
-                            if ($serviceDemand instanceof \Illuminate\Support\Collection) $serviceDemand = $serviceDemand->toArray();
-                            $dayOfWeekStats = $forecast['day_of_week_stats'] ?? [];
-                            if ($dayOfWeekStats instanceof \Illuminate\Support\Collection) $dayOfWeekStats = $dayOfWeekStats->toArray();
-                            $forecastRecs = $forecast['recommendations'] ?? $forecast['insights'] ?? [];
-                            if ($forecastRecs instanceof \Illuminate\Support\Collection) $forecastRecs = $forecastRecs->toArray();
-
-                            $data['demand_forecast'] = [
-                                'day_of_week_stats' => $dayOfWeekStats,
-                                'daily_forecast' => array_slice(array_values($dailyForecast), 0, 14),
-                                'service_demand' => array_slice(array_values($serviceDemand), 0, 8),
-                                'recommendations' => $forecastRecs,
-                            ];
+                    // Inject summary analytics ONLY if the user is asking for stats or forecast
+                    $intentKeywords = ['busy', 'forecast', 'stats', 'utilization', 'trend', 'pattern', 'busy day', 'slow day'];
+                    $needsAnalytics = false;
+                    foreach ($intentKeywords as $kw) {
+                        if (stripos($message, $kw) !== false) {
+                            $needsAnalytics = true;
+                            break;
                         }
+                    }
 
-                        // Slot utilization — capacity overview for recent period
-                        $utilization = $analyticsService->getSlotUtilization(14);
-                        if (!empty($utilization)) {
-                            $underbookedDays = $utilization['underbooked_days'] ?? [];
-                            if ($underbookedDays instanceof \Illuminate\Support\Collection) $underbookedDays = $underbookedDays->toArray();
-                            $overbookedDays = $utilization['overbooked_days'] ?? [];
-                            if ($overbookedDays instanceof \Illuminate\Support\Collection) $overbookedDays = $overbookedDays->toArray();
-                            $utilSummary = $utilization['summary'] ?? [];
-                            if ($utilSummary instanceof \Illuminate\Support\Collection) $utilSummary = $utilSummary->toArray();
-
-                            $data['slot_utilization'] = [
-                                'summary' => $utilSummary,
-                                'overbooked_days' => $overbookedDays,
-                                'underbooked_days' => array_slice(array_values($underbookedDays), 0, 5),
-                            ];
+                    if ($needsAnalytics) {
+                        try {
+                            $analyticsService = app(AnalyticsService::class);
+    
+                            // Demand forecast — busy/slow days for next 14 days
+                            $forecast = $analyticsService->getDemandForecast(14);
+                            if (!empty($forecast)) {
+                                // Safely convert Collections to arrays before array_slice()
+                                $dailyForecast = $forecast['forecast'] ?? $forecast['daily_forecast'] ?? [];
+                                if ($dailyForecast instanceof \Illuminate\Support\Collection) $dailyForecast = $dailyForecast->toArray();
+                                $serviceDemand = $forecast['service_demand'] ?? [];
+                                if ($serviceDemand instanceof \Illuminate\Support\Collection) $serviceDemand = $serviceDemand->toArray();
+                                $dayOfWeekStats = $forecast['day_of_week_stats'] ?? [];
+                                if ($dayOfWeekStats instanceof \Illuminate\Support\Collection) $dayOfWeekStats = $dayOfWeekStats->toArray();
+                                $forecastRecs = $forecast['recommendations'] ?? $forecast['insights'] ?? [];
+                                if ($forecastRecs instanceof \Illuminate\Support\Collection) $forecastRecs = $forecastRecs->toArray();
+    
+                                $data['demand_forecast'] = [
+                                    'day_of_week_stats' => $dayOfWeekStats,
+                                    'daily_forecast' => array_slice(array_values($dailyForecast), 0, 14),
+                                    'service_demand' => array_slice(array_values($serviceDemand), 0, 8),
+                                    'recommendations' => $forecastRecs,
+                                ];
+                            }
+    
+                            // Slot utilization — capacity overview for recent period
+                            $utilization = $analyticsService->getSlotUtilization(14);
+                            if (!empty($utilization)) {
+                                $underbookedDays = $utilization['underbooked_days'] ?? [];
+                                if ($underbookedDays instanceof \Illuminate\Support\Collection) $underbookedDays = $underbookedDays->toArray();
+                                $overbookedDays = $utilization['overbooked_days'] ?? [];
+                                if ($overbookedDays instanceof \Illuminate\Support\Collection) $overbookedDays = $overbookedDays->toArray();
+                                $utilSummary = $utilization['summary'] ?? [];
+                                if ($utilSummary instanceof \Illuminate\Support\Collection) $utilSummary = $utilSummary->toArray();
+    
+                                $data['slot_utilization'] = [
+                                    'summary' => $utilSummary,
+                                    'overbooked_days' => $overbookedDays,
+                                    'underbooked_days' => array_slice(array_values($underbookedDays), 0, 5),
+                                ];
+                            }
+    
+                            // No-show patterns — high-risk days/times
+                            $noShowPatterns = $analyticsService->getNoShowPatterns(90);
+                            if (!empty($noShowPatterns)) {
+                                $highRiskDays = $noShowPatterns['high_risk_days'] ?? [];
+                                if ($highRiskDays instanceof \Illuminate\Support\Collection) $highRiskDays = $highRiskDays->toArray();
+                                $highRiskTimes = $noShowPatterns['high_risk_times'] ?? $noShowPatterns['high_risk_time_slots'] ?? [];
+                                if ($highRiskTimes instanceof \Illuminate\Support\Collection) $highRiskTimes = $highRiskTimes->toArray();
+                                $noShowSummary = $noShowPatterns['summary'] ?? [];
+                                if ($noShowSummary instanceof \Illuminate\Support\Collection) $noShowSummary = $noShowSummary->toArray();
+                                $noShowRecs = $noShowPatterns['recommendations'] ?? [];
+                                if ($noShowRecs instanceof \Illuminate\Support\Collection) $noShowRecs = $noShowRecs->toArray();
+    
+                                $data['no_show_patterns'] = [
+                                    'summary' => $noShowSummary,
+                                    'high_risk_days' => $highRiskDays,
+                                    'high_risk_times' => $highRiskTimes,
+                                    'recommendations' => $noShowRecs,
+                                ];
+                            }
+                        } catch (\Throwable $e) {
+                            Log::debug('Failed to gather analytics data for admin: ' . $e->getMessage());
                         }
-
-                        // No-show patterns — high-risk days/times
-                        $noShowPatterns = $analyticsService->getNoShowPatterns(90);
-                        if (!empty($noShowPatterns)) {
-                            $highRiskDays = $noShowPatterns['high_risk_days'] ?? [];
-                            if ($highRiskDays instanceof \Illuminate\Support\Collection) $highRiskDays = $highRiskDays->toArray();
-                            $highRiskTimes = $noShowPatterns['high_risk_times'] ?? $noShowPatterns['high_risk_time_slots'] ?? [];
-                            if ($highRiskTimes instanceof \Illuminate\Support\Collection) $highRiskTimes = $highRiskTimes->toArray();
-                            $noShowSummary = $noShowPatterns['summary'] ?? [];
-                            if ($noShowSummary instanceof \Illuminate\Support\Collection) $noShowSummary = $noShowSummary->toArray();
-                            $noShowRecs = $noShowPatterns['recommendations'] ?? [];
-                            if ($noShowRecs instanceof \Illuminate\Support\Collection) $noShowRecs = $noShowRecs->toArray();
-
-                            $data['no_show_patterns'] = [
-                                'summary' => $noShowSummary,
-                                'high_risk_days' => $highRiskDays,
-                                'high_risk_times' => $highRiskTimes,
-                                'recommendations' => $noShowRecs,
-                            ];
-                        }
-                    } catch (\Throwable $e) {
-                        Log::debug('Failed to gather analytics data for admin: ' . $e->getMessage());
                     }
 
                 } elseif ($role === 'staff') {

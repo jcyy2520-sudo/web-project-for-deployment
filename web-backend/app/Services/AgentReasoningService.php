@@ -67,12 +67,25 @@ class AgentReasoningService
 
         // Check for confirmation of a pending destructive action
         if (!empty($pendingConfirmation)) {
+            Log::info('AgentReasoning: Found pending confirmation for action', [
+                'user_id' => $userId,
+                'pending_tool' => $pendingConfirmation['tool'] ?? 'unknown',
+            ]);
             $confirmResult = $this->handleConfirmation($userMessage, $pendingConfirmation, $userId, $role);
             if ($confirmResult !== null) {
+                Log::info('AgentReasoning: Confirmation was handled', [
+                    'user_id' => $userId,
+                    'was_confirmed' => $confirmResult['confirmed_action'] ?? false,
+                    'was_cancelled' => $confirmResult['cancelled'] ?? false,
+                ]);
                 return $confirmResult;
             }
             // User didn't say yes or no — re-store the pending confirmation so it isn't lost.
             // The cache was already consumed by getPendingConfirmation(), so we must put it back.
+            Log::debug('AgentReasoning: No clear confirmation/denial detected, re-storing pending confirmation', [
+                'user_id' => $userId,
+                'pending_tool' => $pendingConfirmation['tool'] ?? 'unknown',
+            ]);
             $this->storePendingToolCall($userId, $pendingConfirmation['tool'], $pendingConfirmation['arguments']);
         }
 
@@ -81,6 +94,13 @@ class AgentReasoningService
 
         // Get native tool definitions for the user's role
         $nativeTools = $this->toolRegistry->getNativeToolDefinitions($role);
+
+        Log::info('AgentReasoning: Starting reasoning loop', [
+            'user_id' => $userId,
+            'role' => $role,
+            'native_tools_count' => count($nativeTools),
+            'native_tool_names' => array_map(fn($t) => $t['name'], $nativeTools),
+        ]);
 
         // Build raw-format messages from conversation history
         $rawMessages = $this->buildRawMessages($conversationHistory, $sanitizedMessage);
@@ -122,6 +142,15 @@ class AgentReasoningService
             $nativeToolCalls = $llmResult['tool_calls'] ?? [];
             $rawContent = $llmResult['raw_content'] ?? [];
 
+            Log::info('AgentReasoning: LLM response received', [
+                'step' => $step,
+                'provider' => $llmResult['provider'] ?? 'unknown',
+                'has_native_tools' => !empty($nativeToolCalls),
+                'native_tool_count' => count($nativeToolCalls),
+                'native_tool_names' => array_map(fn($t) => $t['name'] ?? 'unknown', $nativeToolCalls),
+                'response_length' => strlen($llmResponse),
+            ]);
+
             // ── NATIVE TOOL-USE PATH (Claude) ──
             if (!empty($nativeToolCalls)) {
                 Log::info('AgentReasoning: Native tool call detected', [
@@ -150,8 +179,16 @@ class AgentReasoningService
                 }
 
                 // Check if destructive — pause for confirmation
-                if ($this->toolRegistry->isDestructiveTool($toolName)) {
+                // EXCEPTION: book_appointment handles confirmation via UI, skip LLM-level pause
+                if ($this->toolRegistry->isDestructiveTool($toolName) && $toolName !== 'book_appointment') {
                     $confirmKey = $this->storePendingToolCall($userId, $toolName, $toolArgs);
+
+                    Log::info('AgentReasoning: Destructive tool requires confirmation', [
+                        'user_id' => $userId,
+                        'tool_name' => $toolName,
+                        'confirm_key' => $confirmKey,
+                        'step' => $step,
+                    ]);
 
                     // Use the text portion of the response as explanation, or generate one
                     $explanation = !empty(trim($llmResponse))
@@ -201,7 +238,7 @@ class AgentReasoningService
 
             if ($parsedToolCall === null) {
                 // No tool call — check if the LLM hallucinated an action
-                if ($step < $maxSteps && $this->detectsHallucinatedAction($llmResponse)) {
+                if ($step < $maxSteps && $this->detectsHallucinatedAction($llmResponse, $toolCalls)) {
                     Log::warning('AgentReasoning: Detected hallucinated action without tool_call', [
                         'step' => $step,
                         'response_snippet' => mb_substr($llmResponse, 0, 200),
@@ -239,9 +276,16 @@ class AgentReasoningService
                 continue;
             }
 
-            if ($this->toolRegistry->isDestructiveTool($toolName)) {
+            if ($this->toolRegistry->isDestructiveTool($toolName) && $toolName !== 'book_appointment') {
                 $confirmKey = $this->storePendingToolCall($userId, $toolName, $toolArgs);
                 $explanation = $this->extractPreToolText($llmResponse);
+
+                Log::info('AgentReasoning: Destructive tool detected (text-based path), requires confirmation', [
+                    'user_id' => $userId,
+                    'tool_name' => $toolName,
+                    'confirm_key' => $confirmKey,
+                    'step' => $step,
+                ]);
 
                 return [
                     'response' => $explanation,
@@ -476,10 +520,18 @@ class AgentReasoningService
         $isDeny = in_array($lower, $negatives) || str_starts_with($lower, 'no ') || str_starts_with($lower, 'cancel') || str_starts_with($lower, 'stop');
 
         if (!$isConfirm && !$isDeny) {
+            Log::debug('AgentReasoning: Confirmation not detected in message', [
+                'message' => $lower,
+                'pending_tool' => $pending['tool'] ?? 'unknown',
+            ]);
             return null; // Not a confirmation response — proceed with normal reasoning
         }
 
         if ($isDeny) {
+            Log::info('AgentReasoning: User denied confirmation', [
+                'user_id' => $userId,
+                'pending_tool' => $pending['tool'] ?? 'unknown',
+            ]);
             return [
                 'response' => "Understood, I've cancelled the action. How else can I help you?",
                 'tool_calls' => [],
@@ -492,7 +544,20 @@ class AgentReasoningService
         $toolName = $pending['tool'] ?? '';
         $toolArgs = $pending['arguments'] ?? [];
 
+        Log::info('AgentReasoning: User confirmed action, executing tool', [
+            'user_id' => $userId,
+            'tool_name' => $toolName,
+            'tool_args_keys' => array_keys($toolArgs),
+        ]);
+
         $toolResult = $this->toolRegistry->executeTool($toolName, $toolArgs, $userId ?? 0, $role);
+
+        Log::info('AgentReasoning: Tool executed after confirmation', [
+            'user_id' => $userId,
+            'tool_name' => $toolName,
+            'tool_success' => $toolResult['success'] ?? false,
+            'tool_error' => $toolResult['error'] ?? null,
+        ]);
 
         // Generate a natural response from the tool result using the LLM
         $toolResultJson = json_encode($toolResult, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
@@ -537,7 +602,7 @@ class AgentReasoningService
      * Detect if the LLM response claims to have performed an action without a tool_call block,
      * OR describes tool parameters / asks for permission instead of outputting the tool_call.
      */
-    private function detectsHallucinatedAction(string $response): bool
+    private function detectsHallucinatedAction(string $response, array $toolCalls = []): bool
     {
         $lower = mb_strtolower($response);
 
@@ -564,9 +629,31 @@ class AgentReasoningService
 
         foreach ($actionClaimPatterns as $pattern) {
             if (preg_match($pattern, $response)) {
+                // If the response also contains a tool_call block, it's not a hallucination
+                if (preg_match('/```tool_call/i', $response)) {
+                    return false;
+                }
+
+                // If a relevant tool was already called in this reasoning loop, it's a summary, not a hallucination
+                $relevantTools = [];
+                if (preg_match('/booked|scheduled|reserved|created/i', $pattern)) {
+                    $relevantTools = ['book_appointment', 'admin_approve_appointment'];
+                } elseif (preg_match('/cancelled/i', $pattern)) {
+                    $relevantTools = ['cancel_appointment', 'admin_decline_appointment', 'admin_bulk_cancel_appointments'];
+                } elseif (preg_match('/rescheduled/i', $pattern)) {
+                    $relevantTools = ['reschedule_appointment'];
+                }
+
+                foreach ($toolCalls as $call) {
+                    if (in_array($call['tool'], $relevantTools) && ($call['result']['success'] ?? false)) {
+                        return false; // Successful action summary
+                    }
+                }
+
                 return true;
             }
         }
+
 
         return false;
     }

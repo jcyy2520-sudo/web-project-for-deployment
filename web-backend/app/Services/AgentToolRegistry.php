@@ -106,7 +106,7 @@ class AgentToolRegistry
      */
     public function getToolPromptSection(string $role): string
     {
-        return Cache::remember("agent_tools_prompt_v3_{$role}", 300, function () use ($role) {
+        return Cache::remember("agent_tools_prompt_v4_{$role}", 300, function () use ($role) {
             $tools = $this->getToolDefinitionsForRole($role);
             if (empty($tools)) {
                 return '';
@@ -129,12 +129,10 @@ class AgentToolRegistry
 
             // Group tools by category for better LLM comprehension
             $categories = [
-                'Appointment Management' => ['get_my_appointments', 'get_appointment_details', 'get_available_slots', 'get_available_services', 'get_unavailable_dates', 'get_alternative_slots', 'check_booking_limit', 'book_appointment', 'cancel_appointment', 'reschedule_appointment'],
-                'Payment & Refunds' => ['get_my_payments', 'check_payment_status', 'request_refund'],
-                'Notifications' => ['get_notifications', 'send_notification'],
-                'Admin Operations' => ['admin_get_pending_appointments', 'admin_approve_appointment', 'admin_decline_appointment', 'admin_get_system_stats', 'admin_get_appointment_stats', 'admin_bulk_cancel_appointments'],
-                'Analytics & Insights' => ['get_demand_forecast', 'get_no_show_patterns', 'get_auto_alerts', 'get_quality_report'],
-                'AI Decision Support' => ['get_risk_assessment', 'get_scheduling_recommendation', 'get_workload_optimization', 'get_customer_insights', 'get_client_engagement_scores', 'get_operational_recommendations', 'predict_busy_days', 'predict_no_show'],
+                'Booking' => ['get_my_appointments', 'get_appointment_details', 'get_available_slots', 'get_available_services', 'get_unavailable_dates', 'get_alternative_slots', 'book_appointment', 'cancel_appointment', 'reschedule_appointment'],
+                'Payments' => ['get_my_payments', 'check_payment_status', 'request_refund'],
+                'Admin' => ['admin_get_pending_appointments', 'admin_approve_appointment', 'admin_decline_appointment', 'admin_get_system_stats', 'admin_bulk_cancel_appointments'],
+                'Analysis' => ['get_demand_forecast', 'get_risk_assessment', 'predict_busy_days', 'predict_no_show', 'get_scheduling_recommendation'],
             ];
 
             foreach ($categories as $categoryName => $toolNames) {
@@ -159,15 +157,17 @@ class AgentToolRegistry
             $section .= "- NEVER fabricate tool results. Only report what the tool actually returns.\n";
             $section .= "- When a user asks about their appointments without a specific date, query relevant time ranges.\n";
             $section .= "- When recommending slots, prefer get_scheduling_recommendation for AI-optimized suggestions.\n";
-            $section .= "\n### APPOINTMENT BOOKING WORKFLOW (TASK-EXECUTOR MODE)\n";
+            $section .= "### APPOINTMENT BOOKING WORKFLOW (TASK-EXECUTOR MODE)\n";
             $section .= "Your goal: complete the booking AS FAST AS POSSIBLE without unnecessary conversation.\n\n";
-            $section .= "**FAST PATH**: If the user provides service + date + time in one message (or context), skip data collection entirely. Check availability silently and output the `book_appointment` tool_call block IMMEDIATELY.\n\n";
+            $section .= "NEW FEATURE: Users can now book MULTIPLE services in a single appointment. If a user mentions multiple services (e.g., 'I want a consultation and a contract review'), collect all service IDs/names and book them together.\n\n";
+            $section .= "**FAST PATH**: If the user provides service(s) + date + time in one message (or context), skip data collection entirely. Check availability silently and output the `book_appointment` tool_call block IMMEDIATELY.\n\n";
             $section .= "**Steps:**\n";
-            $section .= "1. If the user hasn't specified a service → call `get_available_services` to show options and ask which service they want. Also ask for date + time in the SAME message. Include available hours: 8:00 AM–11:00 AM, 1:00 PM–5:00 PM.\n";
-            $section .= "2. If the user hasn't specified a date/time → ask for date AND time together in ONE message (include available time ranges).\n";
-            $section .= "3. Once you have a date → call `get_available_slots` for that date. Do NOT narrate this — just do it and respond with the result.\n";
-            $section .= "4. If the slot is unavailable → in the SAME response, state why AND suggest 2-3 available alternatives from the slot data. NEVER just say 'not available' without alternatives.\n";
-            $section .= "5. If the slot is available → check the booking limit from LIVE DATA section (or call `check_booking_limit` if not available).\n";
+            $section .= "1. If the user hasn't specified any service → call `get_available_services` to show options and ask which service(s) they want. Also ask for date + time in the SAME message. Include available hours: 8:00 AM–11:00 AM, 1:00 PM–5:00 PM.\n";
+            $section .= "2. After the user selects one service, briefly ask if they want to add another service (e.g., 'Added. Would you like to add another service, or shall we proceed with date and time?')\n";
+            $section .= "3. If the user hasn't specified a date/time → ask for date AND time together in ONE message (include available time ranges).\n";
+            $section .= "4. Once you have a date → call `get_available_slots` for that date. Do NOT narrate this — just do it and respond with the result.\n";
+            $section .= "5. If the slot is unavailable → in the SAME response, state why AND suggest 2-3 available alternatives from the slot data. NEVER just say 'not available' without alternatives.\n";
+            $section .= "6. If the slot is available → check the booking limit from LIVE DATA section (or call `check_booking_limit` if not available).\n";
             $section .= "6. If the user has reached their limit → tell them when they can book again. Do NOT proceed.\n";
             $section .= "7. If all checks pass → OUTPUT THE `book_appointment` tool_call block IMMEDIATELY. Do NOT generate a text summary first and do NOT ask 'shall I proceed?'. The UI handles confirmation.\n";
             $section .= "8. NEVER say 'Your appointment has been booked' without outputting a tool_call block. That is a hallucination.\n\n";
@@ -625,17 +625,18 @@ class AgentToolRegistry
         ];
 
         $this->tools['book_appointment'] = [
-            'description' => 'Book a new appointment for the current user. Validates weekends, blackout dates, lunch breaks (12-1PM), daily booking limits, and slot capacity. ALWAYS use get_available_slots first to verify availability.',
+            'description' => 'Book a new appointment. Validates weekends, blackout dates, lunch breaks (12-1PM), daily booking limits, and slot capacity. ALWAYS use get_available_slots first to verify availability. Supports booking multiple services in one appointment.',
             'parameters' => [
-                ['name' => 'service_id', 'type' => 'integer', 'required' => true, 'description' => 'Service ID (numeric) or exact service name (e.g., "Power of Attorney")'],
+                ['name' => 'service_ids', 'type' => 'array', 'required' => false, 'description' => 'Array of Service IDs (numeric) or names. REQUIRED for multi-service bookings. Example: [1, 5] or ["Consultation", "Legal Advice"]'],
+                ['name' => 'service_id', 'type' => 'integer', 'required' => false, 'description' => 'Single Service ID or name. Use service_ids for multiple services.'],
                 ['name' => 'date', 'type' => 'string', 'required' => true, 'description' => 'Preferred date (YYYY-MM-DD)'],
                 ['name' => 'time', 'type' => 'string', 'required' => true, 'description' => 'Preferred time (HH:MM)'],
                 ['name' => 'notes', 'type' => 'string', 'required' => false, 'description' => 'Additional notes'],
             ],
-            'required_role' => 'client',
+            'required_role' => 'guest', // Allow guests to trigger so we can redirect them
             'is_destructive' => true,
             'handler' => function (array $args, int $userId, string $role): array {
-                return $this->toolBookAppointment($args, $userId);
+                return $this->toolBookAppointment($args, $userId, $role);
             },
         ];
 
@@ -932,9 +933,9 @@ class AgentToolRegistry
             $query->where('appointment_date', '<=', $args['date_to']);
         }
 
-        $appointments = $query->with('service:id,name')->get()->map(fn($a) => [
+        $appointments = $query->with('service:id,name', 'services')->get()->map(fn($a) => [
             'id' => $a->id,
-            'service' => $a->service?->name ?? $a->service_type ?? 'Service',
+            'service' => $a->service_type ?? ($a->service?->name) ?? 'Service',
             'date' => $a->appointment_date?->format('Y-m-d'),
             'time' => $a->appointment_time,
             'status' => $a->status,
@@ -997,20 +998,68 @@ class AgentToolRegistry
             return (int)$serviceIdInput;
         }
 
-        // Try to look up by name (case-insensitive)
-        if (is_string($serviceIdInput) && !empty(trim($serviceIdInput))) {
-            $service = Service::whereRaw('LOWER(name) = ?', [mb_strtolower(trim($serviceIdInput))])->first();
-            if ($service) {
-                return $service->id;
-            }
-            // Try partial match as fallback
-            $service = Service::whereRaw('LOWER(name) LIKE ?', ['%' . mb_strtolower(trim($serviceIdInput)) . '%'])->first();
-            if ($service) {
-                return $service->id;
+        if (!is_string($serviceIdInput) || empty(trim($serviceIdInput))) {
+            return null;
+        }
+
+        $inputNormalized = mb_strtolower(trim($serviceIdInput));
+
+        // 1. Exact match
+        $service = Service::whereRaw('LOWER(name) = ?', [$inputNormalized])->first();
+        if ($service) return $service->id;
+
+        // 2. Exact match with symbols normalized (e.g. "Follow up" -> "Follow-up")
+        $inputSafe = preg_replace('/[^a-z0-9]/', '', $inputNormalized);
+        $services = Service::all(['id', 'name']);
+        foreach ($services as $s) {
+            $sNameSafe = preg_replace('/[^a-z0-9]/', '', mb_strtolower($s->name));
+            if ($sNameSafe === $inputSafe) {
+                return $s->id;
             }
         }
 
+        // 3. Partial match (LIKE)
+        $service = Service::whereRaw('LOWER(name) LIKE ?', ['%' . $inputNormalized . '%'])->first();
+        if ($service) return $service->id;
+
         return null;
+    }
+
+    private function resolveServiceIds($serviceIdsInput): array
+    {
+        if (empty($serviceIdsInput)) {
+            return [];
+        }
+
+        $inputs = [];
+        if (is_array($serviceIdsInput)) {
+            $inputs = $serviceIdsInput;
+        } else if (is_string($serviceIdsInput)) {
+            // Handle multiple delimiters: comma, semicolon, " and ", pipe
+            $delimiters = [',', ';', '|', ' and ', ' & '];
+            $temp = [$serviceIdsInput];
+            foreach ($delimiters as $delim) {
+                $newTemp = [];
+                foreach ($temp as $item) {
+                    $parts = explode($delim, $item);
+                    foreach ($parts as $p) {
+                        if (trim($p)) $newTemp[] = trim($p);
+                    }
+                }
+                $temp = $newTemp;
+            }
+            $inputs = $temp;
+        }
+
+        $resolvedIds = [];
+        foreach ($inputs as $input) {
+            $id = $this->resolveServiceId($input);
+            if ($id) {
+                $resolvedIds[] = $id;
+            }
+        }
+
+        return array_unique($resolvedIds);
     }
 
     private function toolGetAvailableServices(): array
@@ -1101,12 +1150,19 @@ class AgentToolRegistry
         }
 
         // Rule 5: Check capacity limits per slot (batched query)
-        $slotCounts = Appointment::where('appointment_date', $date)
+        $slotCountsRaw = Appointment::where('appointment_date', $date)
             ->whereIn('status', ['pending', 'approved'])
             ->selectRaw('appointment_time, COUNT(*) as count')
             ->groupBy('appointment_time')
-            ->pluck('count', 'appointment_time')
-            ->toArray();
+            ->get();
+
+        $slotCounts = [];
+        foreach ($slotCountsRaw as $countRow) {
+            $time = $countRow->appointment_time;
+            // Handle both H:i:s and H:i formats from DB
+            $formattedTime = date('H:i', strtotime($time));
+            $slotCounts[$formattedTime] = ($slotCounts[$formattedTime] ?? 0) + $countRow->count;
+        }
 
         // Pre-load capacity rules
         $dayName = strtolower($parsedDate->englishDayOfWeek);
@@ -1471,6 +1527,18 @@ class AgentToolRegistry
             DB::rollBack();
             return ['success' => false, 'error' => 'Failed to cancel appointment. Please try again.'];
         }
+        
+        // Clear appointment caches after cancellation for real-time updates
+        try {
+            Cache::forget("chatbot_appointments_user_{$userId}_all");
+            Cache::forget("chatbot_appointments_user_{$userId}_pending");
+            Cache::forget("chatbot_appointments_user_{$userId}_approved");
+            Cache::forget("chatbot_appointments_user_{$userId}_completed");
+            Cache::forget("chatbot_appointments_user_{$userId}_cancelled");
+            Cache::forget("chatbot_booking_limit_{$userId}");
+        } catch (\Exception $e) {
+            Log::debug('Cache clearing failed after cancellation: ' . $e->getMessage());
+        }
     }
 
     /**
@@ -1507,30 +1575,182 @@ class AgentToolRegistry
      * Validates weekends, blackout dates, unavailable dates, lunch breaks, daily booking limits,
      * uses pessimistic locking, dispatches events, sends email, and logs action.
      */
-    private function toolBookAppointment(array $args, int $userId): array
+    /**
+     * Validate a booking without actually creating it.
+     * Used to check availability before asking for confirmation.
+     */
+    public function validateBookingSlot(array $args, int $userId): array
     {
-        // SECURITY: Block booking if user's profile is incomplete (e.g., Google-auth users who skipped registration steps)
+        $serviceIds = $this->resolveServiceIds($args['service_ids'] ?? $args['service_id'] ?? []);
+        $date = $args['date'] ?? '';
+        $time = $args['time'] ?? '';
+
+        if (empty($serviceIds) || !$date || !$time) {
+            return ['valid' => false, 'error' => 'Service IDs, date, and time are required.'];
+        }
+
+        $services = Service::whereIn('id', $serviceIds)->get();
+        if ($services->isEmpty()) {
+            return ['valid' => false, 'error' => 'No valid services found.'];
+        }
+
+        try {
+            $parsedDate = Carbon::parse($date);
+        } catch (\Exception $e) {
+            return ['valid' => false, 'error' => 'Invalid date format. Use YYYY-MM-DD.'];
+        }
+
+        // Check: not in the past
+        if ($parsedDate->startOfDay()->isPast() && !$parsedDate->isToday()) {
+            return ['valid' => false, 'error' => 'Cannot book appointments in the past.'];
+        }
+
+        // Check: no weekends
+        if ($parsedDate->dayOfWeek === 0 || $parsedDate->dayOfWeek === 6) {
+            return ['valid' => false, 'error' => 'Appointments cannot be booked on weekends.'];
+        }
+
+        // Check: working hours
+        $workStart = (int) config('chatbot_unified.booking.working_hour_start', 8);
+        $workEnd = (int) config('chatbot_unified.booking.working_hour_end', 17);
+        $parsedTime = Carbon::parse($time);
+        if ($parsedTime->hour < $workStart || $parsedTime->hour >= $workEnd) {
+            $startFormatted = Carbon::createFromTime($workStart, 0)->format('g:i A');
+            $endFormatted = Carbon::createFromTime($workEnd, 0)->format('g:i A');
+            return ['valid' => false, 'error' => "Appointments are only available from {$startFormatted} to {$endFormatted}."];
+        }
+
+        // Check: lunch break
+        $lunchStart = (int) config('chatbot_unified.booking.lunch_break_start', 12);
+        $lunchEnd = (int) config('chatbot_unified.booking.lunch_break_end', 13);
+        if ($parsedTime->hour >= $lunchStart && $parsedTime->hour < $lunchEnd) {
+            $lunchStartFormatted = Carbon::createFromTime($lunchStart, 0)->format('g:i A');
+            $lunchEndFormatted = Carbon::createFromTime($lunchEnd, 0)->format('g:i A');
+            return ['valid' => false, 'error' => "This time falls during the lunch break ({$lunchStartFormatted} - {$lunchEndFormatted})."];
+        }
+
+        // Check: unavailable dates
+        $isUnavailable = UnavailableDate::where('date', $date)
+            ->where(function ($query) use ($time) {
+                $query->where('all_day', true)
+                    ->orWhere(function ($q) use ($time) {
+                        $q->where('all_day', false)
+                          ->where('start_time', '<=', $time)
+                          ->where('end_time', '>=', $time);
+                    });
+            })
+            ->exists();
+        if ($isUnavailable) {
+            return ['valid' => false, 'error' => 'Selected date and time is not available.'];
+        }
+
+        // Check: blackout dates
+        $blackoutInfo = $this->checkBlackoutDate($date);
+        if ($blackoutInfo && $blackoutInfo['blocks_entire_day']) {
+            return ['valid' => false, 'error' => 'This date is not available: ' . ($blackoutInfo['reason'] ?? 'Blocked date')];
+        }
+        if ($blackoutInfo && !$blackoutInfo['blocks_entire_day'] && $blackoutInfo['start_time'] && $blackoutInfo['end_time']) {
+            $slotTime = strtotime($time);
+            $blockStart = strtotime($blackoutInfo['start_time']);
+            $blockEnd = strtotime($blackoutInfo['end_time']);
+            if ($slotTime >= $blockStart && $slotTime < $blockEnd) {
+                return ['valid' => false, 'error' => "This time slot is blocked ({$blackoutInfo['start_time']} - {$blackoutInfo['end_time']}): " . ($blackoutInfo['reason'] ?? 'Not available')];
+            }
+        }
+
+        // Check: daily booking limit
+        if (AppointmentSettings::userHasReachedDailyLimit($userId)) {
+            $nextAvailable = AppointmentSettings::getNextAvailableTime($userId);
+            $nextFormatted = $nextAvailable ? $nextAvailable->format('M d, Y \a\t g:i A') : null;
+            $message = "You have reached your daily booking limit.";
+            if ($nextFormatted) $message .= " Next available: {$nextFormatted}";
+            return ['valid' => false, 'error' => $message];
+        }
+
+        // Check: slot capacity
+        $dayName = strtolower($parsedDate->englishDayOfWeek);
+        $capacityRule = TimeSlotCapacity::where('is_active', true)
+            ->where(function ($q) use ($dayName) {
+                $q->where('day_of_week', $dayName)->orWhereNull('day_of_week');
+            })
+            ->where('start_time', '<=', $time)
+            ->where('end_time', '>', $time)
+            ->orderByRaw('CASE WHEN day_of_week IS NOT NULL THEN 0 ELSE 1 END')
+            ->first();
+        $defaultCapacity = (int) config('chatbot_unified.booking.default_slot_capacity', 3);
+        $maxPerSlot = $capacityRule ? $capacityRule->max_appointments_per_slot : $defaultCapacity;
+
+        $existing = Appointment::where('appointment_date', $date)
+            ->where('appointment_time', $time)
+            ->whereIn('status', ['pending', 'approved'])
+            ->count();
+
+        if ($existing >= $maxPerSlot) {
+            return ['valid' => false, 'error' => 'This time slot is fully booked.'];
+        }
+
+        // Check: user not already booked at this time
+        $userAlreadyBooked = Appointment::where('appointment_date', $date)
+            ->where('appointment_time', $time)
+            ->where('user_id', $userId)
+            ->whereIn('status', ['pending', 'approved'])
+            ->exists();
+
+        if ($userAlreadyBooked) {
+            return ['valid' => false, 'error' => 'You already have a booking at this date and time.'];
+        }
+
+        // All checks passed
+        $serviceNames = $services->pluck('name')->join(', ');
+        $dateFormatted = $parsedDate->format('M d, Y');
+        $timeFormatted = Carbon::parse($time)->format('g:i A');
+
+        return [
+            'valid' => true,
+            'message' => "✓ All checks passed. Ready to book {$serviceNames} on {$dateFormatted} at {$timeFormatted}.",
+            'service_names' => $serviceNames,
+            'date_formatted' => $dateFormatted,
+            'time_formatted' => $timeFormatted,
+        ];
+    }
+
+    private function toolBookAppointment(array $args, int $userId, string $role): array
+    {
+        // GUEST CHECK: Check role instead of just userId to be safe
+        if ($role === 'guest' || $userId === 0) {
+            return [
+                'success' => false,
+                'error' => 'GUESTS CANNOT BOOK DIRECTLY. Please register or log in to complete your booking.',
+                'action_required' => 'auth',
+                'message' => 'I have all your details ready! To finalize the booking, please log in or create an account. Your selected services, date, and time will be preserved.',
+            ];
+        }
+
+        // SECURITY: Block booking if user's profile is incomplete
         $user = User::find($userId);
         if ($user && !$user->profile_completed) {
             return [
                 'success' => false,
-                'error' => 'Your profile is incomplete. Please complete your profile (first name, last name, phone number, and address) before booking an appointment. You can do this from the profile completion form on your dashboard.',
+                'error' => 'Your profile is incomplete. Please complete your profile (first name, last name, phone number, and address) before booking an appointment.',
                 'requires_profile_completion' => true,
             ];
         }
 
-        $serviceId = $this->resolveServiceId($args['service_id'] ?? null);
+        // VALIDATION: Check all constraints first
+        // This prevents asking for confirmation if validation will fail anyway
+        $validationResult = $this->validateBookingSlot($args, $userId);
+        if (!$validationResult['valid']) {
+            return ['success' => false, 'error' => $validationResult['error']];
+        }
+
+        $serviceIds = $this->resolveServiceIds($args['service_ids'] ?? $args['service_id'] ?? []);
         $date = $args['date'] ?? '';
         $time = $args['time'] ?? '';
 
-        if (!$serviceId || !$date || !$time) {
-            return ['success' => false, 'error' => 'Service ID, date, and time are required. Use get_available_services to see valid services.'];
-        }
-
-        $service = Service::find($serviceId);
-        if (!$service) {
-            return ['success' => false, 'error' => 'Service not found. Use get_available_services to see available options.'];
-        }
+        $services = Service::whereIn('id', $serviceIds)->get();
+        $primaryService = $services->first();
+        $totalPrice = $services->sum('price');
+        $serviceNames = $services->pluck('name')->join(', ');
 
         try {
             $parsedDate = Carbon::parse($date);
@@ -1639,7 +1859,7 @@ class AgentToolRegistry
 
         // Atomic booking with pessimistic locking (same as AppointmentController)
         try {
-            $appointment = DB::transaction(function () use ($userId, $serviceId, $service, $date, $time, $maxPerSlot, $args) {
+            $appointment = DB::transaction(function () use ($userId, $serviceIds, $services, $totalPrice, $serviceNames, $date, $time, $maxPerSlot, $args) {
                 $existing = Appointment::where('appointment_date', $date)
                     ->where('appointment_time', $time)
                     ->whereIn('status', ['pending', 'approved'])
@@ -1661,21 +1881,31 @@ class AgentToolRegistry
                     throw new \Exception('USER_DUPLICATE');
                 }
 
+                $primaryService = $services->first();
                 $typeKeys = array_flip(Appointment::getTypes());
-                $type = $typeKeys[$service->name] ?? strtolower(str_replace(' ', '_', $service->name));
+                $type = $typeKeys[$primaryService->name] ?? strtolower(str_replace(' ', '_', $primaryService->name));
 
                 $appointment = Appointment::create([
                     'user_id' => $userId,
                     'type' => $type,
-                    'service_id' => $serviceId,
-                    'service_type' => $service->name,
+                    'service_id' => $primaryService->id,
+                    'service_type' => $serviceNames,
                     'appointment_date' => $date,
                     'appointment_time' => $time,
                     'notes' => $args['notes'] ?? null,
+                    'original_price' => $totalPrice,
                 ]);
                 // Set protected field explicitly (same as AppointmentController)
+                $appointment->payment_amount = $totalPrice;
                 $appointment->status = 'pending';
                 $appointment->save();
+
+                // Sync multiple services
+                $syncData = [];
+                foreach ($services as $srv) {
+                    $syncData[$srv->id] = ['price_at_booking' => $srv->price];
+                }
+                $appointment->services()->sync($syncData);
 
                 return $appointment;
             });
@@ -1703,7 +1933,7 @@ class AgentToolRegistry
             $timeFormatted = Carbon::parse($appointment->appointment_time)->format('g:i A');
             ActionLog::log(
                 'book_appointment',
-                "Booked appointment for {$service->name} on {$dateFormatted} at {$timeFormatted} (via chatbot)",
+                "Booked appointment for {$serviceNames} on {$dateFormatted} at {$timeFormatted} (via chatbot)",
                 'Appointment',
                 $appointment->id
             );
@@ -1713,7 +1943,7 @@ class AgentToolRegistry
 
         // Post-booking: Broadcast AppointmentCreated event (same as AppointmentController)
         try {
-            $appointment->load(['user', 'staff', 'service']);
+            $appointment->load(['user', 'staff', 'service', 'services']);
             event(new AppointmentCreated($appointment));
         } catch (\Exception $e) {
             Log::warning('Failed to broadcast AppointmentCreated event from chatbot: ' . $e->getMessage());
@@ -1728,7 +1958,7 @@ class AgentToolRegistry
             NotificationService::notifyAdmins(
                 'new_appointment',
                 'New Appointment Pending Approval',
-                "New appointment #{$appointment->id} from {$clientName} for {$service->name} on {$notifyDate} at {$notifyTime} is awaiting your approval.",
+                "New appointment #{$appointment->id} from {$clientName} for {$serviceNames} on {$notifyDate} at {$notifyTime} is awaiting your approval.",
                 [
                     'icon' => 'calendar',
                     'color' => 'blue',
@@ -1737,7 +1967,7 @@ class AgentToolRegistry
                     'data' => [
                         'appointment_id' => $appointment->id,
                         'client_name' => $clientName,
-                        'service' => $service->name,
+                        'service' => $serviceNames,
                         'date' => $notifyDate,
                         'time' => $notifyTime,
                     ]
@@ -1764,16 +1994,20 @@ class AgentToolRegistry
             Log::warning('Failed to update last_activity_at from chatbot booking: ' . $e->getMessage());
         }
 
-        // Bust the appointments cache for this user so it shows up immediately in the UI
+        // Invalidate appointment caches for this user so new appointment shows up immediately
         try {
-            // Because laravel file cache doesn't support tags, the easiest way to ensure the
-            // appointment shows up is to tell the frontend to re-fetch without cache, or
-            // clear the common cache keys for this user.
-            cache()->forget('appointments_' . $userId . '_' . md5('[]'));
-            // Also clear the request-level cache in AppointmentSettings
+            // Clear chatbot appointment caches (matching ChatbotRealTimeDataService keys)
+            Cache::forget("chatbot_appointments_user_{$userId}_all");
+            Cache::forget("chatbot_appointments_user_{$userId}_pending");
+            Cache::forget("chatbot_appointments_user_{$userId}_approved");
+            Cache::forget("chatbot_appointments_user_{$userId}_completed");
+            Cache::forget("chatbot_appointments_user_{$userId}_cancelled");
+            
+            // Clear booking limit cache
+            Cache::forget("chatbot_booking_limit_{$userId}");
             AppointmentSettings::clearRequestCache($userId);
         } catch (\Exception $e) {
-            // Ignore
+            Log::debug('Cache clearing failed: ' . $e->getMessage());
         }
 
         // Get updated booking limit status after this booking
@@ -1782,7 +2016,7 @@ class AgentToolRegistry
         $dateFormatted = $parsedDate->format('M d, Y');
         $timeFormatted = Carbon::parse($time)->format('g:i A');
 
-        $message = "Appointment booked successfully! Your appointment ID is #{$appointment->id} for {$service->name} on {$dateFormatted} at {$timeFormatted}. Status: pending approval.";
+        $message = "Appointment booked successfully! Your appointment ID is #{$appointment->id} for {$serviceNames} on {$dateFormatted} at {$timeFormatted}. Status: pending approval.";
         if ($remainingBookings !== null && $remainingBookings > 0) {
             $message .= " You can still book {$remainingBookings} more appointment(s) today.";
         } elseif ($remainingBookings === 0) {
@@ -1799,7 +2033,7 @@ class AgentToolRegistry
             'message' => $message,
             'data' => [
                 'appointment_id' => $appointment->id,
-                'service' => $service->name,
+                'service' => $serviceNames,
                 'date' => $date,
                 'date_formatted' => $dateFormatted,
                 'time' => $time,

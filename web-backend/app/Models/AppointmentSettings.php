@@ -39,10 +39,6 @@ class AppointmentSettings extends Model
         ]);
     }
 
-    /**
-     * Cache for bookings found in the last 24h to avoid redundant DB queries in same request
-     */
-    protected static $bookingsCache = [];
 
     /**
      * Check if a user has reached their booking limit in the rolling 24-hour window.
@@ -86,11 +82,11 @@ class AppointmentSettings extends Model
     }
 
     /**
-     * Clear the request-level cache (e.g. after a new booking)
+     * Clear the request-level cache (legacy - now unused as static cache is removed)
      */
     public static function clearRequestCache($userId)
     {
-        unset(self::$bookingsCache[$userId]);
+        // No-op: static cache removed to prevent staleness in persistent environments (Octane)
     }
 
     /**
@@ -99,11 +95,7 @@ class AppointmentSettings extends Model
      */
     private static function getBookingsInLast24Hours($userId)
     {
-        if (isset(self::$bookingsCache[$userId])) {
-            return self::$bookingsCache[$userId];
-        }
-
-        $since = now()->subHours(24);
+        $since = \Carbon\Carbon::now()->subHours(24);
 
         $bookings = Appointment::where('user_id', $userId)
             ->where('created_at', '>=', $since)
@@ -112,8 +104,6 @@ class AppointmentSettings extends Model
             ->with('service')
             ->orderBy('created_at', 'asc')
             ->get();
-        
-        self::$bookingsCache[$userId] = $bookings;
         
         return $bookings;
     }
