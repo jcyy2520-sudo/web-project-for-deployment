@@ -2,7 +2,8 @@ import React from 'react';
 import { 
   ClockIcon,
   CheckCircleIcon,
-  XCircleIcon
+  XCircleIcon,
+  ExclamationTriangleIcon
 } from '@heroicons/react/24/outline';
 
 const StatusBadge = ({ status }) => {
@@ -31,6 +32,12 @@ const StatusBadge = ({ status }) => {
       color: 'bg-red-100 text-red-800 border border-red-200 dark:bg-red-500/20 dark:text-red-300 dark:border-red-500/30',
       icon: XCircleIcon,
       glow: 'shadow-red-100'
+    },
+    no_show: {
+      color: 'bg-orange-100 text-orange-800 border border-orange-200 dark:bg-orange-500/20 dark:text-orange-300 dark:border-orange-500/30',
+      icon: ExclamationTriangleIcon,
+      glow: 'shadow-orange-100',
+      label: 'No Show'
     }
   };
   
@@ -40,7 +47,7 @@ const StatusBadge = ({ status }) => {
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${config.color} ${config.glow} shadow hover:scale-105 transition-transform duration-200`}>
       <IconComponent className="w-3 h-3 mr-1" />
-      {status.charAt(0).toUpperCase() + status.slice(1)}
+      {config.label || (status.charAt(0).toUpperCase() + status.slice(1))}
     </span>
   );
 };

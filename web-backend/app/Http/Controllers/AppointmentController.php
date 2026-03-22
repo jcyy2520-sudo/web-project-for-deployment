@@ -61,6 +61,7 @@ class AppointmentController extends Controller
             'cashier:id,first_name,last_name',
             'refunds'
         ])
+            ->whereNull('archived_at')
             ->select([
                 'id', 'user_id', 'staff_id', 'type', 'service_id', 'service_type',
                 'appointment_date', 'appointment_time', 'purpose', 'status',
@@ -497,17 +498,18 @@ class AppointmentController extends Controller
         $this->authorize('update', $appointment);
 
         $request->validate([
-            'status' => 'required|in:pending,approved,completed,cancelled,declined',
+            'status' => 'required|in:pending,approved,completed,cancelled,declined,no_show',
             'staff_notes' => 'nullable|string|max:1000',
         ]);
 
         // Status transition validation - enforce allowed state transitions
         $allowedTransitions = [
             'pending'   => ['approved', 'declined', 'cancelled'],
-            'approved'  => ['completed', 'cancelled', 'declined'],
+            'approved'  => ['completed', 'cancelled', 'declined', 'no_show'],
             'declined'  => ['pending'],  // allow re-review
             'completed' => [],           // terminal state
             'cancelled' => [],           // terminal state
+            'no_show'   => ['pending'],  // allow re-review
         ];
 
         if (!in_array($request->status, $allowedTransitions[$appointment->status] ?? [])) {
@@ -956,6 +958,63 @@ class AppointmentController extends Controller
         ]);
     }
 
+    /**
+     * Mark an approved appointment as no-show.
+     */
+    public function markNoShow(Request $request, Appointment $appointment)
+    {
+        $this->authorize('update', $appointment);
+
+        if ($appointment->status !== 'approved') {
+            return response()->json([
+                'message' => 'Only approved appointments can be marked as no-show',
+                'current_status' => $appointment->status
+            ], 422);
+        }
+
+        $adminUser = $request->user();
+
+        DB::transaction(function () use ($appointment, $adminUser) {
+            $appointment = Appointment::lockForUpdate()->findOrFail($appointment->id);
+            $appointment->status = 'no_show';
+            $appointment->save();
+
+            $serviceType = $appointment->service_type ?? $appointment->type ?? 'Unknown';
+            \App\Models\ActionLog::log(
+                'no_show_appointment',
+                "Marked appointment as no-show for {$appointment->user->first_name} {$appointment->user->last_name} ({$serviceType})",
+                'Appointment',
+                $appointment->id
+            );
+
+            $appointmentDate = \Carbon\Carbon::parse($appointment->appointment_date)->format('l, F d, Y');
+            $appointmentTime = \Carbon\Carbon::parse($appointment->appointment_time)->format('g:i A');
+
+            $messageText = "⚠️ Your appointment has been marked as NO SHOW.\n\n";
+            $messageText .= "📅 Date: {$appointmentDate}\n";
+            $messageText .= "⏰ Time: {$appointmentTime}\n";
+            $messageText .= "📋 Service: {$serviceType}\n\n";
+            $messageText .= "If you believe this is a mistake, please contact us to reschedule.";
+
+            Message::create([
+                'sender_id' => $adminUser->id,
+                'receiver_id' => $appointment->user_id,
+                'message' => $messageText,
+                'read' => false,
+                'type' => 'appointment_no_show'
+            ]);
+        });
+
+        $this->invalidateStatsCache();
+        $this->broadcastAppointmentUpdate($appointment);
+
+        return response()->json([
+            'message' => 'Appointment marked as no-show',
+            'data' => $appointment->load(['user', 'staff', 'service']),
+            'success' => true
+        ]);
+    }
+
     public function destroy(Appointment $appointment)
     {
         $this->authorize('delete', $appointment);
@@ -971,7 +1030,12 @@ class AppointmentController extends Controller
 
     public function getArchived(Request $request)
     {
-        $query = Appointment::onlyTrashed()->with(['user', 'staff']);
+        $query = Appointment::query()
+            ->whereNotNull('archived_at')
+            ->with(['user', 'staff', 'service']);
+
+        // Also include soft-deleted appointments in archive
+        $query->withTrashed();
 
         // Only admins can view all archived appointments
         if (!$request->user()->isAdmin()) {
@@ -982,8 +1046,35 @@ class AppointmentController extends Controller
             }
         }
 
-        $appointments = $query->orderBy('deleted_at', 'desc')
-                             ->paginate($request->get('per_page', 10));
+        // Filter by status
+        if ($request->has('status') && $request->status !== 'all') {
+            $query->where('status', $request->status);
+        }
+
+        // Filter by date range
+        if ($request->has('date_from')) {
+            $query->where('appointment_date', '>=', $request->date_from);
+        }
+        if ($request->has('date_to')) {
+            $query->where('appointment_date', '<=', $request->date_to);
+        }
+
+        // Search
+        if ($request->has('search') && $request->search) {
+            $search = $request->search;
+            $query->where(function ($q) use ($search) {
+                $q->whereHas('user', function ($uq) use ($search) {
+                    $uq->where('first_name', 'like', "%{$search}%")
+                       ->orWhere('last_name', 'like', "%{$search}%")
+                       ->orWhere('email', 'like', "%{$search}%");
+                })
+                ->orWhere('appointment_date', 'like', "%{$search}%")
+                ->orWhere('type', 'like', "%{$search}%");
+            });
+        }
+
+        $appointments = $query->orderBy('archived_at', 'desc')
+                             ->paginate($request->get('per_page', 20));
 
         return response()->json($appointments);
     }

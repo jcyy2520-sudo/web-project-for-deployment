@@ -50,6 +50,18 @@
                 </div>
             </div>
             
+            <?php if($appointment->service && !empty($appointment->service->public_requirements)): ?>
+                <div class="details-box" style="border-left: 4px solid #3b82f6; background-color: #eff6ff;">
+                    <strong style="font-size: 13px; color: #1e40af;">Important Requirements:</strong>
+                    <p style="font-size: 13px; color: #1e3a8a; margin: 4px 0 8px 0;">If your appointment is approved, please prepare the following:</p>
+                    <ul style="font-size: 13px; color: #1e3a8a; margin: 0; padding-left: 20px;">
+                        <?php $__currentLoopData = $appointment->service->public_requirements; $__env->addLoop($__currentLoopData); foreach($__currentLoopData as $req): $__env->incrementLoopIndices(); $loop = $__env->getLastLoop(); ?>
+                            <li style="margin-bottom: 4px;"><?php echo e($req); ?></li>
+                        <?php endforeach; $__env->popLoop(); $loop = $__env->getLastLoop(); ?>
+                    </ul>
+                </div>
+            <?php endif; ?>
+            
             <p class="text">Our team will review your appointment within 24 hours. You will receive an email confirmation once your appointment has been approved or if we need to discuss alternative times.</p>
             
             <p class="text">If you need to make changes, please contact our support team.</p>

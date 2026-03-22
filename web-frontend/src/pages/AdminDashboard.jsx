@@ -1577,6 +1577,9 @@ const AdminDashboard = () => {
   const [archiveSearch, setArchiveSearch] = useState('');
   const [archiveRoleFilter, setArchiveRoleFilter] = useState('all');
   const [archiveSort, setArchiveSort] = useState('newest');
+  const [archiveStatusFilter, setArchiveStatusFilter] = useState('all');
+  const [archiveDateFrom, setArchiveDateFrom] = useState('');
+  const [archiveDateTo, setArchiveDateTo] = useState('');
   
   // Modal states
   const [showUserModal, setShowUserModal] = useState(false);
@@ -2239,10 +2242,17 @@ const AdminDashboard = () => {
     }
   }, [callApi]);
 
-  const loadArchivedAppointments = useCallback(async () => {
+  const loadArchivedAppointments = useCallback(async (filters = {}) => {
     try {
+      const params = { per_page: 100 };
+      if (filters.status && filters.status !== 'all') params.status = filters.status;
+      if (filters.date_from) params.date_from = filters.date_from;
+      if (filters.date_to) params.date_to = filters.date_to;
+      if (filters.search) params.search = filters.search;
+
       const result = await callApi(async () => {
         const response = await axios.get('/api/appointments/archived/list', { 
+          params,
           timeout: 10000
         });
         
@@ -2559,7 +2569,7 @@ const AdminDashboard = () => {
   const filteredArchivedAppointments = useMemo(() => {
     let list = archivedAppointments || [];
     if (timeframe) {
-      list = list.filter(a => isWithinTimeframe(a.deleted_at || a.deletedAt || a.appointment_date || a.appointmentDate, timeframe));
+      list = list.filter(a => isWithinTimeframe(a.archived_at || a.deleted_at || a.deletedAt || a.appointment_date || a.appointmentDate, timeframe));
     }
     if (archiveSearch) {
       const s = archiveSearch.toLowerCase();
@@ -2570,14 +2580,23 @@ const AdminDashboard = () => {
         (formatServiceName(a) || '').toLowerCase().includes(s)
       );
     }
+    if (archiveStatusFilter !== 'all') {
+      list = list.filter(a => a.status === archiveStatusFilter);
+    }
+    if (archiveDateFrom) {
+      list = list.filter(a => a.appointment_date >= archiveDateFrom);
+    }
+    if (archiveDateTo) {
+      list = list.filter(a => a.appointment_date <= archiveDateTo);
+    }
     list = [...list].sort((a, b) => {
-      if (archiveSort === 'newest') return new Date(b.deleted_at || 0) - new Date(a.deleted_at || 0);
-      if (archiveSort === 'oldest') return new Date(a.deleted_at || 0) - new Date(b.deleted_at || 0);
+      if (archiveSort === 'newest') return new Date(b.archived_at || b.deleted_at || 0) - new Date(a.archived_at || a.deleted_at || 0);
+      if (archiveSort === 'oldest') return new Date(a.archived_at || a.deleted_at || 0) - new Date(b.archived_at || b.deleted_at || 0);
       if (archiveSort === 'name') return (a.user?.first_name || '').localeCompare(b.user?.first_name || '');
       return 0;
     });
     return list;
-  }, [archivedAppointments, timeframe, isWithinTimeframe, archiveSearch, archiveSort]);
+  }, [archivedAppointments, timeframe, isWithinTimeframe, archiveSearch, archiveSort, archiveStatusFilter, archiveDateFrom, archiveDateTo]);
 
   const filteredDeactivatedUsers = useMemo(() => {
     let list = deactivatedUsers || [];
@@ -3175,12 +3194,12 @@ const AdminDashboard = () => {
         return;
       }
 
-      // Map action to correct status (approve → approved, decline → declined)
       const statusMap = {
         'approve': 'approved',
         'decline': 'declined',
         'cancel': 'cancelled',
-        'complete': 'completed'
+        'complete': 'completed',
+        'no-show': 'no_show'
       };
       const finalStatus = statusMap[action] || action;
 
@@ -3489,7 +3508,24 @@ const AdminDashboard = () => {
     }
   };
 
-  const renderArchive = () => (
+  const renderArchive = () => {
+    const statusTabs = [
+      { key: 'all', label: 'All', color: 'amber' },
+      { key: 'completed', label: 'Completed', color: 'green' },
+      { key: 'cancelled', label: 'Cancelled', color: 'red' },
+      { key: 'declined', label: 'Declined', color: 'red' },
+      { key: 'no_show', label: 'No Show', color: 'orange' },
+    ];
+
+    const statusColorMap = {
+      completed: 'bg-green-900/50 text-green-300',
+      cancelled: 'bg-red-900/50 text-red-300',
+      declined: 'bg-red-900/50 text-red-300',
+      no_show: 'bg-orange-900/50 text-orange-300',
+      approved: 'bg-blue-900/50 text-blue-300',
+    };
+
+    return (
     <div className="space-y-4">
       {/* Header */}
       <div className="flex justify-between items-center">
@@ -3501,7 +3537,7 @@ const AdminDashboard = () => {
           type="button"
           onClick={() => {
             loadArchivedUsers();
-            loadArchivedAppointments();
+            loadArchivedAppointments({ status: archiveStatusFilter, date_from: archiveDateFrom, date_to: archiveDateTo, search: archiveSearch });
           }}
           className="px-3 py-1.5 border border-amber-500/30 text-amber-50 rounded hover:bg-amber-500/10 transition-all duration-200 font-medium text-sm flex items-center"
           title="Refresh archive"
@@ -3549,35 +3585,90 @@ const AdminDashboard = () => {
       </div>
 
       {/* Search, Filter & Sort Controls */}
-      <div className="flex flex-col sm:flex-row gap-2">
-        <input
-          type="text"
-          placeholder={archiveTab === 'users' ? 'Search by name or email...' : 'Search by name, date, or service...'}
-          value={archiveSearch}
-          onChange={e => setArchiveSearch(e.target.value)}
-          className="flex-1 px-3 py-2 rounded-lg text-sm border bg-gray-800/50 border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500"
-        />
-        {archiveTab === 'users' && (
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-col sm:flex-row gap-2">
+          <input
+            type="text"
+            placeholder={archiveTab === 'users' ? 'Search by name or email...' : 'Search by name, date, or service...'}
+            value={archiveSearch}
+            onChange={e => setArchiveSearch(e.target.value)}
+            className="flex-1 px-3 py-2 rounded-lg text-sm border bg-gray-800/50 border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-amber-500/50 focus:border-amber-500"
+          />
+          {archiveTab === 'users' && (
+            <select
+              value={archiveRoleFilter}
+              onChange={e => setArchiveRoleFilter(e.target.value)}
+              className="px-3 py-2 rounded-lg text-sm border bg-gray-800/50 border-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50"
+            >
+              <option value="all">All Roles</option>
+              <option value="client">Client</option>
+              <option value="admin">Admin</option>
+              <option value="staff">Staff</option>
+            </select>
+          )}
           <select
-            value={archiveRoleFilter}
-            onChange={e => setArchiveRoleFilter(e.target.value)}
+            value={archiveSort}
+            onChange={e => setArchiveSort(e.target.value)}
             className="px-3 py-2 rounded-lg text-sm border bg-gray-800/50 border-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50"
           >
-            <option value="all">All Roles</option>
-            <option value="client">Client</option>
-            <option value="admin">Admin</option>
-            <option value="staff">Staff</option>
+            <option value="newest">Newest First</option>
+            <option value="oldest">Oldest First</option>
+            <option value="name">Name A-Z</option>
           </select>
+        </div>
+
+        {/* Appointment-specific: Status tabs + Date range */}
+        {archiveTab === 'appointments' && (
+          <>
+            {/* Status Tabs */}
+            <div className="flex flex-wrap gap-1.5">
+              {statusTabs.map(tab => {
+                const isActive = archiveStatusFilter === tab.key;
+                const colorClasses = {
+                  amber: isActive ? 'bg-amber-500/20 border-amber-500 text-amber-300' : 'border-gray-700 text-gray-400 hover:border-amber-500/40',
+                  green: isActive ? 'bg-green-500/20 border-green-500 text-green-300' : 'border-gray-700 text-gray-400 hover:border-green-500/40',
+                  red: isActive ? 'bg-red-500/20 border-red-500 text-red-300' : 'border-gray-700 text-gray-400 hover:border-red-500/40',
+                  orange: isActive ? 'bg-orange-500/20 border-orange-500 text-orange-300' : 'border-gray-700 text-gray-400 hover:border-orange-500/40',
+                };
+                return (
+                  <button
+                    key={tab.key}
+                    onClick={() => setArchiveStatusFilter(tab.key)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all duration-200 ${colorClasses[tab.color]}`}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Date Range */}
+            <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center">
+              <span className="text-xs text-gray-400 whitespace-nowrap">Date Range:</span>
+              <input
+                type="date"
+                value={archiveDateFrom}
+                onChange={e => setArchiveDateFrom(e.target.value)}
+                className="px-3 py-1.5 rounded-lg text-sm border bg-gray-800/50 border-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50 [color-scheme:dark]"
+              />
+              <span className="text-xs text-gray-500">to</span>
+              <input
+                type="date"
+                value={archiveDateTo}
+                onChange={e => setArchiveDateTo(e.target.value)}
+                className="px-3 py-1.5 rounded-lg text-sm border bg-gray-800/50 border-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50 [color-scheme:dark]"
+              />
+              {(archiveDateFrom || archiveDateTo) && (
+                <button
+                  onClick={() => { setArchiveDateFrom(''); setArchiveDateTo(''); }}
+                  className="text-xs text-amber-400 hover:text-amber-300 underline"
+                >
+                  Clear dates
+                </button>
+              )}
+            </div>
+          </>
         )}
-        <select
-          value={archiveSort}
-          onChange={e => setArchiveSort(e.target.value)}
-          className="px-3 py-2 rounded-lg text-sm border bg-gray-800/50 border-gray-700 text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50"
-        >
-          <option value="newest">Newest First</option>
-          <option value="oldest">Oldest First</option>
-          <option value="name">Name A-Z</option>
-        </select>
       </div>
 
       {/* Empty State */}
@@ -3591,7 +3682,7 @@ const AdminDashboard = () => {
       {archiveTab === 'appointments' && filteredArchivedAppointments.length === 0 && (
         <div className="bg-gray-800/30 border border-gray-700 rounded-lg p-8 text-center">
           <CalendarIcon className="h-12 w-12 text-gray-500 mx-auto mb-2 opacity-50" />
-          <p className="text-gray-400">No archived appointments</p>
+          <p className="text-gray-400">No archived appointments{archiveStatusFilter !== 'all' ? ` with status "${archiveStatusFilter.replace('_', ' ')}"` : ''}</p>
         </div>
       )}
 
@@ -3639,24 +3730,23 @@ const AdminDashboard = () => {
       {archiveTab === 'appointments' && filteredArchivedAppointments.length > 0 && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-amber-50">Archived Appointments ({archivedAppointments.length})</h3>
+            <h3 className="text-sm font-semibold text-amber-50">Archived Appointments ({filteredArchivedAppointments.length})</h3>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[500px] overflow-y-auto pr-2">
             {filteredArchivedAppointments.map((apt) => (
               <div key={apt.id} className="bg-gray-800/50 border border-gray-700 rounded-lg p-4 hover:border-green-500/30 transition-all">
                 <div className="mb-3">
                   <p className="text-sm font-semibold text-amber-50">{apt.user?.first_name} {apt.user?.last_name}</p>
-                  <p className="text-xs text-gray-400">{apt.appointment_date}</p>
-                    <div className="flex items-center gap-2 mt-2">
+                  <p className="text-xs text-gray-400">{apt.appointment_date} {apt.appointment_time ? `at ${apt.appointment_time}` : ''}</p>
+                  <div className="flex items-center gap-2 mt-2">
                     <span className="text-xs px-2 py-0.5 rounded bg-green-900/50 text-green-300">{formatServiceName(apt)}</span>
-                    <span className={`text-xs px-2 py-0.5 rounded ${
-                      apt.status === 'approved' ? 'bg-green-900/50 text-green-300' :
-                      apt.status === 'declined' ? 'bg-red-900/50 text-red-300' :
-                      apt.status === 'completed' ? 'bg-blue-900/50 text-blue-300' :
-                      'bg-gray-700/50 text-gray-300'
-                    }`}>{apt.status}</span>
+                    <span className={`text-xs px-2 py-0.5 rounded ${statusColorMap[apt.status] || 'bg-gray-700/50 text-gray-300'}`}>
+                      {apt.status === 'no_show' ? 'No Show' : apt.status}
+                    </span>
                   </div>
-                  <span className="text-xs text-gray-500 block mt-1">{new Date(apt.deleted_at).toLocaleDateString()}</span>
+                  <span className="text-xs text-gray-500 block mt-1">
+                    Archived {apt.archived_at ? new Date(apt.archived_at).toLocaleDateString() : (apt.deleted_at ? new Date(apt.deleted_at).toLocaleDateString() : '')}
+                  </span>
                 </div>
                 <div className="flex gap-2">
                   <button
@@ -3688,16 +3778,17 @@ const AdminDashboard = () => {
           <div>
             <p className="text-sm font-medium text-amber-200 mb-1">How Archive Works</p>
             <ul className="text-xs text-amber-100/80 space-y-1">
-              <li>• Archived items are soft-deleted and kept for 30 days</li>
+              <li>• Completed, cancelled, declined, and no-show appointments are auto-archived after 24 hours</li>
               <li>• Click "Restore" to bring items back to active status</li>
               <li>• Click "Delete" to permanently remove items (cannot be undone)</li>
-              <li>• After 30 days, items are automatically purged from the system</li>
+              <li>• Use the status tabs and date range filter to find specific archived appointments</li>
             </ul>
           </div>
         </div>
       </div>
     </div>
-  );
+    );
+  };
 
   // Settings render function
   const renderSettings = () => (
@@ -4767,14 +4858,22 @@ const AdminDashboard = () => {
                         </>
                       )}
                       {appointment.status === 'approved' && (
-                        <button
-                          onClick={() => handleAppointmentAction(appointment.id, 'complete')}
-                          className="text-blue-400 hover:text-blue-300 transition-colors duration-200 font-medium hover:bg-blue-500/10 px-2 py-1 rounded border border-blue-500/30 hover:border-blue-400 text-xs whitespace-nowrap"
-                        >
-                          Complete
-                        </button>
+                        <>
+                          <button
+                            onClick={() => handleAppointmentAction(appointment.id, 'complete')}
+                            className="text-green-400 hover:text-green-300 transition-colors duration-200 font-medium hover:bg-green-500/10 px-2 py-1 rounded border border-green-500/30 hover:border-green-400 text-xs whitespace-nowrap"
+                          >
+                            ✓ Complete
+                          </button>
+                          <button
+                            onClick={() => handleAppointmentAction(appointment.id, 'no-show')}
+                            className="text-orange-400 hover:text-orange-300 transition-colors duration-200 font-medium hover:bg-orange-500/10 px-2 py-1 rounded border border-orange-500/30 hover:border-orange-400 text-xs whitespace-nowrap"
+                          >
+                            ✗ No Show
+                          </button>
+                        </>
                       )}
-                      {(appointment.status === 'completed' || appointment.status === 'cancelled' || appointment.status === 'declined') && (
+                      {(appointment.status === 'completed' || appointment.status === 'cancelled' || appointment.status === 'declined' || appointment.status === 'no_show') && (
                         <button
                           onClick={() => handleAppointmentAction(appointment.id, 'pending')}
                           className="text-amber-400 hover:text-amber-300 transition-colors duration-200 font-medium hover:bg-amber-500/10 px-2 py-1 rounded border border-amber-500/30 hover:border-amber-400 text-xs whitespace-nowrap"

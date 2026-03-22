@@ -11,9 +11,21 @@ import InlineChatbot from '../components/chatbot/InlineChatbot';
 import { CheckCircleIcon, ExclamationTriangleIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import axios from 'axios';
 
+// Normalize raw feedback model data to the shape the JSX expects
+const normalizeTestimonial = (item, idx) => ({
+  id: item.id,
+  clientName: item.clientName || item.privacy_safe_username || item.email?.split('@')[0] || `Client ${idx + 1}`,
+  maskedInitial: item.maskedInitial || item.masked_initial || (item.privacy_safe_username?.charAt(0).toUpperCase()) || 'U',
+  serviceType: item.serviceType || item.feedback_type?.replace(/_/g, ' ') || 'Feedback',
+  rating: item.rating || 5,
+  message: item.message,
+});
+
 const LandingPage = () => {
   const { isDarkMode, setIsDarkMode } = useTheme();
-  const { getSection, getSetting, getSettingsGroup, loading: cmsLoading } = useLandingContent();
+  const [cmsSections, setCmsSections] = useState({});
+  const [cmsSettings, setCmsSettings] = useState({});
+  const { getSection, getSetting, getSettingsGroup } = useLandingContent(cmsSections, cmsSettings);
 
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [feedbackEmail, setFeedbackEmail] = useState('');
@@ -204,10 +216,11 @@ const LandingPage = () => {
     }
   }, [stats]);
 
-  // Fetch stats polling
+  // Stats polling — don't fetch immediately since /api/public/init already provides stats.
+  // Only start refreshing stats every 30s for live updates.
   useEffect(() => {
     let isMounted = true;
-    const fetchAllData = async () => {
+    const fetchStats = async () => {
       if (!isMounted) return;
       try {
         const statsResponse = await axios.get('/api/stats/summary', { timeout: 3000 });
@@ -224,8 +237,7 @@ const LandingPage = () => {
         logger.debug('Stats fetch failed, keeping existing values');
       }
     };
-    fetchAllData();
-    const interval = setInterval(fetchAllData, 30000);
+    const interval = setInterval(fetchStats, 30000);
     return () => { isMounted = false; clearInterval(interval); };
   }, []);
 
@@ -249,21 +261,36 @@ const LandingPage = () => {
     }
   }, []);
 
-  // Fetch services and testimonials
+  // Fetch all landing page data in a single call
   useEffect(() => {
-    const fetchServicesAndTestimonials = async () => {
-      // Prefer the combined cached endpoint to minimize DB work and roundtrips
+    const fetchLandingData = async () => {
+      // Prefer the combined cached endpoint — returns stats, services, testimonials AND CMS
       try {
-        const resp = await axios.get('/api/public/init', { timeout: 3000 });
+        const resp = await axios.get('/api/public/init', { timeout: 5000 });
         if (resp.data?.data) {
           const data = resp.data.data;
           if (Array.isArray(data.services)) setServices(data.services.slice(0, 4));
           if (data.stats) setStats(data.stats);
-          if (Array.isArray(data.testimonials)) setTestimonials(data.testimonials);
+          if (Array.isArray(data.testimonials)) setTestimonials(data.testimonials.map(normalizeTestimonial));
+          if (data.cms) {
+            setCmsSections(data.cms.sections || {});
+            setCmsSettings(data.cms.settings || {});
+          }
           return;
         }
       } catch (err) {
         logger.debug('Public init endpoint unavailable, falling back to individual calls');
+      }
+
+      // Fallback: fetch CMS content separately
+      try {
+        const cmsResp = await axios.get('/api/landing-page', { timeout: 5000 });
+        if (cmsResp.data?.data) {
+          setCmsSections(cmsResp.data.data.sections || {});
+          setCmsSettings(cmsResp.data.data.settings || {});
+        }
+      } catch (err) {
+        logger.debug('Landing page CMS unavailable, using defaults');
       }
 
       // Fallback to separate endpoints if combined init fails
@@ -280,26 +307,17 @@ const LandingPage = () => {
       try {
         const feedbackResponse = await axios.get('/api/testimonials/feedbacks?limit=3', { timeout: 3000 });
         if (feedbackResponse.data?.data && Array.isArray(feedbackResponse.data.data) && feedbackResponse.data.data.length > 0) {
-          const testimonialData = feedbackResponse.data.data.map((feedback, idx) => ({
-            id: feedback.id,
-            clientName: feedback.privacy_safe_username || feedback.email?.split('@')[0] || `Client ${idx + 1}`,
-            maskedInitial: feedback.masked_initial || feedback.privacy_safe_username?.charAt(0).toUpperCase() || 'U',
-            serviceType: feedback.feedback_type?.replace(/_/g, ' ') || 'Feedback',
-            rating: feedback.rating || 5,
-            message: feedback.message
-          }));
-          setTestimonials(testimonialData);
+          setTestimonials(feedbackResponse.data.data.map(normalizeTestimonial));
         } else {
           const appointmentsResponse = await axios.get('/api/testimonials/completed-appointments?limit=3', { timeout: 3000 });
           if (appointmentsResponse.data?.data && Array.isArray(appointmentsResponse.data.data)) {
-            const testimonialData = appointmentsResponse.data.data.map((apt, idx) => ({
+            setTestimonials(appointmentsResponse.data.data.map((apt, idx) => ({
               id: apt.id,
               clientName: apt.user?.name || `Client ${idx + 1}`,
               serviceType: apt.type || 'Legal Service',
               rating: 5,
               message: apt.notes || `Successfully completed ${apt.type || 'appointment'}`
-            }));
-            setTestimonials(testimonialData);
+            })));
           }
         }
       } catch (err) {
@@ -307,7 +325,7 @@ const LandingPage = () => {
         setTestimonials([]);
       }
     };
-    fetchServicesAndTestimonials();
+    fetchLandingData();
   }, []);
 
   const handleSendFeedback = async (e) => {

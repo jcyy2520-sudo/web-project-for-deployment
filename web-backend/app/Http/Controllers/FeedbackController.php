@@ -499,12 +499,23 @@ class FeedbackController extends Controller
         try {
             $limit = $request->get('limit', 3);
 
-            // Sort by featured_at desc so newest featured testimonials appear first
+            // Prefer admin-promoted testimonials
             $testimonials = Feedback::where('is_testimonial', true)
                 ->orderByDesc('featured_at')
                 ->orderByDesc('created_at')
                 ->limit($limit)
                 ->get();
+
+            // Fall back to recent highly-rated feedback if none promoted
+            if ($testimonials->isEmpty()) {
+                $testimonials = Feedback::where('rating', '>=', 4)
+                    ->whereNotNull('message')
+                    ->where('is_blocked', false)
+                    ->orderByDesc('rating')
+                    ->orderByDesc('created_at')
+                    ->limit($limit)
+                    ->get();
+            }
 
             return response()->json([
                 'data' => $testimonials
@@ -531,10 +542,18 @@ class FeedbackController extends Controller
             $page = $request->get('page', 1);
             $perPage = $request->get('per_page', 10);
 
-            // Sort by featured_at desc so newest featured testimonials appear first
-            $query = Feedback::where('is_testimonial', true)
-                ->orderByDesc('featured_at')
-                ->orderByDesc('created_at');
+            // Prefer promoted testimonials, fall back to highly-rated feedback
+            $promoted = Feedback::where('is_testimonial', true)->exists();
+
+            $query = $promoted
+                ? Feedback::where('is_testimonial', true)
+                    ->orderByDesc('featured_at')
+                    ->orderByDesc('created_at')
+                : Feedback::where('rating', '>=', 4)
+                    ->whereNotNull('message')
+                    ->where('is_blocked', false)
+                    ->orderByDesc('rating')
+                    ->orderByDesc('created_at');
 
             $total = $query->count();
             $testimonials = $query->paginate($perPage, ['*'], 'page', $page);

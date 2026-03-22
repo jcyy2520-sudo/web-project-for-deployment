@@ -214,6 +214,30 @@ Route::get('/public/init', function () {
             ];
         });
 
+        // CMS landing page data — uses its own cache (600s) so admin
+        // edits propagate independently of the init cache above.
+        try {
+            $data['cms'] = \Illuminate\Support\Facades\Cache::remember('landing_page_content', 600, function () {
+                $sections = \App\Models\LandingPageSection::visible()
+                    ->with('items')
+                    ->orderBy('sort_order')
+                    ->get()
+                    ->keyBy('section_key');
+
+                $settings = \App\Models\LandingPageSetting::all()
+                    ->groupBy('group')
+                    ->map(function ($group) {
+                        return $group->mapWithKeys(function ($setting) {
+                            return [$setting->key => $setting->typed_value];
+                        });
+                    });
+
+                return ['sections' => $sections, 'settings' => $settings];
+            });
+        } catch (\Exception $e) {
+            \Log::debug('CMS data fetch in init failed: ' . $e->getMessage());
+        }
+
         return response()->json([
             'success' => true,
             'data' => $data,
@@ -749,6 +773,7 @@ Route::middleware(['auth:sanctum', 'throttle:120,1'])->group(function () {
         Route::put('/{appointment}/approve', [AppointmentController::class, 'approve']);
         Route::put('/{appointment}/decline', [AppointmentController::class, 'decline']);
         Route::put('/{appointment}/complete', [AppointmentController::class, 'complete']);
+        Route::put('/{appointment}/no-show', [AppointmentController::class, 'markNoShow']);
         Route::put('/{appointment}/restore', [AppointmentController::class, 'restore']);
         Route::put('/{id}/cancel', [AppointmentController::class, 'cancel']);
         Route::delete('/{appointment}', [AppointmentController::class, 'destroy']);

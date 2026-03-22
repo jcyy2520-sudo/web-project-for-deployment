@@ -236,7 +236,7 @@ const InlineChatbot = ({ isDarkMode, sectionData = {} }) => {
       isDarkMode
         ? 'bg-gray-900/60 border-gray-700/40 shadow-2xl shadow-black/20'
         : 'bg-white/80 border-gray-200/60 shadow-2xl shadow-gray-300/30'
-    }`} style={{ minHeight: '600px', maxHeight: '700px' }}>
+    }`} style={{ minHeight: 'min(450px, 75vh)', maxHeight: 'min(700px, 80vh)' }}>
 
       {/* Sidebar Icons - hidden on mobile */}
       <div className={`absolute left-0 top-0 bottom-0 w-12 hidden md:flex flex-col items-center py-5 gap-3 z-20 border-r ${

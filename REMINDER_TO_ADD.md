@@ -2,8 +2,14 @@ Priority:
 
 done
 User can ask appointment related, like do i have appointment tommorow, this week, this month. Not guess, not hardcoded. Real time data. Status of appointment. 
+
+
 Show slot available. In time and in date. 
-Service can be deactivate or set as not available. Can set time and date for the time being. 
+
+
+Service can be set as not available. Can set time and date for the time being. But if a user has an appointment going in that appointment before setting that service not available it still will be accepted. Add a reason type so user can see why its not available, and a build reasons
+
+
 Spam protection. Manipulation. (Just harden and improve security) 
 Improve tagalog and english adaptability. 
 

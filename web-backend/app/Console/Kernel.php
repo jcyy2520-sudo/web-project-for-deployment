@@ -106,6 +106,13 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping()
             ->onSuccess(fn () => \Illuminate\Support\Facades\Log::info('Inactive users archival completed'))
             ->onFailure(fn () => \Illuminate\Support\Facades\Log::error('Inactive users archival failed'));
+
+        // Auto-archive terminal appointments (completed/cancelled/declined/no_show) after 24 hours
+        $schedule->command('appointments:auto-archive --hours=24')
+            ->hourly()
+            ->withoutOverlapping()
+            ->onSuccess(fn () => \Illuminate\Support\Facades\Log::info('Terminal appointments auto-archived'))
+            ->onFailure(fn () => \Illuminate\Support\Facades\Log::error('Terminal appointments auto-archive failed'));
     }
 
     /**
