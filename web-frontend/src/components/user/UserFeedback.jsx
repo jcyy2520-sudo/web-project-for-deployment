@@ -120,7 +120,9 @@ const UserFeedback = () => {
     const interval = setInterval(() => {
       loadRateLimit();
     }, 60000);
-    return () => clearInterval(interval);
+    const handleLogout = () => clearInterval(interval);
+    window.addEventListener('auth:logout', handleLogout);
+    return () => { clearInterval(interval); window.removeEventListener('auth:logout', handleLogout); };
   }, [loadRateLimit]);
 
   const handleSubmit = async (e) => {

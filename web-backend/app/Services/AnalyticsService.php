@@ -677,34 +677,46 @@ class AnalyticsService
                 ];
             }
 
-            // Check for high no-show times
-            $noShowData = $this->getNoShowPatterns(30);
-            $highRiskSlots = $noShowData['high_risk_time_slots'] ?? [];
-            if ($highRiskSlots instanceof \Illuminate\Support\Collection) {
-                $highRiskSlots = $highRiskSlots->toArray();
-            }
-            if (!empty($highRiskSlots)) {
-                $riskSlots = implode(', ', array_map(fn($s) => $s['time'] ?? 'unknown', $highRiskSlots));
-                $alerts[] = [
-                    'type' => 'warning',
-                    'severity' => 'medium',
-                    'title' => 'High no-show rate detected',
-                    'message' => "Time slots $riskSlots have high no-show rates. Consider adding reminders or limiting bookings.",
-                    'timestamp' => now(),
-                ];
+            // Check for high no-show times (lightweight query instead of calling getNoShowPatterns)
+            try {
+                $noShowSlots = Appointment::where('created_at', '>=', now()->subDays(30))
+                    ->groupBy('appointment_time')
+                    ->select('appointment_time', DB::raw('count(*) as total'),
+                             DB::raw("SUM(CASE WHEN status = 'no_show' THEN 1 ELSE 0 END) as no_show_count"))
+                    ->havingRaw("(SUM(CASE WHEN status = 'no_show' THEN 1 ELSE 0 END) / count(*)) >= 0.2")
+                    ->get();
+
+                if ($noShowSlots->count() > 0) {
+                    $riskSlots = $noShowSlots->pluck('appointment_time')->implode(', ');
+                    $alerts[] = [
+                        'type' => 'warning',
+                        'severity' => 'medium',
+                        'title' => 'High no-show rate detected',
+                        'message' => "Time slots $riskSlots have high no-show rates. Consider adding reminders or limiting bookings.",
+                        'timestamp' => now(),
+                    ];
+                }
+            } catch (\Exception $e) {
+                \Log::warning('No-show alert check failed: ' . $e->getMessage());
             }
 
-            // Check for underutilized days this week
-            $slotData = $this->getSlotUtilization(7);
-            $underbookedCount = count($slotData['underbooked_days']);
-            if ($underbookedCount >= 3) {
-                $alerts[] = [
-                    'type' => 'info',
-                    'severity' => 'low',
-                    'title' => "$underbookedCount underbooked days this week",
-                    'message' => 'You have significant unused capacity. Consider running promotions to fill available slots.',
-                    'timestamp' => now(),
-                ];
+            // Check for underutilized days this week (lightweight query instead of calling getSlotUtilization)
+            try {
+                $weekAppointments = Appointment::whereBetween('appointment_date', [now()->subDays(7), now()])
+                    ->whereNotIn('status', ['cancelled', 'no_show'])
+                    ->count();
+                $avgPerDay = $weekAppointments / 7;
+                if ($avgPerDay < 3) {
+                    $alerts[] = [
+                        'type' => 'info',
+                        'severity' => 'low',
+                        'title' => 'Low appointment volume this week',
+                        'message' => 'You have significant unused capacity. Consider running promotions to fill available slots.',
+                        'timestamp' => now(),
+                    ];
+                }
+            } catch (\Exception $e) {
+                \Log::warning('Utilization alert check failed: ' . $e->getMessage());
             }
 
             // Check for pending refunds
@@ -729,18 +741,27 @@ class AnalyticsService
                 ];
             }
 
-            // Check for high-risk users with multiple no-shows
-            $noShowUsers = collect($noShowData['users_with_high_no_show'])
-                ->filter(fn($u) => $u['risk_level'] === 'high');
+            // Check for high-risk users with multiple no-shows (lightweight query)
+            try {
+                $highNoShowUserCount = Appointment::where('status', 'no_show')
+                    ->where('created_at', '>=', now()->subDays(90))
+                    ->groupBy('user_id')
+                    ->havingRaw('count(*) >= 3')
+                    ->select('user_id')
+                    ->get()
+                    ->count();
 
-            if ($noShowUsers->count() > 0) {
-                $alerts[] = [
-                    'type' => 'warning',
-                    'severity' => 'medium',
-                    'title' => $noShowUsers->count() . ' users with high no-show rates',
-                    'message' => "Consider requiring pre-payment, deposits, or blocking these users from future bookings.",
-                    'timestamp' => now(),
-                ];
+                if ($highNoShowUserCount > 0) {
+                    $alerts[] = [
+                        'type' => 'warning',
+                        'severity' => 'medium',
+                        'title' => $highNoShowUserCount . ' users with high no-show rates',
+                        'message' => "Consider requiring pre-payment, deposits, or blocking these users from future bookings.",
+                        'timestamp' => now(),
+                    ];
+                }
+            } catch (\Exception $e) {
+                \Log::warning('High no-show users alert check failed: ' . $e->getMessage());
             }
         } catch (\Exception $e) {
             \Log::error('Error generating auto-alerts: ' . $e->getMessage());

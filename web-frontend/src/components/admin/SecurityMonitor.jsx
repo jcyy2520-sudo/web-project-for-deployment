@@ -14,7 +14,9 @@ const SecurityMonitor = () => {
     fetchSecurityData();
     if (autoRefresh) {
       const interval = setInterval(fetchSecurityData, 10000); // Refresh every 10 seconds
-      return () => clearInterval(interval);
+      const handleLogout = () => clearInterval(interval);
+      window.addEventListener('auth:logout', handleLogout);
+      return () => { clearInterval(interval); window.removeEventListener('auth:logout', handleLogout); };
     }
   }, [autoRefresh]);
 

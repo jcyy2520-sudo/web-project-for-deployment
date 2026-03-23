@@ -11,7 +11,7 @@ use App\Models\Payment;
 use App\Models\Refund;
 use App\Models\Service;
 use App\Models\TimeSlotCapacity;
-use App\Models\UnavailableDate;
+
 use App\Models\User;
 use App\Events\AppointmentCreated;
 use App\Events\AppointmentUpdated;
@@ -1130,7 +1130,7 @@ class AgentToolRegistry
         $slots = [];
         $current = Carbon::parse($date . ' ' . str_pad($workStart, 2, '0', STR_PAD_LEFT) . ':00');
         $end = Carbon::parse($date . ' ' . str_pad($workEnd, 2, '0', STR_PAD_LEFT) . ':00');
-        while ($current <= $end) {
+        while ($current < $end) {
             $timeStr = $current->format('H:i');
             // Skip lunch time
             if (!($current->hour >= $lunchStart && $current->hour < $lunchEnd)) {
@@ -1164,29 +1164,40 @@ class AgentToolRegistry
             $slotCounts[$formattedTime] = ($slotCounts[$formattedTime] ?? 0) + $countRow->count;
         }
 
-        // Pre-load capacity rules
+        // Pre-load capacity rules (including date-specific overrides)
         $dayName = strtolower($parsedDate->englishDayOfWeek);
+        $dateStr = $parsedDate->toDateString();
         $capacityRules = TimeSlotCapacity::where('is_active', true)
-            ->where(function ($query) use ($dayName) {
-                $query->whereNull('day_of_week')
-                      ->orWhere('day_of_week', $dayName);
+            ->where(function ($query) use ($dayName, $dateStr) {
+                $query->where('specific_date', $dateStr)
+                      ->orWhere(function ($q) use ($dayName) {
+                          $q->whereNull('specific_date')
+                            ->where(function ($q2) use ($dayName) {
+                                $q2->whereNull('day_of_week')
+                                   ->orWhere('day_of_week', $dayName);
+                            });
+                      });
             })
             ->get();
 
         $availableSlots = [];
-        $slotDetails = [];
+        $allSlotDetails = [];
         foreach ($slots as $slot) {
             $appointmentCount = $slotCounts[$slot] ?? 0;
             $maxCapacity = $this->getSlotCapacityFromRules($capacityRules, $slot);
+            $remaining = $maxCapacity - $appointmentCount;
+            $isFull = $appointmentCount >= $maxCapacity;
 
-            if ($appointmentCount < $maxCapacity) {
+            $allSlotDetails[] = [
+                'time' => $slot,
+                'booked' => $appointmentCount,
+                'capacity' => $maxCapacity,
+                'availability' => max(0, $remaining),
+                'status' => $isFull ? 'full' : ($appointmentCount > 0 ? 'partial' : 'available'),
+            ];
+
+            if (!$isFull) {
                 $availableSlots[] = $slot;
-                $slotDetails[] = [
-                    'time' => $slot,
-                    'booked' => $appointmentCount,
-                    'capacity' => $maxCapacity,
-                    'remaining' => $maxCapacity - $appointmentCount,
-                ];
             }
         }
 
@@ -1195,8 +1206,9 @@ class AgentToolRegistry
             'date' => $date,
             'day' => $parsedDate->englishDayOfWeek,
             'available_slots' => $availableSlots,
-            'slot_details' => $slotDetails,
+            'slot_details' => $allSlotDetails,
             'total_available' => count($availableSlots),
+            'total_slots' => count($allSlotDetails),
             'booked_count' => array_sum($slotCounts),
             'message' => count($availableSlots) > 0
                 ? count($availableSlots) . ' slot(s) available on ' . $parsedDate->format('l, M j, Y') . '.'
@@ -1629,22 +1641,7 @@ class AgentToolRegistry
             return ['valid' => false, 'error' => "This time falls during the lunch break ({$lunchStartFormatted} - {$lunchEndFormatted})."];
         }
 
-        // Check: unavailable dates
-        $isUnavailable = UnavailableDate::where('date', $date)
-            ->where(function ($query) use ($time) {
-                $query->where('all_day', true)
-                    ->orWhere(function ($q) use ($time) {
-                        $q->where('all_day', false)
-                          ->where('start_time', '<=', $time)
-                          ->where('end_time', '>=', $time);
-                    });
-            })
-            ->exists();
-        if ($isUnavailable) {
-            return ['valid' => false, 'error' => 'Selected date and time is not available.'];
-        }
-
-        // Check: blackout dates
+        // Check: blackout dates (unified)
         $blackoutInfo = $this->checkBlackoutDate($date);
         if ($blackoutInfo && $blackoutInfo['blocks_entire_day']) {
             return ['valid' => false, 'error' => 'This date is not available: ' . ($blackoutInfo['reason'] ?? 'Blocked date')];
@@ -1667,16 +1664,30 @@ class AgentToolRegistry
             return ['valid' => false, 'error' => $message];
         }
 
-        // Check: slot capacity
+        // Check: slot capacity (with date-specific priority)
         $dayName = strtolower($parsedDate->englishDayOfWeek);
+        $dateStr = $parsedDate->toDateString();
+
+        // Priority 1: date-specific override
         $capacityRule = TimeSlotCapacity::where('is_active', true)
-            ->where(function ($q) use ($dayName) {
-                $q->where('day_of_week', $dayName)->orWhereNull('day_of_week');
-            })
+            ->where('specific_date', $dateStr)
             ->where('start_time', '<=', $time)
             ->where('end_time', '>', $time)
-            ->orderByRaw('CASE WHEN day_of_week IS NOT NULL THEN 0 ELSE 1 END')
             ->first();
+
+        // Priority 2: day-of-week or global
+        if (!$capacityRule) {
+            $capacityRule = TimeSlotCapacity::where('is_active', true)
+                ->whereNull('specific_date')
+                ->where(function ($q) use ($dayName) {
+                    $q->where('day_of_week', $dayName)->orWhereNull('day_of_week');
+                })
+                ->where('start_time', '<=', $time)
+                ->where('end_time', '>', $time)
+                ->orderByRaw('CASE WHEN day_of_week IS NOT NULL THEN 0 ELSE 1 END')
+                ->first();
+        }
+
         $defaultCapacity = (int) config('chatbot_unified.booking.default_slot_capacity', 3);
         $maxPerSlot = $capacityRule ? $capacityRule->max_appointments_per_slot : $defaultCapacity;
 
@@ -1787,22 +1798,7 @@ class AgentToolRegistry
             return ['success' => false, 'error' => "This time falls during the lunch break ({$lunchStartFormatted} - {$lunchEndFormatted}). Please choose a different time."];
         }
 
-        // Validate: unavailable dates (same as AppointmentController)
-        $isUnavailable = UnavailableDate::where('date', $date)
-            ->where(function ($query) use ($time) {
-                $query->where('all_day', true)
-                    ->orWhere(function ($q) use ($time) {
-                        $q->where('all_day', false)
-                          ->where('start_time', '<=', $time)
-                          ->where('end_time', '>=', $time);
-                    });
-            })
-            ->exists();
-        if ($isUnavailable) {
-            return ['success' => false, 'error' => 'Selected date and time is not available for booking.'];
-        }
-
-        // Validate: blackout dates including recurring (same as AppointmentController)
+        // Validate: blackout dates including recurring (unified)
         $blackoutInfo = $this->checkBlackoutDate($date);
         if ($blackoutInfo && $blackoutInfo['blocks_entire_day']) {
             return ['success' => false, 'error' => 'This date is not available: ' . ($blackoutInfo['reason'] ?? 'Blocked date') . '. Please choose a different date.'];
@@ -1844,16 +1840,30 @@ class AgentToolRegistry
             ];
         }
 
-        // Get slot capacity (same logic as AppointmentController::getSlotCapacity)
+        // Get slot capacity (with date-specific priority)
         $dayName = strtolower($parsedDate->englishDayOfWeek);
+        $dateStr = $parsedDate->toDateString();
+
+        // Priority 1: date-specific override
         $capacityRule = TimeSlotCapacity::where('is_active', true)
-            ->where(function ($q) use ($dayName) {
-                $q->where('day_of_week', $dayName)->orWhereNull('day_of_week');
-            })
+            ->where('specific_date', $dateStr)
             ->where('start_time', '<=', $time)
             ->where('end_time', '>', $time)
-            ->orderByRaw('CASE WHEN day_of_week IS NOT NULL THEN 0 ELSE 1 END')
             ->first();
+
+        // Priority 2: day-of-week or global
+        if (!$capacityRule) {
+            $capacityRule = TimeSlotCapacity::where('is_active', true)
+                ->whereNull('specific_date')
+                ->where(function ($q) use ($dayName) {
+                    $q->where('day_of_week', $dayName)->orWhereNull('day_of_week');
+                })
+                ->where('start_time', '<=', $time)
+                ->where('end_time', '>', $time)
+                ->orderByRaw('CASE WHEN day_of_week IS NOT NULL THEN 0 ELSE 1 END')
+                ->first();
+        }
+
         $defaultCapacity = (int) config('chatbot_unified.booking.default_slot_capacity', 3);
         $maxPerSlot = $capacityRule ? $capacityRule->max_appointments_per_slot : $defaultCapacity;
 
@@ -2096,22 +2106,7 @@ class AgentToolRegistry
             return ['success' => false, 'error' => "Cannot reschedule to the lunch break ({$lunchStartFormatted} - {$lunchEndFormatted})."];
         }
 
-        // Unavailable dates check (same as AppointmentController)
-        $isUnavailable = UnavailableDate::where('date', $newDate)
-            ->where(function ($query) use ($newTime) {
-                $query->where('all_day', true)
-                    ->orWhere(function ($q) use ($newTime) {
-                        $q->where('all_day', false)
-                          ->where('start_time', '<=', $newTime)
-                          ->where('end_time', '>=', $newTime);
-                    });
-            })
-            ->exists();
-        if ($isUnavailable) {
-            return ['success' => false, 'error' => 'The new date and time is not available for booking.'];
-        }
-
-        // Blackout dates check
+        // Blackout dates check (unified)
         $blackoutInfo = $this->checkBlackoutDate($newDate);
         if ($blackoutInfo && $blackoutInfo['blocks_entire_day']) {
             return ['success' => false, 'error' => 'The new date is not available: ' . ($blackoutInfo['reason'] ?? 'Blocked date')];
@@ -2867,8 +2862,21 @@ class AgentToolRegistry
      */
     private function getSlotCapacityFromRules($capacityRules, string $time): int
     {
+        // Priority 1: date-specific override
+        $dateSpecific = $capacityRules->first(function ($rule) use ($time) {
+            return $rule->specific_date !== null
+                && $rule->start_time <= $time
+                && $rule->end_time > $time;
+        });
+        if ($dateSpecific) {
+            return $dateSpecific->max_appointments_per_slot;
+        }
+
+        // Priority 2: day-of-week or global rule
         $matching = $capacityRules->first(function ($rule) use ($time) {
-            return $rule->start_time <= $time && $rule->end_time > $time;
+            return $rule->specific_date === null
+                && $rule->start_time <= $time
+                && $rule->end_time > $time;
         });
 
         return $matching ? $matching->max_appointments_per_slot : (int) config('chatbot_unified.booking.default_slot_capacity', 3);

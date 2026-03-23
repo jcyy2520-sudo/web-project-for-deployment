@@ -61,6 +61,7 @@ class Appointment extends Model
         'reminder_level' => 'integer',
         'payment_amount' => 'decimal:2',
         'discount_amount' => 'decimal:2',
+        'balance_remaining' => 'decimal:2',
     ];
 
     public function user()
@@ -108,6 +109,14 @@ class Appointment extends Model
     public function payments()
     {
         return $this->hasMany(Payment::class);
+    }
+
+    /**
+     * Get total paid across all payment records for this appointment
+     */
+    public function getTotalPaidAttribute()
+    {
+        return (float) $this->payments()->sum('amount_paid');
     }
 
     public function completionRecord()

@@ -493,7 +493,9 @@ const AdminMessages = forwardRef(({ isDarkMode }, ref) => {
       await loadMessages(selectedConversation.user.id, true);
       await loadConversations(true);
     }, 15000);
-    return () => clearInterval(interval);
+    const handleLogout = () => clearInterval(interval);
+    window.addEventListener('auth:logout', handleLogout);
+    return () => { clearInterval(interval); window.removeEventListener('auth:logout', handleLogout); };
   }, [selectedConversation?.user?.id, loadMessages, loadConversations]);
 
   // Poll for new conversations every 15 seconds even without a selected conversation
@@ -502,7 +504,9 @@ const AdminMessages = forwardRef(({ isDarkMode }, ref) => {
     const interval = setInterval(() => {
       loadConversations(true);
     }, 15000);
-    return () => clearInterval(interval);
+    const handleLogout = () => clearInterval(interval);
+    window.addEventListener('auth:logout', handleLogout);
+    return () => { clearInterval(interval); window.removeEventListener('auth:logout', handleLogout); };
   }, [selectedConversation?.user?.id, loadConversations]);
 
   // Auto-scroll to new messages

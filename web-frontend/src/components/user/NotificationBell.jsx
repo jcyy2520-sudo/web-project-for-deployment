@@ -44,7 +44,9 @@ const NotificationBell = ({ onViewAll }) => {
     };
     fetchCount();
     const interval = setInterval(fetchCount, 30000); // 30s
-    return () => clearInterval(interval);
+    const handleLogout = () => clearInterval(interval);
+    window.addEventListener('auth:logout', handleLogout);
+    return () => { clearInterval(interval); window.removeEventListener('auth:logout', handleLogout); };
   }, []);
 
   // Fetch recent when dropdown opens

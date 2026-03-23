@@ -29,7 +29,13 @@ class TimeSlotCapacityController extends Controller
             });
         }
 
-        $capacities = $query->orderBy('start_time')->get();
+        if ($request->has('specific_date')) {
+            $query->where('specific_date', $request->specific_date);
+        } elseif (!$request->boolean('include_date_overrides', false)) {
+            $query->whereNull('specific_date');
+        }
+
+        $capacities = $query->orderBy('specific_date', 'desc')->orderBy('start_time')->get();
 
         return response()->json([
             'success' => true,
@@ -46,6 +52,7 @@ class TimeSlotCapacityController extends Controller
         return $this->wrapExperimental(function () use ($request) {
             $request->validate([
                 'day_of_week' => 'nullable|in:monday,tuesday,wednesday,thursday,friday,saturday,sunday',
+                'specific_date' => 'nullable|date|after_or_equal:today',
                 'start_time' => 'required|date_format:H:i',
                 'end_time' => 'required|date_format:H:i|after:start_time',
                 'max_appointments_per_slot' => 'required|integer|min:1|max:20',
@@ -57,10 +64,15 @@ class TimeSlotCapacityController extends Controller
                 $existing = TimeSlotCapacity::where('start_time', $request->start_time)
                     ->where('end_time', $request->end_time)
                     ->where(function ($q) use ($request) {
-                        if ($request->day_of_week) {
-                            $q->where('day_of_week', $request->day_of_week);
+                        if ($request->specific_date) {
+                            $q->where('specific_date', $request->specific_date);
                         } else {
-                            $q->whereNull('day_of_week');
+                            $q->whereNull('specific_date');
+                            if ($request->day_of_week) {
+                                $q->where('day_of_week', $request->day_of_week);
+                            } else {
+                                $q->whereNull('day_of_week');
+                            }
                         }
                     })
                     ->first();
@@ -240,6 +252,7 @@ class TimeSlotCapacityController extends Controller
                     $existingCapacity = TimeSlotCapacity::where('start_time', $startTime)
                         ->where('end_time', $endTime)
                         ->whereNull('day_of_week')
+                        ->whereNull('specific_date')
                         ->first();
 
                     if ($existingCapacity) {

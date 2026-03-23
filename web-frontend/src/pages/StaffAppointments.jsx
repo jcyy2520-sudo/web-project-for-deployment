@@ -37,10 +37,9 @@ const StaffAppointments = () => {
       loadAppointments();
     }, POLL_INTERVAL_MS);
 
-    // initial fetch (already done by other effect, but safe to ensure)
-    // loadAppointments();
-
-    return () => clearInterval(id);
+    const handleLogout = () => clearInterval(id);
+    window.addEventListener('auth:logout', handleLogout);
+    return () => { clearInterval(id); window.removeEventListener('auth:logout', handleLogout); };
   }, [statusFilter]);
 
   // Real-time subscription via Laravel Echo (if configured)

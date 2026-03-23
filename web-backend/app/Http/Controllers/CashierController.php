@@ -9,9 +9,12 @@ use App\Models\Message;
 use App\Models\Payment;
 use App\Models\PaymentMethod;
 use App\Models\DiscountRate;
+use App\Services\ReceiptService;
+use App\Mail\ReceiptMail;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Mail;
 use Carbon\Carbon;
 
 class CashierController extends Controller
@@ -104,40 +107,26 @@ class CashierController extends Controller
     public function sendReceiptEmail(Request $request, $appointmentId)
     {
         try {
-            $appointment = Appointment::with(['user', 'service'])->findOrFail($appointmentId);
+            $appointment = Appointment::with(['user', 'service', 'processedBy'])->findOrFail($appointmentId);
             $user = $appointment->user;
 
-            $paymentAmount = $appointment->payment_amount ?? 0;
-            $discount = $appointment->discount_amount ?? 0;
-            $totalPaid = $paymentAmount;
+            // Phase 6 #14: Use ReceiptService + HTML Mailable
+            $latestPayment = Payment::where('appointment_id', $appointment->id)->latest('id')->first();
+            $receiptData = ReceiptService::generate($appointment, $latestPayment);
 
-            $body = "Official Receipt\n\n";
-            $body .= "Receipt No: #{$appointment->id}\n";
-            $body .= "Date: " . now()->toDateString() . "\n";
-            $body .= "Client: {$user->first_name} {$user->last_name}\n";
-            $body .= "Email: {$user->email}\n\n";
-            $body .= "Service: " . ($appointment->service->name ?? 'N/A') . "\n";
-            $body .= "Appointment Date: " . ($appointment->appointment_date ?? '') . "\n\n";
-            $body .= "Subtotal: ₱" . number_format($paymentAmount + $discount, 2) . "\n";
-            if ($discount > 0) {
-                $body .= "Discount: ₱" . number_format($discount, 2) . " ({$appointment->discount_type})\n";
-            }
-            $body .= "Total Paid: ₱" . number_format($totalPaid, 2) . "\n\n";
-            $body .= "Thank you for your business.\n";
-
-            // send simple plaintext email
-            \Illuminate\Support\Facades\Mail::raw($body, function ($message) use ($user) {
-                $message->to($user->email)
-                    ->subject('Your Official Receipt')
-                    ->from(config('mail.from.address'), config('mail.from.name'));
-            });
+            Mail::to($user->email)->queue(new ReceiptMail($receiptData));
 
             // Log the action
             ActionLog::log(
                 'send_receipt_email',
                 "Sent receipt email to {$user->first_name} {$user->last_name} ({$user->email}) for appointment #{$appointment->id}",
                 'Appointment',
-                $appointment->id
+                $appointment->id,
+                'success',
+                [
+                    'receipt_id' => $receiptData['receipt_id'],
+                    'client_email' => $user->email,
+                ]
             );
 
             return response()->json(['success' => true, 'message' => 'Receipt emailed to client']);
@@ -203,14 +192,26 @@ class CashierController extends Controller
             'payment_amount' => 'required|numeric|min:0.01',
             'discount_amount' => 'nullable|numeric|min:0',
             'discount_type' => 'nullable|string|max:255',
+            'discount_proof' => 'nullable|string|max:255',
             'payment_notes' => 'nullable|string|max:1000',
-            'payment_type' => 'nullable|string|in:cash,partial,in-kind,card,online'
+            'payment_type' => 'nullable|string|in:cash,partial,in-kind,card,online',
+            'goods_description' => 'nullable|string|max:1000',
+            'in_kind_estimated_value' => 'nullable|numeric|min:0',
         ]);
 
         try {
             DB::beginTransaction();
 
             $appointment = Appointment::lockForUpdate()->with(['user', 'service'])->findOrFail($appointmentId);
+
+            // Explicit no-show rejection with clear message
+            if ($appointment->status === 'no_show') {
+                DB::rollBack();
+                return response()->json([
+                    'message' => 'Appointments marked as no-show cannot be processed for payment',
+                    'success' => false
+                ], 422);
+            }
 
             // Verify appointment is approved
             if ($appointment->status !== 'approved') {
@@ -232,56 +233,201 @@ class CashierController extends Controller
 
             // Calculate amounts
             $paymentAmount = $request->payment_amount;
-            $discountAmount = $request->discount_amount ?? 0;
-            $totalPaid = $paymentAmount - $discountAmount;
+            $servicePrice = $appointment->service->price ?? 0;
+            $paymentType = $request->payment_type ?? 'cash';
 
-            // Update appointment (set protected fields explicitly, mass-assign safe fields)
-            $appointment->update([
-                'discount_amount' => $discountAmount,
-                'discount_type' => $request->discount_type,
-                'payment_type' => $request->payment_type ?? 'cash',
-                'payment_date' => now(),
-                'payment_notes' => $request->payment_notes,
-                'completed_at' => now(),
-            ]);
-            // Protected fields set explicitly (not mass-assignable)
-            $appointment->payment_status = 'paid';
-            $appointment->payment_amount = $totalPaid;
-            $appointment->processed_by = $request->user()->id;
-            $appointment->status = 'completed';
-            $appointment->completed_by = $request->user()->id;
-            $appointment->save();
+            // --- Phase 2 #10: Server-side discount recalculation from DB rates ---
+            // Backend is the source of truth — ignore frontend discount_amount, recalculate from DB rate
+            $discountAmount = 0;
+            $discountType = $request->discount_type;
+            $discountRateFromDb = null;
 
-            // Also create a Payment record for consistency with PaymentController
-            // This ensures both the appointment fields AND the payments table stay in sync
-            try {
-                $existingPayment = Payment::where('appointment_id', $appointment->id)->first();
-                if (!$existingPayment) {
-                    $newPayment = Payment::create([
-                        'appointment_id' => $appointment->id,
-                        'recorded_by' => $request->user()->id,
-                        'service_price' => $appointment->service->price ?? $paymentAmount,
-                        'amount_paid' => $totalPaid,
-                        'discount_amount' => $discountAmount,
-                        'payment_date' => now(),
-                        'notes' => $request->payment_notes,
-                    ]);
-                    // Set protected fields explicitly (not mass-assignable)
-                    $newPayment->shortfall = 0;
-                    $newPayment->payment_status = 'paid';
-                    $newPayment->save();
+            if ($discountType) {
+                // Normalize discount type key for DB lookup
+                $discountKey = str_replace([' ', '-'], '_', strtolower($discountType));
+                // Map common frontend labels to DB keys
+                $keyMap = [
+                    'pwd' => 'pwd',
+                    '20%_pwd_discount' => 'pwd',
+                    'senior' => 'senior_citizen',
+                    'senior_citizen' => 'senior_citizen',
+                    '20%_senior_discount' => 'senior_citizen',
+                    'student' => 'student',
+                    '10%_student_discount' => 'student',
+                ];
+                $dbKey = $keyMap[$discountKey] ?? $discountKey;
+
+                $discountRate = DiscountRate::getByType($dbKey);
+                if ($discountRate) {
+                    $discountRateFromDb = (float) $discountRate->discount_percentage;
+                    $discountAmount = round(($servicePrice * $discountRateFromDb) / 100, 2);
+                    $discountType = ucfirst(str_replace('_', ' ', $dbKey)) . " ({$discountRateFromDb}%)";
+
+                    // Phase 2 #2: Require ID proof for discounts
+                    if (empty($request->discount_proof)) {
+                        DB::rollBack();
+                        return response()->json([
+                            'message' => 'ID/proof reference is required when applying a discount (e.g. PWD Card #12345)',
+                            'success' => false
+                        ], 422);
+                    }
+                } else {
+                    // Unknown discount type — reject
+                    DB::rollBack();
+                    return response()->json([
+                        'message' => "Unknown or inactive discount type: {$request->discount_type}",
+                        'success' => false
+                    ], 422);
                 }
-            } catch (\Exception $e) {
-                \Log::warning('Failed to create Payment record during cashier processPayment: ' . $e->getMessage());
-                // Don't fail the entire operation — appointment fields are the primary source of truth
             }
 
-            // Log the action
+            // --- Phase 1 #1: Backend amount validation against service price ---
+
+            // Reject: discount exceeds service price
+            if ($discountAmount > $servicePrice) {
+                DB::rollBack();
+                return response()->json([
+                    'message' => 'Discount amount cannot exceed the service price',
+                    'success' => false
+                ], 422);
+            }
+
+            // Reject: negative effective total
+            if (($paymentAmount - $discountAmount) < 0) {
+                DB::rollBack();
+                return response()->json([
+                    'message' => 'Payment amount after discount cannot be negative',
+                    'success' => false
+                ], 422);
+            }
+
+            // For non-partial, non-in-kind payments: amount + discount must cover service price
+            if ($paymentType !== 'partial' && $paymentType !== 'in-kind') {
+                if (($paymentAmount + $discountAmount) < $servicePrice) {
+                    DB::rollBack();
+                    return response()->json([
+                        'message' => "Payment amount (₱" . number_format($paymentAmount, 2) . ") plus discount (₱" . number_format($discountAmount, 2) . ") is less than service price (₱" . number_format($servicePrice, 2) . "). Use partial payment if intended.",
+                        'success' => false,
+                        'shortfall' => $servicePrice - $paymentAmount - $discountAmount
+                    ], 422);
+                }
+            }
+
+            // For partial payments: must be > 0 but explicitly less than service price
+            if ($paymentType === 'partial' && $paymentAmount <= 0) {
+                DB::rollBack();
+                return response()->json([
+                    'message' => 'Partial payment amount must be greater than zero',
+                    'success' => false
+                ], 422);
+            }
+
+            // --- Phase 5 #5: In-kind payment guardrails ---
+            if ($paymentType === 'in-kind') {
+                if (empty($request->goods_description)) {
+                    DB::rollBack();
+                    return response()->json([
+                        'message' => 'A description of the goods/services received is required for in-kind payments',
+                        'success' => false
+                    ], 422);
+                }
+                if (!$request->in_kind_estimated_value || $request->in_kind_estimated_value <= 0) {
+                    DB::rollBack();
+                    return response()->json([
+                        'message' => 'An estimated peso value greater than zero is required for in-kind payments',
+                        'success' => false
+                    ], 422);
+                }
+            }
+
+            $totalPaid = $paymentAmount - $discountAmount;
+            $shortfall = max(0, $servicePrice - $paymentAmount - $discountAmount);
+
+            // --- Phase 3 #4 + #9: Partial vs full payment flow ---
+            // Calculate total paid so far (including prior partial payments)
+            $priorPaidTotal = (float) Payment::where('appointment_id', $appointment->id)->sum('amount_paid');
+            $totalPaidSoFar = $priorPaidTotal + $totalPaid;
+            $balanceRemaining = max(0, round($servicePrice - $totalPaidSoFar - $discountAmount, 2));
+
+            if ($paymentType === 'partial') {
+                // PARTIAL PAYMENT: keep appointment as approved, track balance
+                $appointment->update([
+                    'discount_amount' => $discountAmount,
+                    'discount_type' => $discountType,
+                    'payment_type' => 'partial',
+                    'payment_date' => now(),
+                    'payment_notes' => $request->payment_notes,
+                ]);
+                $appointment->payment_status = 'partially_paid';
+                $appointment->payment_amount = round($totalPaidSoFar, 2);
+                $appointment->balance_remaining = $balanceRemaining;
+                $appointment->processed_by = $request->user()->id;
+                // Status stays 'approved' — appointment not yet complete
+                $appointment->save();
+            } else {
+                // FULL PAYMENT (or final payment on a partially-paid appointment)
+                $appointment->update([
+                    'discount_amount' => $discountAmount,
+                    'discount_type' => $discountType,
+                    'payment_type' => $paymentType ?? 'cash',
+                    'payment_date' => now(),
+                    'payment_notes' => $request->payment_notes,
+                    'completed_at' => now(),
+                ]);
+                $appointment->payment_status = 'paid';
+                $appointment->payment_amount = round($totalPaidSoFar, 2);
+                $appointment->balance_remaining = 0;
+                $appointment->processed_by = $request->user()->id;
+                $appointment->status = 'completed';
+                $appointment->completed_by = $request->user()->id;
+                $appointment->save();
+            }
+
+            // Create a Payment record (always — supports multiple installments)
+            $newPayment = null;
+            try {
+                $newPayment = Payment::create([
+                    'appointment_id' => $appointment->id,
+                    'recorded_by' => $request->user()->id,
+                    'service_price' => $servicePrice,
+                    'amount_paid' => $totalPaid,
+                    'discount_amount' => $discountAmount,
+                    'discount_proof' => $request->discount_proof,
+                    'in_kind_estimated_value' => $paymentType === 'in-kind' ? $request->in_kind_estimated_value : null,
+                    'goods_description' => $paymentType === 'in-kind' ? $request->goods_description : null,
+                    'payment_date' => now(),
+                    'notes' => $request->payment_notes,
+                ]);
+                $newPayment->shortfall = round($balanceRemaining, 2);
+                $newPayment->payment_status = $paymentType === 'partial' ? 'partial' : 'paid';
+                $newPayment->save();
+            } catch (\Exception $e) {
+                \Log::warning('Failed to create Payment record during cashier processPayment: ' . $e->getMessage());
+            }
+
+            // Log the action with enhanced metadata (#1 + #15)
             ActionLog::log(
                 'process_payment',
                 "Processed payment of ₱{$totalPaid} for " . ($appointment->user ? "{$appointment->user->first_name} {$appointment->user->last_name}" : "User #{$appointment->user_id}") . " - " . ($appointment->service->name ?? 'N/A'),
                 'Appointment',
-                $appointment->id
+                $appointment->id,
+                'success',
+                [
+                    'service_price' => $servicePrice,
+                    'amount_entered' => $paymentAmount,
+                    'discount_type' => $discountType,
+                    'discount_rate_from_db' => $discountRateFromDb,
+                    'discount_amount' => $discountAmount,
+                    'discount_proof' => $request->discount_proof,
+                    'payment_type' => $paymentType,
+                    'total_paid' => $totalPaid,
+                    'total_paid_so_far' => $totalPaidSoFar,
+                    'balance_remaining' => $balanceRemaining,
+                    'shortfall' => $shortfall,
+                    'in_kind_description' => $paymentType === 'in-kind' ? $request->goods_description : null,
+                    'in_kind_estimated_value' => $paymentType === 'in-kind' ? $request->in_kind_estimated_value : null,
+                    'client_name' => $appointment->user ? "{$appointment->user->first_name} {$appointment->user->last_name}" : null,
+                ]
             );
 
             // Create message notification for user
@@ -301,21 +447,28 @@ class CashierController extends Controller
                 \Log::debug('Failed to broadcast appointment payment event: ' . $e->getMessage());
             }
 
-            // Return receipt data
+            // Return receipt data — Phase 6 #3: server-generated with integrity hash
+            $receiptData = ReceiptService::generate($appointment, $newPayment);
+
             return response()->json([
-                'message' => 'Payment processed successfully',
+                'message' => $paymentType === 'partial' ? 'Partial payment recorded successfully' : 'Payment processed successfully',
                 'success' => true,
                 'receipt' => [
                     'id' => $appointment->id,
-                    'date' => now(),
-                    'clientName' => "{$appointment->user->first_name} {$appointment->user->last_name}",
-                    'clientEmail' => $appointment->user->email,
-                    'service' => $appointment->service->name ?? 'N/A',
-                    'appointmentDate' => $appointment->appointment_date,
+                    'receiptId' => $receiptData['receipt_id'] ?? null,
+                    'integrityHash' => $receiptData['integrity_hash'] ?? null,
+                    'date' => $receiptData['date'] ?? now()->toIso8601String(),
+                    'clientName' => $receiptData['client_name'] ?? 'N/A',
+                    'clientEmail' => $receiptData['client_email'] ?? '',
+                    'service' => $receiptData['service'] ?? 'N/A',
+                    'appointmentDate' => $receiptData['appointment_date'] ?? null,
                     'subtotal' => $paymentAmount,
                     'discount' => $discountAmount,
-                    'discountType' => $request->discount_type ?? '',
-                    'totalPaid' => $totalPaid
+                    'discountType' => $discountType ?? '',
+                    'totalPaid' => $totalPaid,
+                    'totalPaidSoFar' => $totalPaidSoFar,
+                    'balanceRemaining' => $balanceRemaining,
+                    'paymentType' => $paymentType,
                 ]
             ]);
 
@@ -702,6 +855,59 @@ class CashierController extends Controller
             null
         );
 
+        // --- Phase 7 #11: Enhanced breakdowns ---
+
+        // Revenue by service type
+        $appointmentsWithService = Appointment::where('payment_status', 'paid')
+            ->where('processed_by', $request->user()->id)
+            ->whereBetween('payment_date', [$from . ' 00:00:00', $to . ' 23:59:59'])
+            ->with('service:id,name')
+            ->get();
+
+        $revenueByService = $appointmentsWithService->groupBy(fn($a) => $a->service->name ?? 'Unknown')
+            ->map(fn($group, $name) => [
+                'service' => $name,
+                'count' => $group->count(),
+                'revenue' => round($group->sum('payment_amount'), 2),
+            ])->values()->toArray();
+
+        // Discount usage summary
+        $discountUsage = $appointments->filter(fn($a) => $a->discount_amount > 0)
+            ->groupBy('discount_type')
+            ->map(fn($group, $type) => [
+                'type' => $type ?: 'Unknown',
+                'count' => $group->count(),
+                'total' => round($group->sum('discount_amount'), 2),
+            ])->values()->toArray();
+
+        // In-kind summary from Payment records
+        $inKindPayments = [];
+        if (!empty($appointmentIds)) {
+            $inKindPayments = Payment::whereIn('appointment_id', $appointmentIds)
+                ->whereNotNull('goods_description')
+                ->get();
+        }
+        $inKindSummary = [
+            'count' => $inKindCount,
+            'total_estimated_value' => round(collect($inKindPayments)->sum('in_kind_estimated_value'), 2),
+        ];
+
+        // Hourly distribution of payments
+        $hourlyDistribution = [];
+        foreach ($appointments as $apt) {
+            if ($apt->payment_date) {
+                $hour = Carbon::parse($apt->payment_date)->format('H');
+                if (!isset($hourlyDistribution[$hour])) {
+                    $hourlyDistribution[$hour] = ['hour' => (int) $hour, 'count' => 0, 'revenue' => 0];
+                }
+                $hourlyDistribution[$hour]['count']++;
+                $hourlyDistribution[$hour]['revenue'] = round($hourlyDistribution[$hour]['revenue'] + (float) $apt->payment_amount, 2);
+            }
+        }
+        // Sort by hour and fill gaps
+        ksort($hourlyDistribution);
+        $hourlyDistribution = array_values($hourlyDistribution);
+
         return response()->json([
             'success' => true,
             'from' => $from,
@@ -716,6 +922,10 @@ class CashierController extends Controller
             'total_refunds' => $totalRefunds,
             'refund_count' => $refundCount,
             'net_revenue' => $totalRevenue - $totalRefunds,
+            'revenue_by_service' => $revenueByService,
+            'discount_usage' => $discountUsage,
+            'in_kind_summary' => $inKindSummary,
+            'hourly_distribution' => $hourlyDistribution,
             'appointments' => $appointments->toArray()
         ]);
     }
@@ -802,6 +1012,51 @@ class CashierController extends Controller
     }
 
     /**
+     * Get payment history for an appointment (Phase 3 — partial payments)
+     */
+    public function getPaymentHistory($appointmentId)
+    {
+        $appointment = Appointment::with('service:id,name,price')->findOrFail($appointmentId);
+        $payments = Payment::where('appointment_id', $appointmentId)
+            ->with('recordedBy:id,first_name,last_name')
+            ->orderBy('created_at', 'asc')
+            ->get();
+
+        $servicePrice = $appointment->service->price ?? 0;
+        $totalPaid = $payments->sum('amount_paid');
+
+        return response()->json([
+            'success' => true,
+            'service_price' => (float) $servicePrice,
+            'total_paid' => (float) $totalPaid,
+            'balance_remaining' => (float) max(0, $servicePrice - $totalPaid),
+            'payment_status' => $appointment->payment_status,
+            'payments' => $payments,
+        ]);
+    }
+
+    /**
+     * Phase 6 #3: Re-fetch receipt for reprints — recomputes integrity hash.
+     */
+    public function getReceipt($appointmentId)
+    {
+        $appointment = Appointment::with(['user', 'service', 'processedBy'])->findOrFail($appointmentId);
+        $latestPayment = Payment::where('appointment_id', $appointment->id)->latest('id')->first();
+        $receiptData = ReceiptService::generate($appointment, $latestPayment);
+
+        ActionLog::log(
+            'reprint_receipt',
+            "Reprinted receipt for appointment #{$appointment->id}",
+            'Appointment',
+            $appointment->id,
+            'success',
+            ['receipt_id' => $receiptData['receipt_id'], 'appointment_id' => $appointment->id]
+        );
+
+        return response()->json(['success' => true, 'receipt' => $receiptData]);
+    }
+
+    /**
      * Helper: Invalidate relevant caches
      */
     private function invalidateCaches()
@@ -822,5 +1077,25 @@ class CashierController extends Controller
             Cache::forget('dashboard:stats');
             Cache::forget('public_init_data');
         }
+    }
+
+    /**
+     * Get active discount rates from database
+     * Phase 2 #10: Frontend fetches rates instead of hardcoding
+     */
+    public function getDiscountRates()
+    {
+        $rates = DiscountRate::activeDiscounts();
+
+        return response()->json([
+            'success' => true,
+            'rates' => $rates->map(function ($rate) {
+                return [
+                    'type' => $rate->discount_type,
+                    'percentage' => (float) $rate->discount_percentage,
+                    'description' => $rate->description,
+                ];
+            })
+        ]);
     }
 }

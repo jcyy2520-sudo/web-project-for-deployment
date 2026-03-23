@@ -5,7 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Appointment;
 use App\Events\AppointmentUpdated;
 use App\Models\CalendarEvent;
-use App\Models\UnavailableDate;
+
 use App\Models\TimeSlotCapacity;
 use App\Models\BlackoutDate;
 use App\Models\User;
@@ -214,14 +214,24 @@ class AppointmentController extends Controller
             ], 422);
         }
 
-        // EXISTING VALIDATION: Check for unavailable dates/times - Use UnavailableDate model
-        $isUnavailable = UnavailableDate::where('date', $request->appointment_date)
+        // VALIDATION: Check for unavailable dates/times via BlackoutDate (unified)
+        $isUnavailable = BlackoutDate::where(function($query) use ($request) {
+                // Check specific date (non-recurring)
+                $query->where('date', $request->appointment_date)
+                      ->where(function ($q) {
+                          $q->whereNull('is_recurring')
+                            ->orWhere('is_recurring', false);
+                      });
+            })
             ->where(function($query) use ($request) {
-                // Check all-day unavailability
-                $query->where('all_day', true)
-                // Or check time-specific unavailability that overlaps with requested time
+                // Check all-day unavailability (no time range = all day)
+                $query->where(function($q) {
+                    $q->whereNull('start_time')->whereNull('end_time');
+                })
+                // Or check time-specific unavailability that overlaps
                 ->orWhere(function($q) use ($request) {
-                    $q->where('all_day', false)
+                    $q->whereNotNull('start_time')
+                      ->whereNotNull('end_time')
                       ->where('start_time', '<=', $request->appointment_time)
                       ->where('end_time', '>=', $request->appointment_time);
                 });
@@ -234,10 +244,16 @@ class AppointmentController extends Controller
             ], 422);
         }
 
-        // NEW VALIDATION: Check for blackout dates (both specific and recurring)
+        // Check for blackout dates (both specific and recurring)
         $blackoutDate = BlackoutDate::where(function($query) use ($request, $appointmentDate) {
-            // Check specific date
-            $query->where('date', $request->appointment_date)
+            // Check specific date (skip those already checked above by only matching recurring here)
+            $query->where(function ($q) use ($request) {
+                      $q->where('date', $request->appointment_date)
+                        ->where('is_recurring', false)
+                        // Only match entries with time ranges not caught above
+                        ->whereNotNull('start_time')
+                        ->whereNotNull('end_time');
+                  })
                   // Or check recurring blackout on this day of week
                   ->orWhere(function($q) use ($appointmentDate) {
                       $dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
@@ -282,6 +298,24 @@ class AppointmentController extends Controller
                 'next_available_formatted' => $nextAvailableFormatted,
                 'has_reached_limit' => true
             ], 422);
+        }
+
+        // VALIDATION: Check service availability (services may be temporarily unavailable)
+        $serviceIdsToCheck = $request->service_ids ?: ($request->service_id ? [$request->service_id] : []);
+        if (!empty($serviceIdsToCheck)) {
+            $bookingDateTime = Carbon::parse($request->appointment_date . ' ' . $request->appointment_time);
+            foreach ($serviceIdsToCheck as $sid) {
+                $unavailability = \App\Models\ServiceUnavailability::isServiceUnavailableAt((int) $sid, $bookingDateTime);
+                if ($unavailability) {
+                    $serviceName = \App\Models\Service::find($sid)?->name ?? 'Selected service';
+                    return response()->json([
+                        'message' => "{$serviceName} is currently unavailable: {$unavailability->reason}",
+                        'unavailable_service_id' => $sid,
+                        'unavailability_reason' => $unavailability->reason,
+                        'unavailability_category' => $unavailability->reason_category,
+                    ], 422);
+                }
+            }
         }
 
         // ATOMIC BOOKING: Use transaction with pessimistic locking to prevent double-booking
@@ -454,20 +488,33 @@ class AppointmentController extends Controller
      */
     private function getSlotCapacity(Carbon $date, $time)
     {
-        // Try to find specific capacity configuration
-        $capacity = TimeSlotCapacity::where(function($query) use ($date) {
-            $dayOfWeek = strtolower(['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][$date->dayOfWeek]);
-            
-            $query->where('day_of_week', $dayOfWeek)
-                  ->orWhereNull('day_of_week'); // Also match "all days" configurations
-        })
-        ->where('start_time', '<=', $time)
-        ->where('end_time', '>', $time)
-        ->where('is_active', true)
-        ->orderByRaw('CASE WHEN day_of_week IS NOT NULL THEN 0 ELSE 1 END') // Specific days first
-        ->first();
+        $dayOfWeek = strtolower(['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][$date->dayOfWeek]);
+        $dateStr = $date->toDateString();
 
-        return $capacity ? $capacity->max_appointments_per_slot : 3; // Default to 3 if no configuration
+        // Priority 1: date-specific override
+        $dateSpecific = TimeSlotCapacity::where('is_active', true)
+            ->where('specific_date', $dateStr)
+            ->where('start_time', '<=', $time)
+            ->where('end_time', '>', $time)
+            ->first();
+
+        if ($dateSpecific) {
+            return $dateSpecific->max_appointments_per_slot;
+        }
+
+        // Priority 2: day-of-week specific, then global
+        $capacity = TimeSlotCapacity::where('is_active', true)
+            ->whereNull('specific_date')
+            ->where(function($query) use ($dayOfWeek) {
+                $query->where('day_of_week', $dayOfWeek)
+                      ->orWhereNull('day_of_week');
+            })
+            ->where('start_time', '<=', $time)
+            ->where('end_time', '>', $time)
+            ->orderByRaw('CASE WHEN day_of_week IS NOT NULL THEN 0 ELSE 1 END')
+            ->first();
+
+        return $capacity ? $capacity->max_appointments_per_slot : 3;
     }
 
     public function show(Appointment $appointment)
@@ -965,6 +1012,14 @@ class AppointmentController extends Controller
     {
         $this->authorize('update', $appointment);
 
+        // Phase 1 #6: Prevent marking paid appointments as no-show
+        if ($appointment->payment_status === 'paid') {
+            return response()->json([
+                'message' => 'Cannot mark a paid appointment as no-show. Process a refund first if needed.',
+                'success' => false
+            ], 422);
+        }
+
         if ($appointment->status !== 'approved') {
             return response()->json([
                 'message' => 'Only approved appointments can be marked as no-show',
@@ -984,7 +1039,15 @@ class AppointmentController extends Controller
                 'no_show_appointment',
                 "Marked appointment as no-show for {$appointment->user->first_name} {$appointment->user->last_name} ({$serviceType})",
                 'Appointment',
-                $appointment->id
+                $appointment->id,
+                'success',
+                [
+                    'appointment_id' => $appointment->id,
+                    'client_name' => "{$appointment->user->first_name} {$appointment->user->last_name}",
+                    'previous_status' => 'approved',
+                    'previous_payment_status' => $appointment->payment_status,
+                    'was_payment_attempted' => $appointment->payment_status === 'partially_paid',
+                ]
             );
 
             $appointmentDate = \Carbon\Carbon::parse($appointment->appointment_date)->format('l, F d, Y');
@@ -1318,12 +1381,18 @@ class AppointmentController extends Controller
     public function availableSlots(Request $request, $date)
     {
         $workingHours = [
-            'start' => '09:00',
+            'start' => '08:00',
             'end' => '17:00',
         ];
 
-        // Check UnavailableDate for unavailability
-        $unavailableRecords = UnavailableDate::where('date', $date)->get();
+        // Check BlackoutDate for unavailability (unified system)
+        $unavailableRecords = BlackoutDate::where(function ($q) use ($date) {
+            $q->where('date', $date)
+              ->where(function ($q2) {
+                  $q2->whereNull('is_recurring')
+                     ->orWhere('is_recurring', false);
+              });
+        })->get();
 
         $bookedSlots = Appointment::where('appointment_date', $date)
             ->whereIn('status', ['pending', 'approved'])
@@ -1344,7 +1413,7 @@ class AppointmentController extends Controller
         $currentTime = strtotime($workingHours['start']);
         $endTime = strtotime($workingHours['end']);
 
-        while ($currentTime <= $endTime) {
+        while ($currentTime < $endTime) {
             $timeSlot = date('H:i', $currentTime);
             
             // Check if slot has remaining capacity (not just booked/unbooked)
@@ -1357,7 +1426,8 @@ class AppointmentController extends Controller
                 foreach ($unavailableRecords as $record) {
                     $isUnavailable = false;
                     
-                    if ($record->all_day) {
+                    if (!$record->start_time && !$record->end_time) {
+                        // No time range = all-day block
                         $isUnavailable = true;
                     } else if ($record->start_time && $record->end_time) {
                         $slotTime = strtotime($timeSlot);
@@ -1459,12 +1529,6 @@ class AppointmentController extends Controller
                 ->exists();
 
             if ($isBlackedOut) {
-                continue;
-            }
-
-            // Check for legacy unavailable dates
-            $isUnavailable = UnavailableDate::where('date', $checkDate->toDateString())->exists();
-            if ($isUnavailable) {
                 continue;
             }
 
@@ -1582,12 +1646,6 @@ class AppointmentController extends Controller
             })->exists();
 
             if ($isBlackedOut) continue;
-
-            // Skip unavailable dates
-            $isUnavailable = UnavailableDate::where('date', $checkDate->toDateString())
-                ->where('all_day', true)
-                ->exists();
-            if ($isUnavailable) continue;
 
             $dateSlots = $this->getAvailableSlotsForDate($checkDate->toDateString());
             if (empty($dateSlots)) continue;

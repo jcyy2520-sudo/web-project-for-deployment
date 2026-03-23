@@ -475,6 +475,15 @@ Route::middleware(['auth:sanctum', 'throttle:120,1'])->group(function () {
         Route::get('/shift-reports', [CashierController::class, 'getShiftReport']);
         Route::post('/shift-reports/export', [CashierController::class, 'exportShiftReport']);
         Route::put('/password', [CashierController::class, 'changePassword']);
+
+        // DISCOUNT RATES - Fetch active rates from database
+        Route::get('/discount-rates', [CashierController::class, 'getDiscountRates']);
+
+        // PAYMENT HISTORY - For partial payment tracking
+        Route::get('/appointments/{appointment}/payment-history', [CashierController::class, 'getPaymentHistory']);
+
+        // RECEIPT - Phase 6 #3: Re-fetch receipt with integrity hash
+        Route::get('/receipts/{appointment}', [CashierController::class, 'getReceipt']);
         
         // REFUND ROUTES - Request and view refunds
         Route::post('/refunds/request', [RefundController::class, 'requestRefund']);
@@ -678,6 +687,15 @@ Route::middleware(['auth:sanctum', 'throttle:120,1'])->group(function () {
         Route::get('/services/stats', [ServiceController::class, 'getStats']);
         Route::post('/services/sync/appointments', [ServiceController::class, 'syncServicesFromAppointments']);
         Route::post('/services/sync/defaults', [ServiceController::class, 'syncDefaultAppointmentTypes']);
+
+        // Service Availability Management
+        Route::get('/services/reason-categories', [ServiceController::class, 'getReasonCategories']);
+        Route::get('/services/{service}/unavailabilities', [ServiceController::class, 'getUnavailabilities']);
+        Route::post('/services/{service}/unavailable', [ServiceController::class, 'setUnavailable']);
+        Route::put('/services/{service}/available', [ServiceController::class, 'setFullyAvailable']);
+        Route::put('/services/{service}/unavailabilities/{unavailability}/deactivate', [ServiceController::class, 'setAvailable']);
+        Route::put('/services/{service}/unavailabilities/{unavailability}', [ServiceController::class, 'updateUnavailability']);
+        Route::delete('/services/{service}/unavailabilities/{unavailability}', [ServiceController::class, 'deleteUnavailability']);
         
         // Admin message sending
         Route::post('/send-message', [AdminController::class, 'sendMessage']);

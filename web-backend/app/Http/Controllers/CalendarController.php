@@ -131,33 +131,49 @@ class CalendarController extends Controller
         // Pre-load all capacity rules for this day to avoid N+1 queries in the loop
         $parsedDate = Carbon::parse($request->date);
         $dayName = strtolower($parsedDate->englishDayOfWeek);
+        $dateStr = $parsedDate->toDateString();
         $capacityRules = TimeSlotCapacity::where('is_active', true)
-            ->where(function ($query) use ($dayName) {
-                $query->whereNull('day_of_week')
-                      ->orWhere('day_of_week', $dayName);
+            ->where(function ($query) use ($dayName, $dateStr) {
+                $query->where('specific_date', $dateStr)        // date-specific overrides
+                      ->orWhere(function ($q) use ($dayName) {
+                          $q->whereNull('specific_date')         // day-of-week or global rules
+                            ->where(function ($q2) use ($dayName) {
+                                $q2->whereNull('day_of_week')
+                                   ->orWhere('day_of_week', $dayName);
+                            });
+                      });
             })
             ->get();
 
+        $allSlots = [];
         $availableSlots = [];
         foreach ($slots as $slot) {
             $appointmentCount = $slotCounts[$slot] ?? 0;
             $maxCapacity = $this->getSlotCapacityFromRules($capacityRules, $slot);
+            $remaining = $maxCapacity - $appointmentCount;
+            $isFull = $appointmentCount >= $maxCapacity;
 
-            if ($appointmentCount < $maxCapacity) {
-                $availableSlots[] = [
-                    'time' => $slot,
-                    'booked' => $appointmentCount,
-                    'capacity' => $maxCapacity,
-                    'availability' => $maxCapacity - $appointmentCount
-                ];
+            $slotInfo = [
+                'time' => $slot,
+                'booked' => $appointmentCount,
+                'capacity' => $maxCapacity,
+                'availability' => max(0, $remaining),
+                'status' => $isFull ? 'full' : ($appointmentCount > 0 ? 'partial' : 'available'),
+            ];
+
+            $allSlots[] = $slotInfo;
+
+            if (!$isFull) {
+                $availableSlots[] = $slot;
             }
         }
 
         return response()->json([
             'date' => $request->date,
-            'available_slots' => array_column($availableSlots, 'time'),
-            'slot_details' => $availableSlots,
+            'available_slots' => $availableSlots,
+            'slot_details' => $allSlots,
             'total_available' => count($availableSlots),
+            'total_slots' => count($allSlots),
             'blackout_dates' => null,
             'success' => true
         ]);
@@ -283,7 +299,7 @@ class CalendarController extends Controller
         $current = Carbon::parse($date . ' 08:00'); // 8 AM
         $end = Carbon::parse($date . ' 17:00');     // 5 PM
 
-        while ($current <= $end) {
+        while ($current < $end) {
             $timeStr = $current->format('H:i');
             
             // Skip lunch time (12:00 - 13:00)
@@ -355,10 +371,22 @@ class CalendarController extends Controller
     {
         $parsedDate = Carbon::parse($date);
         $dayName = strtolower($parsedDate->englishDayOfWeek);
-        $slotTime = Carbon::parse($time);
+        $dateStr = $parsedDate->toDateString();
 
-        // Find matching capacity rule
+        // Priority 1: date-specific override
+        $dateSpecific = TimeSlotCapacity::where('is_active', true)
+            ->where('specific_date', $dateStr)
+            ->where('start_time', '<=', $time)
+            ->where('end_time', '>', $time)
+            ->first();
+
+        if ($dateSpecific) {
+            return $dateSpecific->max_appointments_per_slot;
+        }
+
+        // Priority 2: day-of-week or global
         $capacity = TimeSlotCapacity::where('is_active', true)
+            ->whereNull('specific_date')
             ->where(function ($query) use ($dayName) {
                 $query->whereNull('day_of_week')
                       ->orWhere('day_of_week', $dayName);
@@ -367,19 +395,33 @@ class CalendarController extends Controller
             ->where('end_time', '>', $time)
             ->first();
 
-        return $capacity ? $capacity->max_appointments_per_slot : 3; // Default 3 per slot
+        return $capacity ? $capacity->max_appointments_per_slot : 3;
     }
 
     /**
      * Get slot capacity from pre-loaded rules (avoids N+1 queries)
+     * Priority: date-specific > day-of-week > global > default(3)
      */
     private function getSlotCapacityFromRules($capacityRules, $time)
     {
+        // First try date-specific override
+        $dateSpecific = $capacityRules->first(function ($rule) use ($time) {
+            return $rule->specific_date !== null
+                && $rule->start_time <= $time
+                && $rule->end_time > $time;
+        });
+        if ($dateSpecific) {
+            return $dateSpecific->max_appointments_per_slot;
+        }
+
+        // Then day-of-week or global rule
         $matching = $capacityRules->first(function ($rule) use ($time) {
-            return $rule->start_time <= $time && $rule->end_time > $time;
+            return $rule->specific_date === null
+                && $rule->start_time <= $time
+                && $rule->end_time > $time;
         });
 
-        return $matching ? $matching->max_appointments_per_slot : 3; // Default 3 per slot
+        return $matching ? $matching->max_appointments_per_slot : 3;
     }
 
     private function generateTimeSlots($start, $end, $interval = '30 minutes')

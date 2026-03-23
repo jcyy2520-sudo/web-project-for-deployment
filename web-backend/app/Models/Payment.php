@@ -24,6 +24,7 @@ class Payment extends Model
         'service_price',
         'amount_paid',
         'discount_amount',
+        'discount_proof',
         'payment_method_id',
         'notes',
         'goods_description',
@@ -37,7 +38,8 @@ class Payment extends Model
         'student_discount_amount',
         'total_discount_applied',
         'last_edited_at',
-        'last_edited_by'
+        'last_edited_by',
+        'in_kind_estimated_value'
     ];
 
     protected $casts = [

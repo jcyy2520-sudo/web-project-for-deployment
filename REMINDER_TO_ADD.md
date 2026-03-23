@@ -9,6 +9,8 @@ Show slot available. In time and in date.
 
 Service can be set as not available. Can set time and date for the time being. But if a user has an appointment going in that appointment before setting that service not available it still will be accepted. Add a reason type so user can see why its not available, and a build reasons
 
+reschedule
+
 
 Spam protection. Manipulation. (Just harden and improve security) 
 Improve tagalog and english adaptability. 

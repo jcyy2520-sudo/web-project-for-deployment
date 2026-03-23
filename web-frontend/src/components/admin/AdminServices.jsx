@@ -8,7 +8,10 @@ import {
   ArrowPathIcon,
   ExclamationTriangleIcon,
   MagnifyingGlassIcon,
-  CheckCircleIcon
+  CheckCircleIcon,
+  NoSymbolIcon,
+  ClockIcon,
+  ShieldExclamationIcon
 } from '@heroicons/react/24/outline';
 
 const AdminServices = ({ isDarkMode = true }) => {
@@ -42,6 +45,20 @@ const AdminServices = ({ isDarkMode = true }) => {
   const [modalError, setModalError] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 12;
+
+  // Service Availability Management State
+  const [availabilityModal, setAvailabilityModal] = useState({ open: false, service: null });
+  const [availabilityForm, setAvailabilityForm] = useState({
+    reason: '',
+    reason_category: 'custom',
+    is_global: true,
+    unavailable_from: '',
+    unavailable_until: '',
+  });
+  const [reasonCategories, setReasonCategories] = useState({});
+  const [savingAvailability, setSavingAvailability] = useState(false);
+  const [availabilityError, setAvailabilityError] = useState('');
+
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -99,6 +116,100 @@ const AdminServices = ({ isDarkMode = true }) => {
     } catch (err) {
       console.error('Failed to sync default services:', err);
       setError(err.response?.data?.message || 'Failed to sync default services');
+    }
+  };
+
+  // Load reason categories on mount
+  useEffect(() => {
+    axios.get('/api/admin/services/reason-categories')
+      .then(res => {
+        if (res.data?.success) setReasonCategories(res.data.data);
+      })
+      .catch(() => {
+        // Fallback categories
+        setReasonCategories({
+          maintenance: 'Maintenance',
+          staff_unavailable: 'Staff Unavailable',
+          system_upgrade: 'System Upgrade',
+          holiday: 'Holiday',
+          policy_change: 'Policy Change',
+          custom: 'Custom',
+        });
+      });
+  }, []);
+
+  const openAvailabilityModal = (service) => {
+    setAvailabilityModal({ open: true, service });
+    setAvailabilityForm({
+      reason: '',
+      reason_category: 'custom',
+      is_global: true,
+      unavailable_from: '',
+      unavailable_until: '',
+    });
+    setAvailabilityError('');
+  };
+
+  const closeAvailabilityModal = () => {
+    setAvailabilityModal({ open: false, service: null });
+    setAvailabilityError('');
+  };
+
+  const handleSetUnavailable = async () => {
+    const { service } = availabilityModal;
+    if (!service) return;
+    if (!availabilityForm.reason.trim()) {
+      setAvailabilityError('Please provide a reason');
+      return;
+    }
+    if (!availabilityForm.is_global && (!availabilityForm.unavailable_from || !availabilityForm.unavailable_until)) {
+      setAvailabilityError('Please provide both start and end dates for scheduled unavailability');
+      return;
+    }
+
+    try {
+      setSavingAvailability(true);
+      setAvailabilityError('');
+      await axios.post(`/api/admin/services/${service.id}/unavailable`, availabilityForm);
+      setSuccess(`"${service.name}" marked as unavailable`);
+      closeAvailabilityModal();
+      await loadServices();
+      window.dispatchEvent(new CustomEvent('servicesUpdated', { detail: { timestamp: new Date() } }));
+    } catch (err) {
+      const msg = err.response?.data?.errors
+        ? Object.values(err.response.data.errors).flat().join(', ')
+        : err.response?.data?.message || 'Failed to set unavailability';
+      setAvailabilityError(msg);
+    } finally {
+      setSavingAvailability(false);
+    }
+  };
+
+  const handleSetAvailable = async (service) => {
+    try {
+      setSaving(true);
+      await axios.put(`/api/admin/services/${service.id}/available`);
+      setSuccess(`"${service.name}" is now available again`);
+      await loadServices();
+      window.dispatchEvent(new CustomEvent('servicesUpdated', { detail: { timestamp: new Date() } }));
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to reactivate service');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeactivateUnavailability = async (service, unavailabilityId) => {
+    try {
+      setSaving(true);
+      await axios.put(`/api/admin/services/${service.id}/unavailabilities/${unavailabilityId}/deactivate`);
+      setSuccess('Unavailability removed');
+      await loadServices();
+      window.dispatchEvent(new CustomEvent('servicesUpdated', { detail: { timestamp: new Date() } }));
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to remove unavailability');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -419,13 +530,23 @@ const AdminServices = ({ isDarkMode = true }) => {
           {paginatedServices.map(service => (
             <div
               key={service.id}
-              className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20 hover:border-amber-500/40' : 'bg-white border-amber-300/40 hover:border-amber-400'} border rounded-lg shadow p-4 transition-all duration-300`}
+              className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20 hover:border-amber-500/40' : 'bg-white border-amber-300/40 hover:border-amber-400'} border rounded-lg shadow p-4 transition-all duration-300 ${
+                service.is_unavailable ? (isDarkMode ? 'ring-1 ring-red-500/30' : 'ring-1 ring-red-300') : ''
+              }`}
             >
               <div className="flex justify-between items-start mb-3 gap-2">
                 <div className="flex-1 min-w-0">
-                  <h3 className={`font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>
-                    {service.name}
-                  </h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className={`font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>
+                      {service.name}
+                    </h3>
+                    {service.is_unavailable && (
+                      <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold ${isDarkMode ? 'bg-red-500/20 text-red-400' : 'bg-red-100 text-red-700'}`}>
+                        <NoSymbolIcon className="h-3 w-3" />
+                        Unavailable
+                      </span>
+                    )}
+                  </div>
                   {service.description && (
                     <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'} mt-1`}>
                       {service.description}
@@ -433,6 +554,24 @@ const AdminServices = ({ isDarkMode = true }) => {
                   )}
                 </div>
                 <div className="flex gap-1 flex-shrink-0">
+                  {/* Availability toggle button */}
+                  {service.is_unavailable ? (
+                    <button
+                      onClick={() => handleSetAvailable(service)}
+                      className={`p-1.5 ${isDarkMode ? 'text-green-400 hover:bg-green-500/10 border-green-500/30' : 'text-green-600 hover:bg-green-100 border-green-300'} border rounded transition-all duration-200`}
+                      title="Make Available"
+                    >
+                      <CheckCircleIcon className="h-3 w-3" />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => openAvailabilityModal(service)}
+                      className={`p-1.5 ${isDarkMode ? 'text-orange-400 hover:bg-orange-500/10 border-orange-500/30' : 'text-orange-600 hover:bg-orange-100 border-orange-300'} border rounded transition-all duration-200`}
+                      title="Set Unavailable"
+                    >
+                      <NoSymbolIcon className="h-3 w-3" />
+                    </button>
+                  )}
                   <button
                     onClick={() => handleOpenModal(service)}
                     className={`p-1.5 ${isDarkMode ? 'text-blue-400 hover:bg-blue-500/10 border-blue-500/30' : 'text-blue-600 hover:bg-blue-100 border-blue-300'} border rounded transition-all duration-200`}
@@ -449,6 +588,37 @@ const AdminServices = ({ isDarkMode = true }) => {
                   </button>
                 </div>
               </div>
+
+              {/* Unavailability info banner */}
+              {service.is_unavailable && service.current_unavailability && (
+                <div className={`mb-2 p-2 rounded text-xs ${isDarkMode ? 'bg-red-500/10 border border-red-500/20 text-red-300' : 'bg-red-50 border border-red-200 text-red-700'}`}>
+                  <div className="flex items-start gap-1.5">
+                    <ShieldExclamationIcon className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="font-medium">{service.current_unavailability.reason}</p>
+                      <div className="flex items-center gap-2 mt-0.5 opacity-80">
+                        <span className="capitalize">{(service.current_unavailability.reason_category || '').replace(/_/g, ' ')}</span>
+                        {!service.current_unavailability.is_global && service.current_unavailability.unavailable_until && (
+                          <span className="flex items-center gap-0.5">
+                            <ClockIcon className="h-3 w-3" />
+                            Until {new Date(service.current_unavailability.unavailable_until).toLocaleDateString()}
+                          </span>
+                        )}
+                        {service.current_unavailability.is_global && (
+                          <span className="italic">Indefinite</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Active unavailability count for services with multiple */}
+              {service.unavailabilities && service.unavailabilities.length > 1 && (
+                <div className={`mb-2 text-[10px] ${isDarkMode ? 'text-orange-400/70' : 'text-orange-600/70'}`}>
+                  {service.unavailabilities.length} active unavailability rules
+                </div>
+              )}
               
               {(service.price || service.duration) && (
                 <div className={`pt-2 mt-2 border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-200'} text-xs space-y-1`}>
@@ -726,6 +896,155 @@ const AdminServices = ({ isDarkMode = true }) => {
               >
                 {saving ? 'Deleting...' : 'Delete'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Set Unavailable Modal */}
+      {availabilityModal.open && availabilityModal.service && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow-lg p-6 max-w-md w-full mx-4 transition-colors duration-300`}>
+            <div className="flex justify-between items-center mb-4">
+              <div>
+                <h3 className={`font-bold text-lg ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>
+                  Set Service Unavailable
+                </h3>
+                <p className={`text-xs mt-0.5 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                  {availabilityModal.service.name}
+                </p>
+              </div>
+              <button
+                onClick={closeAvailabilityModal}
+                className={`p-1 ${isDarkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-100'} rounded transition-colors duration-200`}
+              >
+                <XMarkIcon className="h-5 w-5" />
+              </button>
+            </div>
+
+            {availabilityError && (
+              <div className={`${isDarkMode ? 'bg-red-500/10 border-red-500/30 text-red-400' : 'bg-red-100 border-red-300 text-red-700'} border rounded-lg p-3 mb-4`}>
+                <div className="flex items-center">
+                  <ExclamationTriangleIcon className="h-4 w-4 mr-2 flex-shrink-0" />
+                  <p className="text-sm">{availabilityError}</p>
+                </div>
+              </div>
+            )}
+
+            <div className={`${isDarkMode ? 'bg-amber-500/5 border-amber-500/20 text-amber-300' : 'bg-amber-50 border-amber-200 text-amber-800'} border rounded-lg p-3 mb-4`}>
+              <p className="text-xs">
+                <strong>Note:</strong> Existing appointments will remain valid. Only new bookings will be prevented.
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              {/* Reason Category */}
+              <div>
+                <label className={`block text-xs font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-1`}>
+                  Reason Category *
+                </label>
+                <select
+                  value={availabilityForm.reason_category}
+                  onChange={(e) => setAvailabilityForm(prev => ({ ...prev, reason_category: e.target.value }))}
+                  className={`w-full px-3 py-2 ${isDarkMode ? 'bg-gray-800 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} border rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500 transition-all duration-200 text-sm`}
+                >
+                  {Object.entries(reasonCategories).map(([key, label]) => (
+                    <option key={key} value={key}>{label}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Reason */}
+              <div>
+                <label className={`block text-xs font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-1`}>
+                  Reason *
+                </label>
+                <textarea
+                  value={availabilityForm.reason}
+                  onChange={(e) => setAvailabilityForm(prev => ({ ...prev, reason: e.target.value }))}
+                  placeholder="Describe why this service is unavailable..."
+                  rows="2"
+                  maxLength={500}
+                  className={`w-full px-3 py-2 ${isDarkMode ? 'bg-gray-800 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} border rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500 transition-all duration-200 text-sm resize-none`}
+                />
+              </div>
+
+              {/* Unavailability Type */}
+              <div>
+                <label className={`block text-xs font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-2`}>
+                  Duration
+                </label>
+                <div className="flex gap-3">
+                  <label className={`flex items-center gap-2 cursor-pointer text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                    <input
+                      type="radio"
+                      name="is_global"
+                      checked={availabilityForm.is_global}
+                      onChange={() => setAvailabilityForm(prev => ({ ...prev, is_global: true, unavailable_from: '', unavailable_until: '' }))}
+                      className="accent-amber-500"
+                    />
+                    Indefinite
+                  </label>
+                  <label className={`flex items-center gap-2 cursor-pointer text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+                    <input
+                      type="radio"
+                      name="is_global"
+                      checked={!availabilityForm.is_global}
+                      onChange={() => setAvailabilityForm(prev => ({ ...prev, is_global: false }))}
+                      className="accent-amber-500"
+                    />
+                    Scheduled
+                  </label>
+                </div>
+              </div>
+
+              {/* Date Range (only for scheduled) */}
+              {!availabilityForm.is_global && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className={`block text-xs font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-1`}>
+                      From *
+                    </label>
+                    <input
+                      type="datetime-local"
+                      value={availabilityForm.unavailable_from}
+                      onChange={(e) => setAvailabilityForm(prev => ({ ...prev, unavailable_from: e.target.value }))}
+                      className={`w-full px-3 py-2 ${isDarkMode ? 'bg-gray-800 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} border rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500 transition-all duration-200 text-sm`}
+                    />
+                  </div>
+                  <div>
+                    <label className={`block text-xs font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-1`}>
+                      Until *
+                    </label>
+                    <input
+                      type="datetime-local"
+                      value={availabilityForm.unavailable_until}
+                      onChange={(e) => setAvailabilityForm(prev => ({ ...prev, unavailable_until: e.target.value }))}
+                      min={availabilityForm.unavailable_from || undefined}
+                      className={`w-full px-3 py-2 ${isDarkMode ? 'bg-gray-800 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} border rounded-lg focus:outline-none focus:ring-1 focus:ring-amber-500 transition-all duration-200 text-sm`}
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="flex space-x-3 pt-4">
+                <button
+                  type="button"
+                  onClick={closeAvailabilityModal}
+                  className={`flex-1 px-4 py-2 ${isDarkMode ? 'bg-gray-800 text-gray-300 hover:bg-gray-700' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'} rounded-lg transition-all duration-200 font-medium text-sm`}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSetUnavailable}
+                  disabled={savingAvailability}
+                  className="flex-1 px-4 py-2 bg-red-600 text-white hover:bg-red-700 rounded-lg transition-all duration-200 font-medium text-sm disabled:opacity-50 flex items-center justify-center gap-1"
+                >
+                  <NoSymbolIcon className="h-4 w-4" />
+                  {savingAvailability ? 'Saving...' : 'Set Unavailable'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

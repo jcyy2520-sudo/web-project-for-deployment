@@ -7,7 +7,6 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import BottomNav from '../components/BottomNav';
 import ProfilePage from './ProfilePage';
 import axios from 'axios';
-import TimePicker from '../components/TimePicker';
 import ActionLogViewer from '../components/ActionLogViewer';
 import MessageCenter from './MessageCenter';
 import UserFeedback from '../components/user/UserFeedback';
@@ -247,16 +246,6 @@ const BookingPreviewModal = ({
               </div>
             </div>
 
-            {appointmentData.notes && (
-              <div className={`rounded-xl p-3 border ${
-                isDarkMode ? 'bg-gray-800/20 border-gray-700' : 'bg-gray-50 border-gray-100'
-              }`}>
-                <p className="text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">Notes</p>
-                <p className={`text-xs italic ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                  "{appointmentData.notes}"
-                </p>
-              </div>
-            )}
           </div>
 
           <div className="mt-6 flex flex-col gap-2">
@@ -477,43 +466,67 @@ const ServiceTypeDropdown = ({
                 <button
                   key={option.value}
                   type="button"
-                  onClick={() => handleToggle(option.value)}
-                  className={`w-full px-3 py-2.5 text-left text-xs transition-colors group flex items-start gap-3 hover:bg-amber-500/10 ${
-                    Array.isArray(value) && value.includes(option.value) ? 'bg-amber-500/5' : ''
+                  onClick={() => !option.is_unavailable && handleToggle(option.value)}
+                  disabled={option.is_unavailable}
+                  className={`w-full px-3 py-2.5 text-left text-xs transition-colors group flex items-start gap-3 ${
+                    option.is_unavailable
+                      ? 'opacity-60 cursor-not-allowed bg-red-500/5'
+                      : `hover:bg-amber-500/10 ${Array.isArray(value) && value.includes(option.value) ? 'bg-amber-500/5' : ''}`
                   }`}
                 >
                   <div className={`mt-0.5 w-4 h-4 rounded border flex-shrink-0 flex items-center justify-center transition-all ${
-                    Array.isArray(value) && value.includes(option.value)
-                      ? 'bg-amber-500 border-amber-500'
-                      : 'border-gray-600 group-hover:border-amber-500/50'
+                    option.is_unavailable
+                      ? 'border-red-500/40 bg-red-500/10'
+                      : Array.isArray(value) && value.includes(option.value)
+                        ? 'bg-amber-500 border-amber-500'
+                        : 'border-gray-600 group-hover:border-amber-500/50'
                   }`}>
-                    {Array.isArray(value) && value.includes(option.value) && (
+                    {option.is_unavailable ? (
+                      <svg className="w-2.5 h-2.5 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    ) : Array.isArray(value) && value.includes(option.value) ? (
                       <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="4">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                       </svg>
-                    )}
+                    ) : null}
                   </div>
                   <div className="flex flex-col gap-0.5 min-w-0 flex-1">
-                    <span className={`font-medium truncate ${Array.isArray(value) && value.includes(option.value) ? 'text-amber-400' : 'text-gray-200'}`}>
+                    <span className={`font-medium truncate ${
+                      option.is_unavailable ? 'text-red-400/70 line-through' :
+                      Array.isArray(value) && value.includes(option.value) ? 'text-amber-400' : 'text-gray-200'
+                    }`}>
                       {option.label}
                     </span>
-                    {option.price && (
+                    {option.is_unavailable ? (
+                      <span className="text-red-400/60 text-[10px]">
+                        Unavailable{option.unavailability_reason ? `: ${option.unavailability_reason}` : ''}
+                        {option.unavailable_until ? ` (until ${new Date(option.unavailable_until).toLocaleDateString()})` : ''}
+                      </span>
+                    ) : option.price ? (
                       <span className="text-amber-400/60 text-[10px] font-mono">₱{parseFloat(option.price).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-                    )}
+                    ) : null}
                   </div>
                   {/* View Requirements Icon */}
-                  {option.public_requirements && option.public_requirements.length > 0 && (
-                    <button
-                      type="button"
+                  {!option.is_unavailable && option.public_requirements && option.public_requirements.length > 0 && (
+                    <span
+                      role="button"
+                      tabIndex={0}
                       title="View Requirements"
                       onClick={(e) => {
                         e.stopPropagation(); // Prevents toggling the selection
                         if (onViewRequirements) onViewRequirements(option);
                       }}
-                      className="ml-auto text-amber-500/70 hover:text-amber-400 px-1 py-1 rounded"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.stopPropagation();
+                          if (onViewRequirements) onViewRequirements(option);
+                        }
+                      }}
+                      className="ml-auto text-amber-500/70 hover:text-amber-400 px-1 py-1 rounded cursor-pointer"
                     >
-                      <InformationCircleIcon className="w-4 h-4 cursor-pointer" />
-                    </button>
+                      <InformationCircleIcon className="w-4 h-4" />
+                    </span>
                   )}
                 </button>
               ))
@@ -1816,6 +1829,8 @@ const Dashboard = () => {
   const [appointments, setAppointments] = useState([]);
   const [appointmentTypes, setAppointmentTypes] = useState([]);
   const [availableSlots, setAvailableSlots] = useState([]);
+  const [slotDetails, setSlotDetails] = useState([]);
+  const [slotsLoading, setSlotsLoading] = useState(false);
   const [messages, setMessages] = useState([]);
   const [staff, setStaff] = useState([]);
   const [refunds, setRefunds] = useState([]);
@@ -2139,7 +2154,11 @@ const Dashboard = () => {
           price: service.price,
           duration: service.duration,
           id: service.id,
-          public_requirements: service.public_requirements
+          public_requirements: service.public_requirements,
+          is_unavailable: !!service.is_unavailable,
+          unavailability_reason: service.unavailability_reason || null,
+          unavailability_category: service.unavailability_category || null,
+          unavailable_until: service.unavailable_until || null,
         }));
         
         // Also add the static types for backward compatibility
@@ -2334,15 +2353,22 @@ const Dashboard = () => {
   // Define loadAvailableSlots before it's used
   const loadAvailableSlots = useCallback(async (date) => {
     if (!date) return;
+    setSlotsLoading(true);
     
-    const result = await callApi((signal) => 
-      axios.get(`/api/appointments/available-slots/${date}`, { signal })
-    );
-    
-    if (result.success) {
-      setAvailableSlots(result.data.data || []);
-    } else {
-      setAvailableSlots([]);
+    try {
+      const result = await callApi((signal) => 
+        axios.get(`/api/calendar/available-slots`, { params: { date }, signal })
+      );
+      
+      if (result.success) {
+        setAvailableSlots(result.data.available_slots || []);
+        setSlotDetails(result.data.slot_details || []);
+      } else {
+        setAvailableSlots([]);
+        setSlotDetails([]);
+      }
+    } finally {
+      setSlotsLoading(false);
     }
   }, [callApi]);
 
@@ -2564,7 +2590,9 @@ const Dashboard = () => {
     const { name, value } = e.target;
     setAppointmentData(prev => ({
       ...prev,
-      [name]: value
+      [name]: value,
+      // Clear selected time when date changes (user must re-pick from grid)
+      ...(name === 'appointment_date' ? { appointment_time: '' } : {})
     }));
 
     // Load available slots and check limit when date changes
@@ -2728,7 +2756,6 @@ const Dashboard = () => {
       type: Array.isArray(appointmentData.type) ? appointmentData.type[0] : appointmentData.type, // Fallback for legacy
       appointment_date: appointmentData.appointment_date,
       appointment_time: appointmentData.appointment_time,
-      notes: appointmentData.notes,
       service_type: serviceLabels || 'General Service'
     };
 
@@ -2749,6 +2776,7 @@ const Dashboard = () => {
         custom_service_type: ''
       });
       setAvailableSlots([]);
+      setSlotDetails([]);
       setFormErrors({});
       
       // Reload appointments and check daily limit
@@ -2881,8 +2909,9 @@ const Dashboard = () => {
   const confirmLogout = async () => {
     setIsLoggingOut(true);
     try {
+      // Stop realtime polling BEFORE logout to prevent 401 floods
+      stopRealtimePolling();
       await logout();
-      // Modal will close automatically when user is cleared
       setShowLogoutModal(false);
     } catch (error) {
       console.error('Logout error:', error);
@@ -3047,17 +3076,52 @@ const Dashboard = () => {
     </div>
   );
 
-  const renderBookAppointment = () => (
+  const renderBookAppointment = () => {
+    const hasService = Array.isArray(appointmentData.type) && appointmentData.type.length > 0;
+    const hasDate = !!appointmentData.appointment_date;
+    const hasTime = !!appointmentData.appointment_time;
+
+    // Determine current step for visual indicator
+    const currentStep = !hasService ? 1 : !hasDate ? 2 : !hasTime ? 3 : 4;
+
+    return (
     <div className="space-y-6">
       <div className="hidden lg:flex justify-between items-center">
         <div>
           <h2 className={`text-lg font-bold ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>Book New Appointment</h2>
           <p className={`text-amber-400/70 mt-1 text-sm ${isDarkMode ? '' : 'text-gray-600'}`}>Schedule your document notarization service</p>
         </div>
-        <div className="flex items-center space-x-1 text-xs text-amber-400/70">
-          <ClockIcon className="h-3 w-3" />
-          <span>30 min sessions</span>
-        </div>
+
+      </div>
+
+      {/* Step Progress Indicator */}
+      <div className="flex items-center gap-2">
+        {[
+          { num: 1, label: 'Service' },
+          { num: 2, label: 'Date' },
+          { num: 3, label: 'Time' },
+          { num: 4, label: 'Confirm' },
+        ].map((step, idx) => (
+          <React.Fragment key={step.num}>
+            {idx > 0 && (
+              <div className={`flex-1 h-0.5 rounded ${currentStep > step.num - 1 ? 'bg-amber-500' : 'bg-gray-700'}`} />
+            )}
+            <div className={`flex items-center gap-1.5 text-xs font-medium ${
+              currentStep >= step.num ? 'text-amber-400' : 'text-gray-500'
+            }`}>
+              <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold border ${
+                currentStep > step.num
+                  ? 'bg-amber-500 border-amber-500 text-white'
+                  : currentStep === step.num
+                    ? 'border-amber-500 text-amber-400'
+                    : 'border-gray-600 text-gray-500'
+              }`}>
+                {currentStep > step.num ? '✓' : step.num}
+              </div>
+              <span className="hidden sm:inline">{step.label}</span>
+            </div>
+          </React.Fragment>
+        ))}
       </div>
 
       {/* Daily Limit Status */}
@@ -3071,7 +3135,7 @@ const Dashboard = () => {
             <>
               <ExclamationTriangleIcon className="h-5 w-5 flex-shrink-0 text-red-400 mt-0.5" />
               <div>
-                <h3 className="font-semibold text-red-400">📅 Daily Booking Limit Reached</h3>
+                <h3 className="font-semibold text-red-400">Daily Booking Limit Reached</h3>
                 <p className="text-sm text-red-300/80 mt-1">
                   {dailyLimitInfo.message || `You have reached your daily booking limit of ${dailyLimitInfo.limit} appointments. You can book again tomorrow.`}
                 </p>
@@ -3105,60 +3169,56 @@ const Dashboard = () => {
       )}
 
       <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-6 hover:border-amber-500/40 transition-all duration-300`}>
-        <form onSubmit={handleAppointmentSubmit} className="space-y-4">
+        <form onSubmit={handleAppointmentSubmit} className="space-y-5">
           {/* Display general form errors */}
           {formErrors.general && (
             <div className="rounded-lg border border-red-500/30 bg-red-900/20 p-4 flex items-start gap-3">
               <ExclamationTriangleIcon className="h-5 w-5 flex-shrink-0 text-red-400 mt-0.5" />
-              <div>
-                <p className="text-sm text-red-300/90">{formErrors.general}</p>
-              </div>
+              <p className="text-sm text-red-300/90">{formErrors.general}</p>
             </div>
           )}
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {/* Service Type with Enhanced Dropdown & Requirements */}
-            <div className="flex flex-col gap-1.5">
-              <ServiceTypeDropdown
-                value={appointmentData.type}
-                onChange={handleServiceTypeChange}
-                options={appointmentTypes}
-                error={formErrors.type}
-                onOtherChange={handleCustomServiceChange}
-                otherValue={appointmentData.custom_service_type}
-                disabled={dailyLimitInfo.hasReachedLimit}
-                isDarkMode={isDarkMode}
-                onViewRequirements={setShowRequirementsModalFor}
-              />
-
-              {/* Service Requirements Presenter */}
-              {(() => {
-                const selectedServices = appointmentTypes.filter(t => 
-                  Array.isArray(appointmentData.type) && appointmentData.type.includes(t.value)
+          {/* Step 1: Service Type */}
+          <div>
+            <ServiceTypeDropdown
+              value={appointmentData.type}
+              onChange={handleServiceTypeChange}
+              options={appointmentTypes}
+              error={formErrors.type}
+              onOtherChange={handleCustomServiceChange}
+              otherValue={appointmentData.custom_service_type}
+              disabled={dailyLimitInfo.hasReachedLimit}
+              isDarkMode={isDarkMode}
+              onViewRequirements={setShowRequirementsModalFor}
+            />
+            {/* Service Requirements link */}
+            {(() => {
+              const selectedServices = appointmentTypes.filter(t =>
+                Array.isArray(appointmentData.type) && appointmentData.type.includes(t.value)
+              );
+              const hasRequirements = selectedServices.some(s => s.public_requirements && s.public_requirements.length > 0);
+              if (hasRequirements && !dailyLimitInfo.hasReachedLimit) {
+                return (
+                  <div className="flex justify-start mt-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setShowRequirementsModalFor(selectedServices)}
+                      className={`text-[11px] flex items-center gap-1.5 hover:underline transition-colors ${
+                        isDarkMode ? 'text-amber-400/90 hover:text-amber-300' : 'text-amber-600 hover:text-amber-700'
+                      }`}
+                    >
+                      <InformationCircleIcon className="w-3.5 h-3.5" />
+                      View setup requirements
+                    </button>
+                  </div>
                 );
-                const hasRequirements = selectedServices.some(s => s.public_requirements && s.public_requirements.length > 0);
-                
-                if (hasRequirements && !dailyLimitInfo.hasReachedLimit) {
-                  return (
-                    <div className="flex justify-start">
-                      <button 
-                        type="button"
-                        onClick={() => setShowRequirementsModalFor(selectedServices)}
-                        className={`text-[11px] flex items-center gap-1.5 hover:underline transition-colors ${
-                          isDarkMode ? 'text-amber-400/90 hover:text-amber-300' : 'text-amber-600 hover:text-amber-700'
-                        }`}
-                      >
-                        <InformationCircleIcon className="w-3.5 h-3.5" />
-                        View setup requirements
-                      </button>
-                    </div>
-                  );
-                }
-                return null;
-              })()}
-            </div>
+              }
+              return null;
+            })()}
+          </div>
 
-            {/* Enhanced Calendar Component */}
+          {/* Step 2: Date Selection */}
+          <div>
             <EnhancedCalendar
               value={appointmentData.appointment_date}
               onChange={(value) => handleAppointmentChange({ target: { name: 'appointment_date', value } })}
@@ -3167,78 +3227,154 @@ const Dashboard = () => {
               dailyLimitInfo={dailyLimitInfo}
               isDarkMode={isDarkMode}
             />
-
-            {/* Time Input using TimePicker Component */}
-            <TimePicker
-              value={appointmentData.appointment_time}
-              onChange={(value) => handleAppointmentChange({ target: { name: 'appointment_time', value } })}
-              error={formErrors.appointment_time}
-              disabled={dailyLimitInfo.hasReachedLimit}
-              isDarkMode={isDarkMode}
-            />
-
-            <div className="lg:col-span-2">
-              <label className={`block text-xs font-medium ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-1`}>
-                Additional Notes (Optional)
-              </label>
-              <textarea
-                name="notes"
-                value={appointmentData.notes}
-                onChange={handleAppointmentChange}
-                disabled={dailyLimitInfo.hasReachedLimit}
-                rows="3"
-                className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all duration-200 text-sm placeholder-gray-400 resize-none ${isDarkMode ? 'bg-gray-800 border-gray-600 text-white' : 'bg-white border-gray-300 text-gray-900'} ${
-                  dailyLimitInfo.hasReachedLimit ? 'opacity-50 cursor-not-allowed' : ''
-                }`}
-                placeholder="Any special requirements, document details, or specific instructions..."
-              />
-            </div>
-
-            {/* Service Summary with Pricing */}
-            {appointmentData.type && appointmentTypes.find(t => t.value === appointmentData.type) && (
-              <div className="lg:col-span-2 bg-gradient-to-r from-amber-500/10 to-amber-500/5 border border-amber-500/30 rounded-lg p-4">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div>
-                    <p className="text-xs text-amber-400/70 font-medium">Service</p>
-                    <p className="text-sm text-amber-50 font-semibold">
-                      {appointmentTypes.find(t => t.value === appointmentData.type)?.label}
-                    </p>
-                  </div>
-                  {appointmentTypes.find(t => t.value === appointmentData.type)?.price && (
-                    <div>
-                      <p className="text-xs text-amber-400/70 font-medium">Price</p>
-                      <p className="text-sm text-amber-50 font-semibold">
-                        ₱{parseFloat(appointmentTypes.find(t => t.value === appointmentData.type).price).toFixed(2)}
-                      </p>
-                    </div>
-                  )}
-                  {appointmentTypes.find(t => t.value === appointmentData.type)?.duration && (
-                    <div>
-                      <p className="text-xs text-amber-400/70 font-medium">Duration</p>
-                      <p className="text-sm text-amber-50 font-semibold">
-                        {appointmentTypes.find(t => t.value === appointmentData.type).duration} minutes
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
           </div>
 
-          <div className="flex flex-col sm:flex-row justify-between items-center space-y-3 sm:space-y-0 pt-4 border-t border-gray-700">
-            <div className="text-xs text-amber-400/70 space-y-1">
-              <p>📋 Bring valid government-issued ID to your appointment</p>
-              <p>⏰ Please arrive 5 minutes early</p>
-              <p>📄 Have all documents ready for notarization</p>
+          {/* Step 3: Time Slot Grid (only after date selected) */}
+          {hasDate && (
+            <div>
+              <label className={`block text-xs font-medium mb-2 ${isDarkMode ? 'text-amber-50' : 'text-gray-700'}`}>
+                Select Time <span className="text-red-500">*</span>
+              </label>
+
+              {slotsLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="w-5 h-5 border-2 border-amber-500 border-t-transparent rounded-full animate-spin mr-2" />
+                  <span className="text-sm text-gray-400">Loading available slots...</span>
+                </div>
+              ) : slotDetails.length === 0 ? (
+                <div className="text-center py-6 rounded-lg border border-gray-700 bg-gray-800/50">
+                  <ExclamationTriangleIcon className="h-8 w-8 text-gray-500 mx-auto mb-2" />
+                  <p className="text-sm text-gray-400">No time slots available for this date.</p>
+                  <p className="text-xs text-gray-500 mt-1">Try selecting a different date.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 gap-2">
+                  {slotDetails.map((slot) => {
+                    const isFull = slot.status === 'full';
+                    const isPartial = slot.status === 'partial';
+                    const isSelected = appointmentData.appointment_time === slot.time;
+                    const displayTime = new Date(`2000-01-01T${slot.time}`).toLocaleTimeString('en-US', {
+                      hour: 'numeric',
+                      minute: '2-digit',
+                      hour12: true,
+                    });
+
+                    return (
+                      <button
+                        key={slot.time}
+                        type="button"
+                        disabled={isFull || dailyLimitInfo.hasReachedLimit}
+                        onClick={() => {
+                          setAppointmentData(prev => ({ ...prev, appointment_time: slot.time }));
+                          if (formErrors.appointment_time) {
+                            setFormErrors(prev => ({ ...prev, appointment_time: '' }));
+                          }
+                        }}
+                        className={`relative px-2 py-3 rounded-lg border text-center transition-all text-sm ${
+                          isFull
+                            ? 'border-red-500/30 bg-red-900/20 text-red-400/60 cursor-not-allowed opacity-60'
+                            : isSelected
+                              ? 'border-amber-500 bg-amber-500/20 text-amber-300 ring-2 ring-amber-500/50'
+                              : isPartial
+                                ? 'border-amber-500/30 bg-amber-900/10 text-amber-200 hover:border-amber-500/60 hover:bg-amber-500/15 cursor-pointer'
+                                : 'border-gray-600 bg-gray-800 text-gray-200 hover:border-amber-500/50 hover:bg-gray-700 cursor-pointer'
+                        }`}
+                      >
+                        <span className="font-medium block">{displayTime}</span>
+                        <span className={`text-[10px] block mt-0.5 ${
+                          isFull ? 'text-red-400' : isPartial ? 'text-amber-400/70' : 'text-green-400/70'
+                        }`}>
+                          {isFull ? 'FULL' : `${slot.booked}/${slot.capacity} booked`}
+                        </span>
+                        {isSelected && (
+                          <div className="absolute -top-1 -right-1 w-4 h-4 bg-amber-500 rounded-full flex items-center justify-center">
+                            <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="4">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {formErrors.appointment_time && (
+                <p className="text-red-400 text-xs mt-1.5 flex items-center gap-1.5 px-1">
+                  <ExclamationTriangleIcon className="h-3.5 w-3.5 flex-shrink-0" />
+                  {formErrors.appointment_time}
+                </p>
+              )}
             </div>
+          )}
+
+          {/* Step 4: Booking Summary (only after time selected) */}
+          {hasTime && (
+            <>
+              {/* Booking Summary Card */}
+              <div className="bg-gradient-to-r from-amber-500/10 to-amber-500/5 border border-amber-500/30 rounded-lg p-4">
+                <h4 className="text-xs font-semibold text-amber-400 mb-3 uppercase tracking-wider">Booking Summary</h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <p className="text-[10px] text-amber-400/60 font-medium uppercase">Date</p>
+                    <p className="text-sm text-amber-50 font-medium mt-0.5">
+                      {new Date(appointmentData.appointment_date + 'T00:00:00').toLocaleDateString('en-US', {
+                        weekday: 'short',
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric',
+                      })}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-amber-400/60 font-medium uppercase">Time</p>
+                    <p className="text-sm text-amber-50 font-medium mt-0.5">
+                      {new Date(`2000-01-01T${appointmentData.appointment_time}`).toLocaleTimeString('en-US', {
+                        hour: 'numeric',
+                        minute: '2-digit',
+                        hour12: true,
+                      })}
+                    </p>
+                  </div>
+                </div>
+                {(() => {
+                  const selectedServices = appointmentTypes.filter(t =>
+                    Array.isArray(appointmentData.type) && appointmentData.type.includes(t.value)
+                  );
+                  const totalPrice = selectedServices.reduce((sum, s) => sum + parseFloat(s.price || 0), 0);
+                  if (selectedServices.length > 0) {
+                    return (
+                      <div className="mt-3 pt-3 border-t border-amber-500/20 space-y-1.5">
+                        {selectedServices.map(s => (
+                          <div key={s.value} className="flex justify-between items-center">
+                            <span className="text-xs text-amber-50/80">{s.label}</span>
+                            <span className="text-xs font-mono text-amber-400/70">₱{parseFloat(s.price || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                          </div>
+                        ))}
+                        {selectedServices.length > 1 && (
+                          <div className="flex justify-between items-center pt-1.5 border-t border-amber-500/20">
+                            <span className="text-xs text-amber-400/70 font-semibold">Total</span>
+                            <span className="text-amber-400 font-semibold">₱{totalPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
+              </div>
+            </>
+          )}
+
+          {/* Submit Section */}
+          <div className="flex justify-end pt-4 border-t border-gray-700">
             <button
               type="submit"
-              disabled={loading || dailyLimitInfo.hasReachedLimit}
+              disabled={loading || dailyLimitInfo.hasReachedLimit || !hasService || !hasDate || !hasTime}
               className="px-6 py-2 bg-gradient-to-r from-amber-600 to-amber-700 text-white rounded-lg hover:from-amber-700 hover:to-amber-800 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 focus:ring-offset-gray-900 transition-all duration-200 font-medium text-sm shadow border border-amber-500/30 disabled:opacity-50 disabled:cursor-not-allowed flex items-center transform hover:-translate-y-0.5"
             >
               {loading ? (
                 <>
-                  <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full mr-2"></div>
+                  <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full mr-2 animate-spin"></div>
                   Scheduling...
                 </>
               ) : dailyLimitInfo.hasReachedLimit ? (
@@ -3275,7 +3411,8 @@ const Dashboard = () => {
         isDarkMode={isDarkMode} 
       />
     </div>
-  );
+    );
+  };
 
   const renderAppointments = () => {
     // Filter appointments by status

@@ -11,6 +11,8 @@ export const useRealtimeUpdates = (onCapacityChange, onSettingsChange, onUnavail
   const lastCheckRef = useRef(new Date());
   const pollingIntervalRef = useRef(null);
   const isPollingRef = useRef(false);
+  const consecutiveErrorsRef = useRef(0);
+  const MAX_CONSECUTIVE_ERRORS = 5;
 
   /**
    * Start polling for updates
@@ -73,10 +75,32 @@ export const useRealtimeUpdates = (onCapacityChange, onSettingsChange, onUnavail
           // Update last check time
           lastCheckRef.current = new Date(response.data.timestamp);
         }
+        // Reset consecutive error counter on success
+        consecutiveErrorsRef.current = 0;
       } catch (error) {
+        // Stop polling on auth errors - user is logged out or token expired
+        if (error.response?.status === 401 || error.response?.status === 403) {
+          console.warn('[RealtimeUpdates] Auth error, stopping polling');
+          stopPollingInternal();
+          return;
+        }
+        consecutiveErrorsRef.current++;
         console.error('[RealtimeUpdates] Polling error:', error);
-        // Continue polling even on error
+        // Stop polling after too many consecutive errors to avoid flooding
+        if (consecutiveErrorsRef.current >= MAX_CONSECUTIVE_ERRORS) {
+          console.warn('[RealtimeUpdates] Too many consecutive errors, stopping polling');
+          stopPollingInternal();
+          return;
+        }
       }
+    };
+
+    const stopPollingInternal = () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+      isPollingRef.current = false;
     };
 
     // Initial check
@@ -95,6 +119,7 @@ export const useRealtimeUpdates = (onCapacityChange, onSettingsChange, onUnavail
       pollingIntervalRef.current = null;
     }
     isPollingRef.current = false;
+    consecutiveErrorsRef.current = 0;
   }, []);
 
   /**
@@ -146,10 +171,15 @@ export const useRealtimeUpdates = (onCapacityChange, onSettingsChange, onUnavail
     }
   }, [onCapacityChange, onSettingsChange, onUnavailableDatesChange, onAppointmentStatusChange]);
 
-  // Cleanup on unmount
+  // Cleanup on unmount and listen for auth:logout to stop polling immediately
   useEffect(() => {
+    const handleAuthLogout = () => {
+      stopPolling();
+    };
+    window.addEventListener('auth:logout', handleAuthLogout);
     return () => {
       stopPolling();
+      window.removeEventListener('auth:logout', handleAuthLogout);
     };
   }, [stopPolling]);
 

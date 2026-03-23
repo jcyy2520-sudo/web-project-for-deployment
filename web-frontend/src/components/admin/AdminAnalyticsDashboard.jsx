@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import LoadingSpinner from '../LoadingSpinner';
 
@@ -9,26 +9,39 @@ const AdminAnalyticsDashboard = () => {
   const [error, setError] = useState(null);
   const [refreshTime, setRefreshTime] = useState(null);
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
-  const [retryCount, setRetryCount] = useState(0);
   const MAX_RETRIES = 2;
 
+  // Use refs for retry count and abort controller to avoid useCallback/useEffect dependency cascades
+  const retryCountRef = useRef(0);
+  const abortControllerRef = useRef(null);
+  const mountedRef = useRef(true);
+
   const fetchAnalytics = useCallback(async () => {
+    // Cancel any in-flight request before starting a new one
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     try {
       setLoading(true);
       setError(null);
       const response = await axios.get('/api/admin/analytics/dashboard', {
         params: { realtime: 'true' },
-        timeout: 30000
+        timeout: 30000,
+        signal: controller.signal
       });
+      if (!mountedRef.current) return;
       if (response.data.success) {
         setAnalyticsData(response.data.data);
         setRefreshTime(new Date());
-        setRetryCount(0);
-        console.log('Analytics data loaded:', response.data.data);
+        retryCountRef.current = 0;
       } else {
         setError(response.data.message || 'Failed to load analytics data');
       }
     } catch (err) {
+      if (axios.isCancel(err) || !mountedRef.current) return;
       const errorMsg = err.response?.data?.message || err.message || 'Unknown error';
       if (err.response?.status === 401) {
         setError('Not authenticated. Please log in again.');
@@ -37,10 +50,10 @@ const AdminAnalyticsDashboard = () => {
       } else if (err.response?.status === 422) {
         setError('Invalid request. Please refresh the page and try again.');
       } else if (err.response?.status === 503) {
-        if (retryCount < MAX_RETRIES) {
+        if (retryCountRef.current < MAX_RETRIES) {
+          retryCountRef.current += 1;
           setError('Analytics service is temporarily unavailable. Retrying...');
-          setRetryCount(prev => prev + 1);
-          setTimeout(fetchAnalytics, 5000);
+          // No setTimeout retry — let the auto-refresh interval handle it
         } else {
           setError('Analytics service is temporarily unavailable. Please try again later.');
         }
@@ -51,48 +64,49 @@ const AdminAnalyticsDashboard = () => {
       }
       console.error('Analytics fetch error:', err);
     } finally {
-      setLoading(false);
+      if (mountedRef.current) setLoading(false);
     }
-  }, [retryCount]);
+  }, []); // No dependencies — uses refs for mutable state
 
   useEffect(() => {
+    mountedRef.current = true;
     fetchAnalytics();
 
     let interval;
     if (autoRefreshEnabled) {
-      // Refresh every 120 seconds for near-real-time updates (reduced from 60s for performance)
       interval = setInterval(fetchAnalytics, 120000);
     }
 
     // Try to set up real-time WebSocket listener for instant updates
+    let channel;
     if (window.Echo && typeof window.Echo.channel === 'function') {
       try {
-        const channel = window.Echo.channel('analytics-updates');
-        
-        // Listen for analytics update events from backend
-        const unsubscribeAnalytics = channel.listen('.analytics.updated', (data) => {
-          // When notified of a change, immediately fetch fresh data
+        channel = window.Echo.channel('analytics-updates');
+        channel.listen('.analytics.updated', () => {
           console.log('Analytics update event received, refreshing data');
           fetchAnalytics();
         });
-        
-        return () => {
-          if (unsubscribeAnalytics) unsubscribeAnalytics();
-          if (interval) clearInterval(interval);
-          try {
-            channel.stopListening('.analytics.updated');
-          } catch (e) {
-            // Already unsubscribed
-          }
-        };
       } catch (e) {
         console.warn('Echo listener setup failed:', e);
-        // Continue with polling fallback
       }
     }
 
-    return () => {
+    // Stop all activity on logout to prevent 401 floods
+    const handleLogout = () => {
+      mountedRef.current = false;
       if (interval) clearInterval(interval);
+      if (abortControllerRef.current) abortControllerRef.current.abort();
+    };
+    window.addEventListener('auth:logout', handleLogout);
+
+    return () => {
+      mountedRef.current = false;
+      if (interval) clearInterval(interval);
+      if (abortControllerRef.current) abortControllerRef.current.abort();
+      window.removeEventListener('auth:logout', handleLogout);
+      if (channel) {
+        try { channel.stopListening('.analytics.updated'); } catch (e) { /* already cleaned up */ }
+      }
     };
   }, [fetchAnalytics, autoRefreshEnabled]);
 

@@ -3,7 +3,7 @@
 namespace App\Services;
 
 use App\Models\Appointment;
-use App\Models\UnavailableDate;
+use App\Models\BlackoutDate;
 use Illuminate\Support\Collection;
 use Exception;
 
@@ -84,27 +84,35 @@ class AppointmentService
     public function isDateAvailable(string $date): bool
     {
         try {
-            return !UnavailableDate::where('date', $date)->exists();
+            return !BlackoutDate::where('date', $date)
+                ->where(function ($q) {
+                    $q->whereNull('is_recurring')->orWhere('is_recurring', false);
+                })
+                ->whereNull('start_time')
+                ->whereNull('end_time')
+                ->exists();
         } catch (Exception $e) {
             throw new Exception('Failed to check date availability: ' . $e->getMessage());
         }
     }
 
     /**
-     * Add unavailable date
+     * Add unavailable date (writes to blackout_dates)
      */
-    public function addUnavailableDate(array $data): UnavailableDate
+    public function addUnavailableDate(array $data): BlackoutDate
     {
         try {
-            $unavailableDate = UnavailableDate::create([
+            $allDay = $data['all_day'] ?? true;
+
+            $blackoutDate = BlackoutDate::create([
                 'date' => $data['date'],
                 'reason' => $data['reason'] ?? null,
-                'all_day' => $data['all_day'] ?? true,
-                'start_time' => $data['start_time'] ?? null,
-                'end_time' => $data['end_time'] ?? null,
+                'start_time' => $allDay ? null : ($data['start_time'] ?? null),
+                'end_time' => $allDay ? null : ($data['end_time'] ?? null),
+                'is_recurring' => false,
             ]);
 
-            return $unavailableDate;
+            return $blackoutDate;
         } catch (Exception $e) {
             throw new Exception('Failed to add unavailable date: ' . $e->getMessage());
         }
@@ -113,10 +121,10 @@ class AppointmentService
     /**
      * Delete unavailable date
      */
-    public function deleteUnavailableDate(UnavailableDate $unavailableDate): bool
+    public function deleteUnavailableDate(BlackoutDate $blackoutDate): bool
     {
         try {
-            return $unavailableDate->delete();
+            return $blackoutDate->delete();
         } catch (Exception $e) {
             throw new Exception('Failed to delete unavailable date: ' . $e->getMessage());
         }

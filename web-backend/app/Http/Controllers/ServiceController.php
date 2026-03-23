@@ -3,9 +3,11 @@
 namespace App\Http\Controllers;
 
 use App\Models\Service;
+use App\Models\ServiceUnavailability;
 use App\Models\ActionLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Carbon\Carbon;
 
 class ServiceController extends Controller
 {
@@ -38,6 +40,15 @@ class ServiceController extends Controller
             $services = Cache::remember('services_active', 120, function () {
                 return Service::where('is_active', true)->orderBy('name')->get();
             });
+
+            // Append current unavailability info for public consumers
+            $services->each(function ($service) {
+                $unavailability = $service->getCurrentUnavailability();
+                $service->is_unavailable = $unavailability !== null;
+                $service->unavailability_reason = $unavailability?->reason;
+                $service->unavailability_category = $unavailability?->reason_category;
+                $service->unavailable_until = $unavailability?->is_global ? null : $unavailability?->unavailable_until;
+            });
             
             return response()->json([
                 'data' => $services,
@@ -59,6 +70,15 @@ class ServiceController extends Controller
                 return Service::where('is_active', true)
                     ->orderBy('name')
                     ->get();
+            });
+
+            // Append current unavailability info
+            $services->each(function ($service) {
+                $unavailability = $service->getCurrentUnavailability();
+                $service->is_unavailable = $unavailability !== null;
+                $service->unavailability_reason = $unavailability?->reason;
+                $service->unavailability_category = $unavailability?->reason_category;
+                $service->unavailable_until = $unavailability?->is_global ? null : $unavailability?->unavailable_until;
             });
             
             return response()->json([
@@ -82,7 +102,19 @@ class ServiceController extends Controller
     public function adminServices()
     {
         try {
-            $services = Service::withTrashed()->orderBy('name')->get();
+            $services = Service::withTrashed()
+                ->with(['unavailabilities' => function ($q) {
+                    $q->where('is_active', true)->orderBy('created_at', 'desc');
+                }])
+                ->orderBy('name')
+                ->get();
+
+            // Append computed unavailability status
+            $services->each(function ($service) {
+                $unavailability = $service->getCurrentUnavailability();
+                $service->is_unavailable = $unavailability !== null;
+                $service->current_unavailability = $unavailability;
+            });
             
             return response()->json([
                 'data' => $services,
@@ -150,13 +182,18 @@ class ServiceController extends Controller
                     ->orderBy('name')
                     ->get()
                     ->map(function($service) {
+                        $unavailability = $service->getCurrentUnavailability();
                         return [
                             'id' => $service->id,
                             'name' => $service->name,
                             'description' => $service->description,
                             'public_requirements' => $service->public_requirements,
                             'count' => 0,
-                            'is_active' => $service->is_active
+                            'is_active' => $service->is_active,
+                            'is_unavailable' => $unavailability !== null,
+                            'unavailability_reason' => $unavailability?->reason,
+                            'unavailability_category' => $unavailability?->reason_category,
+                            'unavailable_until' => ($unavailability && !$unavailability->is_global) ? $unavailability->unavailable_until : null,
                         ];
                     })
                     ->values();
@@ -376,6 +413,246 @@ class ServiceController extends Controller
                 'message' => 'Failed to permanently delete service',
                 'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred',
                 'success' => false
+            ], 500);
+        }
+    }
+
+    // ==================== SERVICE AVAILABILITY MANAGEMENT ====================
+
+    /**
+     * Get predefined unavailability reason categories.
+     */
+    public function getReasonCategories()
+    {
+        return response()->json([
+            'data' => ServiceUnavailability::REASON_CATEGORIES,
+            'success' => true,
+        ]);
+    }
+
+    /**
+     * Get all unavailabilities for a service.
+     */
+    public function getUnavailabilities(Service $service)
+    {
+        try {
+            $unavailabilities = $service->unavailabilities()
+                ->with('creator:id,first_name,last_name')
+                ->orderBy('created_at', 'desc')
+                ->get();
+
+            return response()->json([
+                'data' => $unavailabilities,
+                'success' => true,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Failed to fetch unavailabilities',
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred',
+                'success' => false,
+            ], 500);
+        }
+    }
+
+    /**
+     * Set a service as unavailable.
+     */
+    public function setUnavailable(Request $request, Service $service)
+    {
+        try {
+            $request->validate([
+                'reason' => 'required|string|max:500',
+                'reason_category' => 'required|string|in:' . implode(',', array_keys(ServiceUnavailability::REASON_CATEGORIES)),
+                'is_global' => 'required|boolean',
+                'unavailable_from' => 'nullable|required_if:is_global,false|date',
+                'unavailable_until' => 'nullable|required_if:is_global,false|date|after:unavailable_from',
+            ]);
+
+            $unavailability = ServiceUnavailability::create([
+                'service_id' => $service->id,
+                'reason' => $request->reason,
+                'reason_category' => $request->reason_category,
+                'is_global' => $request->is_global,
+                'unavailable_from' => $request->is_global ? null : $request->unavailable_from,
+                'unavailable_until' => $request->is_global ? null : $request->unavailable_until,
+                'is_active' => true,
+                'created_by' => $request->user()->id,
+            ]);
+
+            $this->clearServicesCache();
+
+            ActionLog::log(
+                'service_unavailable',
+                "Marked service \"{$service->name}\" as unavailable: {$request->reason}",
+                'Service',
+                $service->id
+            );
+
+            return response()->json([
+                'message' => "Service \"{$service->name}\" has been marked as unavailable",
+                'data' => $unavailability->load('creator:id,first_name,last_name'),
+                'success' => true,
+            ], 201);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'message' => 'Validation failed',
+                'errors' => $e->errors(),
+                'success' => false,
+            ], 422);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Failed to set service as unavailable',
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred',
+                'success' => false,
+            ], 500);
+        }
+    }
+
+    /**
+     * Reactivate a service (deactivate an unavailability record).
+     */
+    public function setAvailable(Request $request, Service $service, ServiceUnavailability $unavailability)
+    {
+        try {
+            if ($unavailability->service_id !== $service->id) {
+                return response()->json([
+                    'message' => 'Unavailability record does not belong to this service',
+                    'success' => false,
+                ], 403);
+            }
+
+            $unavailability->update(['is_active' => false]);
+
+            $this->clearServicesCache();
+
+            ActionLog::log(
+                'service_available',
+                "Reactivated service \"{$service->name}\" (removed unavailability: {$unavailability->reason})",
+                'Service',
+                $service->id
+            );
+
+            return response()->json([
+                'message' => "Service \"{$service->name}\" is now available again",
+                'data' => $unavailability,
+                'success' => true,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Failed to reactivate service',
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred',
+                'success' => false,
+            ], 500);
+        }
+    }
+
+    /**
+     * Reactivate a service by deactivating ALL active unavailabilities at once.
+     */
+    public function setFullyAvailable(Request $request, Service $service)
+    {
+        try {
+            $count = $service->unavailabilities()
+                ->where('is_active', true)
+                ->update(['is_active' => false]);
+
+            $this->clearServicesCache();
+
+            ActionLog::log(
+                'service_available',
+                "Fully reactivated service \"{$service->name}\" ({$count} unavailability records cleared)",
+                'Service',
+                $service->id
+            );
+
+            return response()->json([
+                'message' => "Service \"{$service->name}\" is now fully available",
+                'cleared_count' => $count,
+                'success' => true,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Failed to reactivate service',
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred',
+                'success' => false,
+            ], 500);
+        }
+    }
+
+    /**
+     * Update an existing unavailability record.
+     */
+    public function updateUnavailability(Request $request, Service $service, ServiceUnavailability $unavailability)
+    {
+        try {
+            if ($unavailability->service_id !== $service->id) {
+                return response()->json([
+                    'message' => 'Unavailability record does not belong to this service',
+                    'success' => false,
+                ], 403);
+            }
+
+            $request->validate([
+                'reason' => 'sometimes|required|string|max:500',
+                'reason_category' => 'sometimes|required|string|in:' . implode(',', array_keys(ServiceUnavailability::REASON_CATEGORIES)),
+                'is_global' => 'sometimes|required|boolean',
+                'unavailable_from' => 'nullable|date',
+                'unavailable_until' => 'nullable|date|after:unavailable_from',
+                'is_active' => 'sometimes|boolean',
+            ]);
+
+            $unavailability->update($request->only([
+                'reason', 'reason_category', 'is_global',
+                'unavailable_from', 'unavailable_until', 'is_active',
+            ]));
+
+            $this->clearServicesCache();
+
+            return response()->json([
+                'message' => 'Unavailability updated successfully',
+                'data' => $unavailability->fresh()->load('creator:id,first_name,last_name'),
+                'success' => true,
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'message' => 'Validation failed',
+                'errors' => $e->errors(),
+                'success' => false,
+            ], 422);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Failed to update unavailability',
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred',
+                'success' => false,
+            ], 500);
+        }
+    }
+
+    /**
+     * Delete an unavailability record permanently.
+     */
+    public function deleteUnavailability(Service $service, ServiceUnavailability $unavailability)
+    {
+        try {
+            if ($unavailability->service_id !== $service->id) {
+                return response()->json([
+                    'message' => 'Unavailability record does not belong to this service',
+                    'success' => false,
+                ], 403);
+            }
+
+            $unavailability->delete();
+            $this->clearServicesCache();
+
+            return response()->json([
+                'message' => 'Unavailability record deleted',
+                'success' => true,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Failed to delete unavailability',
+                'error' => config('app.debug') ? $e->getMessage() : 'An internal error occurred',
+                'success' => false,
             ], 500);
         }
     }

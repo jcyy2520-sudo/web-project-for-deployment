@@ -4,7 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use App\Models\Appointment;
-use App\Models\UnavailableDate;
+use App\Models\BlackoutDate;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
@@ -219,34 +219,19 @@ class AdminController extends Controller
                     })
                     ->toArray();
 
-                // 3. Unavailable/blocked dates with reasons
-                $unavailableDates = UnavailableDate::whereBetween('date', [$startDate->toDateString(), $endDate->toDateString()])
+                // 3. Blocked dates with reasons (unified blackout_dates table)
+                $blockedDates = BlackoutDate::whereBetween('date', [$startDate->toDateString(), $endDate->toDateString()])
                     ->get()
                     ->map(function ($item) {
                         return [
                             'date' => Carbon::parse($item->date)->format('Y-m-d'),
-                            'reason' => $item->reason ?: 'Unavailable',
+                            'reason' => $item->reason ?: 'Blocked',
                         ];
                     })
                     ->toArray();
 
-                // Also get BlackoutDate entries if the model exists
-                $blackoutDates = [];
-                if (class_exists(\App\Models\BlackoutDate::class)) {
-                    $blackoutDates = \App\Models\BlackoutDate::whereBetween('date', [$startDate->toDateString(), $endDate->toDateString()])
-                        ->get()
-                        ->map(function ($item) {
-                            return [
-                                'date' => Carbon::parse($item->date)->format('Y-m-d'),
-                                'reason' => $item->reason ?: 'Blocked',
-                            ];
-                        })
-                        ->toArray();
-                }
-
-                // Merge unavailable + blackout into a single keyed array
                 $blockedMap = [];
-                foreach (array_merge($unavailableDates, $blackoutDates) as $entry) {
+                foreach ($blockedDates as $entry) {
                     $blockedMap[$entry['date']] = $entry['reason'];
                 }
 
@@ -493,7 +478,7 @@ class AdminController extends Controller
                 'revenue' => $revenue,
                 'monthlyTrends' => $monthlyTrends,
                 'system' => [
-                    'unavailable_dates' => UnavailableDate::count(),
+                    'unavailable_dates' => BlackoutDate::count(),
                     'storage_usage' => '75%', // Placeholder
                     'system_uptime' => '99.9%', // Placeholder
                 ]
@@ -714,7 +699,7 @@ class AdminController extends Controller
             // Database sizes (approximate)
             $userCount = User::count();
             $appointmentCount = Appointment::count();
-            $unavailableDateCount = UnavailableDate::count();
+            $unavailableDateCount = BlackoutDate::count();
 
             // Recent activity
             $recentUsers = User::latest()->take(5)->get(['id', 'first_name', 'last_name', 'email', 'role', 'created_at']);
@@ -888,7 +873,7 @@ class AdminController extends Controller
     {
         $totalUsers = User::whereBetween('created_at', [$startDate, $endDate])->count();
         $totalAppointments = Appointment::whereBetween('created_at', [$startDate, $endDate])->count();
-        $unavailableDates = UnavailableDate::whereBetween('date', [$startDate, $endDate])->count();
+        $unavailableDates = BlackoutDate::whereBetween('date', [$startDate, $endDate])->count();
 
         // Compute basic performance metrics from available data
         $failedJobs = 0;

@@ -3,7 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\BlackoutDate;
-use App\Models\UnavailableDate;
+
 use App\Traits\SafeExperimentalFeature;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -15,7 +15,7 @@ class BlackoutDateController extends Controller
 {
     use SafeExperimentalFeature;
     /**
-     * Get all blackout dates (including legacy UnavailableDate entries)
+     * Get all blackout dates
      */
     public function index(Request $request)
     {
@@ -35,36 +35,10 @@ class BlackoutDateController extends Controller
 
         $blackoutDates = $query->orderBy('date')->get();
 
-        // Also get legacy UnavailableDate entries and convert to BlackoutDate format
-        $unavailableDates = UnavailableDate::query();
-        
-        if ($request->has('reason')) {
-            $unavailableDates->where('reason', 'like', "%{$request->reason}%");
-        }
-
-        $unavailableDates = $unavailableDates->orderBy('date')->get()->map(function ($unavailable) {
-            return [
-                'id' => $unavailable->id,
-                'date' => $unavailable->date,
-                'reason' => $unavailable->reason,
-                'start_time' => $unavailable->start_time,
-                'end_time' => $unavailable->end_time,
-                'is_recurring' => false,
-                'recurring_days' => null,
-                'is_legacy' => true,
-                'created_at' => $unavailable->created_at,
-                'updated_at' => $unavailable->updated_at,
-            ];
-        });
-
-        // Merge both collections
-        $allDates = $blackoutDates->concat($unavailableDates)->sortBy('date')->values();
-
         return response()->json([
             'success' => true,
-            'data' => $allDates,
-            'total' => count($allDates),
-            'info' => 'Includes both new blackout dates and legacy unavailable dates'
+            'data' => $blackoutDates,
+            'total' => $blackoutDates->count(),
         ]);
     }
 

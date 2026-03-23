@@ -43,6 +43,14 @@ class RefundController extends Controller
                 ], 403);
             }
 
+            // Phase 1 #16: Cashier cannot request refund on a payment they themselves processed
+            if ($user->role === 'cashier' && $appointment->processed_by === $user->id) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'You cannot request a refund for a payment you processed. Another cashier or admin must initiate the refund.'
+                ], 403);
+            }
+
             // Validate appointment is paid
             if ($appointment->payment_status !== 'paid') {
                 return response()->json([
@@ -115,12 +123,20 @@ class RefundController extends Controller
             $refund->status = 'pending';
             $refund->save();
 
-            // Log the action
+            // Log the action with enhanced metadata (#16)
             ActionLog::log(
                 'request_refund',
                 "Refund requested for {$appointment->user->first_name} {$appointment->user->last_name} - Amount: ₱{$request->refund_amount}",
                 'Appointment',
-                $appointment->id
+                $appointment->id,
+                'success',
+                [
+                    'refund_amount' => $request->refund_amount,
+                    'reason' => $request->reason,
+                    'original_payment_amount' => $appointment->payment_amount,
+                    'original_cashier_id' => $appointment->processed_by,
+                    'requesting_user_id' => $request->user()->id,
+                ]
             );
 
             // Send email notification to user that refund request is being processed
@@ -260,12 +276,20 @@ class RefundController extends Controller
             $refund->refund_method = $request->refund_method;
             $refund->save();
 
-            // Log the action
+            // Log the action (#15 enhanced)
             ActionLog::log(
                 'approve_refund',
                 "Approved refund for appointment #{$refund->appointment_id} - Amount: ₱{$refund->refund_amount}",
                 'Refund',
-                $refund->id
+                $refund->id,
+                'success',
+                [
+                    'refund_amount' => $refund->refund_amount,
+                    'approved_by' => $request->user()->id,
+                    'appointment_id' => $refund->appointment_id,
+                    'is_partial' => $refund->is_partial,
+                    'refund_method' => $request->refund_method,
+                ]
             );
 
             // Notify user with email and system message
@@ -319,12 +343,19 @@ class RefundController extends Controller
             $refund->rejection_reason = $request->rejection_reason;
             $refund->save();
 
-            // Log the action
+            // Log the action (#15 enhanced)
             ActionLog::log(
                 'reject_refund',
                 "Rejected refund for appointment #{$refund->appointment_id}",
                 'Refund',
-                $refund->id
+                $refund->id,
+                'success',
+                [
+                    'refund_amount' => $refund->refund_amount,
+                    'rejected_by' => $request->user()->id,
+                    'rejection_reason' => $request->rejection_reason,
+                    'appointment_id' => $refund->appointment_id,
+                ]
             );
 
             // Notify user
@@ -385,12 +416,22 @@ class RefundController extends Controller
                 $refund->appointment->save();
             }
 
-            // Log the action
+            // Log the action (#15 enhanced)
             ActionLog::log(
                 'complete_refund',
                 "Completed refund for appointment #{$refund->appointment_id} - Amount: ₱{$refund->refund_amount}",
                 'Refund',
-                $refund->id
+                $refund->id,
+                'success',
+                [
+                    'refund_id' => $refund->id,
+                    'refund_amount' => $refund->refund_amount,
+                    'approved_by' => $refund->approved_by,
+                    'completed_by' => $request->user()->id,
+                    'appointment_id' => $refund->appointment_id,
+                    'is_partial' => $refund->is_partial,
+                    'transaction_id' => $request->transaction_id,
+                ]
             );
 
             // Notify user

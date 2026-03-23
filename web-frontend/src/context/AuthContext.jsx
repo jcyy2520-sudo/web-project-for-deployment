@@ -1,7 +1,10 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 
 const AuthContext = createContext();
+
+// Track whether a logout is already in progress globally to prevent cascading logouts
+let isLoggingOutGlobal = false;
 
 // Configure axios defaults based on environment
 // In development (Vite): Use proxy (/api routes via vite.config.js)
@@ -37,6 +40,7 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [connectionError, setConnectionError] = useState(false);
+  const logoutInProgressRef = useRef(false);
   
   // Get token from localStorage on initial load AND set axios header immediately
   const [token, setToken] = useState(() => {
@@ -56,6 +60,41 @@ export const AuthProvider = ({ children }) => {
       delete axios.defaults.headers.common['Authorization'];
     }
   }, [token]);
+
+  // Global 401 interceptor: auto-logout on authentication failures
+  // This prevents cascading 401 errors from flooding the server
+  useEffect(() => {
+    const interceptorId = axios.interceptors.response.use(
+      (response) => response,
+      (error) => {
+        if (
+          error.response?.status === 401 &&
+          !isLoggingOutGlobal &&
+          // Don't intercept login/csrf requests
+          !error.config?.url?.includes('/login') &&
+          !error.config?.url?.includes('/sanctum/csrf-cookie') &&
+          // Don't intercept the logout call itself
+          !error.config?.url?.includes('/logout')
+        ) {
+          const hasToken = localStorage.getItem('token');
+          if (hasToken) {
+            console.warn('Global 401 interceptor: token invalid, clearing auth state');
+            // Silently clear auth - don't call the server logout (token is already invalid)
+            isLoggingOutGlobal = true;
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            delete axios.defaults.headers.common['Authorization'];
+            setToken(null);
+            setUser(null);
+            // Allow future logouts after a brief delay
+            setTimeout(() => { isLoggingOutGlobal = false; }, 2000);
+          }
+        }
+        return Promise.reject(error);
+      }
+    );
+    return () => axios.interceptors.response.eject(interceptorId);
+  }, []);
 
   // Initialize auth state - show cached data immediately, verify in background
   useEffect(() => {
@@ -84,7 +123,7 @@ export const AuthProvider = ({ children }) => {
             // If it fails with 401, we log out; otherwise update with server-verified data
             axios.get('/api/user', {
               headers: { 'Authorization': `Bearer ${storedToken}` },
-              timeout: 5000
+              timeout: 8000
             }).then(response => {
               const freshUserData = response.data.data || response.data;
               setUser(freshUserData);
@@ -96,8 +135,14 @@ export const AuthProvider = ({ children }) => {
                 handleLogout();
               } else if (!verifyError.response) {
                 // No response at all = actual network/connection failure
-                console.warn('Token validation failed (network), keeping cached data:', verifyError.message);
-                setConnectionError(true);
+                // Only show banner if this is NOT a timeout (timeouts can happen when backend is just slow)
+                if (verifyError.code === 'ECONNABORTED') {
+                  console.warn('Token validation timed out, keeping cached data');
+                  // Don't set connectionError for timeouts — backend is likely just slow, not down
+                } else {
+                  console.warn('Token validation failed (network), keeping cached data:', verifyError.message);
+                  setConnectionError(true);
+                }
               } else {
                 // Server responded (e.g. 500) — not a connection issue, just a server error
                 console.warn('Token validation returned error status:', verifyError.response?.status);
@@ -252,12 +297,23 @@ export const AuthProvider = ({ children }) => {
   };
 
   const logout = async () => {
+    // Prevent concurrent logout calls that cause cascading failures
+    if (logoutInProgressRef.current || isLoggingOutGlobal) return;
+    logoutInProgressRef.current = true;
+    isLoggingOutGlobal = true;
+
+    // Signal all polling/intervals to stop BEFORE clearing auth
+    window.dispatchEvent(new CustomEvent('auth:logout'));
+
     try {
-      await axios.post('/api/logout');
+      await axios.post('/api/logout', null, { timeout: 5000 });
     } catch (error) {
       console.error('Logout error:', error);
     } finally {
       handleLogout();
+      logoutInProgressRef.current = false;
+      // Allow future logins/logouts after a brief delay
+      setTimeout(() => { isLoggingOutGlobal = false; }, 1000);
     }
   };
 
@@ -281,6 +337,7 @@ export const AuthProvider = ({ children }) => {
     updateUser,
     loading,
     connectionError,
+    setConnectionError,
     isAuthenticated: !!user && !!token,
     isAdmin: user?.role === 'admin',
     isStaff: user?.role === 'staff',

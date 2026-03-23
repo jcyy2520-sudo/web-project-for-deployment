@@ -39,6 +39,33 @@ class Service extends Model
                     ->withTimestamps();
     }
 
+    public function unavailabilities()
+    {
+        return $this->hasMany(ServiceUnavailability::class);
+    }
+
+    public function activeUnavailabilities()
+    {
+        return $this->hasMany(ServiceUnavailability::class)->currentlyActive();
+    }
+
+    /**
+     * Check if this service is currently unavailable.
+     * Returns the active unavailability record if unavailable, null otherwise.
+     */
+    public function getCurrentUnavailability(): ?ServiceUnavailability
+    {
+        return ServiceUnavailability::isServiceUnavailableAt($this->id);
+    }
+
+    /**
+     * Check if this service is available for booking at a given datetime.
+     */
+    public function isAvailableAt(?\Carbon\Carbon $dateTime = null): bool
+    {
+        return ServiceUnavailability::isServiceUnavailableAt($this->id, $dateTime) === null;
+    }
+
     public static function getServiceStats()
     {
         return self::withCount('appointments')

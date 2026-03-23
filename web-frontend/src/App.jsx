@@ -111,13 +111,15 @@ const PublicRoute = ({ children }) => {
 const ConnectionBanner = () => {
   const [dismissed, setDismissed] = useState(false);
   const [retrying, setRetrying] = useState(false);
+  const { setConnectionError } = useAuth();
   
   const handleRetry = async () => {
     setRetrying(true);
     try {
       await fetch('/api/health', { method: 'GET', headers: { 'Accept': 'application/json' } });
-      // If successful, reload the page to re-initialize
-      window.location.reload();
+      // If successful, clear the connection error — no reload needed
+      if (setConnectionError) setConnectionError(false);
+      setDismissed(true);
     } catch {
       setRetrying(false);
     }

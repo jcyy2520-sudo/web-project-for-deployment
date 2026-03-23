@@ -5,7 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\TimeSlotCapacity;
 use App\Models\AppointmentSettings;
 use App\Models\BlackoutDate;
-use App\Models\UnavailableDate;
+
 use App\Models\Appointment;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -49,8 +49,7 @@ class RealtimeUpdateController extends Controller
                 // Also check database directly for recent blackout date changes
                 if (!$unavailableDatesChanged) {
                     $recentBlackout = BlackoutDate::where('updated_at', '>', $lastCheckTime)->exists();
-                    $recentUnavailable = UnavailableDate::where('updated_at', '>', $lastCheckTime)->exists();
-                    $unavailableDatesChanged = $recentBlackout || $recentUnavailable;
+                    $unavailableDatesChanged = $recentBlackout;
                 }
 
                 // Check if the authenticated user's appointments have been updated (status changed by admin)

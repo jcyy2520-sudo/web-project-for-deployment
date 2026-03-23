@@ -40,7 +40,9 @@ const MobileNotificationBell = ({ onViewAll, isOpen, onToggle, onClose, isDarkMo
     };
     fetchCount();
     const interval = setInterval(fetchCount, 30000);
-    return () => clearInterval(interval);
+    const handleLogout = () => clearInterval(interval);
+    window.addEventListener('auth:logout', handleLogout);
+    return () => { clearInterval(interval); window.removeEventListener('auth:logout', handleLogout); };
   }, []);
 
   // Fetch recent when modal opens

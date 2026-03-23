@@ -11,7 +11,9 @@ const AnalyticsDashboard = () => {
   useEffect(() => {
     fetchMetrics();
     const interval = setInterval(fetchMetrics, 30000); // Refresh every 30 seconds
-    return () => clearInterval(interval);
+    const handleLogout = () => clearInterval(interval);
+    window.addEventListener('auth:logout', handleLogout);
+    return () => { clearInterval(interval); window.removeEventListener('auth:logout', handleLogout); };
   }, [hours]);
 
   const fetchMetrics = async () => {

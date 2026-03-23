@@ -46,7 +46,10 @@ import {
   StarIcon,
   MegaphoneIcon,
   NoSymbolIcon,
-  GlobeAltIcon
+  GlobeAltIcon,
+  ArrowTrendingUpIcon,
+  ArrowTrendingDownIcon,
+  BoltIcon
 } from '@heroicons/react/24/outline';
 import AdminSettings from '../components/admin/AdminSettings';
 import UserStatusManagement from '../components/admin/UserStatusManagement';
@@ -67,6 +70,56 @@ import AdminRefundManagement from '../components/admin/AdminRefundManagement';
 import AdminAppeals from '../components/admin/AdminAppeals';
 import AdminAnnouncements from '../components/admin/AdminAnnouncements';
 
+
+// Animated counter hook
+const useAnimatedCount = (target, duration = 1200) => {
+  const [count, setCount] = useState(0);
+  const prevTarget = useRef(0);
+  useEffect(() => {
+    const start = prevTarget.current;
+    const end = typeof target === 'number' ? target : parseInt(String(target).replace(/[^0-9]/g, '')) || 0;
+    if (start === end) { setCount(end); return; }
+    prevTarget.current = end;
+    const startTime = performance.now();
+    const animate = (now) => {
+      const elapsed = now - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      // Ease out cubic
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setCount(Math.round(start + (end - start) * eased));
+      if (progress < 1) requestAnimationFrame(animate);
+    };
+    requestAnimationFrame(animate);
+  }, [target, duration]);
+  return count;
+};
+
+// Mini sparkline SVG (inline trend in stat cards)
+const Sparkline = ({ data, color = '#f59e0b', height = 28, width = 80 }) => {
+  const values = useMemo(() => data.map(d => Number(d.value) || 0), [data]);
+  if (values.length < 2) return null;
+  const max = Math.max(...values, 1);
+  const min = Math.min(...values, 0);
+  const range = max - min || 1;
+  const points = values.map((v, i) => {
+    const x = (i / (values.length - 1)) * width;
+    const y = height - ((v - min) / range) * (height - 4) - 2;
+    return `${x},${y}`;
+  }).join(' ');
+  const fillPoints = `0,${height} ${points} ${width},${height}`;
+  return (
+    <svg width={width} height={height} className="flex-shrink-0">
+      <defs>
+        <linearGradient id={`spark-${color.replace('#','')}`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity="0.3" />
+          <stop offset="100%" stopColor={color} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <polygon points={fillPoints} fill={`url(#spark-${color.replace('#','')})`} />
+      <polyline points={points} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+};
 
 // Chart Components
 const BarChart = ({ data, title, color = 'amber', height = 160, isDarkMode = true }) => {
@@ -184,67 +237,118 @@ const PieChart = ({ data, title, isDarkMode = true }) => {
 };
 
 const LineChart = ({ data, title, color = 'amber', isDarkMode = true }) => {
+  const [hoverIdx, setHoverIdx] = useState(null);
+  const chartRef = useRef(null);
   const safeData = useMemo(() => 
     data.map(item => ({ ...item, value: Number(item.value) || 0 })), 
     [data]
   );
   const maxValue = Math.max(...safeData.map(item => item.value), 1);
-  const points = safeData.map((item, index) => {
-    const x = (index / (safeData.length - 1)) * 100;
-    const y = 100 - (item.value / maxValue) * 100;
-    return `${x},${y}`;
-  }).join(' ');
+  const pad = { top: 16, right: 10, bottom: 24, left: 10 };
+  const W = 440, H = 180;
+  const iW = W - pad.left - pad.right, iH = H - pad.top - pad.bottom;
+  const bottom = pad.top + iH;
+
+  const pts = useMemo(() => safeData.map((item, i) => {
+    const x = pad.left + (safeData.length <= 1 ? iW / 2 : (i / (safeData.length - 1)) * iW);
+    const y = pad.top + iH - (item.value / maxValue) * iH;
+    return { x, y };
+  }), [safeData, maxValue, iW, iH]);
+
+  // Catmull-Rom to cubic bezier smooth curve
+  const smoothPath = useMemo(() => {
+    if (pts.length < 2) return '';
+    if (pts.length === 2) return `M${pts[0].x},${pts[0].y}L${pts[1].x},${pts[1].y}`;
+    const t = 0.35;
+    let d = `M${pts[0].x},${pts[0].y}`;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = pts[Math.max(i - 1, 0)];
+      const p1 = pts[i];
+      const p2 = pts[i + 1];
+      const p3 = pts[Math.min(i + 2, pts.length - 1)];
+      const cp1x = p1.x + (p2.x - p0.x) * t / 3;
+      const cp1y = p1.y + (p2.y - p0.y) * t / 3;
+      const cp2x = p2.x - (p3.x - p1.x) * t / 3;
+      const cp2y = p2.y - (p3.y - p1.y) * t / 3;
+      d += ` C${cp1x},${cp1y} ${cp2x},${cp2y} ${p2.x},${p2.y}`;
+    }
+    return d;
+  }, [pts]);
+
+  const areaPath = smoothPath ? `${smoothPath} L${pts[pts.length - 1].x},${bottom} L${pts[0].x},${bottom} Z` : '';
+  const barW = safeData.length > 0 ? Math.max(4, (iW / safeData.length) * 0.45) : 6;
+
+  const handleMouseMove = (e) => {
+    if (!chartRef.current || pts.length === 0) return;
+    const rect = chartRef.current.getBoundingClientRect();
+    const xPx = e.clientX - rect.left;
+    const pct = xPx / rect.width;
+    const idx = Math.round(pct * (safeData.length - 1));
+    setHoverIdx(Math.max(0, Math.min(safeData.length - 1, idx)));
+  };
 
   return (
-    <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4 hover:border-amber-500/40 transition-all duration-300`}>
-      <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-3 flex items-center`}>
+    <div className={`${isDarkMode ? 'bg-gray-900/80 border-gray-800' : 'bg-white border-gray-200'} border rounded-xl shadow p-4 transition-all duration-300`}>
+      <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-white' : 'text-gray-900'} mb-3 flex items-center`}>
         <ChartBarIcon className="h-4 w-4 mr-2" />
         {title}
       </h3>
-      <div className="relative h-36">
-        <svg viewBox="0 0 100 100" className="w-full h-full">
-          {[0, 25, 50, 75, 100].map((y) => (
-            <line
-              key={y}
-              x1="0"
-              y1={y}
-              x2="100"
-              y2={y}
-              stroke="var(--borders)"
-              strokeWidth="0.5"
-            />
-          ))}
-          <polyline
-            fill="none"
-            stroke="url(#gradient-amber)"
-            strokeWidth="2"
-            points={points}
-            className="animate-draw"
-          />
-          {safeData.map((item, index) => {
-            const x = (index / (safeData.length - 1)) * 100;
-            const y = 100 - (item.value / maxValue) * 100;
-            return (
-              <circle
-                key={index}
-                cx={x}
-                cy={y}
-                r="1.5"
-                fill="var(--accent)"
-                className="hover:r-2 transition-all duration-200 cursor-pointer"
-              />
-            );
-          })}
+      <div className="relative" ref={chartRef} onMouseMove={handleMouseMove} onMouseLeave={() => setHoverIdx(null)}>
+        <svg viewBox={`0 0 ${W} ${H}`} className="w-full" preserveAspectRatio="xMidYMid meet" style={{ height: '180px' }}>
           <defs>
-            <linearGradient id="gradient-amber" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.7" />
-              <stop offset="100%" stopColor="var(--accent)" stopOpacity="0.3" />
+            <linearGradient id="lc-area-grad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={isDarkMode ? '#818cf8' : '#6366f1'} stopOpacity="0.22" />
+              <stop offset="100%" stopColor={isDarkMode ? '#818cf8' : '#6366f1'} stopOpacity="0.01" />
             </linearGradient>
           </defs>
+          {/* Horizontal grid + Y labels */}
+          {[0, 0.25, 0.5, 0.75, 1].map((frac, i) => {
+            const y = pad.top + iH * (1 - frac);
+            return (
+              <g key={i}>
+                <line x1={pad.left} y1={y} x2={pad.left + iW} y2={y}
+                  stroke={isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.06)'} strokeWidth="0.5" />
+                <text x={pad.left - 2} y={y + 1} textAnchor="end" className="select-none"
+                  fill={isDarkMode ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.25)'} fontSize="7">{Math.round(maxValue * frac)}</text>
+              </g>
+            );
+          })}
+          {/* Vertical bars */}
+          {pts.map((p, i) => (
+            <rect key={`b-${i}`} x={p.x - barW / 2} y={p.y} width={barW} height={bottom - p.y}
+              rx="2" fill={hoverIdx === i ? (isDarkMode ? 'rgba(129,140,248,0.28)' : 'rgba(99,102,241,0.20)') : (isDarkMode ? 'rgba(129,140,248,0.10)' : 'rgba(99,102,241,0.08)')}
+              className="transition-all duration-150" />
+          ))}
+          {/* Area */}
+          {areaPath && <path d={areaPath} fill="url(#lc-area-grad)" />}
+          {/* Smooth line */}
+          {smoothPath && (
+            <path d={smoothPath} fill="none" stroke={isDarkMode ? '#818cf8' : '#6366f1'} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+          )}
+          {/* Dots */}
+          {pts.map((p, i) => (
+            <circle key={i} cx={p.x} cy={p.y} r={hoverIdx === i ? 4.5 : 3}
+              fill={isDarkMode ? '#818cf8' : '#6366f1'} stroke={isDarkMode ? '#111827' : '#fff'} strokeWidth="2"
+              className="transition-all duration-150 cursor-pointer" />
+          ))}
+          {/* Hover vertical guide line */}
+          {hoverIdx !== null && pts[hoverIdx] && (
+            <line x1={pts[hoverIdx].x} y1={pad.top} x2={pts[hoverIdx].x} y2={bottom}
+              stroke={isDarkMode ? 'rgba(129,140,248,0.3)' : 'rgba(99,102,241,0.25)'} strokeWidth="1" strokeDasharray="3,3" />
+          )}
         </svg>
-        <div className="absolute bottom-0 left-0 right-0 flex justify-between text-xs text-gray-400">
-          {safeData.map((item, index) => (
-            <span key={index}>{item.label}</span>
+        {/* Tooltip */}
+        {hoverIdx !== null && safeData[hoverIdx] && pts[hoverIdx] && (
+          <div className={`absolute pointer-events-none z-10 px-2.5 py-1.5 rounded-lg text-xs shadow-lg border ${isDarkMode ? 'bg-gray-800 border-gray-700 text-white' : 'bg-white border-gray-200 text-gray-900'}`}
+            style={{ left: `${(pts[hoverIdx].x / W) * 100}%`, top: `${(pts[hoverIdx].y / H) * 100 - 18}%`, transform: 'translateX(-50%)' }}>
+            <div className="font-semibold">{safeData[hoverIdx].label}</div>
+            <div className={`${isDarkMode ? 'text-indigo-300' : 'text-indigo-600'} font-bold`}>{safeData[hoverIdx].value.toLocaleString()}</div>
+          </div>
+        )}
+        {/* X-axis labels */}
+        <div className="flex justify-between mt-1 px-1">
+          {safeData.map((item, i) => (
+            <span key={i} className={`text-[10px] ${hoverIdx === i ? (isDarkMode ? 'text-indigo-300 font-semibold' : 'text-indigo-600 font-semibold') : (isDarkMode ? 'text-gray-600' : 'text-gray-400')}`}>{item.label}</span>
           ))}
         </div>
       </div>
@@ -1331,59 +1435,103 @@ const UserDetailModal = ({ isOpen, onClose, user, onDeactivate, loading }) => {
   );
 };
 
-const QuickStats = ({ stats, onStatClick, isDarkMode = true }) => {
+const QuickStats = ({ stats, onStatClick, isDarkMode = true, appointmentsByPeriod = [], revenueByPeriod = [] }) => {
+  const totalUsers = useAnimatedCount(stats.totalUsers || 0);
+  const totalAppointments = useAnimatedCount(stats.totalAppointments || 0);
+  const pendingAppointments = useAnimatedCount(stats.pendingAppointments || 0);
+  const revenue = useAnimatedCount(stats.revenue || 0);
+
   const statCards = [
     {
       name: 'Total Users',
-      value: stats.totalUsers?.toString() || '0',
+      value: totalUsers.toLocaleString(),
+      raw: stats.totalUsers || 0,
       icon: UsersIcon,
-      color: 'bg-purple-500',
+      gradient: 'from-purple-500 to-purple-600',
+      glowColor: 'group-hover:shadow-purple-500/20',
+      sparkColor: '#a855f7',
+      sparkData: [], // No time series for users
       key: 'users'
     },
     {
       name: 'Total Appointments',
-      value: stats.totalAppointments?.toString() || '0',
+      value: totalAppointments.toLocaleString(),
+      raw: stats.totalAppointments || 0,
       icon: CalendarDaysIcon,
-      color: 'bg-blue-500',
+      gradient: 'from-blue-500 to-blue-600',
+      glowColor: 'group-hover:shadow-blue-500/20',
+      sparkColor: '#3b82f6',
+      sparkData: appointmentsByPeriod,
       key: 'appointments'
     },
     {
       name: 'Pending Actions',
-      value: stats.pendingAppointments?.toString() || '0',
+      value: pendingAppointments.toLocaleString(),
+      raw: stats.pendingAppointments || 0,
       icon: ClockIcon,
-      color: 'bg-amber-500',
-      key: 'appointments'
+      gradient: 'from-amber-500 to-amber-600',
+      glowColor: 'group-hover:shadow-amber-500/20',
+      sparkColor: '#f59e0b',
+      sparkData: [],
+      key: 'appointments',
+      pulse: (stats.pendingAppointments || 0) > 0
     },
     {
       name: 'Revenue',
-      value: `₱${stats.revenue?.toLocaleString() || '0'}`,
+      value: `₱${revenue.toLocaleString()}`,
+      raw: stats.revenue || 0,
       icon: BuildingLibraryIcon,
-      color: 'bg-green-500',
+      gradient: 'from-emerald-500 to-emerald-600',
+      glowColor: 'group-hover:shadow-emerald-500/20',
+      sparkColor: '#10b981',
+      sparkData: revenueByPeriod,
       key: 'revenue'
     }
   ];
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
       {statCards.map((card, index) => (
         <div
           key={index}
           onClick={() => onStatClick(card.key)}
-          className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4 hover:border-amber-500/40 hover:shadow-amber-500/10 transition-all duration-300 cursor-pointer group transform hover:-translate-y-1`}
+          className={`relative overflow-hidden rounded-xl border p-4 cursor-pointer group transition-all duration-300 transform hover:-translate-y-1 hover:shadow-lg ${card.glowColor} ${
+            isDarkMode ? 'bg-gray-900/80 border-gray-800 hover:border-gray-700' : 'bg-white border-gray-200 hover:border-gray-300'
+          }`}
+          style={{ animationDelay: `${index * 100}ms` }}
         >
-          <div className="flex items-center justify-between">
-            <div>
-              <p className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} group-hover:text-amber-500 transition-colors`}>
+          {/* Subtle gradient overlay on hover */}
+          <div className={`absolute inset-0 bg-gradient-to-br ${card.gradient} opacity-0 group-hover:opacity-[0.04] transition-opacity duration-300`} />
+          
+          <div className="relative flex items-start justify-between">
+            <div className="flex-1 min-w-0">
+              <p className={`text-[11px] font-medium uppercase tracking-wider ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} group-hover:text-gray-400 transition-colors`}>
                 {card.name}
               </p>
-              <p className={`text-lg font-bold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mt-0.5 group-hover:scale-105 transition-transform`}>
+              <p className={`text-2xl font-bold mt-1 tracking-tight ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
                 {card.value}
               </p>
+              {/* Sparkline */}
+              {card.sparkData.length >= 2 && (
+                <div className="mt-2">
+                  <Sparkline data={card.sparkData} color={card.sparkColor} />
+                </div>
+              )}
             </div>
-            <div className={`${card.color} p-2 rounded-lg shadow group-hover:scale-110 transition-transform`}>
+            <div className={`flex-shrink-0 p-2.5 rounded-xl bg-gradient-to-br ${card.gradient} shadow-lg transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3`}>
               <card.icon className="h-5 w-5 text-white" />
             </div>
           </div>
+
+          {/* Pulse indicator for pending */}
+          {card.pulse && (
+            <div className="absolute top-3 right-3">
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
+              </span>
+            </div>
+          )}
         </div>
       ))}
     </div>
@@ -1553,6 +1701,7 @@ const AdminDashboard = () => {
   const adminMessagesRef = useRef(null);
   const timeframeRef = useRef('monthly');
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [snapshotCollapsed, setSnapshotCollapsed] = useState(false);
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
   const [isCollapsedDesktop, setIsCollapsedDesktop] = useState(false);
   const [openDropdowns, setOpenDropdowns] = useState({});
@@ -2434,7 +2583,9 @@ const AdminDashboard = () => {
       }
     }, 60000); // 60 seconds
 
-    return () => clearInterval(interval);
+    const handleLogout = () => clearInterval(interval);
+    window.addEventListener('auth:logout', handleLogout);
+    return () => { clearInterval(interval); window.removeEventListener('auth:logout', handleLogout); };
   }, [activeTab, loadUsers, loadAdmins]);
 
   // Poll for unread message count every 30 seconds for sidebar badge
@@ -2456,7 +2607,9 @@ const AdminDashboard = () => {
     };
     fetchUnreadCount();
     const interval = setInterval(fetchUnreadCount, 30000);
-    return () => clearInterval(interval);
+    const handleLogout = () => clearInterval(interval);
+    window.addEventListener('auth:logout', handleLogout);
+    return () => { clearInterval(interval); window.removeEventListener('auth:logout', handleLogout); };
   }, [callApi]);
 
   // Reset unread count when viewing messages tab
@@ -4161,51 +4314,104 @@ const AdminDashboard = () => {
     </div>
   );
 
-  // Dashboard render function - REMOVED: Recent Appointments and Quick Actions sections
-  const renderDashboard = () => (
-    <div className="space-y-4">
-      <QuickStats 
+  // Dashboard render function
+  const renderDashboard = () => {
+    // Today's appointments
+    const todayStr = new Date().toISOString().split('T')[0];
+    const todayAppointments = (appointments || []).filter(a => {
+      const d = (a.appointment_date || '').split('T')[0];
+      return d === todayStr;
+    });
+    const todayPending = todayAppointments.filter(a => a.status === 'pending').length;
+    const todayApproved = todayAppointments.filter(a => a.status === 'approved').length;
+    const todayCompleted = todayAppointments.filter(a => a.status === 'completed').length;
+    const todayRevenue = todayAppointments
+      .filter(a => a.status === 'completed')
+      .reduce((sum, a) => sum + parseFloat(a.payment_amount || a.original_price || 0), 0);
+
+    return (
+    <div className="space-y-5">
+      {/* Stat Cards */}
+      <QuickStats
         stats={stats}
         onStatClick={setActiveTab}
         isDarkMode={isDarkMode}
+        appointmentsByPeriod={appointmentsByPeriod}
+        revenueByPeriod={revenueByPeriod}
       />
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-        <PieChart 
-          data={appointmentStatusData} 
-          title="Appointment Status" 
-          isDarkMode={isDarkMode}
-        />
-        <PieChart 
-          data={userRoleData} 
-          title="User Roles" 
-          isDarkMode={isDarkMode}
-        />
+      {/* Middle Row: Today's Overview + Appointment Status Donut */}
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+        {/* Today's Overview — collapsible, takes 1 col */}
+        <div className={`rounded-xl border overflow-hidden transition-all duration-300 ${isDarkMode ? 'bg-gray-900/80 border-gray-800' : 'bg-white border-gray-200'}`}>
+          <button
+            onClick={() => setSnapshotCollapsed(prev => !prev)}
+            className={`w-full flex items-center justify-between px-5 py-3.5 transition-colors ${isDarkMode ? 'hover:bg-gray-800/40' : 'hover:bg-gray-50'}`}
+          >
+            <div className="flex items-center gap-2">
+              <div className="p-1.5 rounded-lg bg-gradient-to-br from-amber-500 to-amber-600">
+                <BoltIcon className="h-4 w-4 text-white" />
+              </div>
+              <h3 className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Today's Snapshot</h3>
+              {snapshotCollapsed && (
+                <span className={`text-xs font-medium ml-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                  — {todayAppointments.length} appt{todayAppointments.length !== 1 ? 's' : ''}
+                </span>
+              )}
+            </div>
+            <ChevronDownIcon className={`h-4 w-4 transition-transform duration-200 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} ${snapshotCollapsed ? '-rotate-90' : ''}`} />
+          </button>
+          {!snapshotCollapsed && (
+            <div className="px-5 pb-4 space-y-2">
+              {[
+                { label: 'Appointments', val: todayAppointments.length, color: 'text-blue-400', bg: isDarkMode ? 'bg-blue-500/10' : 'bg-blue-50' },
+                { label: 'Pending', val: todayPending, color: 'text-amber-400', bg: isDarkMode ? 'bg-amber-500/10' : 'bg-amber-50' },
+                { label: 'Approved', val: todayApproved, color: 'text-sky-400', bg: isDarkMode ? 'bg-sky-500/10' : 'bg-sky-50' },
+                { label: 'Completed', val: todayCompleted, color: 'text-emerald-400', bg: isDarkMode ? 'bg-emerald-500/10' : 'bg-emerald-50' },
+                { label: 'Revenue', val: `₱${todayRevenue.toLocaleString(undefined, { minimumFractionDigits: 0 })}`, color: 'text-emerald-400', bg: isDarkMode ? 'bg-emerald-500/10' : 'bg-emerald-50' },
+              ].map((row, i) => (
+                <div key={i} className={`flex items-center justify-between rounded-lg px-3 py-2 ${row.bg}`}>
+                  <span className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>{row.label}</span>
+                  <span className={`text-sm font-bold ${row.color}`}>{row.val}</span>
+                </div>
+              ))}
+              {todayAppointments.length === 0 && (
+                <p className={`text-xs text-center pt-1 ${isDarkMode ? 'text-gray-600' : 'text-gray-400'}`}>No appointments today</p>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Appointment Status Donut — takes 2 cols */}
+        <div className="xl:col-span-2">
+          <PieChart
+            data={appointmentStatusData}
+            title="Appointment Status"
+            isDarkMode={isDarkMode}
+          />
+        </div>
       </div>
 
-      <div className="flex items-center justify-between">
-        <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>Trends</h3>
-      </div>
-
+      {/* Bottom Row: Trends side by side */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-        <LineChart 
-          data={appointmentsByPeriod} 
-          title={`${timeframe.charAt(0).toUpperCase() + timeframe.slice(1)} Appointments`} 
+        <LineChart
+          data={appointmentsByPeriod}
+          title={`${timeframe.charAt(0).toUpperCase() + timeframe.slice(1)} Appointments`}
           color="blue"
           isDarkMode={isDarkMode}
         />
-        <BarChart 
-          data={revenueByPeriod} 
-          title="Revenue" 
+        <BarChart
+          data={revenueByPeriod}
+          title="Revenue"
           color="green"
           height={160}
           isDarkMode={isDarkMode}
         />
       </div>
 
-      {/* Sales Report Section Removed */}
     </div>
-  );
+    );
+  };
 
   // Users render function
   const renderUsers = () => (

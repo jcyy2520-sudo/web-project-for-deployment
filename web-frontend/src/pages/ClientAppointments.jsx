@@ -39,6 +39,8 @@ const ClientAppointments = () => {
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
   const [selectedAppointmentToCancel, setSelectedAppointmentToCancel] = useState(null);
   const [availableSlots, setAvailableSlots] = useState([]);
+  const [slotDetails, setSlotDetails] = useState([]);
+  const [slotsLoading, setSlotsLoading] = useState(false);
   const [selectedDate, setSelectedDate] = useState('');
   const [selectedTime, setSelectedTime] = useState('');
   const [unavailableDates, setUnavailableDates] = useState([]);
@@ -181,8 +183,11 @@ const ClientAppointments = () => {
       .then(res => {
         if (res.data?.success && res.data?.data) {
           setServices(res.data.data);
-          // Set intelligent default for service type if available
-          if (res.data.data.length > 0) {
+          // Set intelligent default for service type if available (pick first available one)
+          const availableServices = res.data.data.filter(s => !s.is_unavailable);
+          if (availableServices.length > 0) {
+            setFormData(prev => ({ ...prev, type: availableServices[0].name }));
+          } else if (res.data.data.length > 0) {
             setFormData(prev => ({ ...prev, type: res.data.data[0].name }));
           }
         }
@@ -346,11 +351,19 @@ const ClientAppointments = () => {
   const paginatedAppointments = sortedAppointments.slice(startIdx, startIdx + appointmentsPerPage);
 
   const loadAvailableSlots = async (date) => {
-    const result = await callApi((signal) =>
-      axios.get(`/api/calendar/available-slots`, { params: { date }, signal })
-    );
-    if (result.success) {
-      setAvailableSlots(result.data.available_slots || result.data.data || []);
+    setSlotsLoading(true);
+    setSlotDetails([]);
+    setAvailableSlots([]);
+    try {
+      const result = await callApi((signal) =>
+        axios.get(`/api/calendar/available-slots`, { params: { date }, signal })
+      );
+      if (result.success) {
+        setAvailableSlots(result.data.available_slots || result.data.data || []);
+        setSlotDetails(result.data.slot_details || []);
+      }
+    } finally {
+      setSlotsLoading(false);
     }
   };
 
@@ -359,6 +372,7 @@ const ClientAppointments = () => {
     setSelectedDate(date);
     setFormData(prev => ({ ...prev, appointment_date: date, appointment_time: '' }));
     setSelectedTime('');
+    setSlotDetails([]);
     loadAvailableSlots(date);
     // Clear any prior alternatives when changing date
     setSlotAlternatives([]);
@@ -384,6 +398,13 @@ const ClientAppointments = () => {
     // Capture the appointment date BEFORE anything else changes
     const bookedDate = formData.appointment_date;
     console.log('[handleBookAppointment] Captured booked date:', bookedDate);
+
+    // GUARD 0: Check if selected service is unavailable
+    const selectedSvc = services.find(s => s.name === formData.type);
+    if (selectedSvc && selectedSvc.is_unavailable) {
+      window.showToast?.('Warning', `${selectedSvc.name} is currently unavailable: ${selectedSvc.unavailability_reason || 'Please select a different service.'}`, 'warning');
+      return;
+    }
     
     // GUARD 1: Double-check if user has reached their daily limit before allowing submission
     if (dailyLimitInfo.hasReachedLimit === true) {
@@ -922,13 +943,40 @@ const ClientAppointments = () => {
         onClose={() => {
           setIsBookModalOpen(false);
           setSelectedDate('');
+          setSlotDetails([]);
           setFormData({ appointment_date: '', appointment_time: '', type: 'consultation', notes: '' });
           setCalendarMonth(new Date());
         }}
         title={dailyLimitInfo.hasReachedLimit ? '📅 Booking Limit Reached' : 'Book New Appointment'}
         size="xl"
       >
-        <form onSubmit={handleBookAppointment} className="space-y-4">
+        <form onSubmit={handleBookAppointment} className="space-y-5">
+          {/* Step Progress Indicator */}
+          <div className="flex items-center justify-center gap-0">
+            {[
+              { num: 1, label: 'Service', done: !!formData.type },
+              { num: 2, label: 'Date', done: !!selectedDate },
+              { num: 3, label: 'Time', done: !!formData.appointment_time },
+              { num: 4, label: 'Confirm', done: false },
+            ].map((step, idx, arr) => (
+              <div key={step.num} className="flex items-center">
+                <div className="flex flex-col items-center">
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
+                    step.done
+                      ? 'bg-amber-500 text-white'
+                      : 'bg-gray-200 text-gray-500'
+                  }`}>
+                    {step.done ? '✓' : step.num}
+                  </div>
+                  <span className="text-[10px] mt-1 text-gray-500 font-medium">{step.label}</span>
+                </div>
+                {idx < arr.length - 1 && (
+                  <div className={`w-10 sm:w-16 h-0.5 mx-1 mb-4 ${step.done ? 'bg-amber-400' : 'bg-gray-200'}`} />
+                )}
+              </div>
+            ))}
+          </div>
+
           {dailyLimitInfo.hasReachedLimit && (
             <div className="p-4 rounded-lg bg-blue-50 border border-blue-200">
               <p className="text-blue-700 font-medium">You've reached your daily booking limit</p>
@@ -961,11 +1009,133 @@ const ClientAppointments = () => {
               </p>
             </div>
           )}
-          
-          {/* Calendar Picker */}
+
+          {/* ═══════ STEP 1: Service Type ═══════ */}
+          <div className="bg-white rounded-lg">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              <span className="inline-flex items-center gap-1.5">
+                <span className="w-5 h-5 rounded-full bg-amber-500 text-white text-xs font-bold flex items-center justify-center">1</span>
+                Service Type <span className="text-red-500">*</span>
+              </span>
+            </label>
+            <select
+              value={formData.type}
+              onChange={(e) => setFormData(prev => ({ ...prev, type: e.target.value }))}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+              disabled={dailyLimitInfo.hasReachedLimit}
+            >
+              {services.length > 0 ? (
+                services.map(s => (
+                  <option key={s.id} value={s.name} disabled={!!s.is_unavailable}>
+                    {s.name} {s.price ? `(₱${s.price})` : ''}{s.is_unavailable ? ' — Unavailable' : ''}
+                  </option>
+                ))
+              ) : (
+                <>
+                  <option value="consultation">Legal Consultation</option>
+                  <option value="document_review">Document Review</option>
+                  <option value="contract_drafting">Contract Drafting</option>
+                  <option value="court_representation">Court Representation</option>
+                  <option value="notary_services">Notary Services</option>
+                  <option value="legal_opinion">Legal Opinion</option>
+                  <option value="case_evaluation">Case Evaluation</option>
+                  <option value="document_notarization">Document Notarization</option>
+                  <option value="affidavit">Affidavit</option>
+                  <option value="power_of_attorney">Power of Attorney</option>
+                  <option value="loan_signing">Loan Signing</option>
+                  <option value="real_estate_documents">Real Estate Documents</option>
+                  <option value="will_and_testament">Will and Testament</option>
+                  <option value="other">Other Legal Services</option>
+                </>
+              )}
+            </select>
+          </div>
+
+          {/* Service Requirements Presentation */}
+          {(() => {
+            const selectedService = services.find(s => s.name === formData.type);
+            if (selectedService && selectedService.public_requirements && selectedService.public_requirements.length > 0) {
+              return (
+                <div className="p-3 sm:p-4 bg-amber-50 rounded-lg border border-amber-200">
+                  <div className="flex items-start gap-2">
+                    <ExclamationTriangleIcon className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="text-sm font-bold text-amber-800">What to Bring (Requirements)</h4>
+                      <p className="text-xs text-amber-700 mb-2 mt-0.5">Please ensure you have the following ready to avoid rescheduling:</p>
+                      <ul className="list-disc pl-4 text-xs text-amber-700 space-y-1 font-medium">
+                        {selectedService.public_requirements.map((req, i) => (
+                          <li key={i}>{req}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+            return null;
+          })()}
+
+          {/* Service Unavailability Notice */}
+          {(() => {
+            const selectedService = services.find(s => s.name === formData.type);
+            if (selectedService && selectedService.is_unavailable) {
+              const categoryLabels = {
+                maintenance: 'Maintenance',
+                staff_unavailable: 'Staff Unavailable',
+                system_upgrade: 'System Upgrade',
+                holiday: 'Holiday',
+                policy_change: 'Policy Change',
+                custom: 'Temporarily Unavailable',
+              };
+              const categoryLabel = categoryLabels[selectedService.unavailability_category] || 'Temporarily Unavailable';
+              return (
+                <div className="p-3 sm:p-4 bg-red-50 rounded-lg border border-red-200">
+                  <div className="flex items-start gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 0 0 5.636 5.636m12.728 12.728A9 9 0 0 1 5.636 5.636m12.728 12.728L5.636 5.636" />
+                    </svg>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h4 className="text-sm font-bold text-red-800">Service Currently Unavailable</h4>
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-200 text-red-800">
+                          {categoryLabel}
+                        </span>
+                      </div>
+                      <p className="text-xs text-red-700 mt-1">
+                        {selectedService.unavailability_reason || 'This service is temporarily unavailable for booking.'}
+                      </p>
+                      {selectedService.unavailable_until ? (
+                        <p className="text-xs text-red-600 mt-1.5 font-medium flex items-center gap-1">
+                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="h-3.5 w-3.5">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                          </svg>
+                          Expected to resume: {new Date(selectedService.unavailable_until).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-red-500 mt-1.5 italic">
+                          No estimated resumption date available.
+                        </p>
+                      )}
+                      <p className="text-xs text-red-600 mt-1.5">
+                        Please select a different service or check back later.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+            return null;
+          })()}
+
+          {/* ═══════ STEP 2: Calendar Picker ═══════ */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-gray-700">Select Date</h3>
+              <h3 className="text-sm font-semibold text-gray-700">
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="w-5 h-5 rounded-full bg-amber-500 text-white text-xs font-bold flex items-center justify-center">2</span>
+                  Select Date
+                </span>
+              </h3>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
@@ -1079,25 +1249,149 @@ const ClientAppointments = () => {
             </div>
           </div>
 
-          {/* Time Slot Selection */}
+          {selectedDate && isDateUnavailable(new Date(selectedDate + 'T00:00:00')) && (
+            <div className="p-4 bg-red-50 border-2 border-red-200 rounded">
+              <p className="text-sm font-semibold text-red-800">
+                <strong>🚫 {getUnavailableReason(new Date(selectedDate + 'T00:00:00'))}</strong>
+              </p>
+              <p className="text-xs text-red-600 mt-2">Please select a different date from the calendar</p>
+            </div>
+          )}
+
+          {/* ═══════ STEP 3: Time Slot Selection ═══════ */}
           {selectedDate && !isDateUnavailable(new Date(selectedDate + 'T00:00:00')) && (
             <div className="space-y-4">
-              <h3 className="text-sm font-semibold text-gray-700">Select Time</h3>
-              
+              <h3 className="text-sm font-semibold text-gray-700">
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="w-5 h-5 rounded-full bg-amber-500 text-white text-xs font-bold flex items-center justify-center">3</span>
+                  Select Time
+                </span>
+              </h3>
+
+              {/* Loading State */}
+              {slotsLoading && (
+                <div className="flex items-center justify-center py-8 bg-gray-50 rounded-lg border border-gray-200">
+                  <LoadingSpinner size="sm" />
+                  <span className="ml-2 text-sm text-gray-500">Loading available slots...</span>
+                </div>
+              )}
+
+              {/* No Slots Available */}
+              {!slotsLoading && slotDetails.length === 0 && (
+                <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg text-center">
+                  <ClockIcon className="h-8 w-8 text-gray-400 mx-auto mb-2" />
+                  <p className="text-sm font-medium text-gray-700">No time slots available</p>
+                  <p className="text-xs text-gray-500 mt-1">All slots for this date are fully booked or unavailable. Please try a different date.</p>
+                </div>
+              )}
+
+              {/* Dynamic Time Slot Grid */}
+              {!slotsLoading && slotDetails.length > 0 && (
+                <div>
+                  {/* Slot Summary */}
+                  <div className="flex items-center gap-2 mb-3">
+                    <ClockIcon className="h-4 w-4 text-gray-600" />
+                    <span className="text-xs text-gray-600">
+                      {slotDetails.filter(s => s.status !== 'full').length} of {slotDetails.length} slots available
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {slotDetails.map((slot) => {
+                      const isFull = slot.status === 'full';
+                      const isPartial = slot.status === 'partial';
+                      const isSelected = formData.appointment_time === slot.time;
+                      const isDisabled = isFull || dailyLimitInfo.hasReachedLimit;
+
+                      return (
+                        <button
+                          key={slot.time}
+                          type="button"
+                          onClick={() => {
+                            if (isDisabled) return;
+                            setSelectedTime(slot.time);
+                            setFormData(prev => ({ ...prev, appointment_time: slot.time }));
+                            setSlotUnavailabilityReason(null);
+                            setSlotAlternatives([]);
+                            setShowAlternativeSlots(false);
+                            setUnavailableSelectedTime(null);
+                          }}
+                          disabled={isDisabled}
+                          className={`relative p-2.5 rounded-lg text-xs font-medium transition-all border-2 ${
+                            isDisabled
+                              ? 'bg-red-50 text-red-400 border-red-200 cursor-not-allowed opacity-75'
+                              : isSelected
+                              ? 'bg-amber-500 text-white border-amber-600 shadow-md shadow-amber-500/25'
+                              : isPartial
+                              ? 'bg-amber-50 text-amber-800 border-amber-300 hover:border-amber-500 hover:bg-amber-100 cursor-pointer'
+                              : 'bg-white text-gray-700 border-gray-200 hover:border-amber-500 hover:bg-amber-50 cursor-pointer'
+                          }`}
+                          title={isFull ? 'This slot is fully booked' : `${slot.booked}/${slot.capacity} booked`}
+                        >
+                          <div className="flex flex-col items-center gap-1">
+                            <span className="text-sm font-semibold">{formatTime12Hour(slot.time)}</span>
+                            {isFull ? (
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-red-500">FULL</span>
+                            ) : (
+                              <span className={`text-[10px] ${isSelected ? 'text-amber-100' : isPartial ? 'text-amber-600' : 'text-green-600'}`}>
+                                {slot.booked}/{slot.capacity} booked
+                              </span>
+                            )}
+                          </div>
+                          {isFull && (
+                            <div className="absolute inset-0 rounded-lg bg-red-100/30" />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Slot Legend */}
+                  <div className="mt-3 flex flex-wrap gap-3 text-xs text-gray-500">
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-3 h-3 rounded bg-white border-2 border-gray-200"></div>
+                      <span>Available</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-3 h-3 rounded bg-amber-50 border-2 border-amber-300"></div>
+                      <span>Filling up</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-3 h-3 rounded bg-red-50 border-2 border-red-200"></div>
+                      <span>Full</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-3 h-3 rounded bg-amber-500"></div>
+                      <span>Selected</span>
+                    </div>
+                  </div>
+
+                  {/* Working Hours Info */}
+                  <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded flex items-start gap-2">
+                    <InformationCircleIcon className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                    <div className="text-xs text-blue-700">
+                      <p><strong>Mon-Fri:</strong> 8 AM - 5 PM &nbsp;|&nbsp; <strong>Lunch:</strong> 12 - 1 PM (Closed) &nbsp;|&nbsp; <strong>Sat-Sun:</strong> Closed</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Decision Support - Suggest Alternatives */}
-              <BookingDecisionSupport 
-                selectedDate={selectedDate}
-                isDarkMode={false}
-                onSuggestions={(alts) => {
-                  const normalized = (alts || []).map(a => ({
-                    date: a.date,
-                    time: a.first_available_time || (a.available_times && a.available_times[0]) || null,
-                    available_slots: a.available_slots ?? a.available_slots_count ?? (a.available_slots ? a.available_slots : (a.available_times ? a.available_times.length : 0)),
-                    ...a
-                  }));
-                  setSlotAlternatives(normalized);
-                }}
-              />
+              {!slotsLoading && (
+                <BookingDecisionSupport 
+                  selectedDate={selectedDate}
+                  isDarkMode={false}
+                  onSuggestions={(alts) => {
+                    const normalized = (alts || []).map(a => ({
+                      date: a.date,
+                      time: a.first_available_time || (a.available_times && a.available_times[0]) || null,
+                      available_slots: a.available_slots ?? a.available_slots_count ?? (a.available_slots ? a.available_slots : (a.available_times ? a.available_times.length : 0)),
+                      ...a
+                    }));
+                    setSlotAlternatives(normalized);
+                  }}
+                />
+              )}
 
               {/* AI Alternative Slot Suggestions - Shows when time is not available */}
               <AlternativeSlotSuggestion
@@ -1129,27 +1423,6 @@ const ClientAppointments = () => {
                 }}
               />
 
-              {/* Legacy Unavailability Message - fallback */}
-              {selectedTime && slotUnavailabilityReason && !showAlternativeSlots && (
-                <UnavailabilityMessage
-                  selectedDate={selectedDate}
-                  selectedTime={selectedTime}
-                  isUnavailable={true}
-                  reason={slotUnavailabilityReason}
-                  alternatives={slotAlternatives}
-                  isDarkMode={false}
-                  onSelectAlternative={(alt) => {
-                    setSelectedDate(alt.date);
-                    setSelectedTime(alt.time);
-                    setFormData(prev => ({ 
-                      ...prev, 
-                      appointment_date: alt.date,
-                      appointment_time: alt.time 
-                    }));
-                  }}
-                />
-              )}
-
               {/* Cancellation Risk Notice - Shows when a slot is busy */}
               {selectedDate && selectedTime && !slotUnavailabilityReason && (
                 <CancellationRiskNotice 
@@ -1166,168 +1439,47 @@ const ClientAppointments = () => {
                   }}
                 />
               )}
+            </div>
+          )}
 
-              {/* Available Time Slots Grid */}
-              <div>
-                <div className="flex items-center gap-2 mb-3">
-                  <ClockIcon className="h-4 w-4 text-gray-600" />
-                  <label className="block text-xs font-medium text-gray-700">
-                    Available Times (8 AM - 5 PM, Lunch 12-1 PM Closed)
-                  </label>
-                </div>
-
-                <div className="grid grid-cols-4 gap-2">
-                  {[
-                    '08:00', '08:30', '09:00', '09:30', '10:00', '10:30', '11:00', '11:30',
-                    '13:00', '13:30', '14:00', '14:30', '15:00', '15:30', '16:00', '16:30'
-                  ].map((time) => {
-                    const isAvailable = isTimeSlotAvailable(time);
-                    const isSelected = formData.appointment_time === time;
-
-                    return (
-                      <button
-                        key={time}
-                        type="button"
-                        onClick={() => {
-                          if (dailyLimitInfo.hasReachedLimit) return;
-                          if (isAvailable) {
-                            setSelectedTime(time);
-                            setFormData(prev => ({ ...prev, appointment_time: time }));
-                            setSlotUnavailabilityReason(null);
-                            setSlotAlternatives([]);
-                            setShowAlternativeSlots(false);
-                            setUnavailableSelectedTime(null);
-                          } else {
-                            // Unavailable slot clicked — trigger AI alternative suggestions
-                            setSelectedTime(time);
-                            setUnavailableSelectedTime(time);
-                            setShowAlternativeSlots(true);
-                            setSlotUnavailabilityReason({
-                              type: 'capacity',
-                              message: 'This time slot is fully booked. See AI recommendations below.'
-                            });
-                          }
-                        }}
-                        disabled={dailyLimitInfo.hasReachedLimit}
-                        className={`p-2 text-xs font-medium rounded transition-all ${
-                          dailyLimitInfo.hasReachedLimit
-                            ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                            : !isAvailable
-                            ? 'bg-red-50 text-red-500 border border-red-200 cursor-pointer hover:bg-red-100 hover:border-red-300'
-                            : isSelected
-                            ? 'bg-amber-500 text-white border border-amber-600'
-                            : 'bg-white text-gray-700 border border-gray-300 hover:border-amber-500 hover:bg-amber-50'
-                        }`}
-                        title={!isAvailable ? 'Click to see alternative suggestions' : 'Click to select'}
-                      >
-                        <span className="flex items-center justify-center gap-1">
-                          {time}
-                          {!isAvailable && !dailyLimitInfo.hasReachedLimit && (
-                            <span className="text-[9px] opacity-70">🔍</span>
-                          )}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* Info Message */}
-                <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded flex items-start gap-2">
-                  <InformationCircleIcon className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
-                  <div className="text-xs text-blue-700">
-                    <p className="font-semibold mb-1">🕐 Working Hours</p>
-                    <p><strong>Mon-Fri:</strong> 8 AM - 5 PM</p>
-                    <p><strong>Lunch Break:</strong> 12 PM - 1 PM (Closed)</p>
-                    <p><strong>Sat-Sun:</strong> Closed</p>
+          {/* ═══════ STEP 4: Notes & Confirmation ═══════ */}
+          {formData.appointment_time && (
+            <div className="space-y-4 pt-2 border-t border-gray-200">
+              {/* Booking Summary */}
+              <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                <h4 className="text-sm font-semibold text-green-800 mb-2">Booking Summary</h4>
+                <div className="grid grid-cols-3 gap-2 text-xs text-green-700">
+                  <div>
+                    <span className="text-green-600">Service</span>
+                    <p className="font-semibold">{formData.type}</p>
+                  </div>
+                  <div>
+                    <span className="text-green-600">Date</span>
+                    <p className="font-semibold">{formatDateDisplay(selectedDate)}</p>
+                  </div>
+                  <div>
+                    <span className="text-green-600">Time</span>
+                    <p className="font-semibold">{formatTime12Hour(formData.appointment_time)}</p>
                   </div>
                 </div>
               </div>
+
+              {/* Notes */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Additional Notes (Optional)
+                </label>
+                <textarea
+                  value={formData.notes}
+                  onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black"
+                  rows="2"
+                  placeholder="Any additional information..."
+                  disabled={dailyLimitInfo.hasReachedLimit}
+                />
+              </div>
             </div>
           )}
-
-          {selectedDate && isDateUnavailable(new Date(selectedDate + 'T00:00:00')) && (
-            <div className="p-4 bg-red-50 border-2 border-red-200 rounded">
-              <p className="text-sm font-semibold text-red-800">
-                <strong>🚫 {getUnavailableReason(new Date(selectedDate + 'T00:00:00'))}</strong>
-              </p>
-              <p className="text-xs text-red-600 mt-2">Please select a different date from the calendar</p>
-            </div>
-          )}
-
-          {/* Appointment Type */}
-          <div className="bg-white rounded-lg">
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Service Type <span className="text-red-500">*</span>
-            </label>
-            <select
-              value={formData.type}
-              onChange={(e) => setFormData(prev => ({ ...prev, type: e.target.value }))}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
-              disabled={dailyLimitInfo.hasReachedLimit}
-            >
-              {services.length > 0 ? (
-                services.map(s => (
-                  <option key={s.id} value={s.name}>{s.name} {s.price ? `(₱${s.price})` : ''}</option>
-                ))
-              ) : (
-                <>
-                  <option value="consultation">Legal Consultation</option>
-                  <option value="document_review">Document Review</option>
-                  <option value="contract_drafting">Contract Drafting</option>
-                  <option value="court_representation">Court Representation</option>
-                  <option value="notary_services">Notary Services</option>
-                  <option value="legal_opinion">Legal Opinion</option>
-                  <option value="case_evaluation">Case Evaluation</option>
-                  <option value="document_notarization">Document Notarization</option>
-                  <option value="affidavit">Affidavit</option>
-                  <option value="power_of_attorney">Power of Attorney</option>
-                  <option value="loan_signing">Loan Signing</option>
-                  <option value="real_estate_documents">Real Estate Documents</option>
-                  <option value="will_and_testament">Will and Testament</option>
-                  <option value="other">Other Legal Services</option>
-                </>
-              )}
-            </select>
-          </div>
-
-          {/* Service Requirements Presentation */}
-          {(() => {
-            const selectedService = services.find(s => s.name === formData.type);
-            if (selectedService && selectedService.public_requirements && selectedService.public_requirements.length > 0) {
-              return (
-                <div className="mt-2 p-3 sm:p-4 bg-amber-50 rounded-lg border border-amber-200">
-                  <div className="flex items-start gap-2">
-                    <ExclamationTriangleIcon className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
-                    <div>
-                      <h4 className="text-sm font-bold text-amber-800">What to Bring (Requirements)</h4>
-                      <p className="text-xs text-amber-700 mb-2 mt-0.5">Please ensure you have the following ready to avoid rescheduling:</p>
-                      <ul className="list-disc pl-4 text-xs text-amber-700 space-y-1 font-medium">
-                        {selectedService.public_requirements.map((req, i) => (
-                          <li key={i}>{req}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  </div>
-                </div>
-              );
-            }
-            return null;
-          })()}
-
-          {/* Notes */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Additional Notes (Optional)
-            </label>
-            <textarea
-              value={formData.notes}
-              onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black"
-              rows="2"
-              placeholder="Any additional information..."
-              disabled={dailyLimitInfo.hasReachedLimit}
-            />
-          </div>
 
           <div className="flex justify-end space-x-3 pt-4 border-t">
             <button
@@ -1336,6 +1488,7 @@ const ClientAppointments = () => {
                 setIsBookModalOpen(false);
                 setSelectedDate('');
                 setSelectedTime('');
+                setSlotDetails([]);
                 setSlotUnavailabilityReason(null);
                 setSlotAlternatives([]);
                 setShowAlternativeSlots(false);

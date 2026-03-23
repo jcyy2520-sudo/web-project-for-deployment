@@ -39,7 +39,9 @@ const AdminActionLogs = ({ isDarkMode = true }) => {
       loadLogs(true); // Silent refresh - no loading spinner
     }, 5000);
 
-    return () => clearInterval(pollInterval);
+    const handleLogout = () => clearInterval(pollInterval);
+    window.addEventListener('auth:logout', handleLogout);
+    return () => { clearInterval(pollInterval); window.removeEventListener('auth:logout', handleLogout); };
   }, [currentPage, selectedUser, actionFilter, searchTerm]);
 
   const loadLogs = async (silent = false) => {

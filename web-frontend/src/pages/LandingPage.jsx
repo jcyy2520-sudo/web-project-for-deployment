@@ -237,8 +237,12 @@ const LandingPage = () => {
         logger.debug('Stats fetch failed, keeping existing values');
       }
     };
+    // Delay first stats poll to avoid competing with the initial /api/public/init call
+    const timeout = setTimeout(() => {
+      if (isMounted) fetchStats();
+    }, 30000);
     const interval = setInterval(fetchStats, 30000);
-    return () => { isMounted = false; clearInterval(interval); };
+    return () => { isMounted = false; clearTimeout(timeout); clearInterval(interval); };
   }, []);
 
   // Active section observer
@@ -394,7 +398,9 @@ const LandingPage = () => {
     ? services.map((service, idx) => ({
         title: service.name || 'Legal Service',
         description: service.description || 'Professional legal service tailored to your needs',
-        icon: ['⚖️', '📋', '🔐', '✅'][idx % 4]
+        icon: ['⚖️', '📋', '🔐', '✅'][idx % 4],
+        is_unavailable: !!service.is_unavailable,
+        unavailability_reason: service.unavailability_reason,
       }))
     : servicesSection.items.length > 0
       ? servicesSection.items.map(item => ({
@@ -710,8 +716,13 @@ const LandingPage = () => {
                   <h3 className={`text-sm md:text-lg font-bold mb-1 md:mb-2 ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>
                     {feature.title}
                   </h3>
+                  {feature.is_unavailable && (
+                    <span className={`inline-flex items-center px-1.5 py-0.5 mb-1 rounded text-[10px] font-semibold ${isDarkMode ? 'bg-red-500/20 text-red-400' : 'bg-red-100 text-red-700'}`}>
+                      Currently Unavailable
+                    </span>
+                  )}
                   <p className={`text-xs md:text-sm leading-relaxed ${isDarkMode ? 'text-gray-400' : 'text-gray-700'}`}>
-                    {feature.description}
+                    {feature.is_unavailable ? (feature.unavailability_reason || feature.description) : feature.description}
                   </p>
                 </div>
                 {/* Gradient glow on hover */}

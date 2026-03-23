@@ -65,7 +65,9 @@ const InteractiveCalendar = ({
     // Poll for updates every 120 seconds (reduced from 30s to minimize duplicate API calls
     // since the parent CashierDashboard already polls calendar data every 30s)
     const interval = setInterval(loadUnavailableDates, 120000);
-    return () => clearInterval(interval);
+    const handleLogout = () => clearInterval(interval);
+    window.addEventListener('auth:logout', handleLogout);
+    return () => { clearInterval(interval); window.removeEventListener('auth:logout', handleLogout); };
   }, []);
 
   // Check if a date is a weekend

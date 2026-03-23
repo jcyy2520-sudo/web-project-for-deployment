@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\UnavailableDate;
 use App\Models\BlackoutDate;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
@@ -16,22 +15,15 @@ class UnavailableDateController extends Controller
     public function index()
     {
         try {
-            Log::info('Fetching unavailable dates (both legacy and blackout)');
+            Log::info('Fetching unavailable dates from unified blackout_dates table');
             
-            // Get legacy unavailable dates
-            $legacyDates = UnavailableDate::orderBy('date', 'desc')->get();
-            
-            // Get new blackout dates
             $blackoutDates = BlackoutDate::orderBy('date', 'desc')->get();
             
-            Log::info('Found ' . $legacyDates->count() . ' legacy unavailable dates and ' . $blackoutDates->count() . ' blackout dates');
-            
-            // Merge both collections
-            $allUnavailableDates = $legacyDates->concat($blackoutDates);
+            Log::info('Found ' . $blackoutDates->count() . ' blackout dates');
             
             return response()->json([
-                'data' => $allUnavailableDates,
-                'legacy_count' => $legacyDates->count(),
+                'data' => $blackoutDates,
+                'legacy_count' => 0,
                 'blackout_count' => $blackoutDates->count(),
                 'success' => true
             ]);
@@ -47,7 +39,7 @@ class UnavailableDateController extends Controller
 
     public function store(Request $request)
     {
-        Log::info('Creating unavailable date', $request->all());
+        Log::info('Creating unavailable date (via blackout_dates)', $request->all());
 
         $request->validate([
             'date' => 'required|date|after_or_equal:today',
@@ -58,41 +50,51 @@ class UnavailableDateController extends Controller
         ]);
 
         try {
-            // Check if date already exists
-            $existingDate = UnavailableDate::where('date', $request->date)->first();
-            if ($existingDate) {
-                Log::warning('Date already exists: ' . $request->date);
+            $allDay = $request->all_day ?? true;
+
+            // Check if date already exists in blackout_dates
+            $existingQuery = BlackoutDate::where('date', $request->date)
+                ->where(function ($q) {
+                    $q->whereNull('is_recurring')->orWhere('is_recurring', false);
+                });
+
+            if ($allDay) {
+                $existingQuery->whereNull('start_time')->whereNull('end_time');
+            } else {
+                $existingQuery->where('start_time', $request->start_time)
+                              ->where('end_time', $request->end_time);
+            }
+
+            if ($existingQuery->exists()) {
+                Log::warning('Date already exists in blackout_dates: ' . $request->date);
                 return response()->json([
                     'message' => 'This date is already marked as unavailable',
                     'success' => false
                 ], 409);
             }
 
-            Log::info('Creating new unavailable date');
-            $unavailableDate = UnavailableDate::create([
+            Log::info('Creating new blackout date entry');
+            $blackoutDate = BlackoutDate::create([
                 'date' => $request->date,
                 'reason' => $request->reason,
-                'all_day' => $request->all_day ?? true,
-                'start_time' => $request->all_day ? null : $request->start_time,
-                'end_time' => $request->all_day ? null : $request->end_time,
-                // REMOVED: 'created_by' => Auth::id(),
+                'start_time' => $allDay ? null : $request->start_time,
+                'end_time' => $allDay ? null : $request->end_time,
+                'is_recurring' => false,
             ]);
 
-            Log::info('Unavailable date created successfully with ID: ' . $unavailableDate->id);
-            // Update last-update cache so clients can poll for changes
+            Log::info('Blackout date created successfully with ID: ' . $blackoutDate->id);
             try {
                 Cache::put('unavailable_dates_last_update', now()->toDateTimeString());
-                // Clear any cached lists
                 Cache::forget('unavailable_dates');
                 event(new UnavailableDatesUpdated());
             } catch (\Exception $e) {
                 Log::error('Failed to set unavailable dates cache or broadcast: ' . $e->getMessage());
             }
 
-            ActionLog::log('create', "Added unavailable date: {$unavailableDate->date} - {$unavailableDate->reason}", 'UnavailableDate', $unavailableDate->id);
+            ActionLog::log('create', "Added unavailable date: {$blackoutDate->date} - {$blackoutDate->reason}", 'BlackoutDate', $blackoutDate->id);
 
             return response()->json([
-                'data' => $unavailableDate,
+                'data' => $blackoutDate,
                 'message' => 'Unavailable date added successfully',
                 'success' => true
             ], 201);
@@ -110,11 +112,10 @@ class UnavailableDateController extends Controller
     public function destroy($id)
     {
         try {
-            Log::info('Deleting unavailable date with ID: ' . $id);
-            $date = UnavailableDate::findOrFail($id);
+            Log::info('Deleting blackout date with ID: ' . $id);
+            $date = BlackoutDate::findOrFail($id);
             $date->delete();
 
-            // Clear caches and broadcast change
             try {
                 Cache::put('unavailable_dates_last_update', now()->toDateTimeString());
                 Cache::forget('unavailable_dates');
@@ -123,9 +124,9 @@ class UnavailableDateController extends Controller
                 Log::error('Failed to set unavailable dates cache or broadcast on delete: ' . $e->getMessage());
             }
 
-            Log::info('Unavailable date deleted successfully');
+            Log::info('Blackout date deleted successfully');
 
-            ActionLog::log('delete', "Deleted unavailable date (ID: {$id})", 'UnavailableDate', $id);
+            ActionLog::log('delete', "Deleted blackout date (ID: {$id})", 'BlackoutDate', $id);
 
             return response()->json([
                 'message' => 'Unavailable date deleted successfully',
