@@ -1,5 +1,5 @@
+# pyre-ignore-all-errors
 """
-ML Service - FastAPI Application
 Provides ML training, prediction, and data quality endpoints
 for the appointment system's decision support.
 """
@@ -47,7 +47,9 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost", "http://127.0.0.1"],
+    # SECURITY: Only allow the backend to make requests.
+    # If the frontend never calls this directly, we can keep it strictly to localhost/127.0.0.1
+    allow_origins=["http://localhost", "http://127.0.0.1", "http://localhost:8000"],
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type", "X-API-Key", "Authorization"],
 )
@@ -71,12 +73,6 @@ class PredictRiskRequest(BaseModel):
     appointment_id: int
 
 
-class PredictStaffRequest(BaseModel):
-    date: str
-    time: str
-    service_type: Optional[str] = None
-
-
 class PredictSlotRequest(BaseModel):
     date: str
 
@@ -86,6 +82,14 @@ class FeedbackRequest(BaseModel):
     actual_outcome: str = Field(..., pattern='^(completed|cancelled|no_show)$')
     staff_feedback: Optional[str] = Field(None, pattern='^(accepted|rejected|overridden)$')
     feedback_reason: Optional[str] = Field(None, max_length=1000)
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+    
+class GroqFallbackRequest(BaseModel):
+    messages: list[ChatMessage]
+    temperature: Optional[float] = 0.7
 
 
 # ─── Endpoints ────────────────────────────────────────────────────────────────
@@ -170,26 +174,6 @@ async def predict_appointment_risk(request: PredictRiskRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/predict/staff-rank", dependencies=[Depends(verify_api_key)])
-async def predict_staff_ranking_endpoint(request: PredictStaffRequest):
-    """Rank staff for a given date/time slot by predicted success."""
-    try:
-        staff = get_staff_features(request.date, request.time, request.service_type)
-        if not staff:
-            return {"status": "ok", "data": [], "message": "No staff found"}
-
-        ranked = predict_staff_ranking(staff)
-        return {
-            "status": "ok",
-            "data": ranked,
-            "total_staff": len(staff),
-            "available_staff": len([s for s in ranked if s.get('available', True)]),
-        }
-    except Exception as e:
-        logger.error(f"Staff ranking error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @app.post("/predict/slot-rank", dependencies=[Depends(verify_api_key)])
 async def predict_slot_ranking_endpoint(request: PredictSlotRequest):
     """Rank time slots for a given date by predicted success."""
@@ -237,6 +221,47 @@ async def log_feedback(request: FeedbackRequest):
     except Exception as e:
         logger.error(f"Feedback error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/chat/fallback", dependencies=[Depends(verify_api_key)])
+async def chat_fallback_groq(request: GroqFallbackRequest):
+    """
+    Final Fallback Chat completion utilizing Groq API 
+    Model: llama-3.3-70b-versatile
+    """
+    import groq
+    
+    api_key = os.getenv("GROQ_API_KEY")
+    # Default to llama-3.3-70b-versatile per architecture if not defined
+    model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+    
+    if not api_key:
+        logger.error("Groq API key not configured")
+        raise HTTPException(status_code=500, detail="Groq API key missing in environment")
+        
+    try:
+        client = groq.Groq(api_key=api_key)
+        
+        formatted_messages = [{"role": msg.role, "content": msg.content} for msg in request.messages]
+        
+        response = client.chat.completions.create(
+            messages=formatted_messages,
+            model=model,
+            temperature=request.temperature,
+            max_tokens=2048,
+        )
+        
+        return {
+            "status": "ok",
+            "model_used": model,
+            "response": response.choices[0].message.content,
+        }
+    except groq.APIError as e:
+        logger.error(f"Groq API Error: {e.message}")
+        raise HTTPException(status_code=502, detail=f"Target Groq API failed: {e.message}")
+    except Exception as e:
+        logger.error(f"Groq fallback processing error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Final fallback completely failed: {str(e)}")
 
 
 # ─── Run Server ───────────────────────────────────────────────────────────────

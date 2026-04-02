@@ -13,7 +13,7 @@ import axios from 'axios';
 
 // Normalize raw feedback model data to the shape the JSX expects
 const normalizeTestimonial = (item, idx) => ({
-  id: item.id,
+  id: item.id || item.feedback_id || item.completed_at || `testimonial-${idx}`,
   clientName: item.clientName || item.privacy_safe_username || item.email?.split('@')[0] || `Client ${idx + 1}`,
   maskedInitial: item.maskedInitial || item.masked_initial || (item.privacy_safe_username?.charAt(0).toUpperCase()) || 'U',
   serviceType: item.serviceType || item.feedback_type?.replace(/_/g, ' ') || 'Feedback',
@@ -21,8 +21,36 @@ const normalizeTestimonial = (item, idx) => ({
   message: item.message,
 });
 
+const normalizeAppointmentTestimonial = (item, idx) => ({
+  id: item.id || item.completed_at || `appointment-${idx}`,
+  clientName: item.user?.name || item.clientName || `Client ${idx + 1}`,
+  serviceType: item.type || item.serviceType || 'Legal Service',
+  rating: 5,
+  message: item.message || item.notes || `Successfully completed ${item.type || item.serviceType || 'appointment'}`,
+});
+
+const parseStatNumber = (value) => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string') {
+    const parsed = Number.parseInt(value.replace(/[^0-9]/g, ''), 10);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+};
+
+const normalizeStats = (rawStats = {}) => ({
+  totalAppointments: parseStatNumber(rawStats.totalAppointments),
+  totalUsers: parseStatNumber(rawStats.totalUsers),
+  completedAppointments: parseStatNumber(rawStats.completedAppointments),
+  totalServices: parseStatNumber(rawStats.totalServices),
+});
+
 const LandingPage = () => {
   const { isDarkMode, setIsDarkMode } = useTheme();
+  // PWA Detection Bouncer
+  const isPwa = typeof window !== 'undefined' && 
+    (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone);
+
   const [cmsSections, setCmsSections] = useState({});
   const [cmsSettings, setCmsSettings] = useState({});
   const { getSection, getSetting, getSettingsGroup } = useLandingContent(cmsSections, cmsSettings);
@@ -52,12 +80,15 @@ const LandingPage = () => {
     totalServices: 0
   });
   const [testimonials, setTestimonials] = useState([]);
-  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
   const [isAllTestimonialsModalOpen, setIsAllTestimonialsModalOpen] = useState(false);
   const [feedbackSuccessMessage, setFeedbackSuccessMessage] = useState('');
   const [feedbackLimitMessage, setFeedbackLimitMessage] = useState('');
   const [feedbackCategory, setFeedbackCategory] = useState('other');
   const hasAnimatedRef = useRef(false);
+  const blobOneRef = useRef(null);
+  const blobTwoRef = useRef(null);
+  const blobThreeRef = useRef(null);
+  const mouseAnimationFrameRef = useRef(null);
 
   // Handle Auth Modal trigger from redirects/callbacks
   useEffect(() => {
@@ -79,6 +110,11 @@ const LandingPage = () => {
       window.history.replaceState({}, document.title, window.location.pathname);
     }
   }, []);
+
+  // Force Auth Modal if PWA
+  useEffect(() => {
+    if (isPwa) setIsAuthModalOpen(true);
+  }, [isPwa]);
 
   // CMS content extraction
   const hero = getSection('hero', {
@@ -165,55 +201,86 @@ const LandingPage = () => {
 
   // Track mouse for parallax
   useEffect(() => {
+    if (window.matchMedia('(pointer: coarse)').matches) {
+      return undefined;
+    }
+
+    const updateBlobTransforms = (x, y) => {
+      if (blobOneRef.current) {
+        blobOneRef.current.style.transform = `translate(${x}px, ${y}px)`;
+      }
+      if (blobTwoRef.current) {
+        blobTwoRef.current.style.transform = `translate(${-x * 2}px, ${-y * 2}px)`;
+      }
+      if (blobThreeRef.current) {
+        blobThreeRef.current.style.transform = `translate(${x * 1.5}px, ${-y}px)`;
+      }
+    };
+
     const handleMouseMove = (e) => {
-      setMousePosition({
-        x: (e.clientX - window.innerWidth / 2) * 0.01,
-        y: (e.clientY - window.innerHeight / 2) * 0.01
+      const x = (e.clientX - window.innerWidth / 2) * 0.01;
+      const y = (e.clientY - window.innerHeight / 2) * 0.01;
+
+      if (mouseAnimationFrameRef.current) {
+        cancelAnimationFrame(mouseAnimationFrameRef.current);
+      }
+
+      mouseAnimationFrameRef.current = requestAnimationFrame(() => {
+        updateBlobTransforms(x, y);
       });
     };
-    window.addEventListener('mousemove', handleMouseMove);
-    return () => window.removeEventListener('mousemove', handleMouseMove);
+
+    window.addEventListener('mousemove', handleMouseMove, { passive: true });
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      if (mouseAnimationFrameRef.current) {
+        cancelAnimationFrame(mouseAnimationFrameRef.current);
+      }
+    };
   }, []);
 
   // Animate stats counter
   useEffect(() => {
-    if (stats.totalAppointments > 0 || stats.totalUsers > 0 || stats.completedAppointments > 0 || stats.totalServices > 0) {
-      if (!hasAnimatedRef.current) {
-        hasAnimatedRef.current = true;
-        const duration = 2000;
-        const steps = 60;
-        const interval = duration / steps;
+    const nextStats = normalizeStats(stats);
+    const hasRenderableValues = Object.values(nextStats).some((value) => value > 0);
 
-        const animateValue = (start, end, setter, key) => {
-          let current = start;
-          const increment = (end - start) / steps;
-          const timer = setInterval(() => {
-            current += increment;
-            if ((increment > 0 && current >= end) || (increment < 0 && current <= end)) {
-              current = end;
-              clearInterval(timer);
-            }
-            setter(prev => ({ ...prev, [key]: Math.floor(current) }));
-          }, interval);
-          return () => clearInterval(timer);
-        };
-
-        const cleanups = [
-          animateValue(0, stats.totalAppointments, setAnimatedStats, 'totalAppointments'),
-          animateValue(0, stats.totalUsers, setAnimatedStats, 'totalUsers'),
-          animateValue(0, stats.completedAppointments, setAnimatedStats, 'completedAppointments'),
-          animateValue(0, stats.totalServices, setAnimatedStats, 'totalServices')
-        ];
-        return () => cleanups.forEach(cleanup => cleanup && cleanup());
-      } else {
-        setAnimatedStats({
-          totalAppointments: stats.totalAppointments,
-          totalUsers: stats.totalUsers,
-          completedAppointments: stats.completedAppointments,
-          totalServices: stats.totalServices
-        });
-      }
+    if (!hasRenderableValues) {
+      setAnimatedStats(nextStats);
+      return;
     }
+
+    if (hasAnimatedRef.current) {
+      setAnimatedStats(nextStats);
+      return;
+    }
+
+    hasAnimatedRef.current = true;
+    const duration = 1200;
+    const startTime = performance.now();
+    let frameId = null;
+
+    const tick = (now) => {
+      const progress = Math.min((now - startTime) / duration, 1);
+      setAnimatedStats({
+        totalAppointments: Math.floor(nextStats.totalAppointments * progress),
+        totalUsers: Math.floor(nextStats.totalUsers * progress),
+        completedAppointments: Math.floor(nextStats.completedAppointments * progress),
+        totalServices: Math.floor(nextStats.totalServices * progress),
+      });
+
+      if (progress < 1) {
+        frameId = requestAnimationFrame(tick);
+      }
+    };
+
+    frameId = requestAnimationFrame(tick);
+
+    return () => {
+      if (frameId) {
+        cancelAnimationFrame(frameId);
+      }
+    };
   }, [stats]);
 
   // Stats polling — don't fetch immediately since /api/public/init already provides stats.
@@ -225,13 +292,7 @@ const LandingPage = () => {
       try {
         const statsResponse = await axios.get('/api/stats/summary', { timeout: 3000 });
         if (isMounted && statsResponse.data?.data) {
-          const apiStats = statsResponse.data.data;
-          setStats({
-            totalAppointments: apiStats.totalAppointments || 0,
-            totalUsers: apiStats.totalUsers || 0,
-            completedAppointments: apiStats.completedAppointments || 0,
-            totalServices: apiStats.totalServices || 0
-          });
+          setStats(normalizeStats(statsResponse.data.data));
         }
       } catch (err) {
         logger.debug('Stats fetch failed, keeping existing values');
@@ -260,21 +321,23 @@ const LandingPage = () => {
       const id = window.location.hash.slice(1);
       const el = document.getElementById(id);
       if (el) {
-        setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'center' }), 300);
+        requestAnimationFrame(() => el.scrollIntoView({ behavior: 'smooth', block: 'center' }));
       }
     }
   }, []);
 
   // Fetch all landing page data in a single call
   useEffect(() => {
+    let isMounted = true;
+
     const fetchLandingData = async () => {
       // Prefer the combined cached endpoint — returns stats, services, testimonials AND CMS
       try {
         const resp = await axios.get('/api/public/init', { timeout: 5000 });
-        if (resp.data?.data) {
+        if (isMounted && resp.data?.data) {
           const data = resp.data.data;
           if (Array.isArray(data.services)) setServices(data.services.slice(0, 4));
-          if (data.stats) setStats(data.stats);
+          if (data.stats) setStats(normalizeStats(data.stats));
           if (Array.isArray(data.testimonials)) setTestimonials(data.testimonials.map(normalizeTestimonial));
           if (data.cms) {
             setCmsSections(data.cms.sections || {});
@@ -286,50 +349,66 @@ const LandingPage = () => {
         logger.debug('Public init endpoint unavailable, falling back to individual calls');
       }
 
-      // Fallback: fetch CMS content separately
-      try {
-        const cmsResp = await axios.get('/api/landing-page', { timeout: 5000 });
-        if (cmsResp.data?.data) {
-          setCmsSections(cmsResp.data.data.sections || {});
-          setCmsSettings(cmsResp.data.data.settings || {});
-        }
-      } catch (err) {
+      // Fallback: fetch CMS, services and feedback testimonials in parallel to reduce render delays.
+      const [cmsResult, servicesResult, feedbackResult] = await Promise.allSettled([
+        axios.get('/api/landing-page', { timeout: 5000 }),
+        axios.get('/api/services', { timeout: 3000 }),
+        axios.get('/api/testimonials/feedbacks?limit=3', { timeout: 3000 }),
+      ]);
+
+      if (cmsResult.status === 'fulfilled' && isMounted && cmsResult.value.data?.data) {
+        const cmsData = cmsResult.value.data.data;
+        setCmsSections(cmsData.sections || {});
+        setCmsSettings(cmsData.settings || {});
+      } else if (cmsResult.status === 'rejected') {
         logger.debug('Landing page CMS unavailable, using defaults');
       }
 
-      // Fallback to separate endpoints if combined init fails
-      try {
-        const servicesResponse = await axios.get('/api/services', { timeout: 3000 });
-        if (servicesResponse.data?.data && Array.isArray(servicesResponse.data.data)) {
-          setServices(servicesResponse.data.data.slice(0, 4));
+      if (servicesResult.status === 'fulfilled' && isMounted) {
+        const servicesData = servicesResult.value.data?.data;
+        if (Array.isArray(servicesData)) {
+          setServices(servicesData.slice(0, 4));
         }
-      } catch (err) {
+      } else if (servicesResult.status === 'rejected') {
         logger.debug('Services API unavailable');
-        setServices([]);
+        if (isMounted) {
+          setServices([]);
+        }
+      }
+
+      let hasTestimonials = false;
+      if (feedbackResult.status === 'fulfilled' && isMounted) {
+        const feedbackData = feedbackResult.value.data?.data;
+        if (Array.isArray(feedbackData) && feedbackData.length > 0) {
+          setTestimonials(feedbackData.map(normalizeTestimonial));
+          hasTestimonials = true;
+        }
+      } else if (feedbackResult.status === 'rejected') {
+        logger.debug('Feedback testimonials unavailable, trying completed appointments fallback');
+      }
+
+      if (hasTestimonials || !isMounted) {
+        return;
       }
 
       try {
-        const feedbackResponse = await axios.get('/api/testimonials/feedbacks?limit=3', { timeout: 3000 });
-        if (feedbackResponse.data?.data && Array.isArray(feedbackResponse.data.data) && feedbackResponse.data.data.length > 0) {
-          setTestimonials(feedbackResponse.data.data.map(normalizeTestimonial));
-        } else {
-          const appointmentsResponse = await axios.get('/api/testimonials/completed-appointments?limit=3', { timeout: 3000 });
-          if (appointmentsResponse.data?.data && Array.isArray(appointmentsResponse.data.data)) {
-            setTestimonials(appointmentsResponse.data.data.map((apt, idx) => ({
-              id: apt.id,
-              clientName: apt.user?.name || `Client ${idx + 1}`,
-              serviceType: apt.type || 'Legal Service',
-              rating: 5,
-              message: apt.notes || `Successfully completed ${apt.type || 'appointment'}`
-            })));
-          }
+        const appointmentsResponse = await axios.get('/api/testimonials/completed-appointments?limit=3', { timeout: 3000 });
+        if (isMounted && Array.isArray(appointmentsResponse.data?.data)) {
+          setTestimonials(appointmentsResponse.data.data.map(normalizeAppointmentTestimonial));
         }
       } catch (err) {
         logger.debug('Testimonials API unavailable');
-        setTestimonials([]);
+        if (isMounted) {
+          setTestimonials([]);
+        }
       }
     };
+
     fetchLandingData();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const handleSendFeedback = async (e) => {
@@ -462,6 +541,18 @@ const LandingPage = () => {
   const howItWorksVisualIcon = howItWorks.metadata?.visual_icon || '📋';
   const howItWorksVisualText = howItWorks.metadata?.visual_text || 'Secure Document Processing';
 
+  if (isPwa) {
+    return (
+      <div className={`min-h-screen w-full relative ${isDarkMode ? 'bg-gray-900' : 'bg-gray-50'}`}>
+        <AuthTabsModal 
+          isOpen={true} 
+          onClose={() => {}} 
+          isDarkMode={isDarkMode} 
+        />
+      </div>
+    );
+  }
+
   return (
     <div className={`min-h-screen overflow-hidden transition-colors duration-500 ${
       isDarkMode
@@ -471,16 +562,19 @@ const LandingPage = () => {
       {/* Animated Background Blobs */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden">
         <div
+          ref={blobOneRef}
           className={`absolute top-1/4 left-1/4 w-80 h-80 ${isDarkMode ? 'bg-amber-500/5' : 'bg-blue-500/5'} rounded-full blur-3xl animate-pulse`}
-          style={{ transform: `translate(${mousePosition.x}px, ${mousePosition.y}px)`, animationDelay: '0.5s' }}
+          style={{ animationDelay: '0.5s' }}
         />
         <div
+          ref={blobTwoRef}
           className={`absolute bottom-1/3 right-1/4 w-96 h-96 ${isDarkMode ? 'bg-amber-600/3' : 'bg-blue-600/3'} rounded-full blur-3xl animate-pulse`}
-          style={{ transform: `translate(${-mousePosition.x * 2}px, ${-mousePosition.y * 2}px)`, animationDelay: '1s' }}
+          style={{ animationDelay: '1s' }}
         />
         <div
+          ref={blobThreeRef}
           className={`absolute top-2/3 left-1/2 w-64 h-64 ${isDarkMode ? 'bg-purple-500/3' : 'bg-indigo-400/3'} rounded-full blur-3xl animate-pulse`}
-          style={{ transform: `translate(${mousePosition.x * 1.5}px, ${-mousePosition.y}px)`, animationDelay: '2s' }}
+          style={{ animationDelay: '2s' }}
         />
       </div>
 
@@ -847,7 +941,7 @@ const LandingPage = () => {
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
             {testimonials.length > 0 ? (
               testimonials.map((item, index) => (
-                <div key={item.id}
+                <div key={item.id || `testimonial-card-${index}`}
                   className={`rounded-xl p-6 transition-all duration-500 hover:scale-105 group ${glassCard} ${glassCardHover}`}
                   style={{ animation: `fadeInUp 0.6s ease-out ${index * 150}ms forwards` }}>
                   <div className="flex items-center mb-4">

@@ -89,6 +89,12 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // Enforce HTTPS across the entire application in production (and all environments except explicitly local testing)
+        // This ensures email links, pagination, and redirections maintain secure protocols behind load balancers.
+        if (env('APP_ENV') !== 'local' || env('FORCE_HTTPS', true)) {
+            \Illuminate\Support\Facades\URL::forceScheme('https');
+        }
+
         // Register Chatbot Data Observers for 100% Real-time accuracy
         // This ensures that whenever data changes, the chatbot cache is cleared
         // and knowledge is kept up-to-date automatically

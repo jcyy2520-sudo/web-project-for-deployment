@@ -236,12 +236,7 @@ const UserNotifications = ({ onUnreadCountChange }) => {
             <TrashIcon className="h-3 w-3 inline mr-1" />
             Clear read
           </button>
-          <button
-            onClick={() => fetchNotifications()}
-            className={`p-1.5 rounded border transition-colors ${isDarkMode ? 'border-amber-500/30 text-amber-400 hover:bg-amber-500/10' : 'border-amber-300 text-amber-600 hover:bg-amber-50'}`}
-          >
-            <ArrowPathIcon className="h-3.5 w-3.5" />
-          </button>
+
         </div>
       </div>
 
@@ -272,8 +267,43 @@ const UserNotifications = ({ onUnreadCountChange }) => {
         </div>
       )}
 
-      {/* Filters */}
-      <div className="flex flex-wrap gap-2">
+      {/* Filters - Dropdowns on mobile, buttons on desktop */}
+      {/* Mobile: Compact dropdown filters */}
+      <div className="flex sm:hidden items-center gap-2">
+        <FunnelIcon className={`h-3.5 w-3.5 flex-shrink-0 ${isDarkMode ? 'text-amber-400/60' : 'text-gray-500'}`} />
+        <select
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          className={`text-xs px-2 py-1.5 rounded-lg border appearance-none bg-no-repeat bg-[right_0.5rem_center] bg-[length:12px] cursor-pointer ${
+            isDarkMode 
+              ? 'bg-gray-800 border-gray-700 text-gray-200 focus:border-amber-500' 
+              : 'bg-white border-gray-300 text-gray-700 focus:border-amber-500'
+          } focus:outline-none focus:ring-1 focus:ring-amber-500`}
+          style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%239ca3af'%3E%3Cpath fill-rule='evenodd' d='M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z'/%3E%3C/svg%3E")` }}
+        >
+          <option value="all">All</option>
+          <option value="unread">Unread</option>
+          <option value="read">Read</option>
+        </select>
+        <select
+          value={typeFilter}
+          onChange={(e) => setTypeFilter(e.target.value)}
+          className={`text-xs px-2 py-1.5 rounded-lg border appearance-none bg-no-repeat bg-[right_0.5rem_center] bg-[length:12px] cursor-pointer ${
+            isDarkMode 
+              ? 'bg-gray-800 border-gray-700 text-gray-200 focus:border-amber-500' 
+              : 'bg-white border-gray-300 text-gray-700 focus:border-amber-500'
+          } focus:outline-none focus:ring-1 focus:ring-amber-500`}
+          style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%239ca3af'%3E%3Cpath fill-rule='evenodd' d='M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z'/%3E%3C/svg%3E")` }}
+        >
+          <option value="all">All Types</option>
+          {['announcement', 'appointment', 'calendar', 'settings', 'account'].map(t => (
+            <option key={t} value={t}>{typeConfig[t]?.label || t}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* Desktop: Button filters */}
+      <div className="hidden sm:flex flex-wrap gap-2">
         <div className="flex items-center gap-1">
           <FunnelIcon className={`h-3.5 w-3.5 ${isDarkMode ? 'text-amber-400/60' : 'text-gray-500'}`} />
         </div>

@@ -29,18 +29,8 @@ class AppointmentController extends Controller
             'isClient' => $request->user()->isClient()
         ]);
         
-        // Create cache key based on user and query parameters
-        $cacheKey = 'appointments_' . $request->user()->id . '_' . md5(json_encode($request->all()));
-        $cacheDuration = 30; // Cache for 30 seconds
-        
-        // Only cache non-filtered requests
-        $useCache = !$request->has('status') && !$request->has('date');
-        
-        $result = $useCache 
-            ? Cache::remember($cacheKey, $cacheDuration, function () use ($request) {
-                return $this->fetchAppointments($request);
-            })
-            : $this->fetchAppointments($request);
+        // Removed 30-second cache so new appointments show immediately
+        $result = $this->fetchAppointments($request);
 
         \Log::info('[AppointmentController@index] Returning result', [
             'count' => count($result['data'] ?? []),
@@ -169,6 +159,17 @@ class AppointmentController extends Controller
 
     public function store(Request $request)
     {
+        // Request deduplication: prevent duplicate submissions within 5 seconds
+        $userId = $request->user()->id;
+        $dedupKey = 'appt_dedup_' . $userId . '_' . md5(json_encode($request->only(['type', 'appointment_date', 'appointment_time'])));
+        if (Cache::has($dedupKey)) {
+            return response()->json([
+                'message' => 'Your booking request is already being processed. Please wait.',
+                'duplicate' => true,
+            ], 429);
+        }
+        Cache::put($dedupKey, true, 5);
+
         $request->validate([
             'type' => 'required|string|max:255', // Flexible type - can be from static types or service names
             'service_id' => 'nullable|exists:services,id',
@@ -283,7 +284,7 @@ class AppointmentController extends Controller
             }
         }
 
-        // Check daily appointment limit per user (rolling 24-hour window)
+        // Pre-check daily appointment limit (non-atomic, for fast rejection before entering transaction)
         $hasReachedLimit = \App\Models\AppointmentSettings::userHasReachedDailyLimit($request->user()->id);
         if ($hasReachedLimit) {
             $settings = \App\Models\AppointmentSettings::getCurrent();
@@ -362,6 +363,21 @@ class AppointmentController extends Controller
                     throw new \Exception('USER_DUPLICATE');
                 }
 
+                // ATOMIC daily limit check inside transaction with lock to prevent race condition
+                $limitSettings = \App\Models\AppointmentSettings::getCurrent();
+                if ($limitSettings && $limitSettings->is_active) {
+                    $since = \Carbon\Carbon::now()->subHours(24);
+                    $recentBookingCount = Appointment::where('user_id', $request->user()->id)
+                        ->where('created_at', '>=', $since)
+                        ->whereIn('status', ['pending', 'approved', 'completed'])
+                        ->lockForUpdate()
+                        ->count();
+
+                    if ($recentBookingCount >= $limitSettings->daily_booking_limit_per_user) {
+                        throw new \Exception('DAILY_LIMIT');
+                    }
+                }
+
                 // Handle multiple services
                 $serviceIds = $request->service_ids ?: ($serviceId ? [$serviceId] : []);
                 $services = \App\Models\Service::whereIn('id', $serviceIds)->get();
@@ -409,6 +425,20 @@ class AppointmentController extends Controller
             if ($e->getMessage() === 'USER_DUPLICATE') {
                 return response()->json([
                     'message' => 'You already have an appointment booked at this time'
+                ], 422);
+            }
+            if ($e->getMessage() === 'DAILY_LIMIT') {
+                $settings = \App\Models\AppointmentSettings::getCurrent();
+                $nextAvailable = \App\Models\AppointmentSettings::getNextAvailableTime($request->user()->id);
+                $nextAvailableFormatted = $nextAvailable ? $nextAvailable->format('M d, Y \a\t g:i A') : null;
+
+                return response()->json([
+                    'message' => "You have reached your booking limit of {$settings->daily_booking_limit_per_user} appointments per 24 hours."
+                        . ($nextAvailableFormatted ? " You can book again on {$nextAvailableFormatted}." : ''),
+                    'limit' => $settings->daily_booking_limit_per_user,
+                    'next_available_time' => $nextAvailable?->toIso8601String(),
+                    'next_available_formatted' => $nextAvailableFormatted,
+                    'has_reached_limit' => true
                 ], 422);
             }
             \Log::error('Appointment booking failed: ' . $e->getMessage());

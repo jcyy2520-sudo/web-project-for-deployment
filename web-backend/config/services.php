@@ -60,14 +60,22 @@ return [
         'url' => env('OLLAMA_URL', 'http://localhost:11434'),
     ],
 
-    'huggingface' => [
-        'api_key' => env('HUGGINGFACE_API_KEY'),
+    'groq' => [
+        'api_key' => env('GROQ_API_KEY'),
+        'model' => env('GROQ_MODEL', 'llama-3.3-70b-versatile'),
+        'api_url' => env('GROQ_ENDPOINT', 'https://api.groq.com/openai/v1'),
     ],
 
     'github_gpt5' => [
         'api_key' => env('GITHUB_TOKEN'),
         'model' => env('GITHUB_GPT5_MODEL', 'openai/gpt-5'),
         'api_url' => env('GITHUB_ENDPOINT', 'https://models.github.ai/inference'),
+    ],
+
+    'openai' => [
+        'api_key' => env('OPENAI_API_KEY'),
+        'model' => env('OPENAI_MODEL', 'openai/gpt-5'),
+        'api_url' => env('OPENAI_ENDPOINT', 'https://api.openai.com/v1'),
     ],
 
     /*
@@ -105,7 +113,7 @@ return [
     */
 
     'chatbot' => [
-        'provider_order' => ['gemini', 'github_gpt5', 'mistral', 'huggingface', 'ollama'],
+        'provider_order' => ['github_gpt5', 'gemini', 'openai', 'mistral', 'groq', 'ollama'],
         'default_personality' => env('CHATBOT_DEFAULT_PERSONALITY', 'professional'),
         'max_context_messages' => env('CHATBOT_MAX_CONTEXT_MESSAGES', 50),
         'enable_streaming' => env('CHATBOT_ENABLE_STREAMING', true),

@@ -11,6 +11,8 @@ import LoadingSpinner from '../components/ui/LoadingSpinner';
 const AuthCallback = () => {
   const navigate = useNavigate();
 
+  const { setAuthData } = useAuth();
+
   useEffect(() => {
     const handleCallback = async () => {
       // Parse parameters from hash or search
@@ -43,19 +45,22 @@ const AuthCallback = () => {
       // 3. Handle OAuth Success
       if (oauthStatus === 'success' && token) {
         try {
-          // Initialize auth headers and storage
+          // Initialize auth headers and storage immediately to prevent race conditions
           localStorage.setItem('token', token);
           axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+
+          // SECURITY: Clean URL immediately after token extraction
+          window.history.replaceState(null, '', window.location.pathname);
 
           // Fetch fresh user data to ensure role and profile status are synced
           const userResp = await axios.get('/api/user');
           const userData = userResp.data?.data || userResp.data;
           
-          localStorage.setItem('user', JSON.stringify(userData));
+          // Update global auth state directly (no page reload)
+          setAuthData(userData, token);
           
           // Successful login/register -> Dashboard
-          // We use window.location.replace to trigger a full refresh and re-init AuthContext
-          window.location.replace('/dashboard');
+          navigate('/dashboard', { replace: true });
         } catch (error) {
           console.error('OAuth finalization failed:', error);
           
@@ -67,7 +72,8 @@ const AuthCallback = () => {
           } else {
              // Non-auth failures (network/timeout) - still proceed with token
              // AuthContext will handle background refreshing if needed
-             window.location.replace('/dashboard');
+             setAuthData(null, token);
+             navigate('/dashboard', { replace: true });
           }
         }
       } else {

@@ -23,6 +23,15 @@ class StreamingLLMService
     private ?string $githubStreamUrl = null;
     private ?string $githubToken = null;
     private string $githubModel;
+    private ?string $openaiStreamUrl = null;
+    private ?string $openaiToken = null;
+    private string $openaiModel;
+    private ?string $mistralApiKey = null;
+    private string $mistralModel;
+    private string $mistralStreamUrl;
+    private ?string $groqApiKey = null;
+    private string $groqModel;
+    private string $groqStreamUrl;
     private ?string $geminiApiKey = null;
     private string $geminiModel;
     private int $requestTimeout;
@@ -37,7 +46,16 @@ class StreamingLLMService
         $this->ollamaStreamUrl = config('services.ollama.stream_url') ?: config('services.ollama.url') ?: 'http://localhost:11434/api/generate';
         $this->githubToken = config('services.github_gpt5.api_key') ?: config('chatbot_unified.llm.github_gpt5.api_key');
         $this->githubModel = config('services.github_gpt5.model', config('chatbot_unified.llm.github_gpt5.model', 'openai/gpt-5'));
-        $this->githubStreamUrl = (config('services.github_gpt5.api_url') ?: config('chatbot_unified.llm.github_gpt5.base_url', 'https://models.github.ai/inference')) . '/chat/completions';
+        $this->githubStreamUrl = rtrim((config('services.github_gpt5.api_url') ?: config('chatbot_unified.llm.github_gpt5.base_url', 'https://models.github.ai/inference')), '/') . '/chat/completions';
+        $this->openaiToken = config('services.openai.api_key');
+        $this->openaiModel = config('services.openai.model', 'gpt-4o');
+        $this->openaiStreamUrl = rtrim(config('services.openai.api_url', 'https://api.openai.com/v1'), '/') . '/chat/completions';
+        $this->mistralApiKey = config('services.mistral.api_key');
+        $this->mistralModel = config('services.mistral.model', 'mistral-small-4');
+        $this->mistralStreamUrl = 'https://api.mistral.ai/v1/chat/completions';
+        $this->groqApiKey = config('services.groq.api_key');
+        $this->groqModel = config('services.groq.model', 'llama-3.3-70b-versatile');
+        $this->groqStreamUrl = rtrim(config('services.groq.api_url', 'https://api.groq.com/openai/v1'), '/') . '/chat/completions';
         $this->geminiApiKey = config('services.gemini.api_key') ?: config('chatbot_unified.llm.gemini.api_key');
         $this->geminiModel = config('services.gemini.model', config('chatbot_unified.llm.gemini.model', 'gemini-1.5-pro-latest'));
         $this->requestTimeout = (int) config('chatbot_unified.llm.streaming_timeout', 300);
@@ -73,7 +91,7 @@ class StreamingLLMService
             $systemPrompt = $this->buildSystemPrompt($systemContext);
 
             // Get provider order from config/env
-            $providerOrder = config('chatbot_unified.llm.provider_order', 'github_gpt5,gemini,mistral,huggingface');
+            $providerOrder = config('chatbot_unified.llm.provider_order', 'github_gpt5,gemini,mistral,openai');
             $providers = array_map('trim', explode(',', $providerOrder));
 
             foreach ($providers as $provider) {
@@ -92,15 +110,70 @@ class StreamingLLMService
                             }
                             break;
 
-                        case 'github_gpt5':
-                            if ($this->githubToken) {
-                                return $this->streamViaGithubGPT5(
+                        case 'openai':
+                            if ($this->openaiToken) {
+                                return $this->streamViaOpenAICompatible(
                                     $userMessage,
                                     $conversationHistory,
                                     $systemPrompt,
                                     $onToken,
                                     $onComplete,
-                                    $systemContext
+                                    $systemContext,
+                                    $this->openaiToken,
+                                    $this->openaiModel,
+                                    $this->openaiStreamUrl,
+                                    'openai'
+                                );
+                            }
+                            break;
+
+                        case 'mistral':
+                            if ($this->mistralApiKey) {
+                                return $this->streamViaOpenAICompatible(
+                                    $userMessage,
+                                    $conversationHistory,
+                                    $systemPrompt,
+                                    $onToken,
+                                    $onComplete,
+                                    $systemContext,
+                                    $this->mistralApiKey,
+                                    $this->mistralModel,
+                                    $this->mistralStreamUrl,
+                                    'mistral'
+                                );
+                            }
+                            break;
+
+                        case 'groq':
+                            if ($this->groqApiKey) {
+                                return $this->streamViaOpenAICompatible(
+                                    $userMessage,
+                                    $conversationHistory,
+                                    $systemPrompt,
+                                    $onToken,
+                                    $onComplete,
+                                    $systemContext,
+                                    $this->groqApiKey,
+                                    $this->groqModel,
+                                    $this->groqStreamUrl,
+                                    'groq'
+                                );
+                            }
+                            break;
+
+                        case 'github_gpt5':
+                            if ($this->githubToken) {
+                                return $this->streamViaOpenAICompatible(
+                                    $userMessage,
+                                    $conversationHistory,
+                                    $systemPrompt,
+                                    $onToken,
+                                    $onComplete,
+                                    $systemContext,
+                                    $this->githubToken,
+                                    $this->githubModel,
+                                    $this->githubStreamUrl,
+                                    'github_gpt5'
                                 );
                             }
                             break;
@@ -340,15 +413,19 @@ class StreamingLLMService
     }
 
     /**
-     * Stream response from GitHub GPT-5 (OpenAI-compatible)
+     * Stream response from OpenAI-compatible endpoints (OpenAI, GitHub Models)
      */
-    private function streamViaGithubGPT5(
+    private function streamViaOpenAICompatible(
         string $userMessage,
         array $conversationHistory,
         string $systemPrompt,
         callable $onToken = null,
         callable $onComplete = null,
-        array $options = []
+        array $options = [],
+        string $token,
+        string $model,
+        string $streamUrl,
+        string $providerName
     ): array {
         $rawMessages = $options['raw_messages'] ?? [];
         $messages = [['role' => 'system', 'content' => $systemPrompt]];
@@ -380,7 +457,7 @@ class StreamingLLMService
             $totalTokens = 0;
 
             $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . $this->githubToken,
+                'Authorization' => 'Bearer ' . $token,
                 'Accept' => 'text/event-stream',
                 'Content-Type' => 'application/json',
             ])
@@ -388,15 +465,15 @@ class StreamingLLMService
                 'stream' => true,
             ])
             ->timeout($this->requestTimeout)
-            ->post($this->githubStreamUrl, [
-                'model' => $this->githubModel,
+            ->post($streamUrl, [
+                'model' => $model,
                 'messages' => $messages,
                 'stream' => true,
                 'max_completion_tokens' => $this->maxTokens,
             ]);
 
             if (!$response->successful()) {
-                throw new \Exception('GitHub Multi-Model API error: ' . $response->status());
+                throw new \Exception("$providerName API error: " . $response->status());
             }
 
             // Simple SSE parser
@@ -412,7 +489,7 @@ class StreamingLLMService
                         $token = $data['choices'][0]['delta']['content'];
                         $fullResponse .= $token;
                         if ($onToken) {
-                            $onToken($token, ['provider' => 'github_gpt5']);
+                            $onToken($token, ['provider' => $providerName]);
                         }
                     }
                 }
@@ -421,7 +498,7 @@ class StreamingLLMService
             if ($onComplete) {
                 $onComplete([
                     'success' => true,
-                    'provider' => 'github_gpt5',
+                    'provider' => $providerName,
                     'response' => $fullResponse
                 ]);
             }
@@ -429,11 +506,11 @@ class StreamingLLMService
             return [
                 'success' => true,
                 'response' => $this->cleanResponse($fullResponse),
-                'provider' => 'github_gpt5',
-                'model' => $this->githubModel,
+                'provider' => $providerName,
+                'model' => $model,
             ];
         } catch (\Exception $e) {
-            Log::error('GitHub GPT-5 streaming failed: ' . $e->getMessage());
+            Log::error("$providerName streaming failed: " . $e->getMessage());
             throw $e;
         }
     }

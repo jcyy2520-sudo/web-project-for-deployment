@@ -34,11 +34,11 @@ return [
     | Primary AI provider settings
     */
     'llm' => [
-        // Primary provider: huggingface, claude, openai, or ollama
+        // Primary provider: github_gpt5, gemini, openai, or ollama
         'primary_provider' => env('LLM_PRIMARY_PROVIDER', 'github_gpt5'),
         
         // Provider order for fallbacks
-        'provider_order' => env('LLM_PROVIDER_ORDER', 'github_gpt5,gemini,huggingface,mistral'),
+        'provider_order' => env('LLM_PROVIDER_ORDER', 'github_gpt5,gemini,openai,mistral,groq'),
         
         // HTTP request timeout in seconds (shortened for faster failover)
         'request_timeout' => env('LLM_REQUEST_TIMEOUT', 60),
@@ -93,7 +93,6 @@ return [
         
         // API URLs
         'ollama_url' => env('OLLAMA_EMBEDDINGS_URL', 'http://localhost:11434/api/embeddings'),
-        'huggingface_url' => env('HUGGINGFACE_EMBEDDINGS_URL', 'https://router.huggingface.co/hf-inference/models/sentence-transformers/all-MiniLM-L6-v2'),
         'voyage_url' => env('VOYAGE_EMBEDDINGS_URL', 'https://api.voyageai.com/v1/embeddings'),
         
         // Model names
@@ -226,6 +225,9 @@ PROMPT,
             'tell me a joke', 'write a poem', 'play a game',
             'ignore your instructions', 'pretend you are',
         ],
+
+        // Strict refusal message for out-of-scope/security queries
+        'refusal_message' => "This question is outside the scope of this system. I can only assist with topics related to this system.",
     ],
 
     /*

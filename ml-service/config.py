@@ -20,7 +20,7 @@ DB_CONFIG = {
 }
 
 ML_CONFIG = {
-    'min_training_records': int(os.getenv('ML_MIN_TRAINING_RECORDS', 500)),
+    'min_training_records': int(os.getenv('ML_MIN_TRAINING_RECORDS', 50)),
     'test_size': 0.2,
     'random_state': 42,
     'model_dir': os.path.join(os.path.dirname(__file__), 'storage', 'models'),

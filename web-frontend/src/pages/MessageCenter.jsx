@@ -231,7 +231,7 @@ const DeleteConfirmationModal = ({ isOpen, onClose, onConfirm, loading, isDarkMo
 };
 
 // Main Message Center Component
-const MessageCenter = ({ isDarkMode = true, compact = false }) => {
+const MessageCenter = ({ isDarkMode = true, compact = false, hideMobileHeader = false }) => {
   const { user } = useAuth();
   const { callApi } = useApi();
 
@@ -668,8 +668,8 @@ const MessageCenter = ({ isDarkMode = true, compact = false }) => {
       ) : (
         // Full screen mode
         <div className={`flex flex-col h-full min-h-0 ${isDarkMode ? 'bg-gray-900' : 'bg-gray-50'}`} style={{ minHeight: 0 }}>
-          {/* Mobile Header */}
-          <div className={`md:hidden fixed top-0 left-0 right-0 z-50 ${isDarkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'} border-b p-3 flex items-center justify-between h-14`}>
+          {/* Mobile Header - Always show if viewing a conversation to provide the Back button */}
+          <div className={`md:hidden ${(hideMobileHeader && !mobileViewingConversation) ? 'hidden' : 'fixed top-0 left-0 right-0 z-50'} ${isDarkMode ? 'bg-gray-900 border-gray-700' : 'bg-white border-gray-200'} border-b p-3 flex items-center justify-between h-14`}>
             {mobileViewingConversation && selectedConversation && (
               <button
                 onClick={() => {
@@ -697,17 +697,11 @@ const MessageCenter = ({ isDarkMode = true, compact = false }) => {
               <h1 className={`text-lg font-bold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>Messages</h1>
               <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>Communicate with support</p>
             </div>
-            <button
-              onClick={loadConversations}
-              className={`ml-auto p-2 rounded-lg transition-colors ${isDarkMode ? 'text-gray-400 hover:text-amber-400 hover:bg-amber-500/10' : 'text-gray-500 hover:text-amber-600 hover:bg-amber-50'}`}
-              title="Refresh conversations"
-            >
-              <ArrowPathIcon className="h-4 w-4" />
-            </button>
+
           </div>
 
           {/* Main Content */}
-          <main className="flex-1 overflow-hidden flex flex-col pt-14 md:pt-0 md:p-4 min-h-0">
+          <main className={`flex-1 overflow-hidden flex flex-col ${hideMobileHeader ? 'pt-0' : 'pt-14'} md:pt-0 md:p-4 min-h-0`}>
             <div className="flex flex-col sm:flex-row gap-0 md:gap-4 flex-1 min-h-0">
               {/* Conversations List - Hide on mobile when viewing conversation */}
               {!mobileViewingConversation && (

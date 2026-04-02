@@ -1,5 +1,5 @@
+# pyre-ignore-all-errors
 """
-ML Training Pipeline.
 Trains Logistic Regression and XGBoost models on appointment data
 with proper train/test split, evaluation, and model selection.
 """

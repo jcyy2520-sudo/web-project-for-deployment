@@ -106,7 +106,7 @@ class AgentToolRegistry
      */
     public function getToolPromptSection(string $role): string
     {
-        return Cache::remember("agent_tools_prompt_v4_{$role}", 300, function () use ($role) {
+        return Cache::remember("agent_tools_prompt_v5_{$role}", 300, function () use ($role) {
             $tools = $this->getToolDefinitionsForRole($role);
             if (empty($tools)) {
                 return '';
@@ -124,8 +124,8 @@ class AgentToolRegistry
             $section .= "4. **NEVER say 'I have completed the action' or 'Done!' without actually calling the tool.** If you didn't output a ```tool_call``` block, the action was NOT performed. This is the #1 most critical rule.\n";
             $section .= "5. **NEVER give manual instructions** like 'go to dashboard and click...' when a tool can do it. USE THE TOOL.\n";
             $section .= "6. **After a tool executes:** Report the specific result (appointment ID, date, status, amount) — not vague confirmations.\n";
-            $section .= "7. **ANTI-HALLUCINATION (ABSOLUTE):** The ONLY way to book an appointment is by outputting a ```tool_call``` block for `book_appointment`. The ONLY way to cancel is by outputting a ```tool_call``` block for `cancel_appointment`. If you say 'Your appointment has been booked' or 'Your appointment has been cancelled' WITHOUT a tool_call block in your response, NOTHING happened — the user is misled and the system state is unchanged. NEVER claim an action was performed unless you output the tool_call block.\n";
-            $section .= "8. **IMMEDIATE EXECUTION:** Once you have all required parameters (e.g., service_id, date, time for booking), output the tool_call block in the SAME response. Do NOT send a separate message asking for confirmation — output the tool_call block NOW and the system handles the rest.\n\n";
+            $section .= "7. **ANTI-HALLUCINATION (ABSOLUTE):** The ONLY way to book an appointment is by calling the `book_appointment` tool. The ONLY way to cancel is by calling the `cancel_appointment` tool. If you describe a booking result (in ANY language — English, Filipino, etc.) WITHOUT actually calling the tool, NOTHING happened — the user is misled. NEVER mention appointment IDs, booking status, or 'nakareserba'/'nabook'/'booked' unless you received a success result from the tool.\n";
+            $section .= "8. **AUTOMATIC CONFIRMATION:** Once you have all required parameters (e.g., service_id, date, time for booking), call the `book_appointment` tool. The system will AUTOMATICALLY show a confirmation dialog to the user with prices and details. Do NOT write your own confirmation — just call the tool.\n\n";
 
             // Group tools by category for better LLM comprehension
             $categories = [
@@ -152,45 +152,55 @@ class AgentToolRegistry
             }
 
             $section .= "### TOOL USAGE GUIDELINES\n";
-            $section .= "- After a tool returns results, report the result directly and concisely in 1 sentence. DO NOT incorporate it naturally into a conversational paragraph. Avoid all conversational filler like 'Great!', 'I understand', 'Let me know', 'Would you like...'.\n";
-            $section .= "- If a tool fails, output 1 sentence stating the exact error, then immediately present alternatives. DO NOT ask conversational questions like 'Would you like to try another date?'.\n";
+            $section .= "- After a tool returns results, report the result in 1 concise sentence with specifics (IDs, dates, amounts). No filler.\n";
+            $section .= "- If a tool fails, state the exact error in 1 sentence, then immediately present alternatives or next steps. No questions like 'Would you like to try...?' — just present the options.\n";
             $section .= "- NEVER fabricate tool results. Only report what the tool actually returns.\n";
             $section .= "- When a user asks about their appointments without a specific date, query relevant time ranges.\n";
             $section .= "- When recommending slots, prefer get_scheduling_recommendation for AI-optimized suggestions.\n";
-            $section .= "### APPOINTMENT BOOKING WORKFLOW (TASK-EXECUTOR MODE)\n";
-            $section .= "Your goal: complete the booking AS FAST AS POSSIBLE without unnecessary conversation.\n\n";
-            $section .= "NEW FEATURE: Users can now book MULTIPLE services in a single appointment. If a user mentions multiple services (e.g., 'I want a consultation and a contract review'), collect all service IDs/names and book them together.\n\n";
-            $section .= "**FAST PATH**: If the user provides service(s) + date + time in one message (or context), skip data collection entirely. Check availability silently and output the `book_appointment` tool_call block IMMEDIATELY.\n\n";
-            $section .= "**Steps:**\n";
-            $section .= "1. If the user hasn't specified any service → call `get_available_services` to show options and ask which service(s) they want. Also ask for date + time in the SAME message. Include available hours: 8:00 AM–11:00 AM, 1:00 PM–5:00 PM.\n";
-            $section .= "2. After the user selects one service, briefly ask if they want to add another service (e.g., 'Added. Would you like to add another service, or shall we proceed with date and time?')\n";
-            $section .= "3. If the user hasn't specified a date/time → ask for date AND time together in ONE message (include available time ranges).\n";
-            $section .= "4. Once you have a date → call `get_available_slots` for that date. Do NOT narrate this — just do it and respond with the result.\n";
-            $section .= "5. If the slot is unavailable → in the SAME response, state why AND suggest 2-3 available alternatives from the slot data. NEVER just say 'not available' without alternatives.\n";
-            $section .= "6. If the slot is available → check the booking limit from LIVE DATA section (or call `check_booking_limit` if not available).\n";
-            $section .= "6. If the user has reached their limit → tell them when they can book again. Do NOT proceed.\n";
-            $section .= "7. If all checks pass → OUTPUT THE `book_appointment` tool_call block IMMEDIATELY. Do NOT generate a text summary first and do NOT ask 'shall I proceed?'. The UI handles confirmation.\n";
-            $section .= "8. NEVER say 'Your appointment has been booked' without outputting a tool_call block. That is a hallucination.\n\n";
+            $section .= "### APPOINTMENT BOOKING WORKFLOW (EXECUTOR MODE — MINIMUM STEPS)\n";
+            $section .= "You are a TASK EXECUTOR, not a conversational assistant. Complete bookings in MINIMUM steps.\n\n";
+            $section .= "Users can book MULTIPLE services in a single appointment. If a user mentions multiple services, collect all service IDs/names and book them together.\n\n";
+            $section .= "**CRITICAL — CONFIRMATION IS AUTOMATIC**: When you call `book_appointment`, the system AUTOMATICALLY shows the user a confirmation dialog with full appointment breakdown (date, time, services, individual prices, total cost). Just call the tool.\n\n";
+            $section .= "**RULES — FOLLOW EXACTLY:**\n";
+            $section .= "1. **User says 'book appointment' with NO details** → Request ALL required details in ONE message:\n";
+            $section .= "   - Required: Date, Time, Service\n";
+            $section .= "   - Include in the same message: Available hours (8:00 AM – 11:00 AM, 1:00 PM – 5:00 PM) AND call `get_available_services` to list all services with prices.\n";
+            $section .= "2. **User provides service but NO date/time** → call `get_available_slots` for the NEXT business day and present available times. Ask for missing info only.\n";
+            $section .= "3. **User provides service + date but NO time** → call `get_available_slots` for that date and show available slots directly.\n";
+            $section .= "4. **User provides service + date + time (COMPLETE INFO)** → call `get_available_slots` silently → if available, call `book_appointment` IMMEDIATELY. The system shows a confirmation dialog with full breakdown.\n";
+            $section .= "5. **Slot unavailable** → Suggest nearest available times IMMEDIATELY. If the entire day is full, suggest next available dates. ALWAYS provide alternatives.\n";
+            $section .= "6. **Booking limit reached** → State when they can book again with exact date/time. Do NOT proceed.\n";
+            $section .= "7. **NEVER** ask for info the user already provided. Use conversation memory.\n";
+            $section .= "8. **NEVER** generate your own booking summary or confirmation text. The system generates the confirmation automatically.\n";
+            $section .= "9. **NEVER** say 'Your appointment has been booked/reserved/scheduled' without a successful tool result.\n";
+            $section .= "10. **NEVER** narrate actions. No 'Let me check...', 'I will verify...', 'Checking availability...'. Respond with results directly.\n";
+            $section .= "11. **NEVER** describe booking results without having received a tool result.\n\n";
+
+            $section .= "**EXAMPLE OPTIMAL FLOWS:**\n";
+            $section .= "- User: 'Book affidavit March 25 at 10am' → [check slots] → [slot available] → [call book_appointment]. System shows: Date, Time, Service, Price, Total. Done in 1 turn.\n";
+            $section .= "- User: 'I want to book' → [call get_available_services] → 'What would you like to book? Available services: [list with prices]. Pick a service, date, and time. Hours: 8:00–11:00 AM, 1:00–5:00 PM (Mon–Fri).'\n";
+            $section .= "- User: 'Consultation tomorrow' → [call get_available_slots] → 'Available tomorrow: 8:00, 9:00, 10:00, 1:00, 2:00, 3:00, 4:00. Pick a time.'\n\n";
 
             $section .= "### CONVERSATION MEMORY (CRITICAL)\n";
-            $section .= "- ALWAYS remember info the user already provided in the conversation. Do NOT ask for it again.\n";
-            $section .= "- NEVER restart the booking process from scratch.\n";
-            $section .= "- Example: User said 'Book affidavit tomorrow' → You only need to ask for TIME.\n\n";
-
-            $section .= "### CONFIRMATION SUMMARY HANDLING\n";
-            $section .= "Do NOT generate your own text-based confirmation summary. Output the `book_appointment` tool_call IMMEDIATELY. The system automatically handles showing the confirmation UI to the user.\n\n";
-
-            $section .= "### SMART SUGGESTIONS WHEN SLOT IS UNAVAILABLE\n";
-            $section .= "If a requested slot is unavailable, AUTOMATICALLY suggest alternatives in the same response.\n";
-            $section .= "NEVER just say 'not available' without providing alternatives.\n\n";
-
-            $section .= "### AUTOMATIC SLOT CHECKING\n";
-            $section .= "- ALWAYS check availability silently. NEVER ask 'Would you like me to check?'\n";
-            $section .= "- NEVER narrate: 'Let me check...' or 'I will verify...'. Just do it and report the result.\n\n";
+            $section .= "- ALWAYS remember previously provided inputs. NEVER re-ask for completed fields.\n";
+            $section .= "- Only request MISSING information.\n";
+            $section .= "- Example: User said 'affidavit' earlier → service is known, only ask what's missing.\n\n";
 
             $section .= "### BOOKING CONFIRMATION (AFTER SUCCESS)\n";
-            $section .= "After the booking tool succeeds, confirm with specific details:\n";
-            $section .= "'Appointment booked successfully.\nDate: [Date]\nTime: [Time]\nService: [Service]\nA confirmation has been sent to your email.'\n\n";
+            $section .= "After the booking tool succeeds, display:\n";
+            $section .= "- Confirmation message\n";
+            $section .= "- Full appointment details (Date, Time, Service, Total Paid)\n";
+            $section .= "- Daily booking capacity status (e.g., 'Daily slots: X/Y used')\n";
+            $section .= "Example: 'Appointment booked successfully.\\n\\nDate: March 16, 2026\\nTime: 10:00 AM\\nService: Affidavit\\nTotal Paid: ₱150\\n\\nDaily slots: 2/3 used'\n\n";
+
+            $section .= "### SMART SUGGESTIONS\n";
+            $section .= "- If a slot is unavailable: suggest nearest available times from the data.\n";
+            $section .= "- If a day is fully booked: suggest next available dates.\n";
+            $section .= "- Always provide alternatives immediately — never just say 'not available'.\n\n";
+
+            $section .= "### USER CHANGE REQUESTS\n";
+            $section .= "- Before confirmation is finalized, if user wants to change date/time/service, accommodate the change immediately.\n";
+            $section .= "- Re-check availability for updated details and present updated confirmation.\n\n";
 
             $section .= "\n### APPOINTMENT CANCELLATION WORKFLOW (FOLLOW THIS EXACTLY)\n";
             $section .= "When a user wants to cancel an appointment:\n";
@@ -1004,7 +1014,7 @@ class AgentToolRegistry
 
         $inputNormalized = mb_strtolower(trim($serviceIdInput));
 
-        // 1. Exact match
+        // 1. Exact match (case-insensitive)
         $service = Service::whereRaw('LOWER(name) = ?', [$inputNormalized])->first();
         if ($service) return $service->id;
 
@@ -1018,11 +1028,35 @@ class AgentToolRegistry
             }
         }
 
-        // 3. Partial match (LIKE)
-        $service = Service::whereRaw('LOWER(name) LIKE ?', ['%' . $inputNormalized . '%'])->first();
-        if ($service) return $service->id;
+        // 3. Partial match (LIKE) — prioritize shortest name (closest to exact match)
+        // e.g. "assessment" should match "Assessment" over "Assessment2"
+        $partialMatches = Service::whereRaw('LOWER(name) LIKE ?', ['%' . $inputNormalized . '%'])
+            ->get(['id', 'name']);
+
+        if ($partialMatches->isNotEmpty()) {
+            // Prefer the service whose name length is closest to the input
+            $bestMatch = $partialMatches->sortBy(function ($s) use ($inputNormalized) {
+                $nameLower = mb_strtolower($s->name);
+                // Exact word match gets highest priority (difference = 0)
+                if ($nameLower === $inputNormalized) return 0;
+                // Whole-word boundary match gets second priority
+                if (preg_match('/\b' . preg_quote($inputNormalized, '/') . '\b/i', $s->name)) return 1;
+                // Otherwise sort by name length difference (shorter = better match)
+                return 2 + abs(mb_strlen($s->name) - mb_strlen($inputNormalized));
+            })->first();
+
+            return $bestMatch->id;
+        }
 
         return null;
+    }
+
+    /**
+     * Public accessor for resolveServiceIds (used by AgentReasoningService for booking confirmation).
+     */
+    public function resolveServiceIdsPublic($serviceIdsInput): array
+    {
+        return $this->resolveServiceIds($serviceIdsInput);
     }
 
     private function resolveServiceIds($serviceIdsInput): array
@@ -1149,19 +1183,27 @@ class AgentToolRegistry
             }));
         }
 
-        // Rule 5: Check capacity limits per slot (batched query)
-        $slotCountsRaw = Appointment::where('appointment_date', $date)
-            ->whereIn('status', ['pending', 'approved'])
-            ->selectRaw('appointment_time, COUNT(*) as count')
-            ->groupBy('appointment_time')
-            ->get();
+        // Rule 5: Check capacity limits per slot (batched query with short-lived cache)
+        // Cache appointment counts for 5 seconds to reduce DB load under concurrent access.
+        // The actual booking transaction uses lockForUpdate() so stale counts here are safe —
+        // they only affect the informational display, not booking authorization.
+        $slotCountsCacheKey = "slot_counts_{$date}";
+        $slotCountsRaw = Cache::remember($slotCountsCacheKey, 5, function () use ($date) {
+            return Appointment::where('appointment_date', $date)
+                ->whereIn('status', ['pending', 'approved'])
+                ->selectRaw('appointment_time, COUNT(*) as count')
+                ->groupBy('appointment_time')
+                ->get()
+                ->toArray();
+        });
 
         $slotCounts = [];
         foreach ($slotCountsRaw as $countRow) {
-            $time = $countRow->appointment_time;
+            $time = $countRow['appointment_time'] ?? $countRow->appointment_time ?? null;
+            if (!$time) continue;
             // Handle both H:i:s and H:i formats from DB
             $formattedTime = date('H:i', strtotime($time));
-            $slotCounts[$formattedTime] = ($slotCounts[$formattedTime] ?? 0) + $countRow->count;
+            $slotCounts[$formattedTime] = ($slotCounts[$formattedTime] ?? 0) + ($countRow['count'] ?? 0);
         }
 
         // Pre-load capacity rules (including date-specific overrides)
@@ -1184,22 +1226,32 @@ class AgentToolRegistry
         $allSlotDetails = [];
         foreach ($slots as $slot) {
             $appointmentCount = $slotCounts[$slot] ?? 0;
+            $reservationCount = $this->getReservationCount($date, $slot);
+            $effectiveCount = $appointmentCount + $reservationCount;
             $maxCapacity = $this->getSlotCapacityFromRules($capacityRules, $slot);
-            $remaining = $maxCapacity - $appointmentCount;
-            $isFull = $appointmentCount >= $maxCapacity;
+            $remaining = $maxCapacity - $effectiveCount;
+            $isFull = $effectiveCount >= $maxCapacity;
 
             $allSlotDetails[] = [
                 'time' => $slot,
                 'booked' => $appointmentCount,
+                'reserved' => $reservationCount,
                 'capacity' => $maxCapacity,
                 'availability' => max(0, $remaining),
-                'status' => $isFull ? 'full' : ($appointmentCount > 0 ? 'partial' : 'available'),
+                'status' => $isFull ? 'full' : ($effectiveCount > 0 ? 'partial' : 'available'),
             ];
 
             if (!$isFull) {
                 $availableSlots[] = $slot;
             }
         }
+
+        // Calculate total daily booking capacity
+        $totalDailyCapacity = 0;
+        foreach ($slots as $slot) {
+            $totalDailyCapacity += $this->getSlotCapacityFromRules($capacityRules, $slot);
+        }
+        $totalDailyBooked = array_sum($slotCounts);
 
         return [
             'success' => true,
@@ -1209,10 +1261,12 @@ class AgentToolRegistry
             'slot_details' => $allSlotDetails,
             'total_available' => count($availableSlots),
             'total_slots' => count($allSlotDetails),
-            'booked_count' => array_sum($slotCounts),
+            'booked_count' => $totalDailyBooked,
+            'daily_capacity' => $totalDailyCapacity,
+            'daily_slots_used' => $totalDailyBooked . '/' . $totalDailyCapacity,
             'message' => count($availableSlots) > 0
-                ? count($availableSlots) . ' slot(s) available on ' . $parsedDate->format('l, M j, Y') . '.'
-                : 'No available slots on this date.',
+                ? count($availableSlots) . ' slot(s) available on ' . $parsedDate->format('l, M j, Y') . '. Daily capacity: ' . $totalDailyBooked . '/' . $totalDailyCapacity . ' used.'
+                : 'No available slots on this date. Daily capacity: ' . $totalDailyBooked . '/' . $totalDailyCapacity . ' used.',
         ];
     }
 
@@ -1696,7 +1750,10 @@ class AgentToolRegistry
             ->whereIn('status', ['pending', 'approved'])
             ->count();
 
-        if ($existing >= $maxPerSlot) {
+        // Also count reservations by other users (pending confirmation flow)
+        $reservationCount = $this->isSlotReservedByOther($userId, $date, $time) ? 1 : 0;
+
+        if (($existing + $reservationCount) >= $maxPerSlot) {
             return ['valid' => false, 'error' => 'This time slot is fully booked.'];
         }
 
@@ -1752,6 +1809,27 @@ class AgentToolRegistry
         $validationResult = $this->validateBookingSlot($args, $userId);
         if (!$validationResult['valid']) {
             return ['success' => false, 'error' => $validationResult['error']];
+        }
+
+        // CHECK: Slot not reserved by another user
+        $date = $args['date'] ?? '';
+        $time = $args['time'] ?? '';
+        if ($this->isSlotReservedByOther($userId, $date, $time)) {
+            $altSlotsResult = $this->toolGetAlternativeSlots(['date' => $date]);
+            return [
+                'success' => false,
+                'error' => 'This time slot is currently being booked by another user. Please choose a different time.',
+                'alternative_slots' => $altSlotsResult['success'] ?? false ? $altSlotsResult['data'] : [],
+                'instruction_to_ai' => 'Inform the user that someone else is currently booking this slot and suggest the alternatives.',
+            ];
+        }
+
+        // RESERVE the slot atomically so no one else can take it during confirmation
+        if (!$this->reserveSlot($userId, $date, $time)) {
+            return [
+                'success' => false,
+                'error' => 'Could not reserve this time slot. It may have just been taken. Please try a different time.',
+            ];
         }
 
         $serviceIds = $this->resolveServiceIds($args['service_ids'] ?? $args['service_id'] ?? []);
@@ -1921,6 +1999,7 @@ class AgentToolRegistry
             });
         } catch (\Exception $e) {
             if ($e->getMessage() === 'SLOT_FULL') {
+                $this->releaseSlotReservation($date, $time);
                 $altSlotsResult = $this->toolGetAlternativeSlots(['date' => $date]);
                 $alternativeSlots = $altSlotsResult['success'] ?? false ? $altSlotsResult['data'] : [];
                 return [
@@ -1931,11 +2010,17 @@ class AgentToolRegistry
                 ];
             }
             if ($e->getMessage() === 'USER_DUPLICATE') {
+                $this->releaseSlotReservation($date, $time);
                 return ['success' => false, 'error' => 'You already have a pending or approved appointment at this date and time.'];
             }
             Log::error('Chatbot booking failed', ['error' => $e->getMessage(), 'user_id' => $userId]);
+            // Release the slot reservation on failure so others can book
+            $this->releaseSlotReservation($date, $time);
             return ['success' => false, 'error' => 'Failed to book appointment. Please try again.'];
         }
+
+        // Release slot reservation now that the booking is confirmed in DB
+        $this->releaseSlotReservation($date, $time);
 
         // Post-booking: ActionLog (same as AppointmentController)
         try {
@@ -2013,6 +2098,9 @@ class AgentToolRegistry
             Cache::forget("chatbot_appointments_user_{$userId}_completed");
             Cache::forget("chatbot_appointments_user_{$userId}_cancelled");
             
+            // Clear slot counts cache so other users see updated availability immediately
+            Cache::forget("slot_counts_{$date}");
+            
             // Clear booking limit cache
             Cache::forget("chatbot_booking_limit_{$userId}");
             AppointmentSettings::clearRequestCache($userId);
@@ -2026,15 +2114,30 @@ class AgentToolRegistry
         $dateFormatted = $parsedDate->format('M d, Y');
         $timeFormatted = Carbon::parse($time)->format('g:i A');
 
+        // Get total bookings for the day (daily capacity info)
+        $dailyBookedCount = Appointment::where('appointment_date', $date)
+            ->whereIn('status', ['pending', 'approved'])
+            ->count();
+        $dailyLimit = $settings->daily_booking_limit_per_user ?? 3;
+
+        // Build per-service price breakdown
+        $serviceBreakdown = $services->map(function ($srv) {
+            return [
+                'name' => $srv->name,
+                'price' => $srv->price,
+                'price_formatted' => '₱' . number_format($srv->price, 2),
+            ];
+        })->toArray();
+
         $message = "Appointment booked successfully! Your appointment ID is #{$appointment->id} for {$serviceNames} on {$dateFormatted} at {$timeFormatted}. Status: pending approval.";
         if ($remainingBookings !== null && $remainingBookings > 0) {
             $message .= " You can still book {$remainingBookings} more appointment(s) today.";
         } elseif ($remainingBookings === 0) {
             $nextAvailable = AppointmentSettings::getNextAvailableTime($userId);
             $nextFormatted = $nextAvailable ? $nextAvailable->format('M d, Y \a\t g:i A') : null;
-            $message .= " You have now reached your daily booking limit of {$settings->daily_booking_limit_per_user}.";
+            $message .= " Note: This booking fulfills your daily limit of {$settings->daily_booking_limit_per_user} appointments.";
             if ($nextFormatted) {
-                $message .= " You can book again on {$nextFormatted}.";
+                $message .= " You will be able to book your next appointment on {$nextFormatted}.";
             }
         }
 
@@ -2044,14 +2147,18 @@ class AgentToolRegistry
             'data' => [
                 'appointment_id' => $appointment->id,
                 'service' => $serviceNames,
+                'services' => $serviceBreakdown,
                 'date' => $date,
                 'date_formatted' => $dateFormatted,
                 'time' => $time,
                 'time_formatted' => $timeFormatted,
+                'total_price' => $totalPrice,
+                'total_price_formatted' => '₱' . number_format($totalPrice, 2),
                 'status' => 'pending',
                 'day' => $parsedDate->englishDayOfWeek,
                 'remaining_bookings_today' => $remainingBookings ?? 0,
                 'daily_limit' => $settings->daily_booking_limit_per_user,
+                'daily_booked_count' => $dailyBookedCount,
             ],
         ];
     }
@@ -2817,6 +2924,68 @@ class AgentToolRegistry
 
     /**
      * Check blackout dates (specific and recurring) for a given date.
+    // ─── SLOT RESERVATION SYSTEM ──────────────────────────────────
+    // Temporarily holds a slot for a user during the confirmation flow.
+    // This prevents another user from booking the same slot while the
+    // first user is confirming their booking via the chatbot.
+
+    /**
+     * Reserve a slot temporarily for a user (during confirmation flow).
+     * Reservation expires after 120 seconds if not confirmed.
+     */
+    public function reserveSlot(int $userId, string $date, string $time): bool
+    {
+        $key = "slot_reservation_{$date}_{$time}";
+        $ttl = 120; // 2 minutes to confirm
+
+        // Use atomic lock to prevent two users from reserving simultaneously
+        $lock = Cache::lock("slot_reserve_lock_{$date}_{$time}", 5);
+        if (!$lock->get()) {
+            return false;
+        }
+
+        try {
+            $existing = Cache::get($key);
+            if ($existing && $existing !== $userId) {
+                // Another user already has this slot reserved
+                return false;
+            }
+            Cache::put($key, $userId, $ttl);
+            return true;
+        } finally {
+            $lock->release();
+        }
+    }
+
+    /**
+     * Release a slot reservation (after booking or cancellation).
+     */
+    public function releaseSlotReservation(string $date, string $time): void
+    {
+        Cache::forget("slot_reservation_{$date}_{$time}");
+    }
+
+    /**
+     * Check if a slot is reserved by another user.
+     */
+    public function isSlotReservedByOther(int $userId, string $date, string $time): bool
+    {
+        $key = "slot_reservation_{$date}_{$time}";
+        $reservedBy = Cache::get($key);
+        return $reservedBy !== null && $reservedBy !== $userId;
+    }
+
+    /**
+     * Get the count of active reservations for a given date+time slot.
+     * Used to factor reservations into available slot calculations.
+     */
+    private function getReservationCount(string $date, string $time): int
+    {
+        $key = "slot_reservation_{$date}_{$time}";
+        return Cache::has($key) ? 1 : 0;
+    }
+
+    /**
      * Replicates CalendarController's getBlackoutDate() logic.
      */
     private function checkBlackoutDate(string $date): ?array

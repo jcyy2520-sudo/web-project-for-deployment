@@ -23,7 +23,7 @@ class StatsController extends Controller
             $ttl = 60; // seconds - longer TTL for better performance on high traffic
 
             $stats = Cache::remember($cacheKey, $ttl, function () {
-                // Use a single query with conditional aggregation instead of 5 separate queries
+                // Use a single query with conditional aggregation
                 $appointmentStats = DB::table('appointments')
                     ->whereNull('deleted_at')
                     ->selectRaw("
@@ -33,17 +33,41 @@ class StatsController extends Controller
                     ")
                     ->first();
 
-                return [
+                $rawData = [
                     'totalUsers' => DB::table('users')->where('role', 'client')->where('is_active', true)->count(),
                     'totalAppointments' => (int)($appointmentStats->total ?? 0),
                     'pendingAppointments' => (int)($appointmentStats->pending ?? 0),
                     'completedAppointments' => (int)($appointmentStats->completed ?? 0),
                     'totalServices' => DB::table('services')->where('is_active', true)->whereNull('deleted_at')->count(),
                 ];
+
+                // SECURITY: If user is not authenticated (public call), blur the numbers
+                if (!auth()->check()) {
+                    return [
+                        'totalUsers' => $this->blurNumber($rawData['totalUsers']),
+                        'totalAppointments' => $this->blurNumber($rawData['totalAppointments']),
+                        'pendingAppointments' => $this->blurNumber($rawData['pendingAppointments']),
+                        'completedAppointments' => $this->blurNumber($rawData['completedAppointments']),
+                        'totalServices' => $rawData['totalServices'],
+                    ];
+                }
+
+                return $rawData;
             });
 
             return response()->json(['data' => $stats]);
         }, 'stats.summary');
+    }
+
+    /**
+     * Helper to "blur" numbers for public consumption (e.g. 123 -> "100+")
+     */
+    private function blurNumber($num)
+    {
+        if ($num < 10) return (string)$num;
+        if ($num < 50) return floor($num / 10) * 10 . "+";
+        if ($num < 100) return "50+";
+        return floor($num / 100) * 100 . "+";
     }
 
     /**

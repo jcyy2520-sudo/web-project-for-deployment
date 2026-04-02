@@ -131,7 +131,7 @@ const ActionLogViewer = ({ isDarkMode = true }) => {
       {/* Mobile Header with Back Button */}
       <div className="flex lg:hidden items-center gap-3 -mx-3 -mt-3 px-3 py-3 border-b border-gray-700">
         <button
-          onClick={() => navigate('/dashboard?tab=home')}
+          onClick={() => navigate('/dashboard?tab=profile')}
           className="p-2 rounded-lg hover:bg-gray-800 transition-colors"
         >
           <ArrowLeftIcon className="w-5 h-5 text-gray-300" />
@@ -162,13 +162,7 @@ const ActionLogViewer = ({ isDarkMode = true }) => {
             View your recent activities and changes
           </p>
         </div>
-        <button
-          onClick={loadLogs}
-          className={`px-3 py-1.5 border ${isDarkMode ? 'border-amber-500/30 text-amber-50 hover:bg-amber-500/10' : 'border-amber-300 text-amber-900 hover:bg-amber-100'} rounded transition-all duration-200 font-medium text-sm flex items-center`}
-        >
-          <ArrowPathIcon className="h-3 w-3 mr-1" />
-          Refresh
-        </button>
+
       </div>
 
       {/* Error Message */}

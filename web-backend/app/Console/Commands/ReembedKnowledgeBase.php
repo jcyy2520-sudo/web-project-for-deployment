@@ -49,7 +49,7 @@ class ReembedKnowledgeBase extends Command
         $this->info('Checking embedding service availability...');
         if (!$this->embeddingService->isAvailable()) {
             $this->error('Embedding service is not available.');
-            $this->error('Make sure Ollama is running, or a HuggingFace/OpenAI API key is configured.');
+            $this->error('Make sure Ollama is running, or an OpenAI/Voyage API key is configured.');
             return self::FAILURE;
         }
         $this->info('Embedding service is available.');

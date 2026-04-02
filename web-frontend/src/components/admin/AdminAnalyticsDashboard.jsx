@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import LoadingSpinner from '../LoadingSpinner';
+import AdminDecisionSupport from './AdminDecisionSupport';
 
 const AdminAnalyticsDashboard = () => {
   const [loading, setLoading] = useState(true);
@@ -147,7 +148,10 @@ const AdminAnalyticsDashboard = () => {
         <div className="mb-8 flex justify-between items-center">
           <div>
             <h1 className="text-3xl font-bold text-amber-50">Analytics Dashboard</h1>
-            <p className="text-gray-400 mt-1">Real-time business insights</p>
+            <p className="text-gray-400 mt-1 flex items-center gap-2">
+              Real-time business insights
+              <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-300">AI-enhanced</span>
+            </p>
           </div>
           <div className="flex gap-3 items-center">
             <button
@@ -177,12 +181,12 @@ const AdminAnalyticsDashboard = () => {
 
         {/* Tabs */}
         <div className="mb-6 border-b border-gray-700">
-          <div className="flex gap-6">
+          <div className="flex gap-4 items-center overflow-x-auto">
             {['overview', 'slots', 'noshow', 'forecast', 'quality'].map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
-                className={`px-4 py-3 font-medium border-b-2 transition ${
+                className={`px-4 py-3 font-medium border-b-2 transition whitespace-nowrap ${
                   activeTab === tab
                     ? 'border-b-amber-500 text-amber-50'
                     : 'border-transparent text-gray-400 hover:text-amber-50'
@@ -191,11 +195,25 @@ const AdminAnalyticsDashboard = () => {
                 {tab.charAt(0).toUpperCase() + tab.slice(1).replace(/([A-Z])/g, ' $1')}
               </button>
             ))}
+            <span className="text-gray-600 px-1">|</span>
+            <button
+              onClick={() => setActiveTab('decision-support')}
+              className={`px-4 py-3 font-medium border-b-2 transition whitespace-nowrap flex items-center gap-1.5 ${
+                activeTab === 'decision-support'
+                  ? 'border-b-blue-500 text-blue-300'
+                  : 'border-transparent text-gray-400 hover:text-blue-300'
+              }`}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
+              Decision Support
+            </button>
           </div>
         </div>
 
         {/* Content */}
-        {analyticsData ? (
+        {activeTab === 'decision-support' ? (
+          <AdminDecisionSupport isDarkMode={true} />
+        ) : analyticsData ? (
           <div>
             {activeTab === 'overview' && <OverviewTab data={analyticsData} />}
             {activeTab === 'slots' && <SlotsTab data={analyticsData} />}
@@ -210,8 +228,20 @@ const AdminAnalyticsDashboard = () => {
         )}
 
         {/* Footer */}
-        <div className="mt-12 pt-6 border-t border-gray-700 text-sm text-gray-400">
-          {refreshTime && `Last updated: ${refreshTime.toLocaleTimeString()}`}
+        <div className="mt-12 pt-6 border-t border-gray-700 text-sm text-gray-400 flex items-center justify-between">
+          <div>
+            {refreshTime && `Last updated: ${refreshTime.toLocaleTimeString()}`}
+          </div>
+          <div className="flex items-center gap-2">
+            {analyticsData?.generated_at && (
+              <span className="text-xs text-gray-500">
+                Server data: {new Date(analyticsData.generated_at).toLocaleTimeString()}
+              </span>
+            )}
+            <span className="text-xs px-2 py-0.5 rounded-full bg-green-500/15 text-green-400">
+              Live data
+            </span>
+          </div>
         </div>
       </div>
     </div>
@@ -226,6 +256,69 @@ const OverviewTab = ({ data }) => {
   const total = overall.total_capacity || 0;
   const available = Math.max(0, total - utilized);
   const rate = overall.overall_utilization_rate || 0;
+
+  // AI Insights state
+  const [aiInsights, setAiInsights] = useState(null);
+  const [aiLoading, setAiLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchAiInsights = async () => {
+      try {
+        const today = new Date().toISOString().split('T')[0];
+        const [dashRes, workloadRes] = await Promise.allSettled([
+          axios.get('/api/decision-support/dashboard', { params: { appointment_date: today }, timeout: 10000 }),
+          axios.get('/api/decision-support/workload-optimization', { params: { appointment_date: today }, timeout: 10000 }),
+        ]);
+        const dashData = dashRes.status === 'fulfilled' ? dashRes.value?.data?.data : null;
+        const workloadData = workloadRes.status === 'fulfilled' ? workloadRes.value?.data : null;
+
+        const insights = [];
+        
+        // Generate insights from real data
+        if (dashData?.quick_stats) {
+          const qs = dashData.quick_stats;
+          if (qs.pending > 0) {
+            insights.push({ type: 'action', text: `${qs.pending} appointment${qs.pending > 1 ? 's' : ''} pending approval for today.`, severity: qs.pending > 5 ? 'high' : 'medium' });
+          }
+          if (qs.total === 0) {
+            insights.push({ type: 'info', text: 'No appointments scheduled for today. Consider promoting available slots.', severity: 'low' });
+          }
+        }
+        if (dashData?.ml_status) {
+          if (!dashData.ml_status.available) {
+            insights.push({ type: 'setup', text: 'ML service is offline. Start it to enable AI-powered predictions.', severity: 'medium' });
+          } else if (!dashData.ml_status.has_model) {
+            insights.push({ type: 'setup', text: 'ML model not trained yet. Train it in Decision Support → Data Quality.', severity: 'medium' });
+          }
+        }
+        if (workloadData?.insights) {
+          workloadData.insights.forEach(i => {
+            insights.push({ type: i.type || 'insight', text: i.message, severity: i.severity || 'low' });
+          });
+        }
+        if (workloadData?.summary?.balance_score != null) {
+          const bs = workloadData.summary.balance_score;
+          if (bs < 40) {
+            insights.push({ type: 'warning', text: `Staff workload balance is poor (${bs}%). Consider redistributing appointments.`, severity: 'high' });
+          }
+        }
+
+        // Utilization-based insights from the data already in scope
+        if (rate >= 90) {
+          insights.push({ type: 'warning', text: 'Running at near-full capacity. New bookings may need to be limited.', severity: 'high' });
+        } else if (rate < 30 && total > 0) {
+          insights.push({ type: 'opportunity', text: `Only ${rate}% utilization — significant capacity available for more bookings.`, severity: 'low' });
+        }
+
+        setAiInsights(insights.length > 0 ? insights : null);
+      } catch {
+        setAiInsights(null);
+      } finally {
+        setAiLoading(false);
+      }
+    };
+    fetchAiInsights();
+  }, [rate, total]);
 
   // Status indicator
   const getStatus = () => {
@@ -313,6 +406,45 @@ const OverviewTab = ({ data }) => {
                 <p className="text-gray-300 text-sm mt-2">{alert.message}</p>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* AI-Powered Insights */}
+      {aiLoading && (
+        <div className="bg-gray-800/50 border border-blue-500/20 p-6 rounded-lg animate-pulse">
+          <div className="flex items-center gap-2 text-gray-400 text-sm">
+            <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+            Generating AI insights...
+          </div>
+        </div>
+      )}
+      {aiInsights && !aiLoading && (
+        <div className="bg-gray-800/50 border border-blue-500/30 p-6 rounded-lg">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-blue-300 flex items-center gap-2">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
+              AI Insights
+            </h3>
+            <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-300">
+              Real-time analysis
+            </span>
+          </div>
+          <div className="space-y-2.5">
+            {aiInsights.map((insight, idx) => {
+              const severityColor = insight.severity === 'high'
+                ? 'border-red-500 bg-red-500/10'
+                : insight.severity === 'medium'
+                ? 'border-amber-500 bg-amber-500/10'
+                : 'border-blue-500 bg-blue-500/10';
+              const iconColor = insight.severity === 'high' ? 'text-red-400'
+                : insight.severity === 'medium' ? 'text-amber-400' : 'text-blue-400';
+              return (
+                <div key={idx} className={`border-l-4 ${severityColor} p-3 rounded`}>
+                  <p className="text-sm text-gray-300">{insight.text}</p>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

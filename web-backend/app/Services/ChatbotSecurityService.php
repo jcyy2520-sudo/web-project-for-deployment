@@ -654,7 +654,7 @@ class ChatbotSecurityService
             '/\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b/', // Credit card (with/without separators)
             '/\b\d{13,19}\b/', // Credit card numbers without separators (13-19 digits)
             '/\bsk-[a-zA-Z0-9]{20,}\b/', // OpenAI API key patterns
-            '/\bhf_[a-zA-Z0-9]{20,}\b/', // HuggingFace key
+
             '/\bkey-[a-zA-Z0-9]{20,}\b/', // Generic API key
             '/\bAIza[a-zA-Z0-9_-]{35}\b/', // Google API key
             '/\bAKIA[A-Z0-9]{16}\b/', // AWS access key
@@ -815,20 +815,22 @@ class ChatbotSecurityService
      */
     private function getSecurityRefusalResponse(string $type): string
     {
+        $refusalMessage = config('chatbot_unified.safety.refusal_message', "This question is outside the scope of this system. I can only assist with topics related to this system.");
+
         $responses = [
-            'instruction_override' => "I cannot change my instructions or operating guidelines. I'm here to help you with appointments, services, payments, and account questions. How can I assist you?",
-            'role_impersonation' => "I cannot change roles or grant access permissions. Your role is determined by your account and cannot be modified through our conversation. How can I help you with the features available to your account?",
-            'prompt_extraction' => "I'm not able to share my internal configuration or instructions. I'm here to help you with our legal services, appointments, and account management. What can I assist you with?",
-            'jailbreak_attempt' => "I operate within my designed guidelines to provide you the best assistance with our services. I cannot enter alternative modes. How can I help you today?",
-            'encoding_evasion' => "I'm designed to help with appointments, services, and account questions. Could you please rephrase your request in plain language?",
-            'multi_turn_manipulation' => "I cannot change roles or access levels during our conversation. Your permissions are determined by your account type. How can I help you with the features available to you?",
-            'data_exfiltration' => "I can only share information that belongs to your account and is appropriate for your role. I cannot provide bulk data exports or information about other users. What specific information about your account can I help you with?",
-            'social_engineering' => "I can only assist you with your own account. For security reasons, I cannot access, share, or verify another person's information — even if they gave you permission. Each user must access their own account directly. How can I help you with your account?",
-            'tool_call_injection' => "I'm here to help with our legal services and appointment system. Please describe what you need in plain language, and I'll assist you.",
-            'prompt_injection' => "I'm here to help with our legal services and appointment system. How can I assist you today?",
+            'instruction_override' => $refusalMessage,
+            'role_impersonation' => $refusalMessage,
+            'prompt_extraction' => $refusalMessage,
+            'jailbreak_attempt' => $refusalMessage,
+            'encoding_evasion' => $refusalMessage,
+            'multi_turn_manipulation' => $refusalMessage,
+            'data_exfiltration' => $refusalMessage,
+            'social_engineering' => $refusalMessage,
+            'tool_call_injection' => $refusalMessage,
+            'prompt_injection' => $refusalMessage,
         ];
 
-        return $responses[$type] ?? $responses['prompt_injection'];
+        return $responses[$type] ?? $refusalMessage;
     }
 
     /**
@@ -863,13 +865,7 @@ class ChatbotSecurityService
      */
     private function getSafeOutputFallback(string $role): string
     {
-        return match ($role) {
-            'guest' => "I can help you with information about our services, business hours, and how to register. What would you like to know?",
-            'client' => "I can help you with your appointments, payments, services, and account information. What would you like to know?",
-            'cashier' => "I can assist you with payment processing, transaction reports, and refund management. How can I help?",
-            'admin' => "I can provide information about system operations, analytics, and management tasks. What do you need?",
-            default => "I'm here to help with our legal services and appointment system. How can I assist you?",
-        };
+        return config('chatbot_unified.safety.refusal_message', "This question is outside the scope of this system. I can only assist with topics related to this system.");
     }
 
     // ──────────────────────────────────────────────────────────────

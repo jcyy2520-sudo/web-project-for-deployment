@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\App;
 
 /**
  * UnifiedChatbotService - Fully Dynamic, LLM-First AI Chatbot Architecture
@@ -311,6 +312,7 @@ class UnifiedChatbotService
             // ── 11. GENERATE RESPONSE — Agent Reasoning Loop or Direct LLM ──
             $llmResult = null;
             $agentToolCalls = [];
+            $agentActionButtons = [];
             $requiresConfirmation = false;
             $confirmationKey = null;
             $pendingToolName = null;
@@ -336,6 +338,7 @@ class UnifiedChatbotService
                 );
                 
                 $agentToolCalls = $agentResult['tool_calls'] ?? [];
+                $agentActionButtons = $agentResult['action_buttons'] ?? [];
                 
                 if (!empty($agentResult['requires_confirmation'])) {
                     $requiresConfirmation = true;
@@ -505,6 +508,11 @@ class UnifiedChatbotService
                 'agent_tool_calls' => count($agentToolCalls),
             ];
             
+            // Include action buttons from agent tool execution
+            if (!empty($agentActionButtons)) {
+                $resultMeta['action_buttons'] = $agentActionButtons;
+            }
+            
             // Include confidence score in meta if available
             if ($confidenceScore !== null) {
                 $resultMeta['confidence_score'] = $confidenceScore;
@@ -668,6 +676,11 @@ class UnifiedChatbotService
                         'agent_tool_calls' => count($agentResult['tool_calls'] ?? []),
                         'role' => $role,
                     ];
+
+                    // Include action buttons from agent tool execution
+                    if (!empty($agentResult['action_buttons'])) {
+                        $meta['action_buttons'] = $agentResult['action_buttons'];
+                    }
 
                     if ($requiresConfirmation && $confirmationKey) {
                         $meta['requires_confirmation'] = true;
@@ -920,6 +933,24 @@ class UnifiedChatbotService
             $data['business_info'] = $this->dataService->getBusinessInfo();
             $data['services'] = $this->dataService->getAvailableServices();
             $data['business_hours'] = $this->dataService->getBusinessHours();
+
+            // Inject system and developer information for system-related queries
+            $systemKeywords = ['system', 'developer', 'who developed', 'creator', 'what is this', 'purpose', 'technology', 'features'];
+            $needsSystemInfo = false;
+            foreach ($systemKeywords as $kw) {
+                if (stripos($message, $kw) !== false) {
+                    $needsSystemInfo = true;
+                    break;
+                }
+            }
+            if ($needsSystemInfo) {
+                try {
+                    $sysInfo = App::make(\App\Services\SystemInfoProvider::class);
+                    $data['system_info'] = $sysInfo->getSystemInfo('standard');
+                } catch (\Exception $e) {
+                    Log::debug('Failed to gather system info in UnifiedChatbotService: ' . $e->getMessage());
+                }
+            }
             $data['current_datetime'] = [
                 'date' => now()->format('F j, Y'),
                 'day' => now()->format('l'),
@@ -1403,10 +1434,11 @@ class UnifiedChatbotService
         
         foreach ($dangerousPatterns as $pattern) {
             if (strpos($lowerMessage, $pattern) !== false) {
+                $refusalMessage = config('chatbot_unified.safety.refusal_message', "This question is outside the scope of this system. I can only assist with topics related to this system.");
                 return [
                     'safe' => false,
                     'reason' => 'security_threat',
-                    'response' => "I'm designed to help with legal services and appointments. I can't assist with that type of request. How can I help you with our services today?",
+                    'response' => $refusalMessage,
                 ];
             }
         }
@@ -1678,7 +1710,7 @@ class UnifiedChatbotService
         // Check for API key leakage patterns
         $keyPatterns = [
             '/\b(sk-[a-zA-Z0-9]{20,})\b/',           // OpenAI keys
-            '/\b(hf_[a-zA-Z0-9]{20,})\b/',            // HuggingFace keys
+
             '/\b(AKIA[A-Z0-9]{16})\b/',               // AWS keys
             '/\b(sk-ant-[a-zA-Z0-9]{20,})\b/',        // Anthropic keys
             '/\b(xoxb-[a-zA-Z0-9\-]{20,})\b/',        // Slack tokens

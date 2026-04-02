@@ -5,6 +5,7 @@ namespace App\Services;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\Cache;
 
 /**
  * LLMService - Intelligent AI Backend Service
@@ -23,21 +24,24 @@ use Illuminate\Support\Facades\Config;
 class LLMService
 {
     private const MISTRAL_API_URL = 'https://api.mistral.ai/v1/chat/completions';
-    private const HUGGINGFACE_API_URL = 'https://router.huggingface.co/v1/chat/completions';
     private const GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
     
     private $mistralApiKey;
     private $ollamaBaseUrl;
-    private $huggingfaceApiKey;
+    private $groqApiKey;
+    private $groqEndpoint;
     private $geminiApiKey;
     private $useOllama;
     private $ollamaModel = 'mistral';
-    private $huggingfaceModel = 'meta-llama/Llama-3.3-70B-Instruct';
+    private $groqModel = 'llama-3.3-70b-versatile';
     private $mistralModel = 'mistral-large-latest';
     private $geminiModel = 'gemini-1.5-pro-latest';
     private $githubToken;
     private $githubModel;
     private $githubEndpoint;
+    private $openaiApiKey;
+    private $openaiModel;
+    private $openaiEndpoint;
     private $fallbackModel;
     private $lastUsedModel = null;
     private $lastUsedProvider = null;
@@ -49,7 +53,7 @@ class LLMService
     {
         $this->mistralApiKey = config('services.mistral.api_key');
         $this->mistralModel = config('services.mistral.model', 'mistral-large-latest');
-        $this->huggingfaceApiKey = config('services.huggingface.api_key');
+        $this->groqApiKey = config('services.groq.api_key');
         $this->geminiApiKey = config('services.gemini.api_key');
         $this->geminiModel = config('services.gemini.model', 'gemini-1.5-pro-latest');
         $this->githubToken = config('services.github_gpt5.api_key');
@@ -58,13 +62,17 @@ class LLMService
         $this->useOllama = filter_var(config('services.ollama.enabled', false), FILTER_VALIDATE_BOOLEAN);
         $this->ollamaBaseUrl = rtrim(config('chatbot_unified.llm.ollama.base_url', 'http://localhost:11434'), '/');
         $this->ollamaModel = config('chatbot_unified.llm.ollama.model', 'mistral');
+        $this->openaiApiKey = config('services.openai.api_key');
+        $this->openaiModel = config('services.openai.model', 'gpt-4o');
+        $this->openaiEndpoint = rtrim(config('services.openai.api_url', 'https://api.openai.com/v1'), '/');
         
         // Load model configuration from config
-        $this->huggingfaceModel = config('chatbot_unified.models.primary', $this->huggingfaceModel);
+        $this->groqModel = config('services.groq.model', 'llama-3.3-70b-versatile');
+        $this->groqEndpoint = config('services.groq.api_url', 'https://api.groq.com/openai/v1');
         $this->fallbackModel = config('chatbot_unified.models.fallback', 'meta-llama/Llama-3.2-3B-Instruct');
         
         // Load LLM parameters from config (no more hardcoded constants)
-        $this->requestTimeout = (int) config('chatbot_unified.llm.request_timeout', 45);
+        $this->requestTimeout = (int) config('chatbot_unified.llm.request_timeout', 30);
         $this->maxTokens = (int) config('chatbot_unified.llm.claude.max_tokens', 4096);
         $this->temperature = (float) config('chatbot_unified.llm.claude.temperature', 0.3);
     }
@@ -92,10 +100,17 @@ class LLMService
             $rawMessages = $systemContext['raw_messages'] ?? [];
 
             // Get provider order from config/env
-            $providerOrder = config('chatbot_unified.llm.provider_order', 'github_gpt5,gemini,huggingface,mistral');
+            $providerOrder = config('chatbot_unified.llm.provider_order', 'github_gpt5,gemini,openai,mistral,groq');
             $providers = array_map('trim', explode(',', $providerOrder));
 
             foreach ($providers as $provider) {
+                // Circuit breaker: skip providers that failed recently (60s cooldown)
+                $circuitKey = 'llm_circuit_' . $provider;
+                if (Cache::has($circuitKey)) {
+                    Log::debug("Skipping $provider (circuit breaker open)");
+                    continue;
+                }
+
                 try {
                     switch ($provider) {
                         case 'gemini':
@@ -122,27 +137,45 @@ class LLMService
                             }
                             break;
 
-                        case 'huggingface':
-                            if ($this->huggingfaceApiKey) {
-                                Log::debug('Attempting HuggingFace API call with model: ' . $this->huggingfaceModel);
+                        case 'openai':
+                            if ($this->openaiApiKey) {
+                                Log::debug('Attempting OpenAI API call with model: ' . $this->openaiModel);
+                                return $this->generateViaOpenAI(
+                                    $userMessage,
+                                    $conversationHistory,
+                                    $systemPrompt,
+                                    $systemContext
+                                );
+                            }
+                            break;
+
+                        case 'groq':
+                            if ($this->groqApiKey) {
+                                Log::debug('Attempting Groq API call with model: ' . $this->groqModel);
                                 try {
-                                    return $this->generateViaHuggingFace(
+                                    return $this->generateViaOpenAICompatible(
                                         $userMessage,
                                         $conversationHistory,
                                         $systemPrompt,
-                                        $this->huggingfaceModel,
-                                        $systemContext
+                                        $systemContext,
+                                        $this->groqApiKey,
+                                        $this->groqModel,
+                                        $this->groqEndpoint . '/chat/completions',
+                                        'groq'
                                     );
                                 } catch (\Exception $hfE) {
-                                    // Fallback model support inside HuggingFace
+                                    // Fallback model support inside Groq
                                     if (config('chatbot_unified.features.fallback_model', false) && $this->fallbackModel) {
-                                        Log::info('Attempting HuggingFace fallback model: ' . $this->fallbackModel);
-                                        return $this->generateViaHuggingFace(
+                                        Log::info('Attempting Groq fallback model: ' . $this->fallbackModel);
+                                        return $this->generateViaOpenAICompatible(
                                             $userMessage,
                                             $conversationHistory,
                                             $systemPrompt,
+                                            $systemContext,
+                                            $this->groqApiKey,
                                             $this->fallbackModel,
-                                            $systemContext
+                                            $this->groqEndpoint . '/chat/completions',
+                                            'groq'
                                         );
                                     }
                                     throw $hfE;
@@ -176,12 +209,14 @@ class LLMService
                     }
                 } catch (\Exception $e) {
                     Log::warning("$provider API failed: " . $e->getMessage());
+                    // Open circuit breaker for this provider (60s cooldown)
+                    Cache::put('llm_circuit_' . $provider, true, 60);
                     // Continue to next provider in the loop
                 }
             }
 
             // All providers exhausted
-            Log::error('All LLM providers failed â€” no response generated');
+            Log::error('All LLM providers failed - no response generated');
             return [
                 'success' => false,
                 'error' => 'LLM service unavailable',
@@ -206,6 +241,52 @@ class LLMService
         array $conversationHistory,
         string $systemPrompt,
         array $options = []
+    ): array {
+        return $this->generateViaOpenAICompatible(
+            $userMessage,
+            $conversationHistory,
+            $systemPrompt,
+            $options,
+            $this->githubToken,
+            $this->githubModel,
+            rtrim($this->githubEndpoint, '/') . '/chat/completions',
+            'github_gpt5'
+        );
+    }
+
+    /**
+     * Generate response via OpenAI API
+     */
+    private function generateViaOpenAI(
+        string $userMessage,
+        array $conversationHistory,
+        string $systemPrompt,
+        array $options = []
+    ): array {
+        return $this->generateViaOpenAICompatible(
+            $userMessage,
+            $conversationHistory,
+            $systemPrompt,
+            $options,
+            $this->openaiApiKey,
+            $this->openaiModel,
+            rtrim($this->openaiEndpoint, '/') . '/chat/completions',
+            'openai'
+        );
+    }
+
+    /**
+     * Helper for OpenAI compatible endpoints (OpenAI, GitHub Models, etc.)
+     */
+    private function generateViaOpenAICompatible(
+        string $userMessage,
+        array $conversationHistory,
+        string $systemPrompt,
+        array $options,
+        string $token,
+        string $model,
+        string $endpoint,
+        string $providerName
     ): array {
         try {
             $rawMessages = $options['raw_messages'] ?? [];
@@ -234,7 +315,24 @@ class LLMService
                     }
                 }
             } else {
-                foreach ($conversationHistory as $msg) {
+                // Detect if the last message in conversation history is already the current
+                // user message (the controller saves it to DB BEFORE calling processMessage).
+                $historyCount = count($conversationHistory);
+                $lastHistoryIsCurrentMessage = false;
+                if ($historyCount > 0) {
+                    $lastMsg = $conversationHistory[$historyCount - 1];
+                    $lastRole = ($lastMsg['role'] ?? 'user') === 'assistant' ? 'assistant' : 'user';
+                    $lastContent = trim($lastMsg['message'] ?? $lastMsg['content'] ?? '');
+                    if ($lastRole === 'user' && $lastContent === trim($userMessage)) {
+                        $lastHistoryIsCurrentMessage = true;
+                    }
+                }
+
+                foreach ($conversationHistory as $idx => $msg) {
+                    // Skip the last message if it's a duplicate of the current user message
+                    if ($lastHistoryIsCurrentMessage && $idx === $historyCount - 1) {
+                        continue;
+                    }
                     $role = ($msg['role'] === 'assistant' || $msg['role'] === 'bot') ? 'assistant' : 'user';
                     $messages[] = ['role' => $role, 'content' => $msg['message'] ?? $msg['content'] ?? ''];
                 }
@@ -242,7 +340,7 @@ class LLMService
             }
 
             $payload = [
-                'model' => $this->githubModel,
+                'model' => $model,
                 'messages' => $messages,
                 'max_completion_tokens' => $this->maxTokens,
             ];
@@ -266,16 +364,30 @@ class LLMService
                 ]);
             }
 
+            // Payload size guard: estimate total size and truncate history if needed
+            // to prevent 413 (Payload Too Large) from providers
+            $payloadJson = json_encode($payload);
+            $payloadSize = strlen($payloadJson);
+            $maxPayloadBytes = 128000; // ~128KB safe limit for most providers
+            if ($payloadSize > $maxPayloadBytes && count($messages) > 3) {
+                Log::warning("$providerName: Payload too large ({$payloadSize} bytes), trimming conversation history");
+                // Keep system prompt + last 4 messages (2 exchanges)
+                $systemMsg = $messages[0];
+                $recentMessages = array_slice($messages, -4);
+                $messages = array_merge([$systemMsg], $recentMessages);
+                $payload['messages'] = $messages;
+            }
+
             $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . $this->githubToken,
+                'Authorization' => 'Bearer ' . $token,
                 'Accept' => 'application/json',
                 'Content-Type' => 'application/json',
             ])
             ->timeout($this->requestTimeout)
-            ->post($this->githubEndpoint . '/chat/completions', $payload);
+            ->post($endpoint, $payload);
 
             if (!$response->successful()) {
-                throw new \Exception('GitHub Models API error: ' . $response->status() . ' - ' . $response->body());
+                throw new \Exception("$providerName API error: " . $response->status() . ' - ' . $response->body());
             }
 
             $data = $response->json();
@@ -293,34 +405,34 @@ class LLMService
                         ];
                     }
                 }
-                Log::debug('GitHub GPT-5: Tool calls parsed from response', [
+                Log::debug("$providerName: Tool calls parsed from response", [
                     'tool_call_count' => count($toolCalls),
                     'tool_names' => array_map(fn($t) => $t['name'], $toolCalls),
                 ]);
             } else {
-                Log::debug('GitHub GPT-5: No tool_calls in response', [
+                Log::debug("$providerName: No tool_calls in response", [
                     'response_text_length' => strlen($responseText),
                 ]);
             }
 
             if (!$responseText && empty($toolCalls)) {
-                throw new \Exception('Empty response from GitHub Models');
+                throw new \Exception("Empty response from $providerName");
             }
 
-            $this->lastUsedProvider = 'github_gpt5';
-            $this->lastUsedModel = $this->githubModel;
+            $this->lastUsedProvider = $providerName;
+            $this->lastUsedModel = $model;
 
             return [
                 'success' => true,
                 'response' => $this->cleanResponse($responseText),
                 'tool_calls' => $toolCalls,
                 'raw_content' => $choice,
-                'provider' => 'github_gpt5',
-                'model' => $this->githubModel,
+                'provider' => $providerName,
+                'model' => $model,
                 'tokens_used' => $data['usage']['total_tokens'] ?? 0,
             ];
         } catch (\Exception $e) {
-            Log::error('GitHub GPT-5 generation failed: ' . $e->getMessage());
+            Log::error("$providerName generation failed: " . $e->getMessage());
             throw $e;
         }
     }
@@ -359,7 +471,24 @@ class LLMService
                     }
                 }
             } else {
-                foreach ($conversationHistory as $msg) {
+                // Detect if the last message in conversation history is already the current
+                // user message (the controller saves it to DB BEFORE calling processMessage).
+                $historyCount = count($conversationHistory);
+                $lastHistoryIsCurrentMessage = false;
+                if ($historyCount > 0) {
+                    $lastMsg = $conversationHistory[$historyCount - 1];
+                    $lastRole = ($lastMsg['role'] ?? 'user') === 'assistant' ? 'assistant' : 'user';
+                    $lastContent = trim($lastMsg['message'] ?? $lastMsg['content'] ?? '');
+                    if ($lastRole === 'user' && $lastContent === trim($userMessage)) {
+                        $lastHistoryIsCurrentMessage = true;
+                    }
+                }
+
+                foreach ($conversationHistory as $idx => $msg) {
+                    // Skip the last message if it's a duplicate of the current user message
+                    if ($lastHistoryIsCurrentMessage && $idx === $historyCount - 1) {
+                        continue;
+                    }
                     $role = ($msg['role'] === 'assistant' || $msg['role'] === 'bot') ? 'assistant' : 'user';
                     $messages[] = ['role' => $role, 'content' => $msg['message'] ?? $msg['content'] ?? ''];
                 }
@@ -445,7 +574,22 @@ class LLMService
                 $historyLimit = min(count($conversationHistory), 12);
                 $recentHistory = array_slice($conversationHistory, -$historyLimit);
 
-                foreach ($recentHistory as $msg) {
+                // Detect if the last message in history is the current user message (duplicate)
+                $recentCount = count($recentHistory);
+                $skipLastDupe = false;
+                if ($recentCount > 0) {
+                    $lastMsg = $recentHistory[$recentCount - 1];
+                    $lastRole = ($lastMsg['role'] ?? 'user') === 'assistant' ? 'assistant' : 'user';
+                    $lastContent = trim($lastMsg['message'] ?? $lastMsg['content'] ?? '');
+                    if ($lastRole === 'user' && $lastContent === trim($userMessage)) {
+                        $skipLastDupe = true;
+                    }
+                }
+
+                foreach ($recentHistory as $idx => $msg) {
+                    if ($skipLastDupe && $idx === $recentCount - 1) {
+                        continue;
+                    }
                     $role = ($msg['role'] === 'assistant' || $msg['role'] === 'bot') ? 'model' : 'user';
                     $content = $msg['message'] ?? $msg['content'] ?? '';
                     if ($content) {
@@ -567,145 +711,7 @@ class LLMService
         }
     }
 
-    /**
-     * Generate response via HuggingFace Inference API (FREE!)
-     * Uses Llama 3.2 via OpenAI-compatible endpoint.
-     * Supports model parameter for fallback model switching.
-     *
-     * @param string $userMessage
-     * @param array $conversationHistory
-     * @param string $systemPrompt
-     * @param string|null $model Override model name (for fallback)
-     * @return array
-     */
-    private function generateViaHuggingFace(
-        string $userMessage,
-        array $conversationHistory,
-        string $systemPrompt,
-        ?string $model = null,
-        array $options = []
-    ): array {
-        $modelToUse = $model ?? $this->huggingfaceModel;
-        
-        try {
-            $rawMessages = $options['raw_messages'] ?? [];
-            
-            // Build messages array (OpenAI format)
-            $messages = [
-                ['role' => 'system', 'content' => $systemPrompt]
-            ];
-            
-            if (!empty($rawMessages)) {
-                foreach ($rawMessages as $msg) {
-                    $role = ($msg['role'] === 'assistant' || $msg['role'] === 'bot') ? 'assistant' : 'user';
-                    $content = $msg['content'] ?? $msg['message'] ?? '';
-                    
-                    if (is_array($content)) {
-                        $textContent = '';
-                        foreach ($content as $part) {
-                            if ($part['type'] === 'text') $textContent .= $part['text'];
-                            if ($part['type'] === 'tool_result') {
-                                $textContent .= "\n[Tool Result]: " . $part['content'];
-                            }
-                        }
-                        $messages[] = ['role' => $role, 'content' => $textContent];
-                    } else {
-                        $messages[] = ['role' => $role, 'content' => $content];
-                    }
-                }
-            } else {
-                // Add conversation history
-                $historyLimit = min(count($conversationHistory), 12);
-                $recentHistory = array_slice($conversationHistory, -$historyLimit);
-                
-                foreach ($recentHistory as $msg) {
-                    $role = ($msg['role'] === 'assistant' || $msg['role'] === 'bot') ? 'assistant' : 'user';
-                    $content = $msg['message'] ?? $msg['content'] ?? '';
-                    if ($content) {
-                        $messages[] = ['role' => $role, 'content' => $content];
-                    }
-                }
-                
-                // Add current message
-                $messages[] = ['role' => 'user', 'content' => $userMessage];
-            }
 
-            $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . $this->huggingfaceApiKey,
-                'Content-Type' => 'application/json',
-            ])
-            ->timeout($this->requestTimeout * 2)
-            ->post(self::HUGGINGFACE_API_URL, [
-                'model' => $modelToUse,
-                'messages' => $messages,
-                'max_tokens' => $this->maxTokens,
-                'temperature' => $this->temperature,
-            ]);
-
-            if (!$response->successful()) {
-                Log::error('HuggingFace error', [
-                    'status' => $response->status(),
-                    'body' => $response->body(),
-                    'model' => $modelToUse,
-                ]);
-                throw new \Exception('HuggingFace returned ' . $response->status() . ': ' . $response->body());
-            }
-
-            $data = $response->json();
-            $responseText = $data['choices'][0]['message']['content'] ?? '';
-
-            if (!$responseText) {
-                throw new \Exception('Empty response from HuggingFace');
-            }
-
-            $this->lastUsedProvider = 'huggingface';
-            $this->lastUsedModel = $modelToUse;
-
-            return [
-                'success' => true,
-                'response' => $this->cleanResponse($responseText),
-                'provider' => 'huggingface',
-                'model' => $modelToUse,
-                'tokens_used' => $data['usage']['total_tokens'] ?? 0,
-            ];
-        } catch (\Exception $e) {
-            Log::error('HuggingFace generation failed: ' . $e->getMessage());
-            throw $e;
-        }
-    }
-
-    /**
-     * Build prompt for HuggingFace Mistral Instruct format
-     * @deprecated Use OpenAI-compatible format instead
-     */
-    private function buildHuggingFacePrompt(
-        string $userMessage,
-        array $conversationHistory,
-        string $systemPrompt
-    ): string {
-        // Mistral Instruct format: [INST] instruction [/INST]
-        $prompt = "[INST] <<SYS>>\n{$systemPrompt}\n<</SYS>>\n\n";
-        
-        // Add conversation history (limited)
-        $historyLimit = min(count($conversationHistory), 4);
-        $recentHistory = array_slice($conversationHistory, -$historyLimit);
-        
-        foreach ($recentHistory as $msg) {
-            $role = $msg['role'] ?? 'user';
-            $content = $msg['message'] ?? $msg['content'] ?? '';
-            
-            if ($role === 'assistant' || $role === 'bot') {
-                $prompt .= "[/INST] {$content} [INST] ";
-            } else {
-                $prompt .= "{$content}\n";
-            }
-        }
-        
-        // Add current message
-        $prompt .= "{$userMessage} [/INST]";
-        
-        return $prompt;
-    }
 
     /**
      * Build comprehensive system prompt with all context
@@ -1139,7 +1145,21 @@ When answering complex queries, ALWAYS structure your response as follows:
         $prompt = "[INST] " . $systemPrompt . "\n\n";
 
         // Add conversation history
-        foreach ($conversationHistory as $msg) {
+        $historyCount = count($conversationHistory);
+        $skipLastDupe = false;
+        if ($historyCount > 0) {
+            $lastMsg = $conversationHistory[$historyCount - 1];
+            $lastRole = ($lastMsg['role'] ?? 'user') === 'assistant' ? 'assistant' : 'user';
+            $lastContent = trim($lastMsg['message'] ?? $lastMsg['content'] ?? '');
+            if ($lastRole === 'user' && $lastContent === trim($userMessage)) {
+                $skipLastDupe = true;
+            }
+        }
+
+        foreach ($conversationHistory as $idx => $msg) {
+            if ($skipLastDupe && $idx === $historyCount - 1) {
+                continue;
+            }
             if ($msg['role'] === 'assistant') {
                 $prompt .= "[/INST] " . ($msg['message'] ?? $msg['content']) . " [INST] ";
             } else {
@@ -1187,11 +1207,44 @@ When answering complex queries, ALWAYS structure your response as follows:
                     }
                 }
             } else {
-                foreach ($conversationHistory as $msg) {
+                // Detect if the last message in conversation history is already the current
+                // user message (the controller saves it to DB BEFORE calling processMessage).
+                $historyCount = count($conversationHistory);
+                $lastHistoryIsCurrentMessage = false;
+                if ($historyCount > 0) {
+                    $lastMsg = $conversationHistory[$historyCount - 1];
+                    $lastRole = ($lastMsg['role'] ?? 'user') === 'assistant' ? 'assistant' : 'user';
+                    $lastContent = trim($lastMsg['message'] ?? $lastMsg['content'] ?? '');
+                    if ($lastRole === 'user' && $lastContent === trim($userMessage)) {
+                        $lastHistoryIsCurrentMessage = true;
+                    }
+                }
+
+                foreach ($conversationHistory as $idx => $msg) {
+                    // Skip the last message if it's a duplicate of the current user message
+                    if ($lastHistoryIsCurrentMessage && $idx === $historyCount - 1) {
+                        continue;
+                    }
                     $role = ($msg['role'] === 'assistant' || $msg['role'] === 'bot') ? 'assistant' : 'user';
                     $messages[] = ['role' => $role, 'content' => $msg['message'] ?? $msg['content'] ?? ''];
                 }
                 $messages[] = ['role' => 'user', 'content' => $userMessage];
+            }
+
+            // Payload size guard for Mistral (128KB limit)
+            $payload = [
+                'model' => $this->mistralModel,
+                'messages' => $messages,
+                'max_tokens' => $this->maxTokens,
+                'temperature' => $this->temperature,
+            ];
+            $payloadJson = json_encode($payload);
+            $payloadSize = strlen($payloadJson);
+            if ($payloadSize > 128000 && count($messages) > 3) {
+                Log::warning("Mistral: Payload too large ({$payloadSize} bytes), trimming conversation history");
+                $systemMsg = $messages[0];
+                $recentMessages = array_slice($messages, -4);
+                $messages = array_merge([$systemMsg], $recentMessages);
             }
 
             $response = Http::withHeaders([
@@ -1274,7 +1327,6 @@ When answering complex queries, ALWAYS structure your response as follows:
         $status = [
             'gemini' => (bool) $this->geminiApiKey,
             'github_gpt5' => (bool) $this->githubToken,
-            'huggingface' => (bool) $this->huggingfaceApiKey,
             'ollama' => false,
             'available_provider' => null,
         ];
@@ -1292,8 +1344,6 @@ When answering complex queries, ALWAYS structure your response as follows:
             $status['available_provider'] = 'gemini';
         } elseif ($status['github_gpt5']) {
             $status['available_provider'] = 'github_gpt5';
-        } elseif ($status['huggingface']) {
-            $status['available_provider'] = 'huggingface';
         } elseif ($status['ollama']) {
             $status['available_provider'] = 'ollama';
         }

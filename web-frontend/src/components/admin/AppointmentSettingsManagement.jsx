@@ -144,13 +144,7 @@ const AppointmentSettingsManagement = ({ isDarkMode = true }) => {
             Configure daily booking limits for all users
           </p>
         </div>
-        <button
-          onClick={handleRefresh}
-          className="p-2 rounded-lg hover:bg-gray-700 transition-colors"
-          title="Refresh settings"
-        >
-          <ArrowPathIcon className="h-5 w-5 text-amber-400" />
-        </button>
+
       </div>
 
       {/* Error Alert */}

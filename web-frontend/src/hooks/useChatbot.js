@@ -251,6 +251,12 @@ export const useChatbot = () => {
   const sendMessage = useCallback(async (userMessage) => {
     if (!userMessage.trim()) return;
 
+    // Prevent sending while a previous message is still being processed
+    // This is the frontend counterpart to the backend concurrent request lock.
+    if (loading) {
+      return;
+    }
+
     // Prevent excessively long messages that waste LLM tokens
     if (userMessage.length > 2000) {
       setError('Message is too long. Please keep it under 2000 characters.');
@@ -400,7 +406,7 @@ export const useChatbot = () => {
         message: finalResponse,
         role: 'assistant',
         created_at: response.data.timestamp || new Date().toISOString(),
-        source: meta?.source || meta?.meta_source || 'huggingface',
+        source: meta?.source || meta?.meta_source || 'ai_assistant',
         suggestions: Array.isArray(meta?.suggestions) ? meta.suggestions : [],
         meta: meta || {},
         isPriority: meta?.is_priority || false,
@@ -438,8 +444,18 @@ export const useChatbot = () => {
       
       // Check for rate limit error (429)
       if (err.response?.status === 429) {
-        const limitInfo = err.response?.data?.rate_limit_info || {};
-        const mustNew = err.response?.data?.must_start_new_conversation || false;
+        const responseData = err.response?.data || {};
+
+        // Handle concurrent request / dedup (not a real rate limit — just wait)
+        if (responseData.retry_after || responseData.duplicate) {
+          setError(responseData.message || 'Please wait for the current response to complete.');
+          setMessages((prev) => prev.filter((msg) => msg.id !== newUserMessage.id));
+          setLastMessageCount((prev) => Math.max(0, prev - 1));
+          return;
+        }
+
+        const limitInfo = responseData.rate_limit_info || {};
+        const mustNew = responseData.must_start_new_conversation || false;
         setIsRateLimited(true);
         setRateLimitInfo({
           remaining: 0,
@@ -497,13 +513,18 @@ export const useChatbot = () => {
       lastUserActionRef.current = Date.now() + 3000; // Extend cooldown after send attempt
       scrollToBottom();
     }
-  }, [conversationId, isRateLimited, rateLimitInfo, rateLimitMessage]);
+  }, [conversationId, loading, isRateLimited, rateLimitInfo, rateLimitMessage]);
 
   // =============================================
   // STREAMING SEND MESSAGE (SSE)
   // =============================================
   const sendMessageStreaming = useCallback(async (userMessage) => {
     if (!userMessage.trim()) return;
+
+    // Prevent sending while a previous message is still being processed
+    if (loading) {
+      return;
+    }
 
     if (isRateLimited && rateLimitInfo.mustStartNew) {
       setError(rateLimitMessage || 'Message limit reached. Please start a new conversation.');
@@ -744,7 +765,7 @@ export const useChatbot = () => {
       lastUserActionRef.current = Date.now() + 3000;
       scrollToBottom();
     }
-  }, [conversationId, isRateLimited, rateLimitInfo, rateLimitMessage]);
+  }, [conversationId, loading, isRateLimited, rateLimitInfo, rateLimitMessage]);
 
   // Abort any in-flight stream
   const cancelStreaming = useCallback(() => {

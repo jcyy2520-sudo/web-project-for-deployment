@@ -179,8 +179,7 @@ class AgentReasoningService
                 }
 
                 // Check if destructive — pause for confirmation
-                // EXCEPTION: book_appointment handles confirmation via UI, skip LLM-level pause
-                if ($this->toolRegistry->isDestructiveTool($toolName) && $toolName !== 'book_appointment') {
+                if ($this->toolRegistry->isDestructiveTool($toolName)) {
                     $confirmKey = $this->storePendingToolCall($userId, $toolName, $toolArgs);
 
                     Log::info('AgentReasoning: Destructive tool requires confirmation', [
@@ -190,10 +189,14 @@ class AgentReasoningService
                         'step' => $step,
                     ]);
 
-                    // Use the text portion of the response as explanation, or generate one
-                    $explanation = !empty(trim($llmResponse))
-                        ? trim($llmResponse)
-                        : "I'd like to perform this action for you. Please confirm to proceed.";
+                    // For booking, generate a rich confirmation with price details
+                    if ($toolName === 'book_appointment') {
+                        $explanation = $this->buildBookingConfirmation($toolArgs, $llmResponse);
+                    } else {
+                        $explanation = !empty(trim($llmResponse))
+                            ? trim($llmResponse)
+                            : "I'd like to perform this action for you. Please confirm to proceed.";
+                    }
 
                     return [
                         'response' => $explanation,
@@ -233,7 +236,7 @@ class AgentReasoningService
             }
 
             // ── TEXT-BASED FALLBACK PATH (non-Claude providers) ──
-            // Check for text-based tool_call blocks (used by HuggingFace, OpenAI, etc.)
+            // Check for text-based tool_call blocks (used by OpenAI, Llama, etc.)
             $parsedToolCall = $this->parseToolCall($llmResponse);
 
             if ($parsedToolCall === null) {
@@ -254,9 +257,14 @@ class AgentReasoningService
 
                 // LLM is responding directly to the user
                 $cleanResponse = $this->cleanResponse($llmResponse);
+                
+                // Extract action_buttons from the last successful tool result
+                $actionButtons = $this->extractActionButtonsFromToolCalls($toolCalls);
+                
                 return [
                     'response' => $cleanResponse,
                     'tool_calls' => $toolCalls,
+                    'action_buttons' => $actionButtons,
                     'reasoning_steps' => $step,
                     'llm_failed' => false,
                     'provider' => $llmResult['provider'] ?? 'unknown',
@@ -276,9 +284,8 @@ class AgentReasoningService
                 continue;
             }
 
-            if ($this->toolRegistry->isDestructiveTool($toolName) && $toolName !== 'book_appointment') {
+            if ($this->toolRegistry->isDestructiveTool($toolName)) {
                 $confirmKey = $this->storePendingToolCall($userId, $toolName, $toolArgs);
-                $explanation = $this->extractPreToolText($llmResponse);
 
                 Log::info('AgentReasoning: Destructive tool detected (text-based path), requires confirmation', [
                     'user_id' => $userId,
@@ -286,6 +293,12 @@ class AgentReasoningService
                     'confirm_key' => $confirmKey,
                     'step' => $step,
                 ]);
+
+                if ($toolName === 'book_appointment') {
+                    $explanation = $this->buildBookingConfirmation($toolArgs, $this->extractPreToolText($llmResponse));
+                } else {
+                    $explanation = $this->extractPreToolText($llmResponse);
+                }
 
                 return [
                     'response' => $explanation,
@@ -329,13 +342,36 @@ class AgentReasoningService
     /**
      * Build raw-format messages array from conversation history.
      * Handles the proper alternation required by many AI APIs.
+     *
+     * IMPORTANT: The controller saves the user message to DB BEFORE calling
+     * processMessage(), so the conversation history may already contain the
+     * current user message as the last entry. We detect and skip it to avoid
+     * duplication. The current user message is ALWAYS added as a separate,
+     * distinct entry so the LLM clearly identifies it as the latest question.
      */
     private function buildRawMessages(array $conversationHistory, string $currentUserMessage): array
     {
         $messages = [];
         $lastRole = null;
 
-        foreach ($conversationHistory as $msg) {
+        // Check if the last message in history is the current user message (duplicate detection)
+        $historyCount = count($conversationHistory);
+        $skipLastIfDuplicate = false;
+        if ($historyCount > 0) {
+            $lastMsg = $conversationHistory[$historyCount - 1];
+            $lastContent = trim($lastMsg['message'] ?? $lastMsg['content'] ?? '');
+            $lastMsgRole = ($lastMsg['role'] ?? 'user') === 'assistant' ? 'assistant' : 'user';
+            if ($lastMsgRole === 'user' && $lastContent === trim($currentUserMessage)) {
+                $skipLastIfDuplicate = true;
+            }
+        }
+
+        foreach ($conversationHistory as $idx => $msg) {
+            // Skip the last message if it's a duplicate of the current user message
+            if ($skipLastIfDuplicate && $idx === $historyCount - 1) {
+                continue;
+            }
+
             $role = ($msg['role'] ?? 'user') === 'assistant' ? 'assistant' : 'user';
             $content = $msg['message'] ?? $msg['content'] ?? '';
 
@@ -353,15 +389,14 @@ class AgentReasoningService
             }
         }
 
-        // Add current user message
+        // ALWAYS add the current user message as a separate entry.
+        // If the last history message was also from a user (rare, but possible after
+        // deduplication), insert a brief assistant placeholder to maintain alternation.
         if ($lastRole === 'user' && !empty($messages)) {
-            $lastIdx = count($messages) - 1;
-            if (is_string($messages[$lastIdx]['content'])) {
-                $messages[$lastIdx]['content'] .= "\n" . $currentUserMessage;
-            }
-        } else {
-            $messages[] = ['role' => 'user', 'content' => $currentUserMessage];
+            $messages[] = ['role' => 'assistant', 'content' => 'Understood. How can I help?'];
+            $lastRole = 'assistant';
         }
+        $messages[] = ['role' => 'user', 'content' => $currentUserMessage];
 
         return $messages;
     }
@@ -487,6 +522,128 @@ class AgentReasoningService
     }
 
     /**
+     * Build a rich confirmation message for appointment bookings showing full breakdown.
+     */
+    private function buildBookingConfirmation(array $toolArgs, string $llmText = ''): string
+    {
+        try {
+            $serviceIds = $this->toolRegistry->resolveServiceIdsPublic(
+                $toolArgs['service_ids'] ?? $toolArgs['service_id'] ?? []
+            );
+            $services = \App\Models\Service::whereIn('id', $serviceIds)->get();
+            $date = $toolArgs['date'] ?? '';
+            $time = $toolArgs['time'] ?? '';
+
+            $dateFormatted = $date;
+            $dayOfWeek = '';
+            try {
+                $parsedDate = \Carbon\Carbon::parse($date);
+                $dateFormatted = $parsedDate->format('F j, Y');
+                $dayOfWeek = $parsedDate->format('l');
+            } catch (\Exception $e) {}
+
+            $timeFormatted = $time;
+            try {
+                $timeFormatted = \Carbon\Carbon::parse($time)->format('g:i A');
+            } catch (\Exception $e) {}
+
+            $lines = ["**Please confirm your appointment:**\n"];
+            $lines[] = "**Date:** {$dateFormatted}";
+            $lines[] = "**Time:** {$timeFormatted}";
+
+            $totalPrice = 0;
+            if ($services->count() === 1) {
+                $service = $services->first();
+                $price = number_format($service->price, 2);
+                $lines[] = "**Service:** {$service->name}";
+                $lines[] = "**Price:** ₱{$price}";
+                $totalPrice = $service->price;
+            } else {
+                $lines[] = "\n**Services:**";
+                foreach ($services as $service) {
+                    $price = number_format($service->price, 2);
+                    $lines[] = "- {$service->name} — ₱{$price}";
+                    $totalPrice += $service->price;
+                }
+            }
+
+            $totalFormatted = number_format($totalPrice, 2);
+            $lines[] = "\n**Total: ₱{$totalFormatted}**";
+
+            return implode("\n", $lines);
+        } catch (\Exception $e) {
+            Log::debug('buildBookingConfirmation failed: ' . $e->getMessage());
+            return !empty(trim($llmText))
+                ? trim($llmText)
+                : "I'd like to book this appointment for you. Please confirm to proceed.";
+        }
+    }
+
+    /**
+     * Extract action_buttons from executed tool results for the frontend.
+     * Generates context-appropriate navigation buttons based on which tools were called.
+     */
+    private function extractActionButtonsFromToolCalls(array $toolCalls): array
+    {
+        $buttons = [];
+        foreach ($toolCalls as $call) {
+            $toolName = $call['tool'] ?? '';
+            $result = $call['result'] ?? [];
+            $success = $result['success'] ?? false;
+
+            // Return any action_buttons explicitly set in the tool result
+            if (!empty($result['action_buttons'])) {
+                $buttons = array_merge($buttons, $result['action_buttons']);
+                continue;
+            }
+
+            // Generate contextual buttons based on the tool that was called
+            switch ($toolName) {
+                case 'book_appointment':
+                    if ($success) {
+                        $buttons[] = ['label' => 'View My Appointments', 'route' => '/appointments', 'icon' => '📅', 'type' => 'primary'];
+                    }
+                    break;
+                case 'cancel_appointment':
+                    if ($success) {
+                        $buttons[] = ['label' => 'View My Appointments', 'route' => '/appointments', 'icon' => '📅', 'type' => 'primary'];
+                        $buttons[] = ['label' => 'Book New Appointment', 'message' => 'I want to book an appointment', 'icon' => '➕', 'type' => 'secondary'];
+                    }
+                    break;
+                case 'reschedule_appointment':
+                    if ($success) {
+                        $buttons[] = ['label' => 'View My Appointments', 'route' => '/appointments', 'icon' => '📅', 'type' => 'primary'];
+                    }
+                    break;
+                case 'get_my_appointments':
+                    $buttons[] = ['label' => 'View Appointments', 'route' => '/appointments', 'icon' => '📅', 'type' => 'primary'];
+                    $buttons[] = ['label' => 'Book New', 'message' => 'I want to book an appointment', 'icon' => '➕', 'type' => 'secondary'];
+                    break;
+                case 'get_available_services':
+                case 'get_available_slots':
+                    $buttons[] = ['label' => 'Book Appointment', 'message' => 'I want to book an appointment', 'icon' => '📅', 'type' => 'primary'];
+                    break;
+                case 'get_my_payments':
+                case 'check_payment_status':
+                    $buttons[] = ['label' => 'View Payments', 'route' => '/payments', 'icon' => '💳', 'type' => 'primary'];
+                    break;
+            }
+        }
+
+        // Deduplicate by label
+        $seen = [];
+        $unique = [];
+        foreach ($buttons as $btn) {
+            if (!in_array($btn['label'], $seen)) {
+                $seen[] = $btn['label'];
+                $unique[] = $btn;
+            }
+        }
+
+        return array_slice($unique, 0, 3); // Max 3 buttons
+    }
+
+    /**
      * Clean the LLM response by removing internal reasoning artifacts.
      */
     private function cleanResponse(string $response): string
@@ -567,11 +724,22 @@ class AgentReasoningService
 
         $confirmResponse = null;
         try {
+            $followUpPrompt = "The user confirmed the action. Tool `{$toolName}` returned:\n```json\n{$toolResultJson}\n```\n";
+            if ($toolName === 'book_appointment' && ($toolResult['success'] ?? false)) {
+                $followUpPrompt .= "Provide a SHORT booking success message. Include:\n";
+                $followUpPrompt .= "- 'Appointment booked successfully.'\n";
+                $followUpPrompt .= "- Date, Time, Service, Total Paid (from the data)\n";
+                $followUpPrompt .= "- Daily booking slots status (e.g., 'Daily slots: X/Y used') using remaining_bookings_today and daily_limit from the data\n";
+                $followUpPrompt .= "Keep it brief. No explanations. No 'let me know if you need anything'.";
+            } else {
+                $followUpPrompt .= "Provide a clear, concise summary of the result. If succeeded, confirm with specific details. If failed, explain why and suggest alternatives.";
+            }
+
             $followUp = $this->llmService->generateResponse(
-                "The user confirmed the action. Tool `{$toolName}` returned:\n```json\n{$toolResultJson}\n```\nProvide a clear, concise summary of the result to the user. If the tool succeeded, confirm what was done with specific details. If it failed, explain why and suggest alternatives.",
+                $followUpPrompt,
                 [],
                 [
-                    'system_prompt' => 'You are a helpful assistant. Summarize the tool result for the user in a natural and friendly way. Be specific with IDs, dates, and amounts. Do not call any tools.',
+                    'system_prompt' => 'You are an appointment booking assistant. Be short and direct. Report results immediately without narration.',
                     'role' => $role,
                     'skip_internal_prompt' => true,
                 ]
@@ -590,9 +758,13 @@ class AgentReasoningService
                 : "Sorry, the action failed: " . ($toolResult['error'] ?? 'Unknown error'));
         }
 
+        $confirmedToolCalls = [['tool' => $toolName, 'arguments' => $toolArgs, 'result' => $toolResult]];
+        $actionButtons = $this->extractActionButtonsFromToolCalls($confirmedToolCalls);
+
         return [
             'response' => $confirmResponse,
-            'tool_calls' => [['tool' => $toolName, 'arguments' => $toolArgs, 'result' => $toolResult]],
+            'tool_calls' => $confirmedToolCalls,
+            'action_buttons' => $actionButtons,
             'reasoning_steps' => 1,
             'confirmed_action' => true,
         ];
@@ -608,23 +780,35 @@ class AgentReasoningService
 
         // Patterns that indicate the LLM claims an action was performed
         $actionClaimPatterns = [
-            // Booking claims
+            // Booking claims (English)
             '/(?:appointment|booking|reservation)\s+(?:has been|is|was)\s+(?:successfully\s+)?(?:booked|scheduled|reserved|created|confirmed)/i',
             '/(?:i\'ve|i have)\s+(?:successfully\s+)?(?:booked|scheduled|reserved|created)\s+(?:your|the|an?)\s+appointment/i',
             '/(?:your|the)\s+appointment\s+(?:has been|is now|was)\s+(?:booked|confirmed|scheduled|set)/i',
             '/successfully\s+(?:booked|scheduled|reserved|created)\s+(?:your|the|an?)\s+appointment/i',
-            // Cancellation claims
+            // Booking claims (Filipino/Tagalog)
+            '/(?:nakareserba|na-?book|naka-?book|nakatakda|nai-?schedule|nakapag-?book|na-?reserve)\s+(?:na|ang)/i',
+            '/appointment\s+.*?(?:#\d+|number\s+\d+).*?(?:pending|approved|confirmed|nakareserba)/i',
+            '/(?:ang\s+)?(?:iyong|inyong)\s+appointment\s+.*?(?:nakareserba|naka-?book|nakatakda|na-?schedule)/i',
+            '/bilang\s+appointment\s*#?\d+/i',
+            // Cancellation claims (English)
             '/(?:appointment|booking)\s+(?:has been|is|was)\s+(?:successfully\s+)?cancelled/i',
             '/(?:i\'ve|i have)\s+(?:successfully\s+)?cancelled\s+(?:your|the|an?)\s+appointment/i',
             '/(?:your|the)\s+appointment\s+(?:has been|is now|was)\s+cancelled/i',
             '/successfully\s+cancelled\s+(?:your|the|an?)\s+appointment/i',
-            // Rescheduling claims
+            // Cancellation claims (Filipino/Tagalog)
+            '/(?:na-?cancel|nakansela|na-?kansela)\s+(?:na|ang)/i',
+            '/appointment\s+.*?(?:nakansela|na-?cancel)/i',
+            // Rescheduling claims (English)
             '/(?:appointment|booking)\s+(?:has been|is|was)\s+(?:successfully\s+)?rescheduled/i',
             '/(?:i\'ve|i have)\s+(?:successfully\s+)?rescheduled\s+(?:your|the|an?)\s+appointment/i',
+            // Rescheduling claims (Filipino/Tagalog)
+            '/(?:na-?reschedule|nai-?lipat|nailipat)\s+(?:na|ang)/i',
             // LLM describes parameters and asks to proceed instead of calling the tool
             '/(?:shall|should|would you like me to|do you want me to|let me)\s+(?:proceed|book|schedule|cancel|go ahead)/i',
             '/(?:here\s+are|here\'s)\s+(?:the|your)\s+(?:details|booking details|appointment details|summary)\s*:/i',
             '/(?:i\'ll|let me)\s+(?:book|schedule|reserve)\s+(?:this|that|the|an?|your)\s+(?:appointment|booking)/i',
+            // Filipino: LLM describes the action without doing it
+            '/(?:ibo-?book|ika-?cancel|ire-?reschedule|ipa-?pag-?book)\s+(?:ko|natin)/i',
         ];
 
         foreach ($actionClaimPatterns as $pattern) {
@@ -635,12 +819,13 @@ class AgentReasoningService
                 }
 
                 // If a relevant tool was already called in this reasoning loop, it's a summary, not a hallucination
+                // Determine which category of action this pattern relates to
                 $relevantTools = [];
-                if (preg_match('/booked|scheduled|reserved|created/i', $pattern)) {
+                if (preg_match('/book|schedul|reserv|creat|nakareserba|naka-?book|nakatakda|nai-?schedule|bilang/i', $pattern)) {
                     $relevantTools = ['book_appointment', 'admin_approve_appointment'];
-                } elseif (preg_match('/cancelled/i', $pattern)) {
+                } elseif (preg_match('/cancel|kansela/i', $pattern)) {
                     $relevantTools = ['cancel_appointment', 'admin_decline_appointment', 'admin_bulk_cancel_appointments'];
-                } elseif (preg_match('/rescheduled/i', $pattern)) {
+                } elseif (preg_match('/reschedul|lipat/i', $pattern)) {
                     $relevantTools = ['reschedule_appointment'];
                 }
 

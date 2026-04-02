@@ -14,11 +14,11 @@ use Illuminate\Support\Facades\File;
  * This service replaces keyword/pattern matching with true semantic understanding.
  * 
  * How it works:
- * 1. TEXT → EMBEDDING: Convert text to high-dimensional vector (using Ollama, HuggingFace, or OpenAI)
+ * 1. TEXT → EMBEDDING: Convert text to high-dimensional vector (using Ollama or OpenAI)
  * 2. SIMILARITY SEARCH: Find documents with similar vectors (cosine similarity)
  * 3. RANKED RESULTS: Return most relevant documents by similarity score
  *
- * Fallback chain: Ollama all-minilm → Voyage Voyage-3 → HuggingFace all-MiniLM-L6-v2
+ * Fallback chain: Ollama all-minilm → Voyage Voyage-3
  * 
  * Key Features:
  * - Pre-computed embeddings for knowledge base (stored in DB)
@@ -30,7 +30,6 @@ use Illuminate\Support\Facades\File;
 class VectorEmbeddingService
 {
     // Instance properties loaded from config
-    private string $huggingfaceEmbeddingsUrl;
     private string $voyageEmbeddingsUrl;
     private string $ollamaModel;
     private string $voyageModel;
@@ -42,19 +41,16 @@ class VectorEmbeddingService
     private int $maxChunkSize;
     private int $chunkOverlap;
 
-    private ?string $huggingfaceApiKey;
     private ?string $voyageApiKey;
     private bool $useOllama;
 
     public function __construct()
     {
-        $this->huggingfaceApiKey = config('services.huggingface.api_key');
         $this->voyageApiKey = config('services.voyage.api_key');
         $this->useOllama = config('services.ollama.embeddings_enabled', true);
 
         $embConf = 'chatbot_unified.embeddings.';
         $this->ollamaEmbeddingsUrl = config($embConf . 'ollama_url', 'http://localhost:11434/api/embeddings');
-        $this->huggingfaceEmbeddingsUrl = config($embConf . 'huggingface_url', 'https://router.huggingface.co/hf-inference/models/sentence-transformers/all-MiniLM-L6-v2');
         $this->voyageEmbeddingsUrl = config($embConf . 'voyage_url', 'https://api.voyageai.com/v1/embeddings');
         $this->ollamaModel = config($embConf . 'ollama_model', 'all-minilm');
         $this->voyageModel = config($embConf . 'voyage_model', 'voyage-3');
@@ -92,11 +88,6 @@ class VectorEmbeddingService
         // FALLBACK 1: Voyage AI (highly accurate, fast)
         if (!$embedding && $this->voyageApiKey) {
             $embedding = $this->generateViaVoyage($text);
-        }
-
-        // FALLBACK 2: Try HuggingFace (free API)
-        if (!$embedding && $this->huggingfaceApiKey) {
-            $embedding = $this->generateViaHuggingFace($text);
         }
 
         // Cache successful embeddings
@@ -162,45 +153,7 @@ class VectorEmbeddingService
         }
     }
     
-    /**
-     * Generate embedding via HuggingFace (free!)
-     * Uses sentence-transformers/all-MiniLM-L6-v2 - a great free model
-     */
-    private function generateViaHuggingFace(string $text): ?array
-    {
-        try {
-            $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . $this->huggingfaceApiKey,
-            ])
-            ->timeout($this->requestTimeout)
-            ->post($this->huggingfaceEmbeddingsUrl, [
-                'inputs' => $text,
-                'options' => ['wait_for_model' => true],
-            ]);
-            
-            if (!$response->successful()) {
-                Log::debug('HuggingFace embedding failed: ' . $response->status() . ' - ' . $response->body());
-                return null;
-            }
-            
-            $data = $response->json();
-            
-            // HuggingFace returns the embedding directly as an array
-            if (is_array($data) && !empty($data)) {
-                // If it's a 2D array (batch), get the first one
-                if (is_array($data[0])) {
-                    return $data[0];
-                }
-                return $data;
-            }
-            
-            return null;
-            
-        } catch (\Exception $e) {
-            Log::debug('HuggingFace embedding error: ' . $e->getMessage());
-            return null;
-        }
-    }
+
     
     /**
      * Perform semantic search on knowledge base
@@ -247,11 +200,7 @@ class VectorEmbeddingService
                 return $this->keywordFallbackSearch($query, $category, $limit);
             }
 
-            // When reranker is enabled, fetch more candidates than final limit
-            $rerankerEnabled = config('chatbot_unified.features.reranker', false);
-            $fetchLimit = $rerankerEnabled
-                ? config('chatbot_unified.reranker.candidates', 10)
-                : max($limit * 2, 10); // Fetch more for hybrid scoring
+            $fetchLimit = max($limit * 2, 10); // Fetch more for hybrid scoring
 
             // ── HYBRID SEARCH: Vector similarity + BM25 keyword scoring ──
             $queryKeywords = $this->extractKeywords($query);
@@ -310,22 +259,7 @@ class VectorEmbeddingService
             usort($results, fn($a, $b) => $b['similarity'] <=> $a['similarity']);
             $results = array_slice($results, 0, $fetchLimit);
 
-            // ── Reranking pass (feature-flagged) ──────────────────────
-            // OPTIMIZATION: Only rerank if we have multiple candidates and low confidence
-            // or if the query is complex (more than 5 words).
-            if ($rerankerEnabled && count($results) > 1) {
-                $isComplexQuery = count(explode(' ', $query)) > 5;
-                $topScore = $results[0]['similarity'] ?? 0;
-                
-                if ($isComplexQuery || $topScore < 0.8) {
-                    $reranked = $this->rerank($query, $results);
-                    if (!empty($reranked)) {
-                        $results = $reranked;
-                    }
-                } else {
-                    Log::debug('Skipping reranker due to high initial confidence', ['score' => $topScore]);
-                }
-            }
+
 
             $finalResults = array_slice($results, 0, $limit);
             
@@ -827,102 +761,4 @@ class VectorEmbeddingService
         return $context;
     }
 
-    // ─── CROSS-ENCODER RERANKING ──────────────────────────────────
-
-    /**
-     * Rerank candidate documents using a cross-encoder model via HuggingFace API.
-     *
-     * Cross-encoders receive (query, document) pairs and produce a single
-     * relevance score, which is generally more accurate than bi-encoder
-     * cosine similarity alone.
-     *
-     * @param  string $query      The user query
-     * @param  array  $candidates Array of candidate documents (each with 'content', 'title', etc.)
-     * @return array  Reranked candidates sorted by cross-encoder score (descending)
-     */
-    public function rerank(string $query, array $candidates): array
-    {
-        if (empty($candidates) || !$this->huggingfaceApiKey) {
-            return $candidates;
-        }
-
-        $model = config('chatbot_unified.reranker.model', 'cross-encoder/ms-marco-MiniLM-L-6-v2');
-        $topK  = config('chatbot_unified.reranker.top_k', 3);
-
-        try {
-            // Build input pairs for the cross-encoder
-            $inputs = [];
-            foreach ($candidates as $doc) {
-                $text = $doc['title'] . '. ' . substr($doc['content'], 0, 400);
-                $inputs[] = [
-                    'source_sentence' => $query,
-                    'sentences'       => [$text],
-                ];
-            }
-
-            // Call HuggingFace cross-encoder
-            $url = "https://router.huggingface.co/hf-inference/models/{$model}";
-
-            // Cross-encoders on HF Inference API accept the text-classification format
-            $pairs = [];
-            foreach ($candidates as $doc) {
-                $text = $doc['title'] . '. ' . substr($doc['content'], 0, 400);
-                $pairs[] = ['text' => $query, 'text_pair' => $text];
-            }
-
-            $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . $this->huggingfaceApiKey,
-                'Content-Type'  => 'application/json',
-            ])->timeout($this->requestTimeout)->post($url, [
-                'inputs' => $pairs,
-            ]);
-
-            if (!$response->successful()) {
-                Log::warning('Reranker API failed, keeping original order', [
-                    'status' => $response->status(),
-                    'body'   => substr($response->body(), 0, 200),
-                ]);
-                return $candidates;
-            }
-
-            $scores = $response->json();
-
-            // Parse scores — HuggingFace cross-encoder returns array of arrays of {label, score}
-            // or a flat array of scores depending on the model
-            $parsedScores = [];
-            foreach ($scores as $i => $item) {
-                if (is_array($item) && isset($item[0]['score'])) {
-                    // text-classification format: [[{label, score}, ...], ...]
-                    $parsedScores[$i] = (float) $item[0]['score'];
-                } elseif (is_array($item) && isset($item['score'])) {
-                    $parsedScores[$i] = (float) $item['score'];
-                } elseif (is_numeric($item)) {
-                    $parsedScores[$i] = (float) $item;
-                } else {
-                    $parsedScores[$i] = 0.0;
-                }
-            }
-
-            // Attach reranker scores to candidates
-            foreach ($candidates as $i => &$doc) {
-                $doc['rerank_score'] = $parsedScores[$i] ?? 0.0;
-            }
-            unset($doc);
-
-            // Sort by reranker score descending
-            usort($candidates, fn($a, $b) => ($b['rerank_score'] ?? 0) <=> ($a['rerank_score'] ?? 0));
-
-            Log::debug('Reranker completed', [
-                'model'      => $model,
-                'candidates' => count($candidates),
-                'top_score'  => $candidates[0]['rerank_score'] ?? 0,
-            ]);
-
-            return array_slice($candidates, 0, $topK);
-
-        } catch (\Exception $e) {
-            Log::warning('Reranker failed, keeping original order: ' . $e->getMessage());
-            return $candidates;
-        }
-    }
 }

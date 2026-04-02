@@ -728,7 +728,7 @@ Route::middleware([
 
 // ==================== UNIFIED CHATBOT V2 ROUTES (LLM-First) ====================
 // New unified chatbot endpoint that uses LLM as primary (not fallback)
-// Uses HuggingFace for FREE embeddings and LLM (Mistral-7B-Instruct)
+// Uses Voyage AI for embeddings and high-performance LLM fallback chain
 Route::prefix('chatbot/v2')->group(function () {
     // Public endpoints
     Route::post('/send-message', [UnifiedChatbotController::class, 'sendMessage']);

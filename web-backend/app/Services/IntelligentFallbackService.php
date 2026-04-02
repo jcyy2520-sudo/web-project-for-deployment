@@ -163,30 +163,33 @@ class IntelligentFallbackService
 
         // Detect broad topic categories from keywords
         $topics = [];
-        if (preg_match('/\b(appointment|book|schedule|cancel|reschedule)\b/i', $lower)) {
+        if (preg_match('/\b(appointment|book|schedule|cancel|reschedule|view|all|list|show|my)\s+(appointment|booking|schedule)?\b/i', $lower)) {
             $topics[] = 'appointments';
         }
-        if (preg_match('/\b(pay|payment|billing|receipt|invoice)\b/i', $lower)) {
+        if (preg_match('/\b(pay|payment|billing|receipt|invoice|history|status|view|all|list|show|my)\s+(payment|billing|invoice)?\b/i', $lower)) {
             $topics[] = 'payments';
         }
-        if (preg_match('/\b(refund|money back|return)\b/i', $lower)) {
+        if (preg_match('/\b(refund|money back|return|request|status|my)\s+(refund|money back)?\b/i', $lower)) {
             $topics[] = 'refunds';
         }
-        if (preg_match('/\b(service|offer|available|price|cost)\b/i', $lower)) {
+        if (preg_match('/\b(service|offer|available|price|cost|list|all|what|type|legal)\s+(service|pricing|offer)?\b/i', $lower)) {
             $topics[] = 'services';
+        }
+        if (preg_match('/\b(office|location|address|hour|time|open|contact|phone|email|where|business)\b/i', $lower)) {
+            $topics[] = 'office_info';
+        }
+        if (preg_match('/\b(system|developer|who\s+developed|about\s+the\s+system|what\s+is\s+this|creator|purpose|features)\b/i', $lower)) {
+            $topics[] = 'system_info';
         }
 
         if (empty($topics)) {
-            // Generic clarification if we can't detect any topic
-            if ($role === 'guest') {
-                return "I'd like to help you! Could you tell me more about what you're looking for? "
-                    . "I can help with:\n"
-                    . "• Information about our legal services\n"
-                    . "• Booking an appointment\n"
-                    . "• Payment inquiries\n"
-                    . "• General questions about our office";
+            // If no topic is detected, check if it's a simple greeting or small talk
+            if (preg_match('/\b(hi|hello|hey|good\s+(morning|afternoon|evening)|howdy)\b/i', $lower)) {
+                return "Hello! I can help you with our legal services, appointments, and payments. What can I do for you today?";
             }
-            return null; // Let Layer 4 handle authenticated users
+
+            // Otherwise, treat as out-of-scope per user requirements
+            return config('chatbot_unified.safety.refusal_message', "This question is outside the scope of this system. I can only assist with topics related to this system.");
         }
 
         if (count($topics) === 1) {
@@ -222,8 +225,40 @@ class IntelligentFallbackService
                 . "• See all available services\n"
                 . "• Get pricing information\n"
                 . "• Check availability for a specific service",
+            'office_info' => $this->getOfficeInfoResponse(),
+            'system_info' => $this->getSystemInfoResponse(),
             default => "Could you provide more details about what you need?",
         };
+    }
+
+    /**
+     * Get office information response from configuration.
+     */
+    private function getOfficeInfoResponse(): string
+    {
+        $name    = config('chatbot_unified.business.name', 'Our Office');
+        $address = config('chatbot_unified.business.address', 'Not available');
+        $phone   = config('chatbot_unified.business.phone', 'Not available');
+        $email   = config('chatbot_unified.business.email', 'Not available');
+
+        return "Here is our office information for **{$name}**:\n\n"
+             . "📍 **Address**: {$address}\n"
+             . "📞 **Phone**: {$phone}\n"
+             . "✉️ **Email**: {$email}\n\n"
+             . "📅 **Hours**: 8:00 AM – 11:00 AM, 1:00 PM – 5:00 PM (Monday–Friday). We are closed during lunch (12:00 PM - 1:00 PM) and on weekends.";
+    }
+
+    /**
+     * Get system and developer information response.
+     */
+    private function getSystemInfoResponse(): string
+    {
+        try {
+            $sysInfo = app(\App\Services\SystemInfoProvider::class);
+            return $sysInfo->getFormattedDescription('conversational', 'standard');
+        } catch (\Exception $e) {
+            return "This is an Appointment Management & Legal Services system designed to help you book appointments, manage services, and track payments. It was developed to provide efficient digital services for our clients.";
+        }
     }
 
     /**
@@ -260,16 +295,8 @@ class IntelligentFallbackService
                 . "• View pending payments\n"
                 . "• Process payments and refunds\n"
                 . "• View daily summary reports",
-            'client' => "Here's what I can help you with:\n"
-                . "• View or book appointments\n"
-                . "• Check payment status\n"
-                . "• Request refunds\n"
-                . "• Get service information",
-            default => "Welcome! Here's what I can help you with:\n"
-                . "• Information about our legal services\n"
-                . "• Service pricing and availability\n"
-                . "• How to book an appointment\n"
-                . "• Office hours and contact information",
+            'client' => "I can assist you with your appointments, payment history, and refund requests. What specifically do you need help with?",
+            default => config('chatbot_unified.safety.refusal_message', "This question is outside the scope of this system. I can only assist with topics related to this system."),
         };
 
         if (!empty($suggestions)) {

@@ -635,9 +635,7 @@ const AdminMessages = forwardRef(({ isDarkMode }, ref) => {
             <button onClick={() => setShowSettings(true)} className={`p-2 ${isDarkMode ? 'text-amber-400 hover:bg-amber-500/10' : 'text-amber-600 hover:bg-amber-100'} rounded transition-colors`} title="Message Settings">
               <Cog6ToothIcon className="h-5 w-5" />
             </button>
-            <button onClick={() => loadConversations()} className={`p-2 ${isDarkMode ? 'text-amber-400 hover:bg-amber-500/10' : 'text-amber-600 hover:bg-amber-100'} rounded transition-colors`} title="Refresh">
-              <ArrowPathIcon className="h-5 w-5" />
-            </button>
+
             {selectedConversation && (
               <button 
                 onClick={() => setShowConversationsList(!showConversationsList)}

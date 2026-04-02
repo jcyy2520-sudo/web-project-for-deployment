@@ -21,6 +21,7 @@ use App\Mail\RegistrationDecisionMail;
 use App\Models\AuditLog;
 use App\Models\ActionLog;
 use App\Services\ProfanityFilterService;
+use Illuminate\Support\Facades\Auth;
 
 class AuthController extends Controller
 {
@@ -614,9 +615,17 @@ class AuthController extends Controller
             $user->last_activity_at = now();
             $user->save();
 
-            // Create token with expiration
-            $token = $user->createToken('auth_token', ['*'], now()->addDays(7))->plainTextToken;
-            Log::info('✅ TOKEN CREATED successfully for user: ' . $user->id);
+            // Record last activity
+            $user->last_activity_at = now();
+            $user->save();
+
+            // Log in the user using the session guard (Sanctum SPA mode)
+            Auth::login($user);
+            
+            // Regenerate session to prevent session fixation
+            $request->session()->regenerate();
+
+            Log::info('✅ LOGIN SUCCESSFUL (Session-based) for user: ' . $user->id);
             
             $response = [
                 'message' => 'Login successful',
@@ -633,12 +642,8 @@ class AuthController extends Controller
                     'profile_picture_url' => $user->profile_picture_url,
                     'created_at' => $user->created_at,
                 ],
-                'token' => $token,
-                'token_expires_at' => now()->addDays(7)->toISOString(),
                 'success' => true
             ];
-
-            Log::info('✅ LOGIN SUCCESSFUL - Sending response');
 
             // Log action separately so failures don't break the login response
             try {
@@ -667,7 +672,17 @@ class AuthController extends Controller
                 $userId = $user->id;
                 $userName = $user->first_name . ' ' . $user->last_name;
                 $userEmail = $user->email;
-                $user->currentAccessToken()->delete();
+                                // SECURITY: Revoke Sanctum tokens on logout to prevent reuse
+                // This covers both session-based and token-based auth
+                if (method_exists($user, 'currentAccessToken') && $user->currentAccessToken()) {
+                    $user->currentAccessToken()->delete();
+                }
+
+                // Logout the user and invalidate session
+                Auth::guard('web')->logout();
+                $request->session()->invalidate();
+                $request->session()->regenerateToken();
+
                 Log::info('User logged out successfully');
 
                 // Log action separately so failures don't break the logout response

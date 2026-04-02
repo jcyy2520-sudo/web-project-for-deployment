@@ -83,6 +83,7 @@ const ClientAppointments = () => {
   });
   const [refundLoading, setRefundLoading] = useState(false);
   const [refundError, setRefundError] = useState('');
+  const [isSubmittingBooking, setIsSubmittingBooking] = useState(false);
   
   // Refund Details Modal State
   const [showRefundDetailsModal, setShowRefundDetailsModal] = useState(false);
@@ -391,9 +392,23 @@ const ClientAppointments = () => {
     }
   }, [isBookModalOpen, checkDailyLimit]);
 
+  // Poll slot availability every 20s while modal is open and a date is selected
+  useEffect(() => {
+    if (!isBookModalOpen || !selectedDate) return;
+    const interval = setInterval(() => {
+      if (!isSubmittingBooking) {
+        loadAvailableSlots(selectedDate);
+      }
+    }, 20000);
+    return () => clearInterval(interval);
+  }, [isBookModalOpen, selectedDate, isSubmittingBooking]);
+
   const handleBookAppointment = async (e) => {
     e.preventDefault();
     console.log('[handleBookAppointment] Submit clicked. Current limit info:', dailyLimitInfo);
+    
+    // Prevent double-submit
+    if (isSubmittingBooking) return;
     
     // Capture the appointment date BEFORE anything else changes
     const bookedDate = formData.appointment_date;
@@ -423,6 +438,8 @@ const ClientAppointments = () => {
     }
     
     console.log('[handleBookAppointment] Limit check passed, submitting booking for date:', formData.appointment_date);
+    setIsSubmittingBooking(true);
+    try {
     const result = await callApi((signal) =>
       axios.post('/api/appointments', formData, { signal })
     );
@@ -456,10 +473,20 @@ const ClientAppointments = () => {
             next_available_time: payload.next_available_time || prev.next_available_time
           }));
         }
+
+        // If slot is full, refresh available slots so UI updates
+        if (errMsg.toLowerCase().includes('full capacity') || errMsg.toLowerCase().includes('slot')) {
+          if (selectedDate) {
+            loadAvailableSlots(selectedDate);
+          }
+        }
       }
 
       // Show inline message in modal rather than popup if possible
       window.showToast?.('Error', errMsg, 'error');
+    }
+    } finally {
+      setIsSubmittingBooking(false);
     }
   };
 
@@ -1446,20 +1473,34 @@ const ClientAppointments = () => {
           {formData.appointment_time && (
             <div className="space-y-4 pt-2 border-t border-gray-200">
               {/* Booking Summary */}
-              <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
-                <h4 className="text-sm font-semibold text-green-800 mb-2">Booking Summary</h4>
-                <div className="grid grid-cols-3 gap-2 text-xs text-green-700">
-                  <div>
-                    <span className="text-green-600">Service</span>
-                    <p className="font-semibold">{formData.type}</p>
+              <div className="bg-amber-50 border border-amber-200 rounded-xl overflow-hidden shadow-sm">
+                <div className="bg-amber-100/50 px-4 py-2 border-b border-amber-200">
+                  <h4 className="text-xs font-bold text-amber-800 uppercase tracking-wider">Booking Summary</h4>
+                </div>
+                <div className="p-4 space-y-4">
+                  {/* Service Highlight */}
+                  <div className="bg-white/60 p-3 rounded-lg border border-amber-200/50 shadow-inner">
+                    <span className="text-[10px] font-bold text-amber-600 uppercase">Selected Service</span>
+                    <p className="text-lg font-extrabold text-amber-900 leading-tight mt-1">
+                      {(() => {
+                         // Some services might be multiple, handle same as dashboard
+                         if (Array.isArray(formData.type)) {
+                           return formData.type.join(', ') || 'General Service';
+                         }
+                         return formData.type || 'General Service';
+                      })()}
+                    </p>
                   </div>
-                  <div>
-                    <span className="text-green-600">Date</span>
-                    <p className="font-semibold">{formatDateDisplay(selectedDate)}</p>
-                  </div>
-                  <div>
-                    <span className="text-green-600">Time</span>
-                    <p className="font-semibold">{formatTime12Hour(formData.appointment_time)}</p>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="bg-white/40 p-2.5 rounded-lg border border-amber-200/30">
+                      <span className="text-[10px] font-bold text-amber-600 uppercase">Date</span>
+                      <p className="text-sm font-bold text-amber-900 mt-0.5">{formatDateDisplay(selectedDate)}</p>
+                    </div>
+                    <div className="bg-white/40 p-2.5 rounded-lg border border-amber-200/30">
+                      <span className="text-[10px] font-bold text-amber-600 uppercase">Time</span>
+                      <p className="text-sm font-bold text-amber-900 mt-0.5">{formatTime12Hour(formData.appointment_time)}</p>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1502,10 +1543,10 @@ const ClientAppointments = () => {
             </button>
             <button
               type="submit"
-              disabled={loading || !formData.appointment_time || dailyLimitInfo.hasReachedLimit}
+              disabled={isSubmittingBooking || loading || !formData.appointment_time || dailyLimitInfo.hasReachedLimit}
               className="px-4 py-2 text-sm font-medium text-white bg-black rounded hover:bg-gray-900 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
-              {loading ? (
+              {isSubmittingBooking ? (
                 <>
                   <LoadingSpinner size="xs" />
                   Booking...

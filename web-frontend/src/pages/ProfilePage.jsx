@@ -508,25 +508,6 @@ const ProfilePage = ({ onBack, onTabChange, onLogout }) => {
             </button>
             </div>
 
-            {/* Danger Zone - Delete Account */}
-            {user?.role !== 'admin' && (
-              <div className="mb-6">
-                <h3 className="px-3 py-2 text-xs font-semibold text-red-500 dark:text-red-400 uppercase tracking-wider">
-                  Danger Zone
-                </h3>
-                <button
-                  onClick={() => { setShowDeleteModal(true); setDeleteConfirmText(''); setDeleteError(''); }}
-                  className="w-full flex items-center gap-3 px-3 py-3 rounded-lg border border-red-200 dark:border-red-800/50 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
-                >
-                  <TrashIcon className="w-5 h-5 text-red-500 flex-shrink-0" />
-                  <div className="text-left">
-                    <span className="font-medium text-red-600 dark:text-red-400 block">Delete Account</span>
-                    <span className="text-xs text-red-400 dark:text-red-500">Permanently delete your account and all data</span>
-                  </div>
-                </button>
-              </div>
-            )}
-
             {/* Bottom Padding */}
             <div className="h-4"></div>
           </div>
@@ -671,13 +652,7 @@ const ProfilePage = ({ onBack, onTabChange, onLogout }) => {
                     >
                       <ArrowsUpDownIcon className="w-4 h-4 text-gray-500 dark:text-gray-400" />
                     </button>
-                    <button
-                      onClick={loadActionLogs}
-                      className="p-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                      title="Refresh"
-                    >
-                      <ArrowPathIcon className={`w-4 h-4 text-gray-500 dark:text-gray-400 ${actionLogsLoading ? 'animate-spin' : ''}`} />
-                    </button>
+
                   </div>
                   {/* Action Type Filters */}
                   <div className="flex flex-wrap gap-1.5">

@@ -24,6 +24,7 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin, isDarkMode = true }) 
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
+  const [agreedToTermsStep3, setAgreedToTermsStep3] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
   const [termsModalTab, setTermsModalTab] = useState('terms');
   const [notification, setNotification] = useState({ show: false, message: '', type: 'success' });
@@ -215,6 +216,10 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin, isDarkMode = true }) 
       showNotification('Please fill in all required fields', 'error');
       return;
     }
+    if (!agreedToTermsStep3) {
+      showNotification('Please agree to the Privacy Policy and Terms & Conditions to proceed', 'error');
+      return;
+    }
     const result = await callApi((signal) =>
       axios.post(`${API_BASE}/complete-registration`, {
         username: formData.username,
@@ -297,6 +302,7 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin, isDarkMode = true }) 
     setShowPassword(false);
     setShowConfirmPassword(false);
     setAgreedToTerms(false);
+    setAgreedToTermsStep3(false);
     clearError();
     setNotification({ show: false, message: '', type: 'success' });
     onClose();
@@ -698,6 +704,35 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin, isDarkMode = true }) 
                 <p><strong>Name:</strong> {formData.firstName} {formData.lastName}</p>
               </div>
             </div>
+
+            {/* Privacy Policy & Terms Checkbox */}
+            <div className="flex items-start gap-2 mt-1">
+              <input
+                type="checkbox"
+                id="agreeTermsStep3"
+                checked={agreedToTermsStep3}
+                onChange={(e) => setAgreedToTermsStep3(e.target.checked)}
+                className={`mt-0.5 flex-shrink-0 ${isDarkMode ? 'w-3.5 h-3.5 text-amber-600 bg-gray-800 border-amber-500/30 rounded focus:ring-amber-500 focus:ring-1' : 'w-3.5 h-3.5 text-blue-600 bg-white border border-gray-300 rounded focus:ring-blue-500 focus:ring-1'}`}
+              />
+              <label htmlFor="agreeTermsStep3" className={`text-xs leading-relaxed ${isDarkMode ? 'text-amber-100/70' : 'text-gray-600'}`}>
+                I have read and agree to the{' '}
+                <button
+                  type="button"
+                  onClick={() => { setTermsModalTab('privacy'); setShowTermsModal(true); }}
+                  className={`font-medium underline transition-colors ${isDarkMode ? 'text-amber-400 hover:text-amber-300' : 'text-blue-600 hover:text-blue-500'}`}
+                >
+                  Privacy Policy
+                </button>
+                {' '}and{' '}
+                <button
+                  type="button"
+                  onClick={() => { setTermsModalTab('terms'); setShowTermsModal(true); }}
+                  className={`font-medium underline transition-colors ${isDarkMode ? 'text-amber-400 hover:text-amber-300' : 'text-blue-600 hover:text-blue-500'}`}
+                >
+                  Terms &amp; Conditions
+                </button>
+              </label>
+            </div>
           </div>
         )}
 
@@ -715,7 +750,7 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin, isDarkMode = true }) 
           
           <button
             type="submit"
-            disabled={loading || (step === 1 && !agreedToTerms)}
+            disabled={loading || (step === 1 && !agreedToTerms) || (step === 3 && !agreedToTermsStep3)}
             className={`${step === 1 ? 'w-full' : ''} px-4 py-2 rounded-lg focus:outline-none transition-all duration-200 font-medium text-sm flex items-center justify-center min-w-[120px] disabled:opacity-50 disabled:cursor-not-allowed ${isDarkMode ? 'text-gray-900 border border-amber-500/30 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 focus:ring-1 focus:ring-amber-500' : 'text-white border border-gray-200'}`}
             style={isDarkMode ? {} : { backgroundImage: 'linear-gradient(90deg, var(--primary) 0%, var(--secondary) 100%)' }}
           >

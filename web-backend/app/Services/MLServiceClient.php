@@ -86,18 +86,6 @@ class MLServiceClient
     }
 
     /**
-     * Rank staff for a given slot by predicted success.
-     */
-    public function predictStaffRank(string $date, string $time, ?string $serviceType = null): array
-    {
-        return $this->post('/predict/staff-rank', [
-            'date' => $date,
-            'time' => $time,
-            'service_type' => $serviceType,
-        ]);
-    }
-
-    /**
      * Rank time slots for a given date by predicted success.
      */
     public function predictSlotRank(string $date): array

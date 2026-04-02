@@ -7,7 +7,7 @@ staff ranking, and slot ranking.
 import pandas as pd
 import numpy as np
 import pymysql
-from config import DB_CONFIG
+from config import DB_CONFIG, ML_CONFIG
 
 
 def get_db_connection():
@@ -83,10 +83,11 @@ def get_data_quality_report() -> dict:
             no_show = status_counts.get('no_show', 0)
             negative = cancelled + no_show
 
+            _min = ML_CONFIG['min_training_records']
             return {
                 'total_records': total,
-                'min_required': 500,
-                'is_sufficient': total >= 500,
+                'min_required': _min,
+                'is_sufficient': total >= _min,
                 'status_breakdown': {
                     'completed': completed,
                     'cancelled': cancelled,

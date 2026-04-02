@@ -103,16 +103,18 @@ if (app()->environment('local', 'testing')) {
 
 // ==================== PUBLIC ROUTES ====================
 
-// Public routes
-Route::post('/register-step1', [AuthController::class, 'registerStep1']);
-Route::post('/verify-code', [AuthController::class, 'verifyCode']);
-Route::post('/complete-registration', [AuthController::class, 'completeRegistration']);
-Route::post('/login', [AuthController::class, 'login']);
-Route::post('/resend-verification', [AuthController::class, 'resendVerificationCode']);
+// Public routes (Rate-limited for security)
+Route::middleware('throttle:5,1')->group(function () {
+    Route::post('/register-step1', [AuthController::class, 'registerStep1']);
+    Route::post('/verify-code', [AuthController::class, 'verifyCode']);
+    Route::post('/complete-registration', [AuthController::class, 'completeRegistration']);
+    Route::post('/login', [AuthController::class, 'login']);
+    Route::post('/resend-verification', [AuthController::class, 'resendVerificationCode']);
+});
 Route::get('/check-verification-status', [AuthController::class, 'checkVerificationStatus']);
 
-// Forgot Password routes (public)
-Route::prefix('forgot-password')->group(function () {
+// Forgot Password routes (public) - Rate-limited to prevent abuse
+Route::prefix('forgot-password')->middleware('throttle:5,1')->group(function () {
     Route::post('/send-code', [ForgotPasswordController::class, 'sendCode']);
     Route::post('/verify-code', [ForgotPasswordController::class, 'verifyCode']);
     Route::post('/reset', [ForgotPasswordController::class, 'resetPassword']);
@@ -120,7 +122,7 @@ Route::prefix('forgot-password')->group(function () {
 });
 
 // Health check route
-Route::get('/health', [\App\Http\Controllers\HealthCheckController::class, 'check']);
+Route::get('/health', [\App\Http\Controllers\HealthCheckController::class, 'check'])->middleware('throttle:30,1');
 
 // ==================== PUBLIC APPEAL ROUTES ====================
 Route::get('/appeals/verify/{token}', [\App\Http\Controllers\AppealController::class, 'verify']);
@@ -147,14 +149,13 @@ Route::get('/services', function() {
             'timestamp' => now()->toDateTimeString()
         ]);
     } catch (\Exception $e) {
-        \Log::error('Services API Error: ' . $e->getMessage());
-        
+        \Log::error('Public services endpoint error: ' . $e->getMessage());
         return response()->json([
-            'message' => 'Failed to fetch services',
-            'success' => false
+            'success' => false,
+            'message' => 'Unable to fetch services'
         ], 500);
     }
-});
+})->middleware('throttle:30,1');
 
 // ==================== OTHER PUBLIC ROUTES ====================
 
@@ -181,10 +182,10 @@ Route::get('/public/init', function () {
                 ->first();
 
             $stats = [
-                'totalUsers' => \App\Models\User::where('role', 'client')->where('is_active', true)->count(),
-                'totalAppointments' => (int)($aptStats->total ?? 0),
-                'pendingAppointments' => (int)($aptStats->pending ?? 0),
-                'completedAppointments' => (int)($aptStats->completed ?? 0),
+                'totalUsers' => blurNumber(\App\Models\User::where('role', 'client')->where('is_active', true)->count()),
+                'totalAppointments' => blurNumber((int)($aptStats->total ?? 0)),
+                'pendingAppointments' => blurNumber((int)($aptStats->pending ?? 0)),
+                'completedAppointments' => blurNumber((int)($aptStats->completed ?? 0)),
                 'totalServices' => \App\Models\Service::where('is_active', true)->count(),
             ];
 
@@ -247,15 +248,26 @@ Route::get('/public/init', function () {
         \Log::error('Public init endpoint error: ' . $e->getMessage());
         return response()->json(['success' => false, 'message' => 'Init failed'], 500);
     }
-});
+})->middleware('throttle:30,1'); // Rate limit landing page init
+
+// Helper to "blur" numbers for public consumption (e.g. 123 -> "100+")
+// Added locally for the closure; for StatsController we'll add a proper method.
+function blurNumber($num) {
+    if ($num < 10) return $num;
+    if ($num < 50) return floor($num / 10) * 10 . "+";
+    if ($num < 100) return "50+";
+    return floor($num / 100) * 100 . "+";
+}
 
 // User-facing analytics (public for checking slot availability)
 Route::get('/analytics/cancellation-risk', [AnalyticsController::class, 'cancellationRisk']);
 Route::get('/analytics/alternative-slots', [AnalyticsController::class, 'alternativeSlots']);
 
 // Public unavailable dates endpoint for clients (merged legacy + new blackout dates)
-Route::get('/unavailable-dates', [UnavailableDateController::class, 'index']);
-Route::get('/unavailable-dates/last-update', [UnavailableDateController::class, 'lastUpdate']);
+Route::prefix('unavailable-dates')->middleware('throttle:30,1')->group(function () {
+    Route::get('/', [UnavailableDateController::class, 'index']);
+    Route::get('/last-update', [UnavailableDateController::class, 'lastUpdate']);
+});
 
 // Real-time updates endpoints (public - no auth needed for polling)
 // Rate-limited to prevent abuse from polling clients
@@ -313,7 +325,7 @@ Route::get('/business-info', function () {
             'timestamp' => now()->toDateTimeString()
         ], 500);
     }
-});
+})->middleware('throttle:30,1');
 
 // Frontend error logging - SECURED with rate limiting and abuse detection
 Route::post('/frontend-errors/log', [\App\Http\Controllers\Admin\FrontendErrorLogController::class, 'storePublic'])
@@ -948,7 +960,6 @@ Route::middleware(['auth:sanctum', 'throttle:120,1'])->group(function () {
 
     // DECISION SUPPORT ROUTES (Staff and Admin) - ML-backed
     Route::prefix('decision-support')->middleware(['role:staff,admin'])->group(function () {
-        Route::get('/staff-recommendations', [DecisionSupportController::class, 'getStaffRecommendations']);
         Route::get('/time-slot-recommendations', [DecisionSupportController::class, 'getTimeSlotRecommendations']);
         Route::get('/appointment-risk/{appointmentId}', [DecisionSupportController::class, 'getAppointmentRisk']);
         Route::get('/workload-optimization', [DecisionSupportController::class, 'getWorkloadOptimization']);

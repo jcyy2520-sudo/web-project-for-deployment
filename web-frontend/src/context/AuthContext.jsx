@@ -25,6 +25,13 @@ if (apiBaseUrl) {
   axios.defaults.baseURL = apiBaseUrl;
 }
 
+// Initialize Authorization header from localStorage if token exists
+// This ensures that the first requests (like /api/user mapping) have the token
+const storedToken = localStorage.getItem('token');
+if (storedToken) {
+  axios.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
+}
+
 axios.defaults.withCredentials = true;
 axios.defaults.timeout = 60000; // Increased to 60 seconds for slower API/LLM requests
 
@@ -37,29 +44,13 @@ export const useAuth = () => {
 };
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState(() => {
+    const storedUser = localStorage.getItem('user');
+    return storedUser ? JSON.parse(storedUser) : null;
+  });
   const [loading, setLoading] = useState(true);
   const [connectionError, setConnectionError] = useState(false);
   const logoutInProgressRef = useRef(false);
-  
-  // Get token from localStorage on initial load AND set axios header immediately
-  const [token, setToken] = useState(() => {
-    const storedToken = localStorage.getItem('token');
-    // Set axios header synchronously during initialization to prevent race conditions
-    if (storedToken) {
-      axios.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
-    }
-    return storedToken;
-  });
-
-  // Keep axios header in sync with token state changes
-  useEffect(() => {
-    if (token) {
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-    } else {
-      delete axios.defaults.headers.common['Authorization'];
-    }
-  }, [token]);
 
   // Global 401 interceptor: auto-logout on authentication failures
   // This prevents cascading 401 errors from flooding the server
@@ -76,19 +67,17 @@ export const AuthProvider = ({ children }) => {
           // Don't intercept the logout call itself
           !error.config?.url?.includes('/logout')
         ) {
-          const hasToken = localStorage.getItem('token');
-          if (hasToken) {
-            console.warn('Global 401 interceptor: token invalid, clearing auth state');
-            // Silently clear auth - don't call the server logout (token is already invalid)
-            isLoggingOutGlobal = true;
-            localStorage.removeItem('token');
-            localStorage.removeItem('user');
-            delete axios.defaults.headers.common['Authorization'];
-            setToken(null);
-            setUser(null);
-            // Allow future logouts after a brief delay
-            setTimeout(() => { isLoggingOutGlobal = false; }, 2000);
-          }
+          console.warn('Global 401 interceptor: session expired, clearing auth state');
+          // Silently clear auth
+          isLoggingOutGlobal = true;
+          
+          // Dispatch a global event so other components can react (e.g. show a toast)
+          window.dispatchEvent(new CustomEvent('auth:expired'));
+          
+          localStorage.removeItem('user');
+          setUser(null);
+          // Allow future logouts after a brief delay
+          setTimeout(() => { isLoggingOutGlobal = false; }, 2000);
         }
         return Promise.reject(error);
       }
@@ -96,73 +85,61 @@ export const AuthProvider = ({ children }) => {
     return () => axios.interceptors.response.eject(interceptorId);
   }, []);
 
-  // Initialize auth state - show cached data immediately, verify in background
+  // Initialize auth state - prevent optimistic rendering of protected routes based on localStorage
   useEffect(() => {
     const initializeAuth = async () => {
       try {
-        const storedToken = localStorage.getItem('token');
         const storedUser = localStorage.getItem('user');
+        const token = localStorage.getItem('token');
 
-        if (storedToken && storedUser) {
+        // If a token exists but isn't in headers yet, apply it
+        if (token && !axios.defaults.headers.common['Authorization']) {
+          axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+        }
+
+        if (storedUser) {
           try {
-            // Set token and cached user IMMEDIATELY so UI renders without delay
-            setToken(storedToken);
-            axios.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
-
             const parsedUser = JSON.parse(storedUser);
-            // For security: use cached data for display but demote role to 'client'
-            // until the server verifies the actual role via /api/user
-            const safeUser = { ...parsedUser, role: parsedUser.role || 'client' };
-            setUser(safeUser);
+            // Still set the user for UI hydration, but strictly keep loading = true
+            // so ProtectedRoute guards prevent access until the backend confirms
+            setUser({ ...parsedUser });
+            setLoading(true);
 
-            // Mark loading as done IMMEDIATELY with cached data
-            // This eliminates the loading spinner delay on startup
-            setLoading(false);
-
-            // Verify token in the BACKGROUND (non-blocking)
+            // Verify session in the BACKGROUND (BLOCKS UI RENDERING FOR PROTECTED ROUTES)
             // If it fails with 401, we log out; otherwise update with server-verified data
             axios.get('/api/user', {
-              headers: { 'Authorization': `Bearer ${storedToken}` },
               timeout: 8000
             }).then(response => {
               const freshUserData = response.data.data || response.data;
               setUser(freshUserData);
               localStorage.setItem('user', JSON.stringify(freshUserData));
               setConnectionError(false);
+              setLoading(false); // Only unlock UI once cryptographically verified
             }).catch(verifyError => {
               if (verifyError.response?.status === 401) {
-                console.warn('Token expired or invalid, logging out...');
+                console.warn('Session expired or token invalid, logging out...');
                 handleLogout();
               } else if (!verifyError.response) {
-                // No response at all = actual network/connection failure
-                // Only show banner if this is NOT a timeout (timeouts can happen when backend is just slow)
-                if (verifyError.code === 'ECONNABORTED') {
-                  console.warn('Token validation timed out, keeping cached data');
-                  // Don't set connectionError for timeouts — backend is likely just slow, not down
-                } else {
-                  console.warn('Token validation failed (network), keeping cached data:', verifyError.message);
-                  setConnectionError(true);
-                }
-              } else {
-                // Server responded (e.g. 500) — not a connection issue, just a server error
-                console.warn('Token validation returned error status:', verifyError.response?.status);
+                // Network failure
+                setConnectionError(true);
               }
+              setLoading(false); // Failed verification, unlock so redirect can occur
             });
 
-            return; // Skip the finally block's setLoading since we already set it
+            return;
             
           } catch (error) {
             console.error('Auth parsing failed:', error);
             handleLogout();
+            setLoading(false);
           }
         } else {
           setUser(null);
-          setToken(null);
+          setLoading(false);
         }
       } catch (error) {
         console.error('Auth initialization failed:', error);
         handleLogout();
-      } finally {
         setLoading(false);
       }
     };
@@ -199,40 +176,20 @@ export const AuthProvider = ({ children }) => {
         password
       });
 
-      // FIXED: Handle different response structures
-      let userData, authToken;
+      // FIXED: Handle response structure from AuthController
+      const userData = response.data.user || response.data.data;
       
-      if (response.data.user && response.data.token) {
-        // Structure: { user: {...}, token: "..." }
-        userData = response.data.user;
-        authToken = response.data.token;
-      } else if (response.data.data && response.data.token) {
-        // Structure: { data: {...}, token: "..." }
-        userData = response.data.data;
-        authToken = response.data.token;
-      } else if (response.data.data) {
-        // Structure: { data: { user: {...}, token: "..." } }
-        userData = response.data.data.user || response.data.data;
-        authToken = response.data.data.token;
-      } else {
-        // Fallback: use the entire response as user data
-        userData = response.data;
-        authToken = response.data.token || response.data.access_token;
-      }
-      
-      if (!userData || !authToken) {
+      if (!userData) {
         return {
           success: false,
           message: 'Invalid response format from server'
         };
       }
 
-      // Store both token and user data in localStorage
-      localStorage.setItem('token', authToken);
+      // Store user data in localStorage
       localStorage.setItem('user', JSON.stringify(userData));
 
       // Update state
-      setToken(authToken);
       setUser(userData);
 
       return { success: true, user: userData };
@@ -260,9 +217,9 @@ export const AuthProvider = ({ children }) => {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('token');
     localStorage.removeItem('user');
-    setToken(null);
+    localStorage.removeItem('token');
+    delete axios.defaults.headers.common['Authorization'];
     setUser(null);
     
     // Clean up theme customizations applied by Dashboard
@@ -330,15 +287,28 @@ export const AuthProvider = ({ children }) => {
     });
   };
 
+  const setAuthData = (userData, token) => {
+    if (token) {
+      localStorage.setItem('token', token);
+      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+    }
+    if (userData) {
+      localStorage.setItem('user', JSON.stringify(userData));
+      setUser(userData);
+    }
+    setLoading(false);
+  };
+
   const value = {
     user,
     login,
     logout,
     updateUser,
+    setAuthData,
     loading,
     connectionError,
     setConnectionError,
-    isAuthenticated: !!user && !!token,
+    isAuthenticated: !!user,
     isAdmin: user?.role === 'admin',
     isStaff: user?.role === 'staff',
     isClient: user?.role === 'client',

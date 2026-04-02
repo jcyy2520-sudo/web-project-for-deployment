@@ -42,7 +42,6 @@ const pct = (n, d) => (d > 0 ? Math.round((n / d) * 100) : 0);
 
 const TAB_DEFS = [
   { id: 'data-quality', label: 'Data Quality', icon: BeakerIcon },
-  { id: 'staff',        label: 'Staff Recs',   icon: UserGroupIcon },
   { id: 'timeslots',    label: 'Time Slots',   icon: ClockIcon },
   { id: 'risk',         label: 'Risk',         icon: ShieldExclamationIcon },
   { id: 'workload',     label: 'Workload',     icon: ChartBarIcon },
@@ -54,6 +53,26 @@ const TAB_DEFS = [
 
 const AdminDecisionSupport = ({ isDarkMode = true }) => {
   const [activeTab, setActiveTab] = useState('data-quality');
+  const [mlStatus, setMlStatus] = useState(null);
+  const [lastRefresh, setLastRefresh] = useState(null);
+
+  // Fetch ML status on mount for the AI badge
+  useEffect(() => {
+    const fetchMlStatus = async () => {
+      try {
+        const res = await axios.get('/api/decision-support/data-quality');
+        const data = res.data?.data || res.data || {};
+        setMlStatus({
+          available: data.status !== 'service_unavailable',
+          hasModel: !!(data.model ?? data.model_info),
+          records: data.total_records ?? data.record_count ?? 0,
+        });
+      } catch {
+        setMlStatus({ available: false, hasModel: false, records: 0 });
+      }
+    };
+    fetchMlStatus();
+  }, []);
 
   // ─── Common style helpers ─────────────────────────────────────────────
 
@@ -99,6 +118,27 @@ const AdminDecisionSupport = ({ isDarkMode = true }) => {
             </p>
           </div>
         </div>
+        <div className="flex items-center gap-2">
+          {mlStatus && (
+            <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
+              mlStatus.hasModel
+                ? isDarkMode ? 'bg-green-500/15 text-green-300' : 'bg-green-50 text-green-700'
+                : mlStatus.available
+                ? isDarkMode ? 'bg-amber-500/15 text-amber-300' : 'bg-amber-50 text-amber-700'
+                : isDarkMode ? 'bg-red-500/15 text-red-300' : 'bg-red-50 text-red-700'
+            }`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${
+                mlStatus.hasModel ? 'bg-green-400' : mlStatus.available ? 'bg-amber-400' : 'bg-red-400'
+              }`} />
+              {mlStatus.hasModel ? 'AI Active' : mlStatus.available ? 'Model Not Trained' : 'ML Offline'}
+            </span>
+          )}
+          {lastRefresh && (
+            <span className={`text-xs ${cls.textMuted}`}>
+              Updated {lastRefresh.toLocaleTimeString()}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Tab Navigation */}
@@ -127,11 +167,10 @@ const AdminDecisionSupport = ({ isDarkMode = true }) => {
 
       {/* Tab Content */}
       <div className="p-5 max-h-[65vh] overflow-y-auto">
-        {activeTab === 'data-quality' && <DataQualityTab isDarkMode={isDarkMode} cls={cls} />}
-        {activeTab === 'staff' && <StaffRecommendationsTab isDarkMode={isDarkMode} cls={cls} />}
-        {activeTab === 'timeslots' && <TimeSlotsTab isDarkMode={isDarkMode} cls={cls} />}
-        {activeTab === 'risk' && <RiskTab isDarkMode={isDarkMode} cls={cls} />}
-        {activeTab === 'workload' && <WorkloadTab isDarkMode={isDarkMode} cls={cls} />}
+        {activeTab === 'data-quality' && <DataQualityTab isDarkMode={isDarkMode} cls={cls} onRefresh={() => setLastRefresh(new Date())} />}
+        {activeTab === 'timeslots' && <TimeSlotsTab isDarkMode={isDarkMode} cls={cls} onRefresh={() => setLastRefresh(new Date())} />}
+        {activeTab === 'risk' && <RiskTab isDarkMode={isDarkMode} cls={cls} onRefresh={() => setLastRefresh(new Date())} />}
+        {activeTab === 'workload' && <WorkloadTab isDarkMode={isDarkMode} cls={cls} onRefresh={() => setLastRefresh(new Date())} />}
       </div>
     </div>
   );
@@ -141,7 +180,7 @@ const AdminDecisionSupport = ({ isDarkMode = true }) => {
 // TAB 1 - DATA QUALITY & TRAINING
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const DataQualityTab = ({ isDarkMode, cls }) => {
+const DataQualityTab = ({ isDarkMode, cls, onRefresh }) => {
   const [quality, setQuality] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -210,7 +249,7 @@ const DataQualityTab = ({ isDarkMode, cls }) => {
 
   const data = quality?.data || quality || {};
   const recordCount = data.total_records ?? data.record_count ?? 0;
-  const threshold = 500;
+  const threshold = data.min_required ?? 500;
   const readiness = pct(recordCount, threshold);
   const isBelowThreshold = recordCount < threshold;
 
@@ -413,304 +452,10 @@ const DataQualityTab = ({ isDarkMode, cls }) => {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// TAB 2 - STAFF RECOMMENDATIONS
+// TAB 2 - TIME SLOT SUGGESTIONS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const StaffRecommendationsTab = ({ isDarkMode, cls }) => {
-  const [date, setDate] = useState(todayStr());
-  const [time, setTime] = useState('09:00');
-  const [serviceType, setServiceType] = useState('');
-  const [recommendations, setRecommendations] = useState(null);
-  const [meta, setMeta] = useState(null);
-  const [responseStatus, setResponseStatus] = useState(null);
-  const [responseMessage, setResponseMessage] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [expandedStaff, setExpandedStaff] = useState(null);
-  const [excludedStaff, setExcludedStaff] = useState([]);
-
-  const fetchRecommendations = useCallback(async (excluded = []) => {
-    if (!date || !time) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await axios.get('/api/decision-support/staff-recommendations', {
-        params: {
-          appointment_date: date,
-          appointment_time: time,
-          service_type: serviceType || undefined,
-        },
-      });
-      setResponseStatus(res.data?.status || 'ok');
-      setResponseMessage(res.data?.message || null);
-
-      let data = res.data?.data || [];
-      setMeta(res.data?.meta || null);
-
-      // Filter out excluded staff
-      if (excluded.length > 0 && Array.isArray(data)) {
-        data = data.filter(s => !excluded.includes(s.staff_id));
-      }
-      setRecommendations(data);
-    } catch (err) {
-      console.error('Staff recommendations failed', err);
-      setError('Failed to fetch staff recommendations.');
-    } finally {
-      setLoading(false);
-    }
-  }, [date, time, serviceType]);
-
-  const handleFetch = () => {
-    setExcludedStaff([]);
-    fetchRecommendations([]);
-  };
-
-  const handleReject = (staffId) => {
-    const newExcluded = [...excludedStaff, staffId];
-    setExcludedStaff(newExcluded);
-    fetchRecommendations(newExcluded);
-  };
-
-  const handleAccept = async (staff) => {
-    try {
-      await axios.post('/api/decision-support/outcome', {
-        appointment_id: staff.staff_id,
-        outcome: 'completed',
-        feedback: 'accepted',
-        reason: `Staff ${staff.name} accepted via decision support`,
-      });
-    } catch (_) {
-      // Outcome logging is best-effort
-    }
-    alert(`Accepted: ${staff.name}`);
-  };
-
-  const getScoreColor = (p) => {
-    if (p >= 75) return isDarkMode ? 'text-green-400' : 'text-green-600';
-    if (p >= 50) return isDarkMode ? 'text-amber-400' : 'text-amber-600';
-    return isDarkMode ? 'text-red-400' : 'text-red-600';
-  };
-
-  const getScoreBarColor = (p) => {
-    if (p >= 75) return 'bg-green-500';
-    if (p >= 50) return 'bg-amber-500';
-    return 'bg-red-500';
-  };
-
-  const getConfidenceConfig = (level) => {
-    const cfgs = {
-      high: { label: 'High confidence', color: isDarkMode ? 'text-green-400' : 'text-green-600', bg: isDarkMode ? 'bg-green-500/15' : 'bg-green-50' },
-      medium: { label: 'Medium confidence', color: isDarkMode ? 'text-amber-400' : 'text-amber-600', bg: isDarkMode ? 'bg-amber-500/15' : 'bg-amber-50' },
-      low: { label: 'Low confidence', color: isDarkMode ? 'text-gray-400' : 'text-gray-500', bg: isDarkMode ? 'bg-gray-700' : 'bg-gray-100' },
-    };
-    return cfgs[level] || cfgs.medium;
-  };
-
-  // Handle no_model response
-  if (responseStatus === 'no_model' && !loading) {
-    return (
-      <div className="space-y-4">
-        <NoModelBanner isDarkMode={isDarkMode} message={responseMessage} />
-        <InputRow cls={cls} isDarkMode={isDarkMode} date={date} setDate={setDate} time={time} setTime={setTime} serviceType={serviceType} setServiceType={setServiceType} onFetch={handleFetch} loading={loading} />
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-4">
-      {/* Inputs */}
-      <InputRow cls={cls} isDarkMode={isDarkMode} date={date} setDate={setDate} time={time} setTime={setTime} serviceType={serviceType} setServiceType={setServiceType} onFetch={handleFetch} loading={loading} />
-
-      {loading && <LoadingState isDarkMode={isDarkMode} message="Analyzing staff availability..." />}
-      {error && <ErrorState isDarkMode={isDarkMode} message={error} onRetry={handleFetch} />}
-
-      {/* Confidence / Meta */}
-      {meta && !loading && (
-        <div className={`flex items-center gap-3 text-xs ${cls.textSecondary}`}>
-          <span>{meta.available_staff}/{meta.total_staff} available staff</span>
-          {meta.engine && meta.engine !== 'none' && (
-            <span className={`px-2 py-0.5 rounded-full ${isDarkMode ? 'bg-blue-500/15 text-blue-300' : 'bg-blue-50 text-blue-700'}`}>
-              Engine: {meta.engine}
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* Recommendations List */}
-      {recommendations && !loading && recommendations.length > 0 && (
-        <div className="space-y-2">
-          {recommendations.map((staff, index) => {
-            const isExpanded = expandedStaff === staff.staff_id;
-            const scorePct = staff.score_percentage || (staff.max_score > 0 ? Math.round((staff.score / staff.max_score) * 100) : staff.score || 0);
-            const conf = getConfidenceConfig(staff.confidence);
-
-            return (
-              <div key={staff.staff_id || index} className={`rounded-lg border overflow-hidden ${
-                index === 0
-                  ? isDarkMode ? 'bg-amber-500/5 border-amber-500/30' : 'bg-amber-50/50 border-amber-200'
-                  : isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
-              }`}>
-                {/* Staff Row */}
-                <button
-                  onClick={() => setExpandedStaff(isExpanded ? null : staff.staff_id)}
-                  className={`w-full px-4 py-3 flex items-center gap-3 text-left transition-colors ${isDarkMode ? 'hover:bg-gray-700/50' : 'hover:bg-gray-50'}`}
-                >
-                  {/* Rank */}
-                  <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
-                    index === 0 ? 'bg-amber-500 text-white'
-                      : index === 1 ? (isDarkMode ? 'bg-gray-600 text-gray-200' : 'bg-gray-200 text-gray-700')
-                      : (isDarkMode ? 'bg-gray-700 text-gray-400' : 'bg-gray-100 text-gray-500')
-                  }`}>
-                    {index + 1}
-                  </div>
-
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className={`text-sm font-semibold truncate ${cls.textPrimary}`}>{staff.name}</p>
-                      {index === 0 && (
-                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${isDarkMode ? 'bg-amber-500/20 text-amber-300' : 'bg-amber-100 text-amber-700'}`}>
-                          Best Match
-                        </span>
-                      )}
-                    </div>
-                    {staff.email && (
-                      <p className={`text-xs truncate mt-0.5 ${cls.textSecondary}`}>{staff.email}</p>
-                    )}
-                  </div>
-
-                  {/* Score */}
-                  <div className="flex items-center gap-3 flex-shrink-0">
-                    <div className="text-right">
-                      <p className={`text-lg font-bold ${getScoreColor(scorePct)}`}>{scorePct}%</p>
-                    </div>
-                    {isExpanded
-                      ? <ChevronUpIcon className={`h-4 w-4 ${cls.textSecondary}`} />
-                      : <ChevronDownIcon className={`h-4 w-4 ${cls.textSecondary}`} />
-                    }
-                  </div>
-                </button>
-
-                {/* Score Bar */}
-                <div className="px-4 pb-1">
-                  <div className={`w-full h-1.5 rounded-full overflow-hidden ${isDarkMode ? 'bg-gray-700' : 'bg-gray-200'}`}>
-                    <div className={`h-full rounded-full transition-all ${getScoreBarColor(scorePct)}`} style={{ width: `${scorePct}%` }} />
-                  </div>
-                </div>
-
-                {/* Expanded Details */}
-                {isExpanded && (
-                  <div className={`px-4 pb-4 pt-2 space-y-3 ${isDarkMode ? 'bg-gray-800/50' : 'bg-gray-50/50'}`}>
-                    {/* Confidence */}
-                    {staff.confidence && staff.confidence !== 'n/a' && (
-                      <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${conf.bg} ${conf.color}`}>
-                        <ShieldCheckIcon className="h-3.5 w-3.5" />
-                        {conf.label}
-                      </div>
-                    )}
-
-                    {/* Score Breakdown */}
-                    {staff.details && Object.keys(staff.details).length > 0 && (
-                      <div>
-                        <p className={`text-xs font-semibold mb-2 ${cls.textPrimary}`}>Score Breakdown</p>
-                        <div className="space-y-2">
-                          {Object.entries(staff.details).map(([key, detail]) => {
-                            const val = typeof detail === 'object' ? detail.score : detail;
-                            const max = typeof detail === 'object' ? detail.max : 25;
-                            const barPct = max > 0 ? Math.round((val / max) * 100) : 0;
-                            const label = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-                            return (
-                              <div key={key}>
-                                <div className="flex items-center justify-between text-xs mb-1">
-                                  <span className={cls.textSecondary}>{label}</span>
-                                  <span className={`font-medium ${cls.textPrimary}`}>{val}/{max}</span>
-                                </div>
-                                <div className={`w-full h-1.5 rounded-full overflow-hidden ${isDarkMode ? 'bg-gray-700' : 'bg-gray-200'}`}>
-                                  <div className={`h-full rounded-full ${getScoreBarColor(barPct)}`} style={{ width: `${barPct}%` }} />
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Strengths */}
-                    {staff.strengths && staff.strengths.length > 0 && (
-                      <div>
-                        <p className={`text-xs font-semibold mb-1 ${isDarkMode ? 'text-green-400' : 'text-green-700'}`}>Strengths</p>
-                        <div className="flex flex-wrap gap-1.5">
-                          {staff.strengths.map((s, i) => (
-                            <span key={i} className={`text-xs px-2 py-0.5 rounded-full ${isDarkMode ? 'bg-green-500/15 text-green-300' : 'bg-green-50 text-green-700 border border-green-200'}`}>
-                              {s}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Considerations */}
-                    {staff.considerations && staff.considerations.length > 0 && (
-                      <div>
-                        <p className={`text-xs font-semibold mb-1 ${isDarkMode ? 'text-amber-400' : 'text-amber-700'}`}>Considerations</p>
-                        <div className="flex flex-wrap gap-1.5">
-                          {staff.considerations.map((c, i) => (
-                            <span key={i} className={`text-xs px-2 py-0.5 rounded-full ${isDarkMode ? 'bg-amber-500/15 text-amber-300' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
-                              {c}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Reasoning */}
-                    {staff.reasoning && staff.reasoning.length > 0 && (
-                      <div className="space-y-1">
-                        <p className={`text-xs font-semibold mb-1 ${cls.textPrimary}`}>Reasoning</p>
-                        {staff.reasoning.map((reason, idx) => (
-                          <div key={idx} className="flex items-start gap-2">
-                            <CheckCircleIcon className={`h-3.5 w-3.5 mt-0.5 flex-shrink-0 ${isDarkMode ? 'text-green-400' : 'text-green-600'}`} />
-                            <p className={`text-xs ${cls.textSecondary}`}>{reason}</p>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Action Buttons */}
-                    <div className="flex items-center gap-2 pt-2 border-t" style={{ borderColor: isDarkMode ? '#374151' : '#e5e7eb' }}>
-                      <button onClick={() => handleAccept(staff)} className={cls.btnSuccess}>
-                        <HandThumbUpIcon className="h-3.5 w-3.5 inline mr-1" />
-                        Accept
-                      </button>
-                      <button onClick={() => handleReject(staff.staff_id)} className={cls.btnDanger}>
-                        <HandThumbDownIcon className="h-3.5 w-3.5 inline mr-1" />
-                        Reject
-                      </button>
-                      <button onClick={handleFetch} className={cls.btnSecondary}>
-                        <ArrowPathIcon className="h-3.5 w-3.5 inline mr-1" />
-                        Suggest Again
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Empty state */}
-      {recommendations && !loading && recommendations.length === 0 && (
-        <EmptyState isDarkMode={isDarkMode} message="No staff recommendations available for this date/time." />
-      )}
-    </div>
-  );
-};
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// TAB 3 - TIME SLOT SUGGESTIONS
-// ═══════════════════════════════════════════════════════════════════════════════
-
-const TimeSlotsTab = ({ isDarkMode, cls }) => {
+const TimeSlotsTab = ({ isDarkMode, cls, onRefresh }) => {
   const [date, setDate] = useState(todayStr());
   const [slots, setSlots] = useState(null);
   const [summary, setSummary] = useState(null);
@@ -760,6 +505,18 @@ const TimeSlotsTab = ({ isDarkMode, cls }) => {
     setSelectedSlot(null);
     fetchSlots([]);
   };
+
+  // Auto-fetch on mount and auto-refresh every 120s
+  useEffect(() => {
+    fetchSlots([]);
+    const interval = setInterval(() => fetchSlots([]), 120000);
+    return () => clearInterval(interval);
+  }, [fetchSlots]);
+
+  // Notify parent of refresh
+  useEffect(() => {
+    if (slots && onRefresh) onRefresh();
+  }, [slots]);
 
   const handleAcceptSlot = (slot) => {
     setSelectedSlot(slot.time);
@@ -927,7 +684,7 @@ const TimeSlotsTab = ({ isDarkMode, cls }) => {
 // TAB 4 - APPOINTMENT RISK
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const RiskTab = ({ isDarkMode, cls }) => {
+const RiskTab = ({ isDarkMode, cls, onRefresh }) => {
   const [appointmentId, setAppointmentId] = useState('');
   const [todayAppointments, setTodayAppointments] = useState([]);
   const [assessment, setAssessment] = useState(null);
@@ -937,21 +694,48 @@ const RiskTab = ({ isDarkMode, cls }) => {
   const [showAllFactors, setShowAllFactors] = useState(false);
   const [overrideReason, setOverrideReason] = useState('');
   const [showOverrideInput, setShowOverrideInput] = useState(false);
+  const [riskOverview, setRiskOverview] = useState([]);
+  const [loadingOverview, setLoadingOverview] = useState(false);
 
-  // Fetch today's appointments for quick selection
+  // Fetch today's appointments and auto-assess risk for each
   useEffect(() => {
-    const fetchTodayAppointments = async () => {
+    const fetchTodayWithRisk = async () => {
+      setLoadingOverview(true);
       try {
         const res = await axios.get('/api/appointments', {
           params: { date: todayStr(), per_page: 50 },
         });
         const data = res.data?.data || res.data?.appointments || [];
-        setTodayAppointments(Array.isArray(data) ? data : []);
+        const appts = Array.isArray(data) ? data : [];
+        setTodayAppointments(appts);
+
+        // Assess risk for up to 10 appointments in parallel
+        const toAssess = appts.filter(a => a.status === 'pending' || a.status === 'approved').slice(0, 10);
+        if (toAssess.length > 0) {
+          const riskResults = await Promise.allSettled(
+            toAssess.map(a =>
+              axios.get(`/api/decision-support/appointment-risk/${a.id}`).then(r => ({
+                ...a,
+                risk: r.data?.data || null,
+              }))
+            )
+          );
+          const assessed = riskResults
+            .filter(r => r.status === 'fulfilled' && r.value.risk?.risk_score != null)
+            .map(r => r.value)
+            .sort((a, b) => (b.risk?.risk_score || 0) - (a.risk?.risk_score || 0));
+          setRiskOverview(assessed);
+          if (onRefresh) onRefresh();
+        }
       } catch (_) {
-        // Non-critical, ignore
+        // Non-critical
+      } finally {
+        setLoadingOverview(false);
       }
     };
-    fetchTodayAppointments();
+    fetchTodayWithRisk();
+    const interval = setInterval(fetchTodayWithRisk, 120000);
+    return () => clearInterval(interval);
   }, []);
 
   const fetchRisk = useCallback(async (id) => {
@@ -1060,6 +844,64 @@ const RiskTab = ({ isDarkMode, cls }) => {
 
   return (
     <div className="space-y-4">
+      {/* Today's Risk Overview - Auto-loaded */}
+      {loadingOverview && !riskOverview.length && (
+        <LoadingState isDarkMode={isDarkMode} message="Scanning today's appointments for risk..." />
+      )}
+      {riskOverview.length > 0 && !assessment && (
+        <div className={cls.cardInner + ' p-4'}>
+          <div className="flex items-center gap-2 mb-3">
+            <ShieldExclamationIcon className={`h-4 w-4 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`} />
+            <h4 className={`text-xs font-bold uppercase tracking-wide ${cls.textPrimary}`}>
+              Today's Risk Overview
+            </h4>
+            <span className={`ml-auto text-xs px-2 py-0.5 rounded-full ${isDarkMode ? 'bg-blue-500/15 text-blue-300' : 'bg-blue-50 text-blue-700'}`}>
+              AI-assessed
+            </span>
+          </div>
+          <div className="space-y-2">
+            {riskOverview.map((appt) => {
+              const risk = appt.risk;
+              const riskColor = risk.risk_level === 'high'
+                ? isDarkMode ? 'text-red-400 bg-red-500/10 border-red-500/30' : 'text-red-600 bg-red-50 border-red-200'
+                : risk.risk_level === 'medium'
+                ? isDarkMode ? 'text-amber-400 bg-amber-500/10 border-amber-500/30' : 'text-amber-600 bg-amber-50 border-amber-200'
+                : isDarkMode ? 'text-green-400 bg-green-500/10 border-green-500/30' : 'text-green-600 bg-green-50 border-green-200';
+              return (
+                <button
+                  key={appt.id}
+                  onClick={() => { setAppointmentId(String(appt.id)); fetchRisk(appt.id); }}
+                  className={`w-full text-left p-3 rounded-lg border transition-colors ${riskColor} hover:opacity-80`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className={`text-sm font-semibold ${cls.textPrimary}`}>
+                        #{appt.id} — {appt.customer_name || appt.user?.name || `User ${appt.user_id}`}
+                      </span>
+                      <p className={`text-xs mt-0.5 ${cls.textSecondary}`}>
+                        {appt.appointment_time} • {appt.service?.name || appt.service_type || 'Service'}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <span className={`text-lg font-black ${riskColor.split(' ')[0]}`}>{risk.risk_score}</span>
+                      <p className={`text-xs capitalize font-medium ${riskColor.split(' ')[0]}`}>{risk.risk_level}</p>
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      {!loadingOverview && riskOverview.length === 0 && todayAppointments.length > 0 && !assessment && (
+        <div className={`p-3 rounded-lg text-xs ${isDarkMode ? 'bg-green-500/10 text-green-300 border border-green-500/30' : 'bg-green-50 text-green-700 border border-green-200'}`}>
+          <div className="flex items-center gap-2">
+            <ShieldCheckIcon className="h-4 w-4" />
+            No high-risk appointments detected for today.
+          </div>
+        </div>
+      )}
+
       {/* Input Row */}
       <div className="flex flex-wrap items-end gap-3">
         <div className="flex-1 min-w-[160px]">
@@ -1338,7 +1180,7 @@ const RiskTab = ({ isDarkMode, cls }) => {
 // TAB 5 - WORKLOAD OVERVIEW
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const WorkloadTab = ({ isDarkMode, cls }) => {
+const WorkloadTab = ({ isDarkMode, cls, onRefresh }) => {
   const [date, setDate] = useState(todayStr());
   const [staffData, setStaffData] = useState([]);
   const [summary, setSummary] = useState(null);
@@ -1365,6 +1207,7 @@ const WorkloadTab = ({ isDarkMode, cls }) => {
       }
       setSummary(res.data?.summary || null);
       setInsights(res.data?.insights || []);
+      if (onRefresh) onRefresh();
     } catch (err) {
       console.error('Workload fetch failed', err);
       setError('Failed to fetch workload data.');
@@ -1374,6 +1217,13 @@ const WorkloadTab = ({ isDarkMode, cls }) => {
   }, [date]);
 
   const handleFetch = () => fetchWorkload();
+
+  // Auto-fetch on mount and auto-refresh every 120s
+  useEffect(() => {
+    fetchWorkload();
+    const interval = setInterval(fetchWorkload, 120000);
+    return () => clearInterval(interval);
+  }, [fetchWorkload]);
 
   const getStatusConfig = (status) => {
     const cfgs = {
@@ -1579,7 +1429,7 @@ const WorkloadTab = ({ isDarkMode, cls }) => {
       )}
 
       {staffData.length === 0 && !loading && !error && (
-        <EmptyState isDarkMode={isDarkMode} message="Select a date and fetch to view workload data." />
+        <EmptyState isDarkMode={isDarkMode} message="No staff workload data available for this date." />
       )}
     </div>
   );

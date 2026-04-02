@@ -59,6 +59,12 @@ if (envApiUrl) {
   API_URL = null;
 }
 
+// SECURITY: Enforce HTTPS for production API communication
+if (isProduction && API_URL && !API_URL.startsWith('https://')) {
+  console.error('[security] Production API URL MUST use HTTPS. Blocking request.');
+  API_URL = null; 
+}
+
 // Configure axios to use the API URL
 if (API_URL) {
   axios.defaults.baseURL = API_URL;

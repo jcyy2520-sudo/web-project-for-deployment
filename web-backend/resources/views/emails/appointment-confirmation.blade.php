@@ -44,9 +44,27 @@
                     <div class="detail-label">Service:</div>
                     <div class="detail-value">{{ $appointment->service_type ?? \App\Models\Appointment::getTypes()[$appointment->type] ?? $appointment->type }}</div>
                 </div>
+                
+                @if($appointment->services->count() > 0)
+                <div style="margin: 12px 0 8px 0; border-top: 1px dashed #e5e7eb; padding-top: 8px;">
+                    <strong style="font-size: 11px; color: #6b7280; text-transform: uppercase;">Price Breakdown:</strong>
+                    @foreach($appointment->services as $service)
+                    <div class="detail-row" style="padding: 4px 0;">
+                        <div class="detail-label" style="font-weight: normal; font-size: 12px; min-width: 120px;">{{ $service->name }}:</div>
+                        <div class="detail-value" style="font-size: 12px; text-align: right;">₱{{ number_format($service->pivot->price_at_booking ?? $service->price, 2) }}</div>
+                    </div>
+                    @endforeach
+                </div>
+                @endif
+
+                <div class="detail-row" style="border-top: 1px solid #e5e7eb; margin-top: 8px; padding-top: 8px;">
+                    <div class="detail-label" style="color: #111827; font-weight: 700;">Total Amount:</div>
+                    <div class="detail-value" style="color: #111827; font-weight: 700; text-align: right; font-size: 15px;">₱{{ number_format($appointment->payment_amount ?? $appointment->original_price ?? 0, 2) }}</div>
+                </div>
+
                 <div class="detail-row">
                     <div class="detail-label">Status:</div>
-                    <div class="detail-value"><span class="status-text">PENDING REVIEW</span></div>
+                    <div class="detail-value"><span class="status-text" style="color: #d97706;">PENDING REVIEW</span></div>
                 </div>
             </div>
             

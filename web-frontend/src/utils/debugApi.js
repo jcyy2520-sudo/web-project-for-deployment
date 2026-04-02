@@ -16,7 +16,9 @@ export const debugApiConfig = () => {
       withCredentials: axios.defaults.withCredentials,
       timeout: axios.defaults.timeout,
       headers: {
-        Authorization: axios.defaults.headers.common['Authorization'] ? 'SET' : 'NOT SET',
+        // SECURITY: Never log the actual token, even in debug mode if possible. 
+        // Already checking if SET/NOT SET which is safe.
+        Authorization: axios.defaults.headers.common['Authorization'] ? '***MASKED*** (SET)' : 'NOT SET',
         'Content-Type': axios.defaults.headers.common['Content-Type']
       }
     });

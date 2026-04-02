@@ -21,86 +21,6 @@ class MLDecisionSupportService
     }
 
     /**
-     * Get ML-backed staff recommendations for an appointment slot.
-     */
-    public function getStaffRecommendations(
-        string $appointmentDate,
-        string $appointmentTime,
-        ?string $serviceType = null,
-        ?int $customerId = null
-    ): array {
-        if (!$this->mlAvailable()) {
-            return $this->noModelResponse('staff_recommendations', $appointmentDate);
-        }
-
-        try {
-            $result = $this->mlClient->predictStaffRank($appointmentDate, $appointmentTime, $serviceType);
-
-            if (isset($result['error'])) {
-                return $this->serviceUnavailableResponse('staff_recommendations');
-            }
-
-            $recommendations = collect($result['data'] ?? [])
-                ->map(function ($staff, $index) {
-                    return [
-                        'staff_id' => $staff['staff_id'],
-                        'name' => $staff['name'],
-                        'email' => $staff['email'],
-                        'score' => round(($staff['predicted_score'] ?? 0) * 100),
-                        'max_score' => 100,
-                        'score_percentage' => round(($staff['predicted_score'] ?? 0) * 100),
-                        'available' => $staff['available'] ?? true,
-                        'confidence' => $staff['confidence'] ?? 0,
-                        'confidence_label' => $staff['confidence_label'] ?? 'low',
-                        'reasoning' => $staff['reasoning'] ?? [],
-                        'details' => [
-                            'workload' => [
-                                'label' => 'Current Workload',
-                                'score' => max(0, 100 - ($staff['workload_today'] ?? 0) * 15),
-                                'max' => 100,
-                            ],
-                            'completion_rate' => [
-                                'label' => 'Completion Rate',
-                                'score' => round(($staff['completion_rate'] ?? 0) * 100),
-                                'max' => 100,
-                            ],
-                            'specialization' => [
-                                'label' => 'Service Specialization',
-                                'score' => min(($staff['specialization_count'] ?? 0) * 10, 100),
-                                'max' => 100,
-                            ],
-                            'experience' => [
-                                'label' => 'Experience',
-                                'score' => min(($staff['total_handled'] ?? 0) * 2, 100),
-                                'max' => 100,
-                            ],
-                        ],
-                        'strengths' => $this->extractStrengths($staff),
-                        'considerations' => $this->extractConsiderations($staff),
-                    ];
-                })
-                ->values()
-                ->toArray();
-
-            return [
-                'recommendations' => array_slice($recommendations, 0, 5),
-                'total_staff' => $result['total_staff'] ?? 0,
-                'available_staff' => $result['available_staff'] ?? 0,
-                'scoring_criteria' => [
-                    ['name' => 'ML Prediction Score', 'weight' => 'Primary', 'description' => 'ML model prediction of appointment success with this staff member'],
-                    ['name' => 'Completion Rate', 'weight' => 'Factor', 'description' => 'Historical completion rate for this staff member'],
-                    ['name' => 'Workload', 'weight' => 'Factor', 'description' => 'Current day workload - lower is better'],
-                    ['name' => 'Specialization', 'weight' => 'Factor', 'description' => 'Experience with the requested service type'],
-                ],
-                'engine' => 'ml',
-            ];
-        } catch (\Exception $e) {
-            Log::error('ML staff recommendation failed: ' . $e->getMessage());
-            return $this->serviceUnavailableResponse('staff_recommendations');
-        }
-    }
-
-    /**
      * Get ML-backed time slot recommendations.
      */
     public function getTimeSlotRecommendations(string $appointmentDate, int $duration = 30): array
@@ -382,7 +302,7 @@ class MLDecisionSupportService
             'status' => 'no_model',
             'message' => 'ML model not yet trained. Insufficient historical data or training not initiated.',
             'data_quality' => $quality['data'] ?? [],
-            'action_required' => 'Go to Decision Support > Data Quality tab and click "Train Model" when 500+ appointment records are available.',
+            'action_required' => 'Go to Decision Support > Data Quality tab and click "Train Model" when 50+ appointment records are available.',
             'recommendations' => [],
             'slots' => [],
             'engine' => 'none',
@@ -394,7 +314,7 @@ class MLDecisionSupportService
         return [
             'appointment_id' => $appointment->id,
             'status' => 'no_model',
-            'message' => 'ML model not trained. Cannot assess risk without trained model. Collect 500+ appointment records to enable predictions.',
+            'message' => 'ML model not trained. Cannot assess risk without trained model. Collect 50+ appointment records to enable predictions.',
             'risk_score' => null,
             'risk_level' => 'unknown',
             'confidence' => 0,

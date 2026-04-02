@@ -13,6 +13,7 @@ use App\Services\ChatbotActionService;
 use App\Services\ChatbotRealTimeDataService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
@@ -101,6 +102,32 @@ class UnifiedChatbotController extends Controller
                 ?? ($request->hasSession() ? $request->session()->getId() : null)
                 ?? uniqid('sess_', true);
             $ipAddress = $request->ip();
+
+            // ── CONCURRENT REQUEST PROTECTION ──
+            // Prevent the same user from having multiple in-flight chatbot requests.
+            // This avoids duplicate processing, wasted LLM calls, and potential race conditions.
+            $lockIdentity = $userId ? "chatbot_lock_user_{$userId}" : "chatbot_lock_ip_{$ipAddress}";
+            $lock = Cache::lock($lockIdentity, 90); // 90s max (matches LLM timeout)
+            if (!$lock->get()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Your previous message is still being processed. Please wait for it to complete.',
+                    'retry_after' => 5,
+                ], 429);
+            }
+
+            // ── REQUEST DEDUPLICATION ──
+            // Prevent identical messages sent within 3 seconds (double-click, network retry).
+            $dedupeKey = 'chatbot_dedup_' . md5(($userId ?? $ipAddress) . $userMessage . $conversationId);
+            if (Cache::has($dedupeKey)) {
+                $lock->release();
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Duplicate message detected. Please wait for the response.',
+                    'duplicate' => true,
+                ], 429);
+            }
+            Cache::put($dedupeKey, true, 3); // 3-second dedup window
             
             // Rate limiting is handled by ChatbotRateLimitMiddleware — no duplicate check here.
             
@@ -162,7 +189,7 @@ class UnifiedChatbotController extends Controller
                 Log::debug('Role enrichment failed: ' . $e->getMessage());
             }
 
-            return response()->json([
+            $jsonResponse = response()->json([
                 'success' => true,
                 'conversation_id' => $conversationId,
                 'user_message' => $userMessage,
@@ -179,14 +206,21 @@ class UnifiedChatbotController extends Controller
                 ]),
                 'timestamp' => now()->toIso8601String(),
             ]);
+
+            // Release concurrent request lock
+            if (isset($lock)) $lock->release();
+            
+            return $jsonResponse;
             
         } catch (\Illuminate\Validation\ValidationException $e) {
+            if (isset($lock)) $lock->release();
             return response()->json([
                 'success' => false,
                 'message' => 'Validation error',
                 'errors' => $e->errors(),
             ], 422);
         } catch (\Throwable $e) {
+            if (isset($lock)) $lock->release();
             Log::error('Unified chatbot error: ' . $e->getMessage(), [
                 'trace' => $e->getTraceAsString(),
             ]);
@@ -221,12 +255,32 @@ class UnifiedChatbotController extends Controller
 
         $conversationId = $request->input('conversation_id') ?? $this->generateConversationId();
         $userId = auth('sanctum')->id() ?? auth()->id();
+        $ipAddress = $request->ip();
         
         // Release the session lock EARLY so long-running LLM requests 
         // don't block the user from navigating the rest of the app.
         if ($request->hasSession()) {
             $request->session()->save();
         }
+
+        // ── CONCURRENT REQUEST PROTECTION (same as sendMessage) ──
+        $lockIdentity = $userId ? "chatbot_lock_user_{$userId}" : "chatbot_lock_ip_{$ipAddress}";
+        $lock = Cache::lock($lockIdentity, 90);
+        if (!$lock->get()) {
+            return new StreamedResponse(function () {
+                $this->sendSSE('error', ['message' => 'Your previous message is still being processed. Please wait.']);
+            }, 429, ['Content-Type' => 'text/event-stream']);
+        }
+
+        // ── REQUEST DEDUPLICATION ──
+        $dedupeKey = 'chatbot_dedup_' . md5(($userId ?? $ipAddress) . $userMessage . $conversationId);
+        if (Cache::has($dedupeKey)) {
+            $lock->release();
+            return new StreamedResponse(function () {
+                $this->sendSSE('error', ['message' => 'Duplicate message detected. Please wait for the response.']);
+            }, 429, ['Content-Type' => 'text/event-stream']);
+        }
+        Cache::put($dedupeKey, true, 3);
         
         // Ensure PHP doesn't timeout before the LLM
         set_time_limit(120);
@@ -238,7 +292,7 @@ class UnifiedChatbotController extends Controller
             $sessionId = uniqid('sess_', true);
         }
         
-        return new StreamedResponse(function () use ($userId, $userMessage, $conversationId, $sessionId) {
+        return new StreamedResponse(function () use ($userId, $userMessage, $conversationId, $sessionId, $lock) {
             // Disable output buffering for streaming
             if (ob_get_level()) ob_end_clean();
             
@@ -324,6 +378,9 @@ class UnifiedChatbotController extends Controller
             } catch (\Exception $e) {
                 Log::error('Streaming error: ' . $e->getMessage());
                 $this->sendSSE('error', ['message' => 'An error occurred while generating response']);
+            } finally {
+                // Release concurrent request lock when streaming completes
+                if (isset($lock)) $lock->release();
             }
         }, 200, [
             'Content-Type' => 'text/event-stream',

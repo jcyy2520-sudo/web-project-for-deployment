@@ -18,43 +18,6 @@ class DecisionSupportController extends Controller
     }
 
     /**
-     * Get ML-backed staff recommendations for an appointment
-     * GET /api/decision-support/staff-recommendations
-     */
-    public function getStaffRecommendations(Request $request)
-    {
-        return $this->wrapExperimental(function () use ($request) {
-            $request->validate([
-                'appointment_date' => 'required|date',
-                'appointment_time' => 'required|date_format:H:i',
-                'service_type' => 'nullable|string',
-                'service_id' => 'nullable|exists:services,id',
-                'customer_id' => 'nullable|exists:users,id',
-            ]);
-
-            $result = $this->mlService->getStaffRecommendations(
-                $request->appointment_date,
-                $request->appointment_time,
-                $request->service_type,
-                $request->customer_id
-            );
-
-            return response()->json([
-                'success' => true,
-                'data' => $result['recommendations'] ?? [],
-                'meta' => [
-                    'total_staff' => $result['total_staff'] ?? 0,
-                    'available_staff' => $result['available_staff'] ?? 0,
-                    'scoring_criteria' => $result['scoring_criteria'] ?? [],
-                    'engine' => $result['engine'] ?? 'none',
-                ],
-                'status' => $result['status'] ?? 'ok',
-                'message' => $result['message'] ?? 'Staff recommendations retrieved successfully',
-            ]);
-        }, 'decision_support.staff_recommendations');
-    }
-
-    /**
      * Get ML-backed time slot recommendations for a specific date
      * GET /api/decision-support/time-slot-recommendations
      */

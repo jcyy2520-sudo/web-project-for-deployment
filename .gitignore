@@ -5,6 +5,10 @@
 !.env.*.example
 !.env.llm.example
 
+# Keep backend environment examples private in this repository
+web-backend/.env.example
+web-backend/.env.production.example
+
 # Dependencies
 node_modules/
 vendor/
@@ -50,6 +54,12 @@ dist-ssr
 *.local
 
 # Storage (except public)
+web-backend/storage/*.key
+web-backend/storage/pail
+web-backend/storage/framework/cache/
+web-backend/storage/framework/sessions/
+web-backend/storage/framework/views/
+web-backend/storage/logs/
 /storage/*.key
 /storage/pail
 /storage/framework/cache/
@@ -70,3 +80,30 @@ htmlcov/
 
 # Misc
 untracked_files.txt
+*.json
+*.txt
+*.php
+!web-backend/**/*.php
+!web-frontend/**/*.json
+!composer.json
+!package.json
+!tsconfig.json
+!jsconfig.json
+!**/.*.json
+!web-backend/config/*.php
+!web-backend/routes/*.php
+!web-backend/database/**/*.php
+!web-backend/app/**/*.php
+!web-backend/resources/**/*.php
+!web-backend/tests/**/*.php
+
+# Specific ignored files
+audit_results.json
+config_dump.php
+frontend_log.txt
+git_log_frontend.txt
+git_secrets.txt
+test_key_search.txt
+web-backend/test_booking.php
+web-backend/test_llm.php
+web-backend/test_output.json

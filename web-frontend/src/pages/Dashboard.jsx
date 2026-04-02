@@ -1114,107 +1114,116 @@ const AppointmentDetailModal = ({ isOpen, onClose, appointment, isDarkMode = tru
   // Format creation date
   const createdAtDate = appointment.created_at ? new Date(appointment.created_at) : null;
   const bookedOnText = createdAtDate 
-    ? `Booked on ${createdAtDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} at ${createdAtDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`
-    : 'No booking record found';
+    ? `${createdAtDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} at ${createdAtDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`
+    : null;
+
+  // Status color mapping
+  const statusColors = {
+    pending: { bg: 'bg-yellow-500/10', border: 'border-yellow-500/30', text: 'text-yellow-500', dot: 'bg-yellow-500' },
+    confirmed: { bg: 'bg-blue-500/10', border: 'border-blue-500/30', text: 'text-blue-500', dot: 'bg-blue-500' },
+    completed: { bg: 'bg-green-500/10', border: 'border-green-500/30', text: 'text-green-500', dot: 'bg-green-500' },
+    cancelled: { bg: 'bg-red-500/10', border: 'border-red-500/30', text: 'text-red-500', dot: 'bg-red-500' },
+    no_show: { bg: 'bg-gray-500/10', border: 'border-gray-500/30', text: 'text-gray-400', dot: 'bg-gray-400' },
+  };
+  const sc = statusColors[appointment.status] || statusColors.pending;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className={`relative w-full max-w-lg overflow-hidden rounded-2xl border shadow-2xl animate-in zoom-in-95 duration-200 ${
-        isDarkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'
-      }`}>
+    <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div 
+        className={`relative w-full sm:max-w-md overflow-hidden rounded-t-2xl sm:rounded-2xl border shadow-2xl ${
+          isDarkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'
+        }`}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Drag indicator (mobile) */}
+        <div className="flex justify-center pt-3 pb-1 sm:hidden">
+          <div className={`w-10 h-1 rounded-full ${isDarkMode ? 'bg-gray-700' : 'bg-gray-300'}`} />
+        </div>
+
         {/* Header */}
-        <div className={`p-5 border-b flex items-center justify-between ${
-          isDarkMode ? 'border-gray-800 bg-gray-900/50' : 'border-gray-100 bg-gray-50/30'
-        }`}>
-          <div className="flex items-center gap-3">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-              isDarkMode ? 'bg-amber-600/10 text-amber-500' : 'bg-amber-100 text-amber-700'
-            }`}>
-              <DocumentTextIcon className="h-5 w-5" />
+        <div className={`px-5 pt-3 sm:pt-5 pb-4 flex items-start justify-between`}>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1">
+              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border ${sc.bg} ${sc.border} ${sc.text}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${sc.dot}`} />
+                {appointment.status?.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
+              </span>
+              <span className={`text-[11px] ${isDarkMode ? 'text-gray-600' : 'text-gray-400'}`}>#{appointment.id}</span>
             </div>
-            <div>
-              <h3 className={`text-base font-bold tracking-tight ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
-                Appointment Details
-              </h3>
-              <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wider">
-                Ref ID: #{appointment.id}
+            <h3 className={`text-lg font-bold tracking-tight leading-tight ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+              Appointment Details
+            </h3>
+            {bookedOnText && (
+              <p className={`text-[11px] mt-1 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                Booked {bookedOnText}
               </p>
-            </div>
+            )}
           </div>
           <button 
             onClick={onClose} 
-            className={`p-2 rounded-lg transition-colors ${
-              isDarkMode ? 'text-gray-400 hover:text-white hover:bg-gray-800' : 'text-gray-400 hover:text-gray-900 hover:bg-gray-100'
+            className={`p-1.5 rounded-lg transition-colors flex-shrink-0 ml-3 ${
+              isDarkMode ? 'text-gray-500 hover:text-white hover:bg-gray-800' : 'text-gray-400 hover:text-gray-900 hover:bg-gray-100'
             }`}
           >
             <XMarkIcon className="h-5 w-5" />
           </button>
         </div>
         
-        <div className="p-6 max-h-[75vh] overflow-y-auto scrollbar-hide space-y-6">
-          {/* Status and Creation Info */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <StatusBadge status={appointment.status} size="md" />
-            <div className={`text-[11px] font-medium ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-              <ClockIcon className="h-3 w-3 inline mr-1 mb-0.5" />
-              {bookedOnText}
-            </div>
-          </div>
-
-          {/* Schedule Card - Sharp & Professional */}
-          <div className={`grid grid-cols-2 divide-x rounded-xl border border-dashed ${
-            isDarkMode ? 'bg-gray-800/20 border-gray-700 divide-gray-700' : 'bg-gray-50 border-gray-200 divide-gray-200'
+        <div className="px-5 pb-5 max-h-[65vh] sm:max-h-[70vh] overflow-y-auto space-y-4">
+          {/* Schedule */}
+          <div className={`flex items-center gap-3 p-3.5 rounded-xl ${
+            isDarkMode ? 'bg-amber-500/5 border border-amber-500/10' : 'bg-amber-50 border border-amber-100'
           }`}>
-            <div className="p-4 space-y-1 text-center">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Scheduled Date</p>
-              <p className={`text-sm font-bold ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>
+            <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
+              isDarkMode ? 'bg-amber-500/10' : 'bg-amber-100'
+            }`}>
+              <CalendarDaysIcon className={`h-5 w-5 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>
                 {formatDateDisplay(appointment.appointment_date)}
               </p>
-            </div>
-            <div className="p-4 space-y-1 text-center">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-gray-500">Scheduled Time</p>
-              <p className={`text-sm font-bold ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>
+              <p className={`text-xs ${isDarkMode ? 'text-amber-400/70' : 'text-amber-700/70'}`}>
                 {appointment.appointment_time}
               </p>
             </div>
           </div>
 
-          {/* Services Section */}
-          <div className="space-y-3">
-            <h4 className={`text-[11px] font-black uppercase tracking-widest ${
+          {/* Services */}
+          <div>
+            <p className={`text-[11px] font-semibold uppercase tracking-wider mb-2 ${
               isDarkMode ? 'text-gray-500' : 'text-gray-400'
-            }`}>Services Requested</h4>
-            
-            <div className={`rounded-xl border border-dashed overflow-hidden ${
-              isDarkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-100'
+            }`}>Services ({servicesToDisplay.length})</p>
+            <div className={`rounded-xl overflow-hidden border ${
+              isDarkMode ? 'bg-gray-800/30 border-gray-800' : 'bg-gray-50 border-gray-100'
             }`}>
-              <div className={`divide-y divide-dashed ${isDarkMode ? 'divide-gray-800' : 'divide-gray-50'}`}>
-                {servicesToDisplay.map((service, idx) => (
-                  <div key={idx} className="p-4 flex items-center justify-between group transition-colors">
-                    <div className="flex items-center gap-3">
-                      <span className={`text-[11px] font-bold h-5 w-5 rounded flex items-center justify-center ${
-                         isDarkMode ? 'bg-gray-800 text-gray-400' : 'bg-gray-50 text-gray-500'
-                      }`}>
-                        {idx + 1}
-                      </span>
-                      <span className={`text-sm font-semibold ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
-                        {service.name || formatServiceName({service})}
-                      </span>
-                    </div>
-                    <span className={`text-sm font-mono font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                      ₱{parseFloat(service.price || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+              {servicesToDisplay.map((service, idx) => (
+                <div key={idx} className={`px-4 py-3 flex items-center justify-between ${
+                  idx > 0 ? (isDarkMode ? 'border-t border-gray-800/60' : 'border-t border-gray-100') : ''
+                }`}>
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                    <span className={`text-[10px] font-bold w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 ${
+                       isDarkMode ? 'bg-gray-700 text-gray-400' : 'bg-gray-200 text-gray-500'
+                    }`}>
+                      {idx + 1}
+                    </span>
+                    <span className={`text-sm font-medium truncate ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>
+                      {service.name || formatServiceName({service})}
                     </span>
                   </div>
-                ))}
-              </div>
-              
-              <div className={`p-4 flex items-center justify-between border-t border-dashed ${
-                isDarkMode ? 'bg-gray-800/20 border-gray-800' : 'bg-gray-50/50 border-gray-100'
+                  <span className={`text-sm font-mono font-medium flex-shrink-0 ml-3 ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                    ₱{parseFloat(service.price || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+              ))}
+              {/* Total */}
+              <div className={`px-4 py-3 flex items-center justify-between border-t ${
+                isDarkMode ? 'bg-gray-800/50 border-gray-700' : 'bg-gray-100/50 border-gray-200'
               }`}>
-                <span className={`text-xs font-bold uppercase tracking-widest ${
-                  isDarkMode ? 'text-gray-300' : 'text-gray-900'
-                }`}>Grand Total</span>
-                <span className={`text-lg font-black ${
+                <span className={`text-xs font-bold uppercase tracking-wider ${
+                  isDarkMode ? 'text-gray-300' : 'text-gray-800'
+                }`}>Total</span>
+                <span className={`text-base font-bold ${
                   isDarkMode ? 'text-amber-400' : 'text-amber-600'
                 }`}>
                   ₱{parseFloat(totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
@@ -1223,48 +1232,51 @@ const AppointmentDetailModal = ({ isOpen, onClose, appointment, isDarkMode = tru
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* Staff Card */}
-            {appointment.staff && (
-              <div className={`p-4 rounded-xl border border-dashed ${
-                isDarkMode ? 'bg-gray-800/10 border-gray-800' : 'bg-gray-50/30 border-gray-100'
-              }`}>
-                <h4 className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-3">Assigned Staff</h4>
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-gray-200 dark:bg-gray-700 flex items-center justify-center font-bold text-xs">
+          {/* Staff & Notes */}
+          {(appointment.staff || appointment.notes) && (
+            <div className="grid grid-cols-1 gap-3">
+              {appointment.staff && (
+                <div className={`flex items-center gap-3 p-3.5 rounded-xl ${
+                  isDarkMode ? 'bg-gray-800/30 border border-gray-800' : 'bg-gray-50 border border-gray-100'
+                }`}>
+                  <div className={`w-9 h-9 rounded-lg flex items-center justify-center font-bold text-xs flex-shrink-0 ${
+                    isDarkMode ? 'bg-gray-700 text-gray-300' : 'bg-gray-200 text-gray-600'
+                  }`}>
                     {appointment.staff.first_name?.[0]}{appointment.staff.last_name?.[0]}
                   </div>
-                  <p className={`text-xs font-bold ${isDarkMode ? 'text-gray-300' : 'text-gray-800'}`}>
-                    {appointment.staff.first_name} {appointment.staff.last_name}
+                  <div>
+                    <p className={`text-[10px] font-semibold uppercase tracking-wider ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>Assigned Staff</p>
+                    <p className={`text-sm font-semibold ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>
+                      {appointment.staff.first_name} {appointment.staff.last_name}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {appointment.notes && (
+                <div className={`p-3.5 rounded-xl ${
+                  isDarkMode ? 'bg-gray-800/30 border border-gray-800' : 'bg-gray-50 border border-gray-100'
+                }`}>
+                  <p className={`text-[10px] font-semibold uppercase tracking-wider mb-1.5 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>Notes</p>
+                  <p className={`text-sm leading-relaxed ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                    {appointment.notes}
                   </p>
                 </div>
-              </div>
-            )}
-
-            {/* Notes Section */}
-            {appointment.notes && (
-              <div className={`p-4 rounded-xl border border-dashed ${
-                isDarkMode ? 'bg-gray-800/10 border-gray-800' : 'bg-gray-50/30 border-gray-100'
-              }`}>
-                <h4 className="text-[10px] font-black uppercase tracking-widest text-gray-500 mb-2">My Notes</h4>
-                <p className={`text-xs leading-relaxed italic ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
-                  "{appointment.notes}"
-                </p>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Footer */}
-        <div className={`p-4 border-t flex justify-end ${
-          isDarkMode ? 'bg-gray-900 border-gray-800' : 'bg-gray-50 border-gray-100'
+        <div className={`px-5 py-3.5 border-t ${
+          isDarkMode ? 'bg-gray-900/80 border-gray-800' : 'bg-gray-50 border-gray-100'
         }`}>
           <button
             onClick={onClose}
-            className={`px-6 py-2 rounded-xl text-xs font-bold uppercase tracking-widest transition-all ${
+            className={`w-full sm:w-auto px-6 py-2.5 rounded-xl text-sm font-semibold transition-all ${
               isDarkMode 
-                ? 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700' 
-                : 'bg-white border text-gray-600 hover:bg-gray-50'
+                ? 'bg-gray-800 text-gray-300 hover:text-white hover:bg-gray-700' 
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
             }`}
           >
             Close
@@ -1783,6 +1795,7 @@ const Dashboard = () => {
   
   const [activeTab, setActiveTab] = useState('home');
   const [isEditing, setIsEditing] = useState(false);
+  const [isMobileNotificationsOpen, setIsMobileNotificationsOpen] = useState(false);
 
   const [showSettings, setShowSettings] = useState(false);
   const [showAboutUs, setShowAboutUs] = useState(false);
@@ -1799,6 +1812,19 @@ const Dashboard = () => {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
 
   const [showMobileNotifications, setShowMobileNotifications] = useState(false);
+  const [showProfileDropdown, setShowProfileDropdown] = useState(false);
+  const profileDropdownRef = useRef(null);
+
+  // Close profile dropdown on outside click
+  useEffect(() => {
+    const handler = (e) => {
+      if (profileDropdownRef.current && !profileDropdownRef.current.contains(e.target)) {
+        setShowProfileDropdown(false);
+      }
+    };
+    if (showProfileDropdown) document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showProfileDropdown]);
 
   // Sync active tab with URL query `?tab=` so BottomNav can navigate using query params
   useEffect(() => {
@@ -1807,7 +1833,7 @@ const Dashboard = () => {
       const tab = params.get('tab');
       if (tab) {
         const normalized = tab.toLowerCase();
-        const allowed = ['home','book','appointments','messages','refunds','action-logs','profile','settings'];
+        const allowed = ['home','book','appointments','messages','refunds','action-logs','profile','settings','notifications'];
         if (allowed.includes(normalized)) {
           setActiveTab(normalized === 'home' ? 'home' : normalized);
           // if navigating to profile on mobile, show the profile menu
@@ -2712,7 +2738,9 @@ const Dashboard = () => {
   const handleAppointmentSubmit = (e) => {
     if (e) e.preventDefault();
     if (!validateAppointmentForm()) return;
-    setShowPreviewModal(true);
+    
+    // Bypass the preview modal and book directly as requested
+    confirmAppointmentBooking();
   };
 
   const confirmAppointmentBooking = async () => {
@@ -2944,23 +2972,23 @@ const Dashboard = () => {
     ];
 
     return (
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-3 gap-2 sm:gap-4 mb-4 sm:mb-6">
         {stats.map((stat, index) => (
           <div
             key={index}
-            className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20 hover:shadow-amber-500/10' : 'bg-white border-amber-300/40 hover:shadow-amber-300/10'} border rounded-lg shadow p-4 hover:border-amber-500/40 transition-all duration-300 cursor-pointer group transform hover:-translate-y-1`}
+            className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20 hover:shadow-amber-500/10' : 'bg-white border-amber-300/40 hover:shadow-amber-300/10'} border rounded-lg shadow p-2.5 sm:p-4 hover:border-amber-500/40 transition-all duration-300 cursor-pointer group transform hover:-translate-y-1`}
           >
-            <div className="flex items-center justify-between">
-              <div>
-                <p className={`text-xs font-medium ${isDarkMode ? 'text-gray-400 group-hover:text-amber-300' : 'text-gray-500 group-hover:text-amber-600'} transition-colors`}>
+            <div className="flex flex-col sm:flex-row items-center sm:justify-between gap-1 sm:gap-0">
+              <div className="text-center sm:text-left order-2 sm:order-1">
+                <p className={`text-[10px] sm:text-xs font-medium ${isDarkMode ? 'text-gray-400 group-hover:text-amber-300' : 'text-gray-500 group-hover:text-amber-600'} transition-colors`}>
                   {stat.name}
                 </p>
-                <p className={`text-lg font-bold ${isDarkMode ? 'text-amber-50' : 'text-gray-900'} mt-0.5 group-hover:scale-105 transition-transform`}>
+                <p className={`text-base sm:text-lg font-bold ${isDarkMode ? 'text-amber-50' : 'text-gray-900'} mt-0.5 group-hover:scale-105 transition-transform`}>
                   {stat.value}
                 </p>
               </div>
-              <div className={`${stat.color} p-2 rounded-lg shadow group-hover:scale-110 transition-transform`}>
-                <stat.icon className="h-5 w-5 text-white" />
+              <div className={`${stat.color} p-1.5 sm:p-2 rounded-lg shadow group-hover:scale-110 transition-transform order-1 sm:order-2`}>
+                <stat.icon className="h-4 w-4 sm:h-5 sm:w-5 text-white" />
               </div>
             </div>
           </div>
@@ -2970,19 +2998,19 @@ const Dashboard = () => {
   };
 
   const renderHome = () => (
-    <div className="space-y-6">
+    <div className="space-y-3 sm:space-y-6">
       <ProfileCompletionBanner isDarkMode={isDarkMode} />
       
       {/* Welcome Section */}
-      <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4 sm:p-6 hover:border-amber-500/40 transition-all duration-300`}>
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-3 sm:p-6 hover:border-amber-500/40 transition-all duration-300`}>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-4">
           <div className="flex-1">
-            <h2 className={`text-base sm:text-lg font-bold ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>Welcome back, {user?.first_name}! 👋</h2>
-            <p className={`mt-1 text-xs sm:text-sm ${isDarkMode ? 'text-amber-400/70' : 'text-gray-600'}`}>Ready to schedule your next notarization service?</p>
+            <h2 className={`text-sm sm:text-lg font-bold ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>Welcome back, {user?.first_name}! 👋</h2>
+            <p className={`mt-0.5 sm:mt-1 text-xs sm:text-sm ${isDarkMode ? 'text-amber-400/70' : 'text-gray-600'}`}>Ready to schedule your next notarization service?</p>
           </div>
           <button
             onClick={() => setActiveTab('book')}
-            className="w-full sm:w-auto px-3 sm:px-4 py-2 bg-gradient-to-r from-amber-600 to-amber-700 text-white rounded-lg hover:from-amber-700 hover:to-amber-800 transition-all duration-200 font-medium text-xs sm:text-sm flex items-center justify-center sm:justify-start shadow transform hover:-translate-y-0.5 border border-amber-500/30 whitespace-nowrap"
+            className="w-full sm:w-auto px-3 sm:px-4 py-1.5 sm:py-2 bg-gradient-to-r from-amber-600 to-amber-700 text-white rounded-lg hover:from-amber-700 hover:to-amber-800 transition-all duration-200 font-medium text-xs sm:text-sm flex items-center justify-center sm:justify-start shadow transform hover:-translate-y-0.5 border border-amber-500/30 whitespace-nowrap"
           >
             <PlusIcon className="h-4 w-4 mr-2" />
             Book Appointment
@@ -2994,9 +3022,9 @@ const Dashboard = () => {
       <StatsCards />
 
       {/* Quick Actions */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4 hover:border-amber-500/40 transition-all duration-300`}>
-          <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-gray-900'} mb-3 flex items-center`}>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 sm:gap-4">
+        <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-3 sm:p-4 hover:border-amber-500/40 transition-all duration-300`}>
+          <h3 className={`text-xs sm:text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-gray-900'} mb-2 sm:mb-3 flex items-center`}>
             <ClockIcon className="h-4 w-4 mr-2" />
             Quick Actions
           </h3>
@@ -3025,9 +3053,9 @@ const Dashboard = () => {
         </div>
 
         {/* Recent Appointments Preview */}
-        <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-4 hover:border-amber-500/40 transition-all duration-300`}>
-          <div className="flex items-center justify-between mb-3">
-            <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} flex items-center`}>
+        <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow p-3 sm:p-4 hover:border-amber-500/40 transition-all duration-300`}>
+          <div className="flex items-center justify-between mb-2 sm:mb-3">
+            <h3 className={`text-xs sm:text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} flex items-center`}>
               <CalendarDaysIcon className="h-4 w-4 mr-2" />
               Recent Appointments
             </h3>
@@ -3312,28 +3340,47 @@ const Dashboard = () => {
             <>
               {/* Booking Summary Card */}
               <div className="bg-gradient-to-r from-amber-500/10 to-amber-500/5 border border-amber-500/30 rounded-lg p-4">
-                <h4 className="text-xs font-semibold text-amber-400 mb-3 uppercase tracking-wider">Booking Summary</h4>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <p className="text-[10px] text-amber-400/60 font-medium uppercase">Date</p>
-                    <p className="text-sm text-amber-50 font-medium mt-0.5">
-                      {new Date(appointmentData.appointment_date + 'T00:00:00').toLocaleDateString('en-US', {
-                        weekday: 'short',
-                        month: 'short',
-                        day: 'numeric',
-                        year: 'numeric',
-                      })}
+                <div className="space-y-4">
+                  {/* Service Highlight */}
+                  <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3">
+                    <p className="text-[10px] text-amber-400 font-bold uppercase tracking-wider mb-1">Selected Service</p>
+                    <p className="text-base sm:text-lg text-amber-50 font-bold leading-tight">
+                      {(() => {
+                        const selectedServices = appointmentTypes.filter(t =>
+                          Array.isArray(appointmentData.type) && appointmentData.type.includes(t.value)
+                        );
+                        let labels = selectedServices.map(s => s.label).join(', ');
+                        if (Array.isArray(appointmentData.type) && appointmentData.type.includes('other')) {
+                          const otherLabel = appointmentData.custom_service_type || 'Other';
+                          labels = labels ? `${labels}, ${otherLabel}` : otherLabel;
+                        }
+                        return labels || 'General Service';
+                      })()}
                     </p>
                   </div>
-                  <div>
-                    <p className="text-[10px] text-amber-400/60 font-medium uppercase">Time</p>
-                    <p className="text-sm text-amber-50 font-medium mt-0.5">
-                      {new Date(`2000-01-01T${appointmentData.appointment_time}`).toLocaleTimeString('en-US', {
-                        hour: 'numeric',
-                        minute: '2-digit',
-                        hour12: true,
-                      })}
-                    </p>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-gray-800/40 p-2.5 rounded-lg border border-gray-700/50">
+                      <p className="text-[10px] text-gray-400 font-medium uppercase mb-0.5">Date</p>
+                      <p className="text-sm text-amber-50 font-medium">
+                        {new Date(appointmentData.appointment_date + 'T00:00:00').toLocaleDateString('en-US', {
+                          weekday: 'short',
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric',
+                        })}
+                      </p>
+                    </div>
+                    <div className="bg-gray-800/40 p-2.5 rounded-lg border border-gray-700/50">
+                      <p className="text-[10px] text-gray-400 font-medium uppercase mb-0.5">Time</p>
+                      <p className="text-sm text-amber-50 font-medium">
+                        {new Date(`2000-01-01T${appointmentData.appointment_time}`).toLocaleTimeString('en-US', {
+                          hour: 'numeric',
+                          minute: '2-digit',
+                          hour12: true,
+                        })}
+                      </p>
+                    </div>
                   </div>
                 </div>
                 {(() => {
@@ -3392,16 +3439,6 @@ const Dashboard = () => {
           </div>
         </form>
       </div>
-
-      {/* Booking Preview Modal */}
-      <BookingPreviewModal
-        isOpen={showPreviewModal}
-        onClose={() => setShowPreviewModal(false)}
-        onConfirm={confirmAppointmentBooking}
-        appointmentData={appointmentData}
-        appointmentTypes={appointmentTypes}
-        loading={loading}
-      />
 
       {/* Service Requirements Modal */}
       <ServiceRequirementsModal 
@@ -3466,15 +3503,6 @@ const Dashboard = () => {
           </div>
           <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
             <button
-              onClick={loadAppointments}
-              className="px-2 sm:px-3 py-1.5 border border-amber-500/30 text-amber-50 rounded hover:bg-amber-500/10 transition-all duration-200 font-medium text-xs sm:text-sm flex items-center justify-center flex-1 sm:flex-none"
-              title="Refresh appointments"
-            >
-              <ArrowPathIcon className="h-3 w-3 mr-1" />
-              <span className="hidden sm:inline">Refresh</span>
-              <span className="sm:hidden">Refresh</span>
-            </button>
-            <button
               onClick={() => setActiveTab('book')}
               className="px-2 sm:px-3 py-1.5 bg-gradient-to-r from-amber-600 to-amber-700 text-white rounded hover:from-amber-700 hover:to-amber-800 transition-all duration-200 font-medium text-xs sm:text-sm flex items-center justify-center flex-1 sm:flex-none shadow transform hover:-translate-y-0.5 border border-amber-500/30"
             >
@@ -3527,21 +3555,30 @@ const Dashboard = () => {
           ) : (
             <>
               <div className={`divide-y ${isDarkMode ? 'divide-gray-700' : 'divide-gray-200'}`}>
-                {paginatedAppointments.map((appointment) => (
+                {paginatedAppointments.map((appointment) => {
+                  const services = appointment.services && appointment.services.length > 0 ? appointment.services : (appointment.service ? [appointment.service] : []);
+                  const serviceCount = services.length;
+                  const firstName = services[0]?.name || formatServiceName(appointment);
+                  const mobileServiceLabel = serviceCount > 1 ? `${services[0]?.name} & ${serviceCount - 1} more` : firstName;
+                  
+                  return (
                   <div key={appointment.id} className={`p-4 transition-all duration-200 group ${isDarkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-50'}`}>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-3">
-                        <div className="flex-shrink-0">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start space-x-3 min-w-0 flex-1">
+                        <div className="flex-shrink-0 mt-0.5">
                           <div className={`w-10 h-10 rounded-full flex items-center justify-center border ${isDarkMode ? 'bg-amber-500/20 border-amber-500/30' : 'bg-amber-100 border-amber-300'}`}>
                             <DocumentTextIcon className={`h-5 w-5 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`} />
                           </div>
                         </div>
-                        <div className="flex-1">
-                          <div className="flex items-center space-x-2">
-                            <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50 group-hover:text-amber-300' : 'text-amber-900 group-hover:text-amber-700'}`}>
-                              {formatServiceName(appointment)}
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-col sm:flex-row sm:items-center sm:space-x-2 gap-1 sm:gap-0">
+                            <h3 className={`text-sm font-semibold truncate ${isDarkMode ? 'text-amber-50 group-hover:text-amber-300' : 'text-amber-900 group-hover:text-amber-700'}`}>
+                              <span className="sm:hidden">{mobileServiceLabel}</span>
+                              <span className="hidden sm:inline">{formatServiceName(appointment)}</span>
                             </h3>
-                            <StatusBadge status={appointment.status} />
+                            <div className="flex-shrink-0">
+                              <StatusBadge status={appointment.status} />
+                            </div>
                           </div>
                           <p className={`text-xs mt-1 ${isDarkMode ? 'text-amber-400/70' : 'text-amber-700/70'}`}>
                             {formatDateDisplay(appointment.appointment_date)} at {appointment.appointment_time}
@@ -3556,7 +3593,7 @@ const Dashboard = () => {
                           )}
                         </div>
                       </div>
-                      <div className="flex items-center space-x-1">
+                      <div className="flex items-center space-x-1 flex-shrink-0">
                         <button
                           onClick={() => handleViewAppointmentDetails(appointment)}
                           className="text-amber-400 hover:text-amber-300 transition-colors duration-200 p-1 rounded hover:bg-amber-500/10 border border-amber-500/30"
@@ -3588,7 +3625,8 @@ const Dashboard = () => {
                       </div>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
 
               {/* Pagination Controls */}
@@ -3648,8 +3686,8 @@ const Dashboard = () => {
 
   const renderMessages = () => {
     return (
-      <div className="flex flex-col" style={{ height: 'calc(100vh - 140px)', minHeight: '500px' }}>
-        <MessageCenter isDarkMode={isDarkMode} />
+      <div className="flex flex-col -mx-3 sm:-mx-4 lg:mx-0 -mt-3 sm:-mt-4 lg:mt-0" style={{ height: 'calc(100vh - 100px)', minHeight: '500px' }}>
+        <MessageCenter isDarkMode={isDarkMode} hideMobileHeader />
       </div>
     );
   };
@@ -3686,7 +3724,7 @@ const Dashboard = () => {
         {/* Mobile Header with Back Button */}
         <div className="flex lg:hidden items-center gap-3 -mx-3 -mt-3 px-3 py-3 border-b border-gray-700">
           <button
-            onClick={() => navigate('/dashboard?tab=home')}
+            onClick={() => navigate('/dashboard?tab=profile')}
             className="p-2 rounded-lg hover:bg-gray-800 transition-colors"
           >
             <ArrowLeftIcon className="w-5 h-5 text-gray-300" />
@@ -3827,9 +3865,9 @@ const Dashboard = () => {
       {/* Mobile Back Button */}
       <div className="lg:hidden flex items-center gap-2 mb-4">
         <button
-          onClick={() => setActiveTab('home')}
+          onClick={() => navigate('/dashboard?tab=home')}
           className="p-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors"
-          title="Back to home"
+          title="Back"
         >
           <ArrowLeftIcon className={`h-5 w-5 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`} />
         </button>
@@ -3842,23 +3880,6 @@ const Dashboard = () => {
             <h2 className={`text-lg font-bold ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>Profile Settings</h2>
             <p className={`mt-1 text-sm ${isDarkMode ? 'text-amber-400/70' : 'text-gray-600'}`}>Manage your personal information and security</p>
           </div>
-        </div>
-        <div className="flex gap-2 w-full sm:w-auto">
-          <button
-            onClick={() => setIsEditing(!isEditing)}
-            className="flex-1 sm:flex-none px-3 py-2 sm:py-1.5 border border-amber-500/30 text-amber-50 rounded hover:bg-amber-500/10 transition-all duration-200 font-medium text-xs sm:text-sm flex items-center justify-center gap-1 whitespace-nowrap"
-          >
-            <PencilIcon className="h-3 w-3" />
-            <span className="hidden sm:inline">{isEditing ? 'Cancel Edit' : 'Edit Profile'}</span>
-            <span className="sm:hidden text-xs">{isEditing ? 'Cancel' : 'Edit'}</span>
-          </button>
-          <button
-            onClick={() => setShowSettings(true)}
-            className="flex-1 sm:flex-none px-3 py-2 sm:py-1.5 border border-amber-500/30 text-amber-50 rounded hover:bg-amber-500/10 transition-all duration-200 font-medium text-xs sm:text-sm items-center justify-center gap-1 whitespace-nowrap"
-          >
-            <Cog6ToothIcon className="h-3 w-3" />
-            <span className="hidden sm:inline">Preferences</span>
-          </button>
         </div>
       </div>
 
@@ -4048,10 +4069,19 @@ const Dashboard = () => {
 
         {/* Password Change Section */}
         <div className={`border-t pt-6 ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
-          <h4 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} mb-4 flex items-center`}>
-            <KeyIcon className="h-4 w-4 mr-2" />
-            Change Password
-          </h4>
+          <div className="flex items-center justify-between mb-4">
+            <h4 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} flex items-center`}>
+              <KeyIcon className="h-4 w-4 mr-2" />
+              Change Password
+            </h4>
+            <button
+              onClick={() => setIsEditing(!isEditing)}
+              className={`px-3 py-1.5 border rounded text-xs font-medium flex items-center gap-1 whitespace-nowrap ${isDarkMode ? 'border-amber-500/30 text-amber-50 hover:bg-amber-500/10' : 'border-amber-500/30 text-amber-900 hover:bg-amber-100'}`}
+            >
+              <PencilIcon className="h-3 w-3" />
+              {isEditing ? 'Cancel Edit' : 'Edit Profile'}
+            </button>
+          </div>
           
           {passwordSuccess && (
             <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-3 mb-4 animate-fadeIn">
@@ -4419,7 +4449,7 @@ const Dashboard = () => {
       )}
 
       {/* Sidebar - Hidden on mobile by default, shown on desktop and when toggled on mobile */}
-      <div className={`fixed inset-y-0 right-0 lg:right-auto lg:left-0 z-40 w-64 h-screen ${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border-l lg:border-l-0 lg:border-r shadow-xl transition-all duration-300 ${
+      <div className={`fixed inset-y-0 right-0 lg:right-auto lg:left-0 z-40 w-64 h-screen ${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border-l lg:border-l-0 lg:border-r shadow-xl ${
         showMobileSidebar ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'
       }`} role="navigation" aria-label="Main navigation">
         <div className="flex flex-col h-full">
@@ -4478,15 +4508,15 @@ const Dashboard = () => {
                         handleNavClick(tabName);
                         setShowMobileSidebar(false);
                       }}
-                      className={`w-full flex items-center justify-between px-2.5 py-1.5 text-xs lg:text-xs font-medium rounded-none transition-all duration-200 border group relative overflow-hidden ${
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 text-xs lg:text-xs font-medium rounded-none border group relative overflow-hidden ${
                         item.current
                           ? (isDarkMode ? 'text-amber-400 border-amber-500/30' : 'text-gray-900 border-amber-300/30')
                           : (isDarkMode ? 'text-gray-400 border-transparent hover:text-amber-300' : 'text-gray-700 border-transparent hover:text-gray-900')
                       }`}
                     >
                       <div className="flex items-center flex-1 min-w-0">
-                        <item.icon className={`mr-2.5 h-4 w-4 transition-all duration-200 flex-shrink-0 ${
-                          item.current ? 'text-amber-400 scale-110' : 'text-gray-500 group-hover:text-amber-400 group-hover:scale-105'
+                        <item.icon className={`mr-2.5 h-4 w-4 flex-shrink-0 ${
+                          item.current ? 'text-amber-400' : 'text-gray-500'
                         }`} />
                         <span className="truncate">{item.name}</span>
                       </div>
@@ -4559,32 +4589,47 @@ const Dashboard = () => {
       {/* Main content */}
       <div className="flex-1 flex flex-col min-w-0 lg:mt-0 mt-0 lg:ml-64 h-auto lg:h-screen overflow-y-auto lg:overflow-hidden">
         {/* Mobile Header - visible only on small screens */}
-        <header className={`lg:hidden flex items-center justify-between px-4 py-2.5 ${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border-b shadow-sm flex-shrink-0 transition-colors duration-300`}>
+        <header className={`lg:hidden flex items-center justify-between px-4 py-2.5 ${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border-b shadow-sm flex-shrink-0`}>
           <div className="flex items-center gap-2 min-w-0">
-            <button
-              onClick={() => setShowMobileSidebar(true)}
-              className={`p-1.5 rounded-lg transition-colors ${isDarkMode ? 'text-amber-400 hover:bg-amber-500/10' : 'text-amber-700 hover:bg-amber-100'}`}
-              aria-label="Open navigation menu"
-            >
-              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-              </svg>
-            </button>
+            {/* Hamburger menu - hidden for regular users who have bottom nav */}
+            {(user?.role === 'admin' || user?.role === 'staff') && (
+              <button
+                onClick={() => setShowMobileSidebar(true)}
+                className={`p-1.5 rounded-lg ${isDarkMode ? 'text-amber-400 hover:bg-amber-500/10' : 'text-amber-700 hover:bg-amber-100'}`}
+                aria-label="Open navigation menu"
+              >
+                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+              </button>
+            )}
+            {activeTab !== 'home' && (
+              <button
+                onClick={() => navigate('/dashboard?tab=home')}
+                className={`p-1.5 mr-1 rounded-lg ${isDarkMode ? 'text-amber-400 hover:bg-amber-500/10' : 'text-amber-700 hover:bg-amber-100'}`}
+                aria-label="Back"
+              >
+                <ArrowLeftIcon className="h-5 w-5" />
+              </button>
+            )}
             <div className="w-8 h-8 bg-gradient-to-br from-amber-400 to-amber-600 rounded-lg flex items-center justify-center shadow-md flex-shrink-0">
-              <BuildingLibraryIcon className="h-4 w-4 text-white" />
+               <BuildingLibraryIcon className="h-4 w-4 text-white" />
             </div>
             <div className="min-w-0">
-              <h1 className={`text-sm font-bold tracking-wide ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>LEGAL EASE</h1>
+              <h1 className={`text-sm font-bold tracking-wide ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>
+                {(() => {
+                  const tabNames = { home: 'Home', book: 'Book Appointment', appointments: 'My Appointments', messages: 'Messages', refunds: 'Refunds', 'action-logs': 'Action Logs', feedback: 'Feedback', notifications: 'Notifications', profile: 'Profile', settings: 'Settings' };
+                  return tabNames[activeTab] || 'LEGAL EASE';
+                })()}
+              </h1>
             </div>
           </div>
-          <MobileNotificationBell
-            onViewAll={() => {
-              setShowMobileNotifications(false);
-              handleNavClick('notifications');
-            }}
-            isOpen={showMobileNotifications}
-            onToggle={() => setShowMobileNotifications(!showMobileNotifications)}
-            onClose={() => setShowMobileNotifications(false)}
+          {/* Notification Bell for mobile instead of profile dropdown */}
+          <MobileNotificationBell 
+            isOpen={isMobileNotificationsOpen}
+            onToggle={() => setIsMobileNotificationsOpen(!isMobileNotificationsOpen)}
+            onClose={() => setIsMobileNotificationsOpen(false)}
+            onViewAll={() => handleNavClick('notifications')}
             isDarkMode={isDarkMode}
           />
         </header>
@@ -4593,24 +4638,10 @@ const Dashboard = () => {
         <header className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-gray-50 border-amber-300/40'} border-b shadow flex-shrink-0 transition-colors duration-300 hidden lg:flex flex-col`}>
           <div className="flex justify-between items-center px-4 lg:px-6 py-3 lg:py-4">
             <div className="flex items-center space-x-3 min-w-0">
-              <div>
-                <h1 className={`text-base lg:text-lg font-bold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} transition-colors duration-300`}>
-                  {(() => {
-                    for (const section of navigation) {
-                      const found = section.items?.find(item => item.current);
-                      if (found) return found.name;
-                    }
-                    return 'Dashboard';
-                  })()}
-                </h1>
-                <p className={`${isDarkMode ? 'text-amber-400/70' : 'text-amber-700/70'} mt-0.5 text-xs lg:text-sm capitalize transition-colors duration-300 hidden sm:block`}>
-                  Welcome back, {user?.first_name} {user?.last_name}
-                </p>
-              </div>
               {activeTab !== 'home' && (
                 <button
                   onClick={loadInitialData}
-                  className={`p-1.5 ml-2 flex-shrink-0 ${isDarkMode ? 'text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 border-amber-500/30' : 'text-amber-700 hover:text-amber-600 hover:bg-amber-500/20 border-amber-300/30'} rounded border transition-colors duration-200`}
+                  className={`p-1.5 flex-shrink-0 ${isDarkMode ? 'text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 border-amber-500/30' : 'text-amber-700 hover:text-amber-600 hover:bg-amber-500/20 border-amber-300/30'} rounded border transition-colors duration-200`}
                   title="Refresh data"
                 >
                   <ArrowPathIcon className="h-3 w-3 lg:h-4 lg:w-4" />
@@ -4934,8 +4965,12 @@ const Dashboard = () => {
               <div className="w-full h-full flex items-start justify-center">
                 <ProfilePage 
                   onBack={() => {
-                    setShowProfileMenu(false);
-                    setActiveTab('home');
+                    if (window.history.length > 1) {
+                      navigate(-1);
+                    } else {
+                      setShowProfileMenu(false);
+                      setActiveTab('home');
+                    }
                   }} 
                   onTabChange={(tabName) => {
                     setShowProfileMenu(false);

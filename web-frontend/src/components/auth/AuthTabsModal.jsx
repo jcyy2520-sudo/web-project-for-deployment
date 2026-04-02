@@ -5,6 +5,7 @@ import axios from 'axios';
 import Modal from '../Modal';
 import LoadingSpinner from '../LoadingSpinner';
 import { useNavigate } from 'react-router-dom';
+import TermsPrivacyModal from './TermsPrivacyModal';
 import { 
   EyeIcon, 
   EyeSlashIcon, 
@@ -66,6 +67,9 @@ const AuthTabsModal = ({ isOpen, onClose, isDarkMode = true }) => {
   const [registerNotification, setRegisterNotification] = useState({ show: false, message: '', type: 'success' });
   const [showRegisterPassword, setShowRegisterPassword] = useState(false);
   const [showRegisterConfirmPassword, setShowRegisterConfirmPassword] = useState(false);
+  const [agreedToTermsStep3, setAgreedToTermsStep3] = useState(false);
+  const [showTermsModal, setShowTermsModal] = useState(false);
+  const [termsModalTab, setTermsModalTab] = useState('terms');
   const [timeLeft, setTimeLeft] = useState(30);
 
   // Forgot Password state
@@ -446,6 +450,10 @@ const AuthTabsModal = ({ isOpen, onClose, isDarkMode = true }) => {
       showRegisterNotification('Please fill in all required fields', 'error');
       return;
     }
+    if (!agreedToTermsStep3) {
+      showRegisterNotification('Please agree to the Privacy Policy and Terms & Conditions to proceed', 'error');
+      return;
+    }
 
     const result = await callApi((signal) =>
       axios.post(`${API_BASE}/complete-registration`, {
@@ -497,6 +505,7 @@ const AuthTabsModal = ({ isOpen, onClose, isDarkMode = true }) => {
     setTimeLeft(30);
     setShowRegisterPassword(false);
     setShowRegisterConfirmPassword(false);
+    setAgreedToTermsStep3(false);
     setRegisterNotification({ show: false, message: '', type: 'success' });
   };
 
@@ -1319,6 +1328,43 @@ const AuthTabsModal = ({ isOpen, onClose, isDarkMode = true }) => {
                   </div>
                 </div>
 
+                {/* Privacy Policy & Terms Checkbox */}
+                <div className="flex items-start gap-2 mt-1">
+                  <input
+                    type="checkbox"
+                    id="agreeTermsStep3Auth"
+                    checked={agreedToTermsStep3}
+                    onChange={(e) => setAgreedToTermsStep3(e.target.checked)}
+                    className={`mt-0.5 flex-shrink-0 ${isDarkMode ? 'w-3.5 h-3.5 text-amber-600 bg-gray-800 border-amber-500/30 rounded focus:ring-amber-500 focus:ring-1' : 'w-3.5 h-3.5 text-blue-600 bg-white border border-gray-300 rounded focus:ring-blue-500 focus:ring-1'}`}
+                  />
+                  <label htmlFor="agreeTermsStep3Auth" className={`text-xs leading-relaxed ${isDarkMode ? 'text-amber-100/70' : 'text-gray-600'}`}>
+                    I have read and agree to the{' '}
+                    <button
+                      type="button"
+                      onClick={() => { setTermsModalTab('privacy'); setShowTermsModal(true); }}
+                      className={`font-medium underline transition-colors ${isDarkMode ? 'text-amber-400 hover:text-amber-300' : 'text-blue-600 hover:text-blue-500'}`}
+                    >
+                      Privacy Policy
+                    </button>
+                    {' '}and{' '}
+                    <button
+                      type="button"
+                      onClick={() => { setTermsModalTab('terms'); setShowTermsModal(true); }}
+                      className={`font-medium underline transition-colors ${isDarkMode ? 'text-amber-400 hover:text-amber-300' : 'text-blue-600 hover:text-blue-500'}`}
+                    >
+                      Terms &amp; Conditions
+                    </button>
+                  </label>
+                </div>
+
+                {/* Terms & Privacy Modal */}
+                <TermsPrivacyModal
+                  isOpen={showTermsModal}
+                  onClose={() => setShowTermsModal(false)}
+                  initialTab={termsModalTab}
+                  isDarkMode={isDarkMode}
+                />
+
                 <div className="flex justify-between gap-3">
                   <button
                     type="button"
@@ -1330,7 +1376,7 @@ const AuthTabsModal = ({ isOpen, onClose, isDarkMode = true }) => {
                   </button>
                   <button
                     type="submit"
-                    disabled={registerLoading}
+                    disabled={registerLoading || !agreedToTermsStep3}
                     className={`flex-1 px-4 py-2 rounded-lg focus:outline-none transition-all duration-200 font-medium text-sm flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed ${isDarkMode ? 'text-gray-900 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700' : 'text-white bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700'}`}
                   >
                     {registerLoading ? <LoadingSpinner size="sm" /> : 'Complete Registration'}

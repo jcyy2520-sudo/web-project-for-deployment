@@ -24,6 +24,20 @@ class ErrorLogger {
   }
 
   /**
+   * Sanitize error data to prevent leaking sensitive information
+   * Redacts patterns that look like API keys, passwords, or tokens.
+   */
+  sanitize(text) {
+    if (!text || typeof text !== 'string') return text;
+    
+    return text
+      .replace(/(?:api_key|apikey|password|secret|token|auth|bearer|key)=[^&\s]+/gi, '$1=***REDACTED***')
+      .replace(/(?:x-api-key|authorization):\s*[^&\s]+/gi, '$1: ***REDACTED***')
+      // Basic credit card pattern (Luhn not checked, but better safe)
+      .replace(/\b(?:\d{4}[ -]?){3}\d{4}\b/g, '****-****-****-****');
+  }
+
+  /**
    * Initialize error tracking by setting up global error handlers
    */
   initialize() {
@@ -69,10 +83,10 @@ class ErrorLogger {
    */
   captureError(errorData) {
     const payload = {
-      message: errorData.message || 'Unknown error',
+      message: this.sanitize(errorData.message) || 'Unknown error',
       error_type: errorData.error_type || 'general',
       severity: errorData.severity || 'warning',
-      stack_trace: errorData.stack_trace || null,
+      stack_trace: this.sanitize(errorData.stack_trace) || null,
       user_agent: navigator.userAgent,
       browser: this.getBrowserInfo(),
       url: errorData.url || window.location.href,

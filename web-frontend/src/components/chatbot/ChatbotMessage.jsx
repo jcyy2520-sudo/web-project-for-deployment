@@ -149,16 +149,16 @@ const ChatbotMessage = ({ message, isDarkMode = true, onFeedback, isLastMessage 
     if (!quickActions || !Array.isArray(quickActions) || quickActions.length === 0 || isUser) return null;
 
     return (
-      <div className={`mt-3 p-2 rounded-lg ${isDarkMode ? 'bg-gray-800/50 border border-amber-500/10' : 'bg-slate-50 border border-slate-200'}`}>
-        <div className={`text-[10px] uppercase tracking-wide mb-1.5 ${isDarkMode ? 'text-gray-500' : 'text-slate-500'}`}>⚡ Related Actions</div>
+      <div className={`mt-3 p-2 rounded-xl ${isDarkMode ? 'bg-gray-800/50 border border-gray-700/30' : 'bg-gray-50 border border-gray-100'}`}>
+        <div className={`text-[10px] uppercase tracking-wide mb-1.5 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>⚡ Related Actions</div>
         <div className="flex flex-wrap gap-1.5">
           {quickActions.slice(0, 4).map((action, idx) => (
             <button
               key={`qa-${idx}`}
-              className={`text-xs px-2.5 py-1.5 rounded-lg transition-all flex items-center gap-1 ${
+              className={`text-xs px-2.5 py-1.5 rounded-xl transition-all flex items-center gap-1 ${
                 isDarkMode
                   ? 'bg-gray-900 border border-amber-500/20 text-amber-400 hover:bg-amber-500/10 hover:border-amber-500/40'
-                  : 'bg-white border border-slate-200 text-slate-700 hover:bg-amber-50 hover:border-amber-300'
+                  : 'bg-white border border-gray-200/80 text-gray-600 hover:border-purple-200 hover:text-purple-600 hover:shadow-sm'
               }`}
               onClick={() => {
                 if (action.route) {
@@ -198,7 +198,7 @@ const ChatbotMessage = ({ message, isDarkMode = true, onFeedback, isLastMessage 
               className={`text-xs px-2.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
                 isDarkMode
                   ? 'bg-gray-900/80 border border-amber-500/20 text-gray-300 hover:border-amber-500/40 hover:text-amber-300'
-                  : 'bg-white border border-amber-200 text-slate-700 hover:bg-amber-50'
+                  : 'bg-white border border-amber-200 text-gray-700 hover:bg-amber-50'
               }`}
               onClick={() => {
                 if (item.route) {
@@ -278,8 +278,8 @@ const ChatbotMessage = ({ message, isDarkMode = true, onFeedback, isLastMessage 
     if (simpleMetrics.length === 0) return null;
 
     return (
-      <div className={`mt-3 p-3 rounded-lg ${isDarkMode ? 'bg-gray-800 border border-amber-500/10' : 'bg-white border border-slate-200'}`}>
-        <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'} uppercase tracking-wide mb-2`}>📊 Metrics</div>
+      <div className={`mt-3 p-3 rounded-lg ${isDarkMode ? 'bg-gray-800 border border-gray-700/30' : 'bg-white border border-gray-100'}`}>
+        <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} uppercase tracking-wide mb-2`}>📊 Metrics</div>
         <div className="grid grid-cols-2 gap-2 text-sm">
           {simpleMetrics.map(([key, value]) => {
             const label = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
@@ -289,8 +289,8 @@ const ChatbotMessage = ({ message, isDarkMode = true, onFeedback, isLastMessage 
               : value;
             return (
               <div key={key} className="flex flex-col">
-                <span className={`${isDarkMode ? 'text-gray-400' : 'text-slate-600'} text-xs`}>{label}</span>
-                <span className={`${isDarkMode ? 'text-gray-200' : 'text-slate-800'} font-medium`}>{displayValue}</span>
+                <span className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'} text-xs`}>{label}</span>
+                <span className={`${isDarkMode ? 'text-gray-200' : 'text-gray-700'} font-medium`}>{displayValue}</span>
               </div>
             );
           })}
@@ -305,19 +305,19 @@ const ChatbotMessage = ({ message, isDarkMode = true, onFeedback, isLastMessage 
     if (!appointments || !Array.isArray(appointments) || appointments.length === 0) return null;
 
     return (
-      <div className={`mt-3 p-3 rounded-lg ${isDarkMode ? 'bg-gray-800 border border-amber-500/10' : 'bg-white border border-slate-200'}`}>
-        <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'} uppercase tracking-wide mb-2`}>📅 Appointments</div>
+      <div className={`mt-3 p-3 rounded-lg ${isDarkMode ? 'bg-gray-800 border border-gray-700/30' : 'bg-white border border-gray-100'}`}>
+        <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} uppercase tracking-wide mb-2`}>📅 Appointments</div>
         <div className="space-y-2">
             {appointments.slice(0, 5).map((apt, idx) => (
               <div key={idx} className={`flex justify-between items-center text-sm p-2 rounded ${isDarkMode ? 'bg-gray-900/50' : 'bg-white'}`}>
               <div className="flex-1">
                 <div className="flex items-center gap-2">
-                  <span className={`${isDarkMode ? 'text-gray-200' : 'text-slate-800'} font-medium`}>#{apt.id}</span>
+                  <span className={`${isDarkMode ? 'text-gray-200' : 'text-gray-700'} font-medium`}>#{apt.id}</span>
                   <span className={`text-[10px] px-2 py-0.5 rounded-full border ${getStatusColor(apt.status)}`}>
                     {apt.status}
                   </span>
                 </div>
-                <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>{apt.client || apt.service}</div>
+                <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>{apt.client || apt.service}</div>
                 <div className="text-xs text-amber-400">{apt.date} {apt.time && `at ${apt.time}`}</div>
               </div>
               <button
@@ -342,7 +342,7 @@ const ChatbotMessage = ({ message, isDarkMode = true, onFeedback, isLastMessage 
     if (!apt || isUser) return null;
 
     return (
-      <div className={`mt-3 p-3 rounded-lg ${isDarkMode ? 'bg-gray-800 border border-amber-500/10' : 'bg-white border border-slate-200'}`}>
+      <div className={`mt-3 p-3 rounded-lg ${isDarkMode ? 'bg-gray-800 border border-gray-700/30' : 'bg-white border border-gray-100'}`}>
         <div className="flex items-center justify-between mb-2">
           <span className="text-sm font-semibold text-gray-200">Appointment #{apt.id}</span>
           <span className={`text-[10px] px-2 py-0.5 rounded-full border ${getStatusColor(apt.status)}`}>
@@ -401,19 +401,19 @@ const ChatbotMessage = ({ message, isDarkMode = true, onFeedback, isLastMessage 
     if (!payments || !Array.isArray(payments) || payments.length === 0) return null;
 
     return (
-      <div className="mt-3 p-3 bg-gray-800 border border-amber-500/10 rounded-lg">
-        <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'} uppercase tracking-wide mb-2`}>💳 Payments</div>
+      <div className="mt-3 p-3 bg-gray-800 border border-gray-700/30 rounded-lg">
+        <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} uppercase tracking-wide mb-2`}>💳 Payments</div>
         <div className="space-y-2">
             {payments.slice(0, 5).map((payment, idx) => (
               <div key={idx} className={`flex justify-between items-center text-sm p-2 rounded ${isDarkMode ? 'bg-gray-900/50' : 'bg-white'}`}>
               <div className="flex-1">
                 <div className="flex items-center gap-2">
-                  <span className={`${isDarkMode ? 'text-gray-200' : 'text-slate-800'}`}>{payment.client}</span>
+                  <span className={`${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>{payment.client}</span>
                   <span className={`text-[10px] px-2 py-0.5 rounded-full border ${getStatusColor(payment.status)}`}>
                     {payment.status}
                   </span>
                 </div>
-                <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>{payment.service}</div>
+                <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>{payment.service}</div>
               </div>
               <div className="text-right">
                 <div className="text-amber-400 font-medium">{formatCurrency(payment.amount)}</div>
@@ -443,18 +443,18 @@ const ChatbotMessage = ({ message, isDarkMode = true, onFeedback, isLastMessage 
 
     return (
       <div className={`mt-3 p-3 rounded-lg ${isDarkMode ? 'bg-gray-800 border border-red-500/10' : 'bg-white border border-red-100'}`}>
-        <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'} uppercase tracking-wide mb-2`}>💸 Refunds</div>
+        <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} uppercase tracking-wide mb-2`}>💸 Refunds</div>
         <div className="space-y-2">
             {refunds.slice(0, 5).map((refund, idx) => (
               <div key={idx} className={`flex justify-between items-center text-sm p-2 rounded ${isDarkMode ? 'bg-gray-900/50' : 'bg-white'}`}>
               <div className="flex-1">
                 <div className="flex items-center gap-2">
-                  <span className={`${isDarkMode ? 'text-gray-200' : 'text-slate-800'}`}>{refund.client}</span>
+                  <span className={`${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>{refund.client}</span>
                   <span className={`text-[10px] px-2 py-0.5 rounded-full border ${getStatusColor(refund.status)}`}>
                     {refund.status}
                   </span>
                 </div>
-                <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>{refund.reason?.substring(0, 40)}{refund.reason?.length > 40 ? '...' : ''}</div>
+                <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>{refund.reason?.substring(0, 40)}{refund.reason?.length > 40 ? '...' : ''}</div>
               </div>
               <div className="text-right">
                 <div className="text-red-400 font-medium">{formatCurrency(refund.amount)}</div>
@@ -483,14 +483,14 @@ const ChatbotMessage = ({ message, isDarkMode = true, onFeedback, isLastMessage 
     if (!services || !Array.isArray(services) || services.length === 0) return null;
 
     return (
-      <div className={`mt-3 p-3 rounded-lg ${isDarkMode ? 'bg-gray-800 border border-amber-500/10' : 'bg-white border border-slate-200'}`}>
-        <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'} uppercase tracking-wide mb-2`}>📋 Services</div>
+      <div className={`mt-3 p-3 rounded-lg ${isDarkMode ? 'bg-gray-800 border border-gray-700/30' : 'bg-white border border-gray-100'}`}>
+        <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} uppercase tracking-wide mb-2`}>📋 Services</div>
         <div className="space-y-2">
             {services.slice(0, 6).map((service, idx) => (
             <div key={idx} className={`flex justify-between items-center text-sm p-2 rounded ${isDarkMode ? 'bg-gray-900/50' : 'bg-white'}`}>
               <div>
-                <div className={`${isDarkMode ? 'text-gray-200' : 'text-slate-800'}`}>{service.name}</div>
-                <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'}`}>{service.duration}</div>
+                <div className={`${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>{service.name}</div>
+                <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>{service.duration}</div>
               </div>
               <div className="text-amber-400 font-medium">{service.price}</div>
             </div>
@@ -513,9 +513,9 @@ const ChatbotMessage = ({ message, isDarkMode = true, onFeedback, isLastMessage 
     };
 
     return (
-      <div className={`mt-3 p-3 rounded-lg ${isDarkMode ? 'bg-gray-800 border border-amber-500/10' : 'bg-white border border-slate-200'}`}>
+      <div className={`mt-3 p-3 rounded-lg ${isDarkMode ? 'bg-gray-800 border border-gray-700/30' : 'bg-white border border-gray-100'}`}>
         <div className="flex items-center justify-between mb-2">
-            <span className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'} uppercase tracking-wide`}>🔧 System Health</span>
+            <span className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} uppercase tracking-wide`}>🔧 System Health</span>
           <span className={`text-sm font-medium ${statusColors[health.status] || statusColors.unknown}`}>
             {health.status?.toUpperCase()}
           </span>
@@ -554,7 +554,7 @@ const ChatbotMessage = ({ message, isDarkMode = true, onFeedback, isLastMessage 
 
     return (
       <div className={`mt-3 p-3 rounded-lg ${isDarkMode ? 'bg-gray-800 border border-yellow-500/10' : 'bg-white border border-yellow-100'}`}>
-        <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-slate-600'} uppercase tracking-wide mb-2`}>Items Needing Attention</div>
+        <div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} uppercase tracking-wide mb-2`}>Items Needing Attention</div>
         <div className="space-y-2">
               {pendingItems.map((item, idx) => (
                 <button
@@ -566,8 +566,8 @@ const ChatbotMessage = ({ message, isDarkMode = true, onFeedback, isLastMessage 
                 <span className="text-amber-400">#{item.id}</span>
                 <span className="text-gray-400 text-xs">{item.date}</span>
               </div>
-                <div className={`${isDarkMode ? 'text-gray-300' : 'text-slate-800'}`}>{item.client}</div>
-              <div className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-slate-600'}`}>{item.service}</div>
+                <div className={`${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>{item.client}</div>
+              <div className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>{item.service}</div>
             </button>
           ))}
         </div>
@@ -605,7 +605,7 @@ const ChatbotMessage = ({ message, isDarkMode = true, onFeedback, isLastMessage 
               parts.push(<em key={`i-${lineIdx}-${key++}`}>{match[3]}</em>);
             } else if (match[4]) {
               // `code`
-              parts.push(<code key={`c-${lineIdx}-${key++}`} className="px-1 py-0.5 rounded bg-amber-900/30 text-amber-300 text-xs font-mono">{match[4]}</code>);
+              parts.push(<code key={`c-${lineIdx}-${key++}`} className={`px-1 py-0.5 rounded text-xs font-mono ${isDarkMode ? 'bg-amber-900/30 text-amber-300' : 'bg-purple-50 text-purple-600'}`}>{match[4]}</code>);
             }
             remaining = remaining.substring(match.index + match[0].length);
           } else {
@@ -625,14 +625,14 @@ const ChatbotMessage = ({ message, isDarkMode = true, onFeedback, isLastMessage 
         // Horizontal rule
         inList = false;
         elements.push(
-          <hr key={`hr-${lineIdx}`} className={`my-2 border-t ${isDarkMode ? 'border-gray-700' : 'border-slate-200'}`} />
+          <hr key={`hr-${lineIdx}`} className={`my-2 border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-100'}`} />
         );
       } else if (trimmed.match(/^>\s+/)) {
         // Blockquote
         inList = false;
         const text = trimmed.replace(/^>\s+/, '');
         elements.push(
-          <span key={`bq-${lineIdx}`} className={`block pl-3 border-l-2 ${isDarkMode ? 'border-amber-500/40 text-gray-300' : 'border-amber-400 text-slate-600'} italic my-1`}>
+          <span key={`bq-${lineIdx}`} className={`block pl-3 border-l-2 ${isDarkMode ? 'border-amber-500/40 text-gray-300' : 'border-purple-300 text-gray-600'} italic my-1`}>
             {processInline(text)}
           </span>
         );
@@ -715,12 +715,12 @@ const ChatbotMessage = ({ message, isDarkMode = true, onFeedback, isLastMessage 
   return (
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
       <div
-        className={`max-w-[85%] rounded-xl px-4 py-3 ${
+        className={`max-w-[85%] rounded-2xl px-4 py-3 ${
           isUser
-            ? (isDarkMode ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/20' : 'bg-amber-600 text-white shadow-md')
+            ? (isDarkMode ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/20' : 'bg-gradient-to-r from-orange-500 via-pink-500 to-purple-500 text-white shadow-md shadow-purple-200')
             : isPriority 
               ? (isDarkMode ? 'bg-gray-900 text-gray-100 border-2 border-red-500/40 ring-2 ring-red-500/20' : 'bg-red-50 text-red-700 border-2 border-red-200')
-              : (isDarkMode ? 'bg-gray-900 text-gray-100 border border-amber-500/20' : 'bg-white text-slate-900 border border-slate-200')
+              : (isDarkMode ? 'bg-gray-900 text-gray-100 border border-gray-700/50' : 'bg-white/90 text-gray-800 border border-gray-100 shadow-sm')
         }`}
       >
         <div>
@@ -734,7 +734,7 @@ const ChatbotMessage = ({ message, isDarkMode = true, onFeedback, isLastMessage 
 
           {/* Render structured appointment card when present (legacy support) */}
           {message?.meta?.data?.next_appointment && !data?.appointment && (
-            <div className={`mt-3 p-3 rounded-lg ${isDarkMode ? 'bg-gray-800 border border-amber-500/10' : 'bg-white border border-slate-200'}`}>
+            <div className={`mt-3 p-3 rounded-lg ${isDarkMode ? 'bg-gray-800 border border-gray-700/30' : 'bg-white border border-gray-100'}`}>
               <div className="text-sm text-gray-300 font-semibold">Next appointment</div>
               <div className="mt-2 text-sm text-gray-200">
                 <div><strong>Date:</strong> {message.meta.data.next_appointment.date}</div>
@@ -798,12 +798,12 @@ const ChatbotMessage = ({ message, isDarkMode = true, onFeedback, isLastMessage 
               {meta.action_buttons.map((action, idx) => (
                 <button
                   key={idx}
-                  className={`text-xs px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 ${
+                  className={`text-xs px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 ${
                     action.type === 'primary'
-                      ? (isDarkMode ? 'bg-amber-500 text-gray-900 hover:bg-amber-400' : 'bg-amber-600 text-white hover:bg-cyan-500')
+                      ? (isDarkMode ? 'bg-amber-500 text-gray-900 hover:bg-amber-400' : 'bg-gradient-to-r from-orange-500 to-purple-500 text-white hover:shadow-md')
                       : action.type === 'danger'
-                      ? (isDarkMode ? 'bg-red-500/20 text-red-300 border border-red-500/30 hover:bg-red-500/30' : 'bg-red-50 text-red-700 border border-red-100')
-                      : (isDarkMode ? 'bg-gray-800 border border-amber-500/20 text-amber-400 hover:bg-amber-500/10 hover:border-amber-500/40' : 'bg-white border border-slate-200 text-slate-700 hover:bg-blue-50')
+                      ? (isDarkMode ? 'bg-red-500/20 text-red-300 border border-red-500/30 hover:bg-red-500/30' : 'bg-red-50 text-red-600 border border-red-100')
+                      : (isDarkMode ? 'bg-gray-800 border border-amber-500/20 text-amber-400 hover:bg-amber-500/10 hover:border-amber-500/40' : 'bg-white border border-gray-200/80 text-gray-600 hover:border-purple-200 hover:text-purple-600')
                   }`}
                   onClick={() => {
                     if (action.route) {
@@ -833,7 +833,7 @@ const ChatbotMessage = ({ message, isDarkMode = true, onFeedback, isLastMessage 
               {meta.suggestions.map((suggestion, idx) => (
                 <button
                   key={idx}
-                  className={`text-xs px-3 py-1.5 rounded-full transition-all ${isDarkMode ? 'bg-gray-800 border border-amber-500/20 text-amber-400 hover:bg-amber-500/10 hover:border-amber-500/40' : 'bg-white border border-slate-200 text-slate-700 hover:bg-blue-50'}`}
+                  className={`text-xs px-3 py-1.5 rounded-full transition-all ${isDarkMode ? 'bg-gray-800 border border-amber-500/20 text-amber-400 hover:bg-amber-500/10 hover:border-amber-500/40' : 'bg-white border border-gray-200/80 text-gray-600 hover:border-purple-200 hover:text-purple-600'}`}
                   onClick={() => {
                     // Dispatch custom event to send suggestion as message
                     window.dispatchEvent(new CustomEvent('chatbot-suggestion', { detail: suggestion }));
@@ -846,7 +846,7 @@ const ChatbotMessage = ({ message, isDarkMode = true, onFeedback, isLastMessage 
           )}
 
           <div className="flex items-center justify-between mt-2">
-            <span className={`text-xs ${isUser ? 'text-amber-100/70' : (isDarkMode ? 'text-gray-400' : 'text-slate-600')}`}>
+            <span className={`text-xs ${isUser ? 'text-white/70' : (isDarkMode ? 'text-gray-400' : 'text-gray-400')}`}>
               {new Date(message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               {renderLanguageIndicator()}
             </span>
@@ -869,7 +869,7 @@ const ChatbotMessage = ({ message, isDarkMode = true, onFeedback, isLastMessage 
                     <button
                       onClick={() => handleFeedback('helpful')}
                       disabled={feedbackSubmitting}
-                      className={`p-1 rounded transition-all ${isDarkMode ? 'text-gray-500 hover:text-green-400 hover:bg-green-500/10' : 'text-slate-400 hover:text-green-600 hover:bg-green-50'}`}
+                      className={`p-1 rounded transition-all ${isDarkMode ? 'text-gray-500 hover:text-green-400 hover:bg-green-500/10' : 'text-gray-400 hover:text-green-600 hover:bg-green-50'}`}
                       title="Helpful"
                     >
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 20 20"><path d="M2 10.5a1.5 1.5 0 113 0v6a1.5 1.5 0 01-3 0v-6zM6 10.333v5.43a2 2 0 001.106 1.79l.05.025A4 4 0 008.943 18h5.416a2 2 0 001.962-1.608l1.2-6A2 2 0 0015.56 8H12V4a2 2 0 00-2-2 1 1 0 00-1 1v.667a4 4 0 01-.8 2.4L6.8 7.933a4 4 0 00-.8 2.4z" /></svg>
@@ -877,7 +877,7 @@ const ChatbotMessage = ({ message, isDarkMode = true, onFeedback, isLastMessage 
                     <button
                       onClick={() => handleFeedback('unhelpful')}
                       disabled={feedbackSubmitting}
-                      className={`p-1 rounded transition-all ${isDarkMode ? 'text-gray-500 hover:text-red-400 hover:bg-red-500/10' : 'text-slate-400 hover:text-red-600 hover:bg-red-50'}`}
+                      className={`p-1 rounded transition-all ${isDarkMode ? 'text-gray-500 hover:text-red-400 hover:bg-red-500/10' : 'text-gray-400 hover:text-red-600 hover:bg-red-50'}`}
                       title="Not helpful"
                     >
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 20 20"><path d="M18 9.5a1.5 1.5 0 11-3 0v-6a1.5 1.5 0 013 0v6zM14 9.667v-5.43a2 2 0 00-1.106-1.79l-.05-.025A4 4 0 0011.057 2H5.64a2 2 0 00-1.962 1.608l-1.2 6A2 2 0 004.44 12H8v4a2 2 0 002 2 1 1 0 001-1v-.667a4 4 0 01.8-2.4l1.4-1.866a4 4 0 00.8-2.4z" /></svg>
@@ -896,19 +896,19 @@ const ChatbotMessage = ({ message, isDarkMode = true, onFeedback, isLastMessage 
                 onChange={(e) => setFeedbackComment(e.target.value)}
                 placeholder="What was wrong? (optional)"
                 rows={2}
-                className={`w-full text-xs rounded p-2 resize-none ${isDarkMode ? 'bg-gray-900 border-gray-700 text-gray-300 placeholder-gray-500' : 'bg-white border-slate-200 text-slate-700 placeholder-slate-400'} border focus:outline-none focus:ring-1 focus:ring-amber-500/50`}
+                className={`w-full text-xs rounded p-2 resize-none ${isDarkMode ? 'bg-gray-900 border-gray-700 text-gray-300 placeholder-gray-500' : 'bg-white border-gray-200 text-gray-700 placeholder-gray-400'} border focus:outline-none focus:ring-1 focus:ring-purple-400/50`}
               />
               <div className="flex gap-2 mt-1.5">
                 <button
                   onClick={submitNegativeFeedback}
                   disabled={feedbackSubmitting}
-                  className={`text-xs px-3 py-1 rounded transition-all ${isDarkMode ? 'bg-amber-500 text-gray-900 hover:bg-amber-400' : 'bg-amber-600 text-white hover:bg-amber-500'} ${feedbackSubmitting ? 'opacity-50' : ''}`}
+                  className={`text-xs px-3 py-1 rounded transition-all ${isDarkMode ? 'bg-amber-500 text-gray-900 hover:bg-amber-400' : 'bg-gradient-to-r from-orange-500 to-purple-500 text-white hover:shadow-md'} ${feedbackSubmitting ? 'opacity-50' : ''}`}
                 >
                   {feedbackSubmitting ? 'Sending...' : 'Submit'}
                 </button>
                 <button
                   onClick={() => { setShowFeedbackForm(false); setFeedbackState(null); }}
-                  className={`text-xs px-3 py-1 rounded transition-all ${isDarkMode ? 'text-gray-400 hover:text-gray-300' : 'text-slate-500 hover:text-slate-700'}`}
+                  className={`text-xs px-3 py-1 rounded transition-all ${isDarkMode ? 'text-gray-400 hover:text-gray-300' : 'text-gray-500 hover:text-gray-700'}`}
                 >
                   Cancel
                 </button>
