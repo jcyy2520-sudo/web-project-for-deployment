@@ -1758,25 +1758,29 @@ class AppointmentController extends Controller
             // Cap limit to prevent data dumping
             $limit = min((int)$request->input('limit', 3), 10);
 
-            $appointments = Appointment::where('status', 'completed')
-                ->with([
-                    'user:id,first_name,last_name',
-                    'service:id,name,price'
-                ])
-                ->orderBy('completed_at', 'desc')
-                ->orderBy('updated_at', 'desc')
-                ->limit($limit)
-                ->get()
-                ->map(function ($apt) {
-                    return [
-                        // Do not expose internal IDs or private notes publicly
-                        'user' => [
-                            'name' => ($apt->user ? substr($apt->user->first_name, 0, 1) . '. ' . $apt->user->last_name : 'Client')
-                        ],
-                        'type' => $apt->service?->name ?? $apt->service_type ?? 'Service',
-                        'completed_at' => $apt->completed_at?->toDateTimeString()
-                    ];
-                });
+            // Cache for 30 minutes (public testimonial data that changes rarely)
+            $appointments = Cache::remember('public_completed_appointments:' . $limit, 1800, function () use ($limit) {
+                return Appointment::where('status', 'completed')
+                    ->with([
+                        'user:id,first_name,last_name',
+                        'service:id,name,price'
+                    ])
+                    ->select('id', 'user_id', 'service_id', 'service_type', 'completed_at', 'updated_at')
+                    ->orderBy('completed_at', 'desc')
+                    ->orderBy('updated_at', 'desc')
+                    ->limit($limit)
+                    ->get()
+                    ->map(function ($apt) {
+                        return [
+                            // Do not expose internal IDs or private notes publicly
+                            'user' => [
+                                'name' => ($apt->user ? substr($apt->user->first_name, 0, 1) . '. ' . $apt->user->last_name : 'Client')
+                            ],
+                            'type' => $apt->service?->name ?? $apt->service_type ?? 'Service',
+                            'completed_at' => $apt->completed_at?->toDateTimeString()
+                        ];
+                    });
+            });
 
             return response()->json([
                 'success' => true,

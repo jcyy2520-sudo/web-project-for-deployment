@@ -8,6 +8,7 @@ use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\URL;
 
 class GoogleRegistrationVerificationMail extends Mailable
 {
@@ -27,13 +28,16 @@ class GoogleRegistrationVerificationMail extends Mailable
 
     public function content(): Content
     {
-        $verificationLink = config('app.frontend_url') . '/auth/verify-google?code=' . $this->verificationCode;
+        // Generate signed URLs for confirmation and rejection
+        $confirmationLink = URL::signedRoute('registration.confirm', ['token' => $this->verificationCode]);
+        $rejectionLink = URL::signedRoute('registration.reject', ['token' => $this->verificationCode]);
 
         return new Content(
             view: 'emails.google-registration-verification',
             with: [
                 'user' => $this->user,
-                'verificationLink' => $verificationLink,
+                'confirmationLink' => $confirmationLink,
+                'rejectionLink' => $rejectionLink,
                 'verificationCode' => $this->verificationCode,
             ],
         );

@@ -87,7 +87,7 @@ const AuthTabsModal = ({ isOpen, onClose, isDarkMode = true }) => {
 
   // API base path - axios baseURL is just the domain, so we need /api prefix
   const API_BASE = '/api';
-  const backendUrl = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/api\/?$/, '');
+  const backendUrl = (import.meta.env.VITE_API_URL || 'http://backend.legaleaase.site:4000').replace(/\/api\/?$/, '');
   const googleAuthUrl = `${backendUrl}/auth/google/redirect`;
 
   // Load remembered email from localStorage
@@ -105,12 +105,20 @@ const AuthTabsModal = ({ isOpen, onClose, isDarkMode = true }) => {
     const oauthError = sessionStorage.getItem('oauth_error_message');
     const oauthErrorTab = sessionStorage.getItem('oauth_error_tab');
     const oauthSuccess = sessionStorage.getItem('oauth_success_message');
+    const oauthPending = sessionStorage.getItem('oauth_pending_message');
 
     if (oauthSuccess) {
       setActiveTab('login');
       setLoginError('');
       setLoginSuccess(oauthSuccess);
       sessionStorage.removeItem('oauth_success_message');
+    }
+
+    if (oauthPending) {
+      setActiveTab('login');
+      setLoginError('');
+      setLoginSuccess(oauthPending);
+      sessionStorage.removeItem('oauth_pending_message');
     }
 
     if (oauthError) {

@@ -35,6 +35,7 @@ class DatabaseSeeder extends Seeder
         
         // Run other seeders for test data
         $this->call([
+            AdminCashierSeeder::class,
             TestUserSeeder::class,
             ServiceSeeder::class,
             LandingPageSeeder::class,

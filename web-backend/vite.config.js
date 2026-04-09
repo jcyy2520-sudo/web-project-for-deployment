@@ -10,4 +10,10 @@ export default defineConfig({
         }),
         tailwindcss(),
     ],
+    server: {
+        allowedHosts: ['legaleaase.site', 'www.legaleaase.site'],
+    },
+    preview: {
+        allowedHosts: ['legaleaase.site', 'www.legaleaase.site'],
+    }
 });

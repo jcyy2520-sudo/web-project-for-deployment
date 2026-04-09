@@ -11,6 +11,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use App\Models\ActionLog;
 
 class FeedbackController extends Controller
@@ -493,6 +494,7 @@ class FeedbackController extends Controller
 
     /**
      * Get testimonials for landing page
+     * OPTIMIZED: Eager loads user relationship and caches for 10 minutes
      */
     public function getTestimonials(Request $request)
     {
@@ -500,11 +502,16 @@ class FeedbackController extends Controller
             $limit = $request->get('limit', 3);
 
             // Sort by featured_at desc so newest featured testimonials appear first
-            $testimonials = Feedback::where('is_testimonial', true)
-                ->orderByDesc('featured_at')
-                ->orderByDesc('created_at')
-                ->limit($limit)
-                ->get();
+            // Cached for 10 minutes (testimonials are relatively static)
+            $testimonials = Cache::remember('public_testimonials_featured:' . $limit, 600, function () use ($limit) {
+                return Feedback::where('is_testimonial', true)
+                    ->with('user:id,name,email,avatar')
+                    ->select('id', 'rating', 'comment', 'user_id', 'featured_at', 'created_at')
+                    ->orderByDesc('featured_at')
+                    ->orderByDesc('created_at')
+                    ->limit($limit)
+                    ->get();
+            });
 
             return response()->json([
                 'data' => $testimonials
@@ -524,6 +531,7 @@ class FeedbackController extends Controller
 
     /**
      * Get all testimonials (for modal)
+     * OPTIMIZED: Eager loads user relationship
      */
     public function getAllTestimonials(Request $request)
     {
@@ -533,6 +541,8 @@ class FeedbackController extends Controller
 
             // Sort by featured_at desc so newest featured testimonials appear first
             $query = Feedback::where('is_testimonial', true)
+                ->with('user:id,name,email,avatar')
+                ->select('id', 'rating', 'comment', 'user_id', 'featured_at', 'created_at')
                 ->orderByDesc('featured_at')
                 ->orderByDesc('created_at');
 

@@ -1,8 +1,13 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '')
+  const rawProxyTarget = env.VITE_PROXY_TARGET || env.VITE_API_URL || 'http://127.0.0.1:4000'
+  const proxyTarget = rawProxyTarget.replace(/\/api\/?$/, '')
+
+  return {
   plugins: [
     react(),
     VitePWA({
@@ -70,6 +75,7 @@ export default defineConfig({
   server: {
     port: 3000,
     host: '0.0.0.0',
+    allowedHosts: ['legaleaase.site', 'www.legaleaase.site'],
     strictPort: false,
     middlewareMode: false,
     // Reduce filesystem watchers to avoid high CPU / editor lag on large workspaces
@@ -78,7 +84,7 @@ export default defineConfig({
     },
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8000',
+        target: proxyTarget,
         changeOrigin: true,
         secure: false,
         rewrite: (path) => path,
@@ -91,7 +97,7 @@ export default defineConfig({
         }
       },
       '/sanctum': {
-        target: 'http://127.0.0.1:8000',
+        target: proxyTarget,
         changeOrigin: true,
         secure: false,
       }
@@ -124,5 +130,6 @@ export default defineConfig({
   // Optimize dependencies
   optimizeDeps: {
     include: ['react', 'react-dom', 'react-router-dom', 'axios', '@heroicons/react', '@headlessui/react']
+  }
   }
 })

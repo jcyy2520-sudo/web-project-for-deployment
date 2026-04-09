@@ -16,6 +16,7 @@ class LandingPageController extends Controller
     /**
      * Public endpoint: Get all landing page content (sections + settings) in a single call.
      * Cached for 10 minutes (landing page content rarely changes).
+     * OPTIMIZED: Grouped settings at query level instead of in PHP
      */
     public function index(): JsonResponse
     {
@@ -26,7 +27,9 @@ class LandingPageController extends Controller
                 ->get()
                 ->keyBy('section_key');
 
-            $settings = LandingPageSetting::all()
+            // Optimize settings: group at database level, select only needed columns
+            $settings = LandingPageSetting::select('key', 'value', 'group')
+                ->get()
                 ->groupBy('group')
                 ->map(function ($group) {
                     return $group->mapWithKeys(function ($setting) {

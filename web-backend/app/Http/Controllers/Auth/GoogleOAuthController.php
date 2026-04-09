@@ -7,7 +7,10 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\URL;
 use Laravel\Socialite\Facades\Socialite;
+use App\Mail\GoogleRegistrationVerificationMail;
 use Exception;
 
 class GoogleOAuthController extends Controller
@@ -79,6 +82,18 @@ class GoogleOAuthController extends Controller
 
             if ($mode === 'login') {
                 if ($userByGoogle) {
+                    // Check if user is pending email verification
+                    if (!$userByGoogle->is_active 
+                        && !empty($userByGoogle->verification_code) 
+                        && $userByGoogle->verification_code_expires_at 
+                        && $userByGoogle->verification_code_expires_at->isFuture()) {
+                        return $this->redirectToFrontend([
+                            'oauth' => 'error',
+                            'message' => 'Your Google registration is still pending. Please check your email and click "Is it me" to complete registration.',
+                            'tab' => 'login',
+                        ]);
+                    }
+
                     if (!$userByGoogle->is_active || in_array($userByGoogle->account_status ?? 'active', ['blocked', 'deactivated', 'deleted'])) {
                         return $this->redirectToFrontend([
                             'oauth' => 'error',
@@ -172,15 +187,28 @@ class GoogleOAuthController extends Controller
             // Set sensitive fields explicitly (not via mass assignment — these are excluded from $fillable)
             $newUser->password = Hash::make(Str::random(48));
             $newUser->role = 'client';
-            $newUser->is_active = true;
-            $newUser->email_verified_at = now();
+            $newUser->is_active = false; // User must confirm "Is it me" via email before activation
+            // DO NOT set email_verified_at — email must be verified via confirmation link
+            
+            // Generate verification code for email confirmation
+            $verificationCode = Str::random(32);
+            $newUser->verification_code = $verificationCode;
+            $newUser->verification_code_expires_at = now()->addHours(24);
+            
             $newUser->save();
 
-            return $this->redirectWithToken($newUser, [
-                'oauth' => 'success',
-                'message' => 'Google registration successful. Please complete your profile.',
-                'profile_completed' => '0',
-                'new_user' => '1',
+            // Send verification email with "Is it me" and "It's not me" options
+            try {
+                Mail::send(new GoogleRegistrationVerificationMail($newUser, $verificationCode));
+            } catch (\Exception $e) {
+                \Log::error('Failed to send Google registration verification email: ' . $e->getMessage());
+            }
+
+            // Redirect to frontend indicating verification email was sent
+            return $this->redirectToFrontend([
+                'oauth' => 'pending_verification',
+                'message' => 'Registration successful! Please check your email to confirm your identity by clicking "Is it me".',
+                'tab' => 'login',
             ]);
 
         } catch (Exception $e) {

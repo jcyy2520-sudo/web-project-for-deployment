@@ -524,9 +524,8 @@ class AuthController extends Controller
             'is_active' => $user->is_active ? 'true' : 'false'
         ]);
 
-        // Email-registered accounts must confirm "It's me" from email before first login.
+        // Email-registered or Google-registered accounts must confirm "It's me" from email before first login.
         if (!$user->is_active
-            && $user->verification_method === 'email'
             && !empty($user->verification_code)
             && $user->verification_code_expires_at
             && $user->verification_code_expires_at->isFuture()) {
@@ -714,6 +713,7 @@ class AuthController extends Controller
         $user->verification_code = null;
         $user->verification_code_expires_at = null;
         $user->is_active = true;
+        $user->email_verified_at = now(); // Mark email as verified upon confirmation
         $user->save();
 
         return redirect()->away(rtrim(env('FRONTEND_URL', 'http://localhost:3000'), '/') . '/auth/callback#registration=confirmed');

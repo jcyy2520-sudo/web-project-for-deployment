@@ -42,6 +42,8 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin, isDarkMode = true }) 
 
   // API base path - /api is appended to axios baseURL
   const API_BASE = '/api';
+  const backendUrl = (import.meta.env.VITE_API_URL || 'http://backend.legaleaase.site:4000').replace(/\/api\/?$/, '');
+  const googleAuthUrl = `${backendUrl}/auth/google/redirect`;
 
   // Show notification function
   const showNotification = (message, type = 'success') => {
@@ -543,7 +545,7 @@ const RegisterModal = ({ isOpen, onClose, onSwitchToLogin, isDarkMode = true }) 
             <button
               type="button"
               onClick={() => {
-                window.location.href = 'http://localhost:8000/auth/google/redirect';
+                window.location.href = googleAuthUrl;
               }}
               className={`w-full px-4 py-2 rounded-lg transition-all duration-200 font-medium text-sm flex items-center justify-center border shadow ${isDarkMode ? 'border border-gray-600 text-white bg-gray-700 hover:bg-gray-600 focus:ring-1 focus:ring-gray-500' : 'border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 focus:ring-1 focus:ring-gray-300'}`}
             >

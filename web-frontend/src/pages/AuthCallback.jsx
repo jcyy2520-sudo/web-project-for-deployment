@@ -32,7 +32,14 @@ const AuthCallback = () => {
         return;
       }
 
-      // 2. Handle OAuth Errors
+      // 2. Handle pending email verification (Google registration)
+      if (oauthStatus === 'pending_verification') {
+        if (message) sessionStorage.setItem('oauth_pending_message', message);
+        navigate('/?auth_modal=open&tab=login', { replace: true });
+        return;
+      }
+
+      // 3. Handle OAuth Errors
       if (oauthStatus === 'error') {
         if (message) sessionStorage.setItem('oauth_error_message', message);
         if (tab) sessionStorage.setItem('oauth_error_tab', tab);
@@ -40,7 +47,7 @@ const AuthCallback = () => {
         return;
       }
 
-      // 3. Handle OAuth Success
+      // 4. Handle OAuth Success
       if (oauthStatus === 'success' && token) {
         try {
           // Initialize auth headers and storage
