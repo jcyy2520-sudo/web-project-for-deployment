@@ -1317,6 +1317,7 @@ class AppointmentController extends Controller
     public function cancel(Request $request, $id)
     {
         $user = $request->user();
+        $cancellationReason = $request->input('cancellation_reason', '');
         
         // Admin and staff can cancel any appointment, clients can only cancel their own
         if ($user->isAdmin() || $user->isStaff()) {
@@ -1335,12 +1336,13 @@ class AppointmentController extends Controller
         $oldStatus = $appointment->status;
 
         // Wrap status change + message + notification in a transaction
-        DB::transaction(function () use ($appointment, $user) {
+        DB::transaction(function () use ($appointment, $user, $cancellationReason) {
             // Re-fetch with lock to prevent concurrent status changes
             $appointment = Appointment::lockForUpdate()->findOrFail($appointment->id);
 
             // Set protected field explicitly (not mass-assignable)
             $appointment->status = 'cancelled';
+            $appointment->cancellation_reason = $cancellationReason ?: null;
             $appointment->save();
 
             // Log the action - differentiate between user and admin/staff cancellation
@@ -1348,11 +1350,12 @@ class AppointmentController extends Controller
             $appointmentDateFormatted = \Carbon\Carbon::parse($appointment->appointment_date)->format('M d, Y');
             $appointmentTimeFormatted = \Carbon\Carbon::parse($appointment->appointment_time)->format('g:i A');
             $cancelledBy = $user->id === $appointment->user_id ? 'self' : 'admin/staff';
+            $reasonNote = $cancellationReason ? " | Reason: {$cancellationReason}" : '';
             \App\Models\ActionLog::log(
                 'cancel_appointment',
                 $cancelledBy === 'self'
-                    ? "Cancelled own appointment for {$serviceType} on {$appointmentDateFormatted} at {$appointmentTimeFormatted}"
-                    : "Cancelled appointment for {$appointment->user->first_name} {$appointment->user->last_name} ({$serviceType}) on {$appointmentDateFormatted} at {$appointmentTimeFormatted}",
+                    ? "Cancelled own appointment for {$serviceType} on {$appointmentDateFormatted} at {$appointmentTimeFormatted}{$reasonNote}"
+                    : "Cancelled appointment for {$appointment->user->first_name} {$appointment->user->last_name} ({$serviceType}) on {$appointmentDateFormatted} at {$appointmentTimeFormatted}{$reasonNote}",
                 'Appointment',
                 $appointment->id
             );
@@ -1362,10 +1365,12 @@ class AppointmentController extends Controller
             $appointmentTime = \Carbon\Carbon::parse($appointment->appointment_time)->format('g:i A');
             $serviceType = $appointment->service_type ?? \App\Models\Appointment::getTypes()[$appointment->type] ?? $appointment->type;
 
+            $reasonLine = $cancellationReason ? "📝 Reason: " . $cancellationReason . "\n" : '';
             $messageText = "✕ Your appointment has been CANCELLED.\n\n" .
                 "📅 Date: " . $appointmentDate . "\n" .
                 "⏰ Time: " . $appointmentTime . "\n" .
-                "📋 Service: " . $serviceType . "\n\n" .
+                "📋 Service: " . $serviceType . "\n" .
+                $reasonLine . "\n" .
                 "If you have any questions, please contact us.";
 
             Message::create([

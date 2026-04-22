@@ -45,6 +45,7 @@ import LineChart from '../components/charts/LineChart';
 import InteractiveCalendar from '../components/calendar/InteractiveCalendar';
 import CalendarDetailPanel from '../components/calendar/CalendarDetailPanel';
 import NotificationBell from '../components/user/NotificationBell';
+import ThemeToggle from '../components/ui/ThemeToggle';
 import { formatServiceName, formatPrice, formatDateDisplay } from '../utils/format';
 
 // Enhanced Chart Components
@@ -4202,6 +4203,7 @@ const CashierDashboard = () => {
           <span className={`${isDarkMode ? 'text-white' : 'text-gray-900'} font-bold text-base`}>Cashier Portal</span>
         </div>
         <div className="flex items-center gap-1">
+          <ThemeToggle />
           <NotificationBell onViewAll={() => { setActiveSection('notifications'); setShowMobileSidebar(false); }} />
           <button
             onClick={() => setShowMobileSidebar(!showMobileSidebar)}
@@ -4389,7 +4391,8 @@ const CashierDashboard = () => {
                 </p>
               </div>
             </div>
-            <div className="flex-shrink-0 flex items-center gap-3">
+            <div className="flex-shrink-0 flex items-center gap-2">
+              <ThemeToggle />
               <NotificationBell onViewAll={() => setActiveSection('notifications')} />
               <select
                 value={timeframe}

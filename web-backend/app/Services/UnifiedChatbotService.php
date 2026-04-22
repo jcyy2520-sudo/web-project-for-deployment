@@ -139,7 +139,68 @@ class UnifiedChatbotService
                 );
             }
 
-            // ── 0c. FAST PATH for trivial messages (greetings, thanks) ──
+            // ── 0c. FAST PATH: Pending confirmation short-circuit ──
+            // When there's a pending confirmation (user saying "yes"/"no"), skip the entire
+            // RAG pipeline (embedding, retrieval, knowledge feed, prompt building) and go
+            // straight to the agent reasoning service. This saves 3-5 seconds of wasted processing.
+            // NOTE: Works for both authenticated users AND guests. For guests, the confirmation
+            // will be rejected at the tool permission layer (executeTool checks canUseAgentTool).
+            if (config('chatbot_unified.features.agent_mode', false) && $this->agentReasoning) {
+                $pending = AgentReasoningService::getPendingConfirmation($userId);
+                if ($pending) {
+                    Log::info('UnifiedChatbot: Fast-path confirmation handling', [
+                        'user_id' => $userId,
+                        'pending_tool' => $pending['tool'] ?? 'unknown',
+                    ]);
+
+                    $agentResult = $this->agentReasoning->reason(
+                        $userMessage,
+                        '', // No system prompt needed for confirmation
+                        [], // No conversation history needed
+                        $userId,
+                        $role,
+                        $pending
+                    );
+
+                    $response = $agentResult['response'] ?? 'Action processed.';
+                    $response = $this->validateAndCleanResponse($response);
+
+                    $resultMeta = [
+                        'provider' => $agentResult['provider'] ?? 'agent_confirm',
+                        'processing_time_ms' => round((microtime(true) - $startTime) * 1000, 2),
+                        'role' => $role,
+                        'agent_tool_calls' => count($agentResult['tool_calls'] ?? []),
+                    ];
+
+                    if (!empty($agentResult['action_buttons'])) {
+                        $resultMeta['action_buttons'] = $agentResult['action_buttons'];
+                    }
+                    if (!empty($agentResult['requires_confirmation'])) {
+                        $resultMeta['requires_confirmation'] = true;
+                        $resultMeta['confirmation_key'] = $agentResult['confirmation_key'] ?? null;
+                        if (!empty($agentResult['pending_tool'])) {
+                            $resultMeta['pending_tool'] = $agentResult['pending_tool'];
+                        }
+                    }
+
+                    // Log interaction
+                    $this->feedbackService->logInteraction([
+                        'user_id' => $userId,
+                        'conversation_id' => $conversationId,
+                        'user_message' => $userMessage,
+                        'bot_response' => $response,
+                        'context_used' => [],
+                        'llm_provider' => 'agent_confirm_fast_path',
+                        'processing_time_ms' => (microtime(true) - $startTime) * 1000,
+                        'role' => $role,
+                        'language' => 'en',
+                    ]);
+
+                    return $this->createResponse($response, 'llm', $resultMeta);
+                }
+            }
+
+            // ── 0d. FAST PATH for trivial messages (greetings, thanks) ──
             if ($this->isTrivialMessage($userMessage)) {
                 // Try static fallback first (0ms latency, high reliability)
                 $staticFallback = $this->getStaticGreetingFallback($userMessage);
@@ -317,14 +378,8 @@ class UnifiedChatbotService
             $confirmationKey = null;
             $pendingToolName = null;
             
-            // Check for pending confirmations from previous agent tool calls
-            $pendingConfirmation = [];
-            if (config('chatbot_unified.features.agent_mode', false) && $this->agentReasoning && $userId) {
-                $pending = AgentReasoningService::getPendingConfirmation($userId);
-                if ($pending) {
-                    $pendingConfirmation = $pending;
-                }
-            }
+            // Note: pending confirmations are now handled by the fast-path short-circuit above (step 0c).
+            // If we reach here, there is no pending confirmation.
             
             if (config('chatbot_unified.features.agent_mode', false) && $this->agentReasoning) {
                 // AGENT MODE: Use ReAct reasoning loop with tool execution
@@ -333,8 +388,7 @@ class UnifiedChatbotService
                     $systemPrompt,
                     $conversationHistory,
                     $userId,
-                    $role,
-                    $pendingConfirmation
+                    $role
                 );
                 
                 $agentToolCalls = $agentResult['tool_calls'] ?? [];
@@ -1038,7 +1092,7 @@ class UnifiedChatbotService
                     }
                     // ── Decision Support / Smart Analytics data ──
                     // Inject summary analytics ONLY if the user is asking for stats or forecast
-                    $intentKeywords = ['busy', 'forecast', 'stats', 'utilization', 'trend', 'pattern', 'busy day', 'slow day'];
+                    $intentKeywords = ['busy', 'forecast', 'stats', 'utilization', 'trend', 'pattern', 'busy day', 'slow day', 'increase', 'slot', 'capacity', 'demand', 'suggest', 'recommend', 'improve', 'optimize', 'peak', 'schedule', 'no-show', 'no show', 'revenue', 'how many', 'appointment', 'summary', 'overview', 'analytics', 'report', 'insight', 'performance'];
                     $needsAnalytics = false;
                     foreach ($intentKeywords as $kw) {
                         if (stripos($message, $kw) !== false) {

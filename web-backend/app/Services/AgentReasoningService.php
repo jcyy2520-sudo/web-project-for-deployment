@@ -164,22 +164,64 @@ class AgentReasoningService
                 $toolArgs = $nativeTool['input'] ?? [];
                 $toolUseId = $nativeTool['id'];
 
+                // Coerce integer-typed args that LLMs sometimes send as strings (e.g. "1" → 1)
+                $toolArgs = $this->coerceToolArgTypes($toolName, $toolArgs);
+
                 // Security: validate tool name
                 if (!preg_match('/^[a-z_]+$/', $toolName) || !$this->toolRegistry->toolExists($toolName)) {
                     Log::warning('AgentReasoning: Invalid native tool name', ['tool' => $toolName]);
-                    // Add assistant response and error tool_result to messages
-                    $rawMessages[] = ['role' => 'assistant', 'content' => $rawContent];
+                    $assistantText = !empty(trim($llmResponse)) ? $llmResponse : "Attempting tool: {$toolName}";
+                    $rawMessages[] = ['role' => 'assistant', 'content' => $assistantText];
                     $rawMessages[] = [
                         'role' => 'user',
-                        'content' => [
-                            ['type' => 'tool_result', 'tool_use_id' => $toolUseId, 'content' => 'Error: Unknown tool name.', 'is_error' => true],
-                        ],
+                        'content' => "Error: Unknown tool '{$toolName}'. Use only the tools provided.",
+                    ];
+                    continue;
+                }
+
+                // SECURITY: Permission check — validate role can use this tool before ANY action.
+                // Prevents privilege escalation even if the LLM is tricked into calling a forbidden tool.
+                if (!$this->toolRegistry->canRoleUseTool($role, $toolName)) {
+                    Log::warning('AgentReasoning: Permission denied on native tool call', [
+                        'tool' => $toolName,
+                        'role' => $role,
+                        'user_id' => $userId,
+                    ]);
+                    $assistantText = !empty(trim($llmResponse)) ? $llmResponse : "Attempting tool: {$toolName}";
+                    $rawMessages[] = ['role' => 'assistant', 'content' => $assistantText];
+                    $rawMessages[] = [
+                        'role' => 'user',
+                        'content' => "PERMISSION DENIED: The role '{$role}' cannot use tool '{$toolName}'. " .
+                            "For guests: inform the user they must log in or register to perform this action. " .
+                            "Do NOT attempt this tool again.",
                     ];
                     continue;
                 }
 
                 // Check if destructive — pause for confirmation
                 if ($this->toolRegistry->isDestructiveTool($toolName)) {
+
+                    // PRE-VALIDATE booking before showing confirmation
+                    // This prevents showing a broken confirmation (₱0.00, no services) that will fail anyway
+                    if ($toolName === 'book_appointment') {
+                        $preValidation = $this->toolRegistry->validateBookingSlot($toolArgs, $userId ?? 0);
+                        if (!$preValidation['valid']) {
+                            Log::info('AgentReasoning: Booking pre-validation failed, feeding error back to LLM', [
+                                'user_id' => $userId,
+                                'error' => $preValidation['error'],
+                                'tool_args' => $toolArgs,
+                            ]);
+                            // Feed the validation error back to the LLM so it can ask for missing info
+                            $assistantText = !empty(trim($llmResponse)) ? $llmResponse : "Attempting to book appointment...";
+                            $rawMessages[] = ['role' => 'assistant', 'content' => $assistantText];
+                            $rawMessages[] = [
+                                'role' => 'user',
+                                'content' => "Tool `book_appointment` validation failed: {$preValidation['error']}\nAsk the user for the missing or invalid information. If service was not recognized, call get_available_services first to find the correct service ID.",
+                            ];
+                            continue; // Let LLM retry with corrected params
+                        }
+                    }
+
                     $confirmKey = $this->storePendingToolCall($userId, $toolName, $toolArgs);
 
                     Log::info('AgentReasoning: Destructive tool requires confirmation', [
@@ -223,13 +265,12 @@ class AgentReasoningService
                     $toolResultJson = substr($toolResultJson, 0, 4000) . "\n... (truncated)";
                 }
 
-                // Feed tool result back using native tool_result format
-                $rawMessages[] = ['role' => 'assistant', 'content' => $rawContent];
+                // Feed tool result back as plain text messages (works across all providers)
+                $assistantText = !empty(trim($llmResponse)) ? $llmResponse : "Calling tool: {$toolName}";
+                $rawMessages[] = ['role' => 'assistant', 'content' => $assistantText];
                 $rawMessages[] = [
                     'role' => 'user',
-                    'content' => [
-                        ['type' => 'tool_result', 'tool_use_id' => $toolUseId, 'content' => $toolResultJson],
-                    ],
+                    'content' => "Tool `{$toolName}` executed. Result:\n```json\n{$toolResultJson}\n```\nRespond to the user with the specific data from this result. Do NOT call another tool unless needed.",
                 ];
 
                 continue; // Let the LLM process the tool result
@@ -281,6 +322,23 @@ class AgentReasoningService
                 Log::warning('AgentReasoning: Invalid tool name attempted', ['tool' => $toolName]);
                 $rawMessages[] = ['role' => 'assistant', 'content' => $llmResponse];
                 $rawMessages[] = ['role' => 'user', 'content' => "Tool error: Invalid tool name '{$toolName}'."];
+                continue;
+            }
+
+            // SECURITY: Permission check on text-based path — prevents guests from
+            // triggering destructive tools via text-based tool_call blocks.
+            if (!$this->toolRegistry->canRoleUseTool($role, $toolName)) {
+                Log::warning('AgentReasoning: Permission denied on text-based tool call', [
+                    'tool' => $toolName,
+                    'role' => $role,
+                    'user_id' => $userId,
+                ]);
+                $rawMessages[] = ['role' => 'assistant', 'content' => $llmResponse];
+                $rawMessages[] = ['role' => 'user', 'content' =>
+                    "PERMISSION DENIED: The role '{$role}' cannot use tool '{$toolName}'. " .
+                    "For guests: inform the user they must log in or register to perform this action. " .
+                    "Do NOT attempt this tool again."
+                ];
                 continue;
             }
 
@@ -716,47 +774,9 @@ class AgentReasoningService
             'tool_error' => $toolResult['error'] ?? null,
         ]);
 
-        // Generate a natural response from the tool result using the LLM
-        $toolResultJson = json_encode($toolResult, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
-        if (strlen($toolResultJson) > 4000) {
-            $toolResultJson = substr($toolResultJson, 0, 4000) . "\n... (truncated)";
-        }
-
-        $confirmResponse = null;
-        try {
-            $followUpPrompt = "The user confirmed the action. Tool `{$toolName}` returned:\n```json\n{$toolResultJson}\n```\n";
-            if ($toolName === 'book_appointment' && ($toolResult['success'] ?? false)) {
-                $followUpPrompt .= "Provide a SHORT booking success message. Include:\n";
-                $followUpPrompt .= "- 'Appointment booked successfully.'\n";
-                $followUpPrompt .= "- Date, Time, Service, Total Paid (from the data)\n";
-                $followUpPrompt .= "- Daily booking slots status (e.g., 'Daily slots: X/Y used') using remaining_bookings_today and daily_limit from the data\n";
-                $followUpPrompt .= "Keep it brief. No explanations. No 'let me know if you need anything'.";
-            } else {
-                $followUpPrompt .= "Provide a clear, concise summary of the result. If succeeded, confirm with specific details. If failed, explain why and suggest alternatives.";
-            }
-
-            $followUp = $this->llmService->generateResponse(
-                $followUpPrompt,
-                [],
-                [
-                    'system_prompt' => 'You are an appointment booking assistant. Be short and direct. Report results immediately without narration.',
-                    'role' => $role,
-                    'skip_internal_prompt' => true,
-                ]
-            );
-            if ($followUp['success'] ?? false) {
-                $confirmResponse = $followUp['response'];
-            }
-        } catch (\Exception $e) {
-            Log::debug('LLM follow-up for confirmed action failed: ' . $e->getMessage());
-        }
-
-        // Fallback if LLM follow-up fails
-        if (!$confirmResponse) {
-            $confirmResponse = $toolResult['message'] ?? ($toolResult['success']
-                ? "Done! The action has been completed successfully."
-                : "Sorry, the action failed: " . ($toolResult['error'] ?? 'Unknown error'));
-        }
+        // Generate a natural response from the tool result — direct formatting (no LLM call)
+        // This saves 2-5 seconds vs making another LLM API call just to format a result.
+        $confirmResponse = $this->formatToolResultDirectly($toolName, $toolResult, $toolArgs);
 
         $confirmedToolCalls = [['tool' => $toolName, 'arguments' => $toolArgs, 'result' => $toolResult]];
         $actionButtons = $this->extractActionButtonsFromToolCalls($confirmedToolCalls);
@@ -844,6 +864,31 @@ class AgentReasoningService
     }
 
     /**
+     * Coerce tool argument types to match their schema definitions.
+     * LLMs sometimes send integers as strings (e.g. "1" instead of 1),
+     * which causes strict validation failures on providers like Groq.
+     */
+    private function coerceToolArgTypes(string $toolName, array $args): array
+    {
+        // Known integer params across tools — cast string→int to prevent schema validation errors
+        $integerParams = ['appointment_id', 'limit', 'payment_id'];
+        foreach ($integerParams as $param) {
+            if (isset($args[$param]) && is_string($args[$param]) && is_numeric($args[$param])) {
+                $args[$param] = (int) $args[$param];
+            }
+        }
+
+        // Coerce service_ids array elements: string numbers → integers
+        if (isset($args['service_ids']) && is_array($args['service_ids'])) {
+            $args['service_ids'] = array_map(function ($v) {
+                return is_string($v) && is_numeric($v) ? (int) $v : $v;
+            }, $args['service_ids']);
+        }
+
+        return $args;
+    }
+
+    /**
      * Neutralize any tool_call injection attempts in user messages.
      * Replaces tool_call code blocks with harmless text so the LLM cannot be tricked into executing them.
      */
@@ -871,6 +916,83 @@ class AgentReasoningService
         ], 300); // 5-minute expiry
 
         return $key;
+    }
+
+    /**
+     * Format a tool result directly without an LLM call.
+     * Saves 2-5 seconds per confirmation by avoiding a round-trip to the LLM API.
+     */
+    private function formatToolResultDirectly(string $toolName, array $result, array $args): string
+    {
+        $success = $result['success'] ?? false;
+
+        if ($toolName === 'book_appointment') {
+            if ($success) {
+                $data = $result['data'] ?? [];
+                $lines = ["**Appointment booked successfully!**\n"];
+                if (!empty($data['date_formatted'])) {
+                    $lines[] = "**Date:** {$data['date_formatted']}" . (!empty($data['day']) ? " ({$data['day']})" : '');
+                }
+                if (!empty($data['time_formatted'])) {
+                    $lines[] = "**Time:** {$data['time_formatted']}";
+                }
+                if (!empty($data['services']) && is_array($data['services'])) {
+                    if (count($data['services']) === 1) {
+                        $srv = $data['services'][0];
+                        $lines[] = "**Service:** " . ($srv['name'] ?? 'N/A');
+                        if (isset($srv['price_formatted'])) {
+                            $lines[] = "**Price:** {$srv['price_formatted']}";
+                        }
+                    } else {
+                        $lines[] = "\n**Services:**";
+                        foreach ($data['services'] as $srv) {
+                            $pf = $srv['price_formatted'] ?? '';
+                            $lines[] = "- " . ($srv['name'] ?? 'N/A') . ($pf ? " — {$pf}" : '');
+                        }
+                    }
+                } elseif (!empty($data['service'])) {
+                    $lines[] = "**Service:** {$data['service']}";
+                }
+                if (!empty($data['total_price_formatted'])) {
+                    $lines[] = "**Total:** {$data['total_price_formatted']}";
+                }
+                if (!empty($data['appointment_id'])) {
+                    $lines[] = "**Appointment #:** {$data['appointment_id']}";
+                }
+                $lines[] = "**Status:** Pending approval";
+                if (isset($data['remaining_bookings_today']) && isset($data['daily_limit'])) {
+                    $used = $data['daily_limit'] - $data['remaining_bookings_today'];
+                    $lines[] = "\nDaily slots: {$used}/{$data['daily_limit']} used";
+                }
+                return implode("\n", $lines);
+            } else {
+                $error = $result['error'] ?? 'Unknown error';
+                return "**Booking failed:** {$error}";
+            }
+        }
+
+        if ($toolName === 'cancel_appointment') {
+            if ($success) {
+                return "**Appointment cancelled successfully.** " . ($result['message'] ?? '');
+            } else {
+                return "**Cancellation failed:** " . ($result['error'] ?? 'Unknown error');
+            }
+        }
+
+        if ($toolName === 'reschedule_appointment') {
+            if ($success) {
+                return "**Appointment rescheduled successfully.** " . ($result['message'] ?? '');
+            } else {
+                return "**Rescheduling failed:** " . ($result['error'] ?? 'Unknown error');
+            }
+        }
+
+        // Generic fallback for other tools
+        if ($success) {
+            return $result['message'] ?? "Action completed successfully.";
+        } else {
+            return "Action failed: " . ($result['error'] ?? 'Unknown error');
+        }
     }
 
     /**

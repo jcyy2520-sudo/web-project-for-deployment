@@ -100,13 +100,11 @@ export const AuthProvider = ({ children }) => {
         if (storedUser) {
           try {
             const parsedUser = JSON.parse(storedUser);
-            // Still set the user for UI hydration, but strictly keep loading = true
-            // so ProtectedRoute guards prevent access until the backend confirms
+            // Hydrate quickly from localStorage so role dashboards can render immediately.
             setUser({ ...parsedUser });
-            setLoading(true);
+            setLoading(false);
 
-            // Verify session in the BACKGROUND (BLOCKS UI RENDERING FOR PROTECTED ROUTES)
-            // If it fails with 401, we log out; otherwise update with server-verified data
+            // Verify session in the background and reconcile user data when available.
             axios.get('/api/user', {
               timeout: 8000
             }).then(response => {
@@ -114,7 +112,6 @@ export const AuthProvider = ({ children }) => {
               setUser(freshUserData);
               localStorage.setItem('user', JSON.stringify(freshUserData));
               setConnectionError(false);
-              setLoading(false); // Only unlock UI once cryptographically verified
             }).catch(verifyError => {
               if (verifyError.response?.status === 401) {
                 console.warn('Session expired or token invalid, logging out...');
@@ -123,7 +120,6 @@ export const AuthProvider = ({ children }) => {
                 // Network failure
                 setConnectionError(true);
               }
-              setLoading(false); // Failed verification, unlock so redirect can occur
             });
 
             return;
@@ -199,6 +195,9 @@ export const AuthProvider = ({ children }) => {
       
       if (error.response?.status === 422) {
         errorMessage = error.response.data?.message || 'Validation failed';
+      } else if (error.response?.status === 429) {
+        const retryAfter = error.response.headers?.['retry-after'] || error.response.headers?.['Retry-After'] || 60;
+        errorMessage = error.response.data?.message || `Too many attempts! Please try again in ${retryAfter} seconds.`;
       } else if (error.response?.status === 401) {
         errorMessage = 'Invalid email or password';
       } else if (error.response?.data?.message) {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import logger from '../utils/logger';
 import useLandingContent from '../hooks/useLandingContent';
@@ -45,6 +45,16 @@ const normalizeStats = (rawStats = {}) => ({
   totalServices: parseStatNumber(rawStats.totalServices),
 });
 
+// Static gradient strings (avoid recreating per render)
+const LIGHT_GRADIENT = 'linear-gradient(90deg, var(--primary), var(--secondary))';
+const DARK_GRADIENT = 'linear-gradient(90deg,var(--accent),#D97706)';
+const LIGHT_BG_GRADIENT = 'linear-gradient(to bottom, var(--background), var(--surface))';
+
+// Hoisted style objects (stable references across renders)
+const STYLE_BLOB_DELAY_05 = { animationDelay: '0.5s' };
+const STYLE_BLOB_DELAY_1 = { animationDelay: '1s' };
+const STYLE_BLOB_DELAY_2 = { animationDelay: '2s' };
+
 const LandingPage = () => {
   const { isDarkMode, setIsDarkMode } = useTheme();
   // PWA Detection Bouncer
@@ -65,12 +75,7 @@ const LandingPage = () => {
   const [isFeedbackLoading, setIsFeedbackLoading] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [activeSection, setActiveSection] = useState('home');
-  const [animatedStats, setAnimatedStats] = useState({
-    totalAppointments: 0,
-    totalUsers: 0,
-    completedAppointments: 0,
-    totalServices: 0
-  });
+  const statNumberRefs = useRef([]);
 
   const [services, setServices] = useState([]);
   const [stats, setStats] = useState({
@@ -164,7 +169,7 @@ const LandingPage = () => {
 
   // Settings
   const siteName = getSetting('site_name', 'LEGALEASE');
-  const logoUrl = getSetting('logo_url', '/logo.jpg');
+  const logoUrl = isDarkMode ? '/logo-dark-v2.png' : '/logo-light-v2.png';
   const logoAlt = getSetting('logo_alt', 'LegalEase Logo');
   const copyrightText = getSetting('copyright_text', '© 2024 LegalEase System. All rights reserved. | Privacy | Terms');
   const footerAddress = getSetting('footer_address', '233 Aljenjay Building, Vicente Ylagan Street, Bagong Bayan 2, Bongabong, Oriental Mindoro.');
@@ -185,11 +190,6 @@ const LandingPage = () => {
     { value: 'other', label: 'Other' },
   ]);
   const chatbotEnabled = getSetting('chatbot_section_enabled', true);
-
-  // Gradients
-  const lightGradient = () => `linear-gradient(90deg, var(--primary), var(--secondary))`;
-  const darkGradient = () => `linear-gradient(90deg,var(--accent),#D97706)`;
-  const lightBgGradient = `linear-gradient(to bottom, var(--background), var(--surface))`;
 
   // Glass card utility
   const glassCard = isDarkMode
@@ -240,18 +240,48 @@ const LandingPage = () => {
     };
   }, []);
 
-  // Animate stats counter
+  // Stat display config (derived from CMS or defaults)
+  const statConfig = useMemo(() => {
+    if (statsSection?.items?.length > 0) {
+      return statsSection.items.map(item => ({
+        statKey: item.metadata?.stat_key || null,
+        suffix: item.metadata?.suffix || '',
+        label: item.title,
+      }));
+    }
+    return [
+      { statKey: 'totalAppointments', suffix: '+', label: 'Total Appointments' },
+      { statKey: 'totalUsers', suffix: '+', label: 'Active Users' },
+      { statKey: 'completedAppointments', suffix: '+', label: 'Completed Services' },
+      { statKey: 'totalServices', suffix: '', label: 'Available Services' },
+    ];
+  }, [statsSection]);
+
+  // Animate stats counter — updates DOM directly via refs (zero re-renders)
   useEffect(() => {
     const nextStats = normalizeStats(stats);
     const hasRenderableValues = Object.values(nextStats).some((value) => value > 0);
 
+    const formatValue = (key, values, suffix) => {
+      if (!key) return '—';
+      const v = values[key];
+      return v > 0 ? `${v}${suffix}` : '—';
+    };
+
+    const updateDOM = (values) => {
+      statConfig.forEach((cfg, i) => {
+        const el = statNumberRefs.current[i];
+        if (el) el.textContent = formatValue(cfg.statKey, values, cfg.suffix);
+      });
+    };
+
     if (!hasRenderableValues) {
-      setAnimatedStats(nextStats);
+      updateDOM(nextStats);
       return;
     }
 
     if (hasAnimatedRef.current) {
-      setAnimatedStats(nextStats);
+      updateDOM(nextStats);
       return;
     }
 
@@ -262,7 +292,7 @@ const LandingPage = () => {
 
     const tick = (now) => {
       const progress = Math.min((now - startTime) / duration, 1);
-      setAnimatedStats({
+      updateDOM({
         totalAppointments: Math.floor(nextStats.totalAppointments * progress),
         totalUsers: Math.floor(nextStats.totalUsers * progress),
         completedAppointments: Math.floor(nextStats.completedAppointments * progress),
@@ -281,7 +311,7 @@ const LandingPage = () => {
         cancelAnimationFrame(frameId);
       }
     };
-  }, [stats]);
+  }, [stats, statConfig]);
 
   // Stats polling — don't fetch immediately since /api/public/init already provides stats.
   // Only start refreshing stats every 30s for live updates.
@@ -473,7 +503,7 @@ const LandingPage = () => {
   };
 
   // Transform real services into features with CMS fallback
-  const features = services.length > 0
+  const features = useMemo(() => services.length > 0
     ? services.map((service, idx) => ({
         title: service.name || 'Legal Service',
         description: service.description || 'Professional legal service tailored to your needs',
@@ -492,10 +522,10 @@ const LandingPage = () => {
           { title: "Document Security", description: "Military-grade encryption for all your sensitive legal documents", icon: "🛡️" },
           { title: "Real-time Tracking", description: "Track your appointment status and receive live updates", icon: "📱" },
           { title: "Available Always", description: "Book and manage appointments anytime, anywhere", icon: "🌙" },
-        ];
+        ], [services, servicesSection.items]);
 
   // Process steps from CMS or defaults
-  const processSteps = howItWorks.items.length > 0
+  const processSteps = useMemo(() => howItWorks.items.length > 0
     ? howItWorks.items.map(item => ({
         step: item.step_number || '01',
         title: item.title,
@@ -506,10 +536,10 @@ const LandingPage = () => {
         { step: "02", title: "Verify Identity", description: "Complete quick identity verification process" },
         { step: "03", title: "Book Appointment", description: "Choose your preferred date and time slot" },
         { step: "04", title: "Get Notarized", description: "Complete your notarization seamlessly" },
-      ];
+      ], [howItWorks.items]);
 
   // Trust indicators from CMS or defaults
-  const trustIndicators = hero.items.length > 0
+  const trustIndicators = useMemo(() => hero.items.length > 0
     ? hero.items.map(item => ({
         value: item.metadata?.stat_key ? (stats[item.metadata.stat_key] || item.description) : (item.metadata?.static_value || item.description),
         label: item.title,
@@ -518,24 +548,7 @@ const LandingPage = () => {
         { value: stats.totalAppointments || '500+', label: 'Documents Notarized' },
         { value: stats.totalUsers || '1000+', label: 'Satisfied Clients' },
         { value: '8/5', label: 'Available Anytime' },
-      ];
-
-  // Dynamic stats display
-  const displayStats = statsSection.items.length > 0
-    ? statsSection.items.map(item => ({
-        number: item.metadata?.stat_key
-          ? (animatedStats[item.metadata.stat_key] > 0
-            ? `${animatedStats[item.metadata.stat_key]}${item.metadata?.suffix || ''}`
-            : '—')
-          : '—',
-        label: item.title,
-      }))
-    : [
-        { number: animatedStats.totalAppointments > 0 ? `${animatedStats.totalAppointments}+` : "—", label: "Total Appointments" },
-        { number: animatedStats.totalUsers > 0 ? `${animatedStats.totalUsers}+` : "—", label: "Active Users" },
-        { number: animatedStats.completedAppointments > 0 ? `${animatedStats.completedAppointments}+` : "—", label: "Completed Services" },
-        { number: animatedStats.totalServices > 0 ? `${animatedStats.totalServices}` : "—", label: "Available Services" },
-      ];
+      ], [hero.items, stats]);
 
   // How It Works visual from CMS
   const howItWorksVisualIcon = howItWorks.metadata?.visual_icon || '📋';
@@ -558,29 +571,29 @@ const LandingPage = () => {
       isDarkMode
         ? 'bg-gradient-to-b from-gray-950 via-gray-900 to-gray-950'
         : ''
-    }`} style={!isDarkMode ? { background: lightBgGradient } : {}}>
+    }`} style={!isDarkMode ? { background: LIGHT_BG_GRADIENT } : {}}>
       {/* Animated Background Blobs */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden">
         <div
           ref={blobOneRef}
           className={`absolute top-1/4 left-1/4 w-80 h-80 ${isDarkMode ? 'bg-amber-500/5' : 'bg-blue-500/5'} rounded-full blur-3xl animate-pulse`}
-          style={{ animationDelay: '0.5s' }}
+          style={STYLE_BLOB_DELAY_05}
         />
         <div
           ref={blobTwoRef}
           className={`absolute bottom-1/3 right-1/4 w-96 h-96 ${isDarkMode ? 'bg-amber-600/3' : 'bg-blue-600/3'} rounded-full blur-3xl animate-pulse`}
-          style={{ animationDelay: '1s' }}
+          style={STYLE_BLOB_DELAY_1}
         />
         <div
           ref={blobThreeRef}
           className={`absolute top-2/3 left-1/2 w-64 h-64 ${isDarkMode ? 'bg-purple-500/3' : 'bg-indigo-400/3'} rounded-full blur-3xl animate-pulse`}
-          style={{ animationDelay: '2s' }}
+          style={STYLE_BLOB_DELAY_2}
         />
       </div>
 
       {/* Scroll Progress Bar */}
       <div className="fixed top-0 left-0 right-0 h-0.5 z-50 origin-left scale-x-0"
-        style={{ animation: 'progress linear forwards', animationTimeline: 'scroll(root)', background: isDarkMode ? darkGradient() : lightGradient() }} />
+        style={{ animation: 'progress linear forwards', animationTimeline: 'scroll(root)', background: isDarkMode ? DARK_GRADIENT : LIGHT_GRADIENT }} />
 
       {/* ==================== NAVIGATION ==================== */}
       <nav className={`fixed w-full z-50 transition-all duration-300 ${
@@ -592,7 +605,7 @@ const LandingPage = () => {
           <div className="flex justify-between items-center h-16 md:h-20">
             {/* Logo */}
             <div className="flex items-center space-x-2.5 group cursor-pointer" onClick={() => scrollToSection('home')}>
-              <img src={logoUrl} alt={logoAlt} className="h-8 md:h-10 w-auto object-contain rounded shadow transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3" />
+              <img src={logoUrl} alt={logoAlt} className="h-10 md:h-12 w-auto object-contain rounded shadow transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3" />
               <span className="text-lg md:text-2xl font-bold tracking-tight transition-colors duration-300"
                 style={{ color: isDarkMode ? 'rgba(255,255,255,0.95)' : 'var(--secondary)', textTransform: !isDarkMode ? 'uppercase' : undefined, letterSpacing: '1px' }}>
                 {siteName}
@@ -615,7 +628,7 @@ const LandingPage = () => {
                   >
                     <span className="relative z-10">{item}</span>
                     {activeSection === sectionId && (
-                      <span className="absolute -bottom-1 left-0 w-full h-0.5 animate-pulse" style={{ background: isDarkMode ? undefined : lightGradient() }} />
+                      <span className="absolute -bottom-1 left-0 w-full h-0.5 animate-pulse" style={{ background: isDarkMode ? undefined : LIGHT_GRADIENT }} />
                     )}
                     <span className={`absolute inset-0 scale-0 group-hover:scale-100 rounded transition-transform duration-300 ${isDarkMode ? 'bg-amber-500/10' : 'bg-blue-200'}`} />
                   </button>
@@ -631,15 +644,14 @@ const LandingPage = () => {
               </button>
               <button onClick={() => setIsAuthModalOpen(true)}
                 className="px-5 py-2 rounded-lg font-semibold hover:scale-105 active:scale-95 relative overflow-hidden group transition-all duration-300"
-                style={{ background: isDarkMode ? darkGradient() : lightGradient(), color: '#ffffff' }}>
+                style={{ background: isDarkMode ? DARK_GRADIENT : LIGHT_GRADIENT, color: '#ffffff' }}>
                 <span className="relative z-10">{navCtaText}</span>
                 <span className="absolute inset-0 translate-y-full group-hover:translate-y-0 transition-transform duration-300"
-                  style={{ background: isDarkMode ? 'linear-gradient(90deg,#C2410C,#92400E)' : lightGradient() }} />
+                  style={{ background: isDarkMode ? 'linear-gradient(90deg,#C2410C,#92400E)' : LIGHT_GRADIENT }} />
               </button>
             </div>
 
-            {/* Mobile Menu Button */}
-            <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            {/* Mobile Menu Button */}            <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
               className="md:hidden p-2 rounded hover:bg-gray-800 transition-all duration-300 hover:scale-110">
               <svg className={`w-5 h-5 text-gray-400 transition-transform duration-300 ${isMobileMenuOpen ? 'rotate-90' : ''}`}
                 fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -672,7 +684,7 @@ const LandingPage = () => {
               </button>
               <button onClick={() => setIsAuthModalOpen(true)}
                 className="w-full py-2.5 rounded-lg font-semibold text-sm transition-all duration-300 hover:scale-105"
-                style={{ background: isDarkMode ? darkGradient() : lightGradient(), color: '#fff' }}>
+                style={{ background: isDarkMode ? DARK_GRADIENT : LIGHT_GRADIENT, color: '#fff' }}>
                 {navCtaText}
               </button>
             </div>
@@ -706,10 +718,10 @@ const LandingPage = () => {
               <div className="flex flex-row gap-2 sm:gap-3 justify-center lg:justify-start items-center flex-wrap">
                 <button onClick={() => setIsAuthModalOpen(true)}
                   className="px-4 sm:px-6 py-2.5 sm:py-3 rounded-xl font-semibold hover:scale-105 active:scale-95 group relative overflow-hidden transition-all duration-300 text-white text-sm sm:text-base"
-                  style={{ background: isDarkMode ? darkGradient() : lightGradient() }}>
+                  style={{ background: isDarkMode ? DARK_GRADIENT : LIGHT_GRADIENT }}>
                   <span className="relative z-10">{hero.button_primary_text}</span>
                   <span className="absolute inset-0 translate-y-full group-hover:translate-y-0 transition-transform duration-300"
-                    style={{ background: isDarkMode ? 'linear-gradient(90deg,#C2410C,#92400E)' : lightGradient() }} />
+                    style={{ background: isDarkMode ? 'linear-gradient(90deg,#C2410C,#92400E)' : LIGHT_GRADIENT }} />
                 </button>
                 <button onClick={() => scrollToSection('howitworks')}
                   className="border px-4 sm:px-6 py-2.5 sm:py-3 rounded-xl font-semibold transition-all duration-300 hover:scale-105 active:scale-95 text-sm sm:text-base"
@@ -767,15 +779,16 @@ const LandingPage = () => {
       }`}>
         <div className="max-w-5xl mx-auto px-4 sm:px-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-            {displayStats.map((stat, index) => (
+            {statConfig.map((cfg, index) => (
               <div key={index} className={`text-center group p-4 rounded-xl transition-all duration-300 ${glassCard} ${glassCardHover}`}
                 style={{ animation: `fadeInUp 0.6s ease-out ${index * 100}ms forwards` }}>
-                <div className="text-2xl md:text-3xl font-bold mb-1 transition-all duration-300 group-hover:scale-110"
+                <div ref={el => { statNumberRefs.current[index] = el; }}
+                  className="text-2xl md:text-3xl font-bold mb-1 transition-all duration-300 group-hover:scale-110"
                   style={isDarkMode ? { color: '#ffffff' } : { color: 'var(--primary)' }}>
-                  {stat.number}
+                  —
                 </div>
                 <div className="text-sm transition-colors" style={isDarkMode ? { color: '#9CA3AF' } : { color: 'var(--text-secondary)' }}>
-                  {stat.label}
+                  {cfg.label}
                 </div>
               </div>
             ))}
@@ -946,7 +959,7 @@ const LandingPage = () => {
                   style={{ animation: `fadeInUp 0.6s ease-out ${index * 150}ms forwards` }}>
                   <div className="flex items-center mb-4">
                     <div className="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-sm shadow transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3"
-                      style={!isDarkMode ? { background: lightGradient(), border: '1px solid var(--secondary-20)', color: 'var(--text-primary)' } : { background: darkGradient() }}>
+                      style={!isDarkMode ? { background: LIGHT_GRADIENT, border: '1px solid var(--secondary-20)', color: 'var(--text-primary)' } : { background: DARK_GRADIENT }}>
                       {item.clientName.charAt(0).toUpperCase()}
                     </div>
                     <div className="ml-3">
@@ -974,7 +987,7 @@ const LandingPage = () => {
                   style={{ animation: `fadeInUp 0.6s ease-out ${index * 150}ms forwards` }}>
                   <div className="flex items-center mb-4">
                     <div className="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-sm border transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3"
-                      style={!isDarkMode ? { background: lightGradient(), borderColor: 'var(--secondary-20)' } : { background: darkGradient() }}>
+                      style={!isDarkMode ? { background: LIGHT_GRADIENT, borderColor: 'var(--secondary-20)' } : { background: DARK_GRADIENT }}>
                       C{item}
                     </div>
                     <div className="ml-3">
@@ -1009,7 +1022,7 @@ const LandingPage = () => {
 
       {/* ==================== CTA SECTION ==================== */}
       <section className="py-16 relative overflow-hidden"
-        style={{ background: isDarkMode ? darkGradient() : lightGradient(), color: '#fff' }}>
+        style={{ background: isDarkMode ? DARK_GRADIENT : LIGHT_GRADIENT, color: '#fff' }}>
         <div className="absolute inset-0 opacity-10">
           <div className="absolute inset-0" style={{
             backgroundImage: `url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M11 18c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm48 25c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm-43-7c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm63 31c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM34 90c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm56-76c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM12 86c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm28-65c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm23-11c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm-6 60c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm29 22c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zM32 63c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm57-13c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm-9-21c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM60 91c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM35 41c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM12 60c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2z' fill='%23ffffff' fill-opacity='0.4' fill-rule='evenodd'/%3E%3C/svg%3E")`,
@@ -1050,7 +1063,7 @@ const LandingPage = () => {
             {/* Company Info */}
             <div className="col-span-2 md:col-span-1 text-center" style={{ animation: 'fadeInUp 0.6s ease-out forwards' }}>
               <div className="flex flex-col items-center space-y-2.5 mb-3 group">
-                <img src={logoUrl} alt={logoAlt} className="h-10 w-auto object-contain rounded transition-transform duration-300 group-hover:scale-110" />
+                <img src={logoUrl} alt={logoAlt} className="h-12 w-auto object-contain rounded transition-transform duration-300 group-hover:scale-110" />
                 <span className="text-xl font-bold group-hover:text-amber-400 transition-colors"
                   style={isDarkMode ? { color: '#ffffff' } : { color: '#7DD3FC', textTransform: 'uppercase', letterSpacing: '1px' }}>
                   {siteName.replace('LEGALEASE', 'LegalEase')}
@@ -1093,7 +1106,7 @@ const LandingPage = () => {
               </p>
               <button onClick={() => setIsAuthModalOpen(true)}
                 className="w-full py-2 rounded-lg font-semibold text-sm hover:shadow-md transition-all duration-300 hover:scale-105 active:scale-95 relative overflow-hidden group"
-                style={isDarkMode ? { background: darkGradient(), color: '#fff' } : { backgroundColor: 'var(--surface)', color: 'var(--secondary)' }}>
+                style={isDarkMode ? { background: DARK_GRADIENT, color: '#fff' } : { backgroundColor: 'var(--surface)', color: 'var(--secondary)' }}>
                 <span className="relative z-10">{navCtaText}</span>
                 <span className="absolute inset-0 translate-y-full group-hover:translate-y-0 transition-transform duration-300"
                   style={isDarkMode ? { background: 'linear-gradient(90deg,#C2410C,#92400E)' } : { backgroundColor: 'var(--surface)' }} />
@@ -1204,11 +1217,11 @@ const LandingPage = () => {
         </div>
       </footer>
 
-      {/* Modals */}
-      <AuthTabsModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} isDarkMode={isDarkMode} />
-      <FeedbackThankYouModal isOpen={isThankYouModalOpen} onClose={() => setIsThankYouModalOpen(false)} rating={feedbackRating} message={feedbackMessage} category={feedbackCategory} />
-      <FeedbackErrorModal isOpen={isErrorModalOpen} onClose={() => setIsErrorModalOpen(false)} title={errorModalContent.title} message={errorModalContent.message} primaryAction={errorModalContent.primaryAction} />
-      <AllTestimonialsModal isOpen={isAllTestimonialsModalOpen} onClose={() => setIsAllTestimonialsModalOpen(false)} isDarkMode={isDarkMode} />
+      {/* Modals — conditionally rendered to avoid unnecessary reconciliation */}
+      {isAuthModalOpen && <AuthTabsModal isOpen onClose={() => setIsAuthModalOpen(false)} isDarkMode={isDarkMode} />}
+      {isThankYouModalOpen && <FeedbackThankYouModal isOpen onClose={() => setIsThankYouModalOpen(false)} rating={feedbackRating} message={feedbackMessage} category={feedbackCategory} />}
+      {isErrorModalOpen && <FeedbackErrorModal isOpen onClose={() => setIsErrorModalOpen(false)} title={errorModalContent.title} message={errorModalContent.message} primaryAction={errorModalContent.primaryAction} />}
+      {isAllTestimonialsModalOpen && <AllTestimonialsModal isOpen onClose={() => setIsAllTestimonialsModalOpen(false)} isDarkMode={isDarkMode} />}
     </div>
   );
 };

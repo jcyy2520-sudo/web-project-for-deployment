@@ -21,15 +21,15 @@
     "noFallthroughCasesInSwitch": true,
 
     /* Path aliases for cleaner imports */
-    "baseUrl": ".",
+    "ignoreDeprecations": "5.0",
     "paths": {
-      "@/*": ["src/*"],
-      "@components/*": ["src/components/*"],
-      "@hooks/*": ["src/hooks/*"],
-      "@context/*": ["src/context/*"],
-      "@pages/*": ["src/pages/*"],
-      "@utils/*": ["src/utils/*"],
-      "@config/*": ["src/config/*"]
+      "@/*": ["./src/*"],
+      "@components/*": ["./src/components/*"],
+      "@hooks/*": ["./src/hooks/*"],
+      "@context/*": ["./src/context/*"],
+      "@pages/*": ["./src/pages/*"],
+      "@utils/*": ["./src/utils/*"],
+      "@config/*": ["./src/config/*"]
     }
   },
   "include": ["src"],

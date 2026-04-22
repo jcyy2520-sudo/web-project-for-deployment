@@ -10,6 +10,11 @@ import InstallPrompt from './components/InstallPrompt';
 import ConnectionTest from './components/ConnectionTest';
 import './css/animations.css';
 import errorLogger from './utils/errorLogger';
+import {
+  clearPostAuthRedirecting,
+  getDashboardRouteByRole,
+  isPostAuthRedirecting,
+} from './utils/authRedirect';
 
 // Initialize error logging
 errorLogger.initialize();
@@ -54,6 +59,12 @@ const PageLoading = () => {
 const ProtectedRoute = ({ children, allowedRoles = [] }) => {
   const { isAuthenticated, user, loading } = useAuth();
 
+  useEffect(() => {
+    if (isAuthenticated) {
+      clearPostAuthRedirecting();
+    }
+  }, [isAuthenticated]);
+
   if (loading) {
     return <PageLoading />;
   }
@@ -63,7 +74,7 @@ const ProtectedRoute = ({ children, allowedRoles = [] }) => {
   }
 
   if (allowedRoles.length > 0 && !allowedRoles.includes(user?.role)) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to={getDashboardRouteByRole(user?.role)} replace />;
   }
 
   return (
@@ -75,7 +86,7 @@ const ProtectedRoute = ({ children, allowedRoles = [] }) => {
 
 // PublicRoute component
 const PublicRoute = ({ children }) => {
-  const { isAuthenticated, logout, loading } = useAuth();
+  const { isAuthenticated, user, loading } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [forceLogoutDone, setForceLogoutDone] = useState(false);
 
@@ -98,12 +109,16 @@ const PublicRoute = ({ children }) => {
     return <PageLoading />;
   }
 
+  if (isPostAuthRedirecting()) {
+    return <PageLoading />;
+  }
+
   return !isAuthenticated ? (
     <ErrorBoundary>
       {children}
     </ErrorBoundary>
   ) : (
-    <Navigate to="/dashboard" replace />
+    <Navigate to={getDashboardRouteByRole(user?.role)} replace />
   );
 };
 

@@ -25,6 +25,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware) {
         // Apply SecurityHeaders globally to all responses
         $middleware->append(\App\Http\Middleware\SecurityHeaders::class);
+        $middleware->statefulApi();
 
         $middleware->alias([
             'role' => \App\Http\Middleware\RoleMiddleware::class,

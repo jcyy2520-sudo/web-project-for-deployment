@@ -11,6 +11,7 @@ export const useRealtimeUpdates = (onCapacityChange, onSettingsChange, onUnavail
   const lastCheckRef = useRef(new Date());
   const pollingIntervalRef = useRef(null);
   const isPollingRef = useRef(false);
+  const pollInFlightRef = useRef(false);
   const consecutiveErrorsRef = useRef(0);
   const MAX_CONSECUTIVE_ERRORS = 5;
 
@@ -23,6 +24,16 @@ export const useRealtimeUpdates = (onCapacityChange, onSettingsChange, onUnavail
     isPollingRef.current = true;
 
     const pollUpdates = async () => {
+      if (typeof document !== 'undefined' && document.hidden) {
+        return;
+      }
+
+      if (pollInFlightRef.current) {
+        return;
+      }
+
+      pollInFlightRef.current = true;
+
       try {
         const response = await axios.get('/api/realtime/updates', {
           params: {
@@ -92,6 +103,8 @@ export const useRealtimeUpdates = (onCapacityChange, onSettingsChange, onUnavail
           stopPollingInternal();
           return;
         }
+      } finally {
+        pollInFlightRef.current = false;
       }
     };
 

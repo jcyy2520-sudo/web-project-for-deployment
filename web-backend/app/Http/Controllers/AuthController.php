@@ -39,8 +39,8 @@ class AuthController extends Controller
             $seconds = RateLimiter::availableIn($key);
             Log::warning('Rate limit exceeded for registration', ['ip' => $request->ip()]);
             return response()->json([
-                'message' => 'Too many registration attempts. Please try again in ' . ceil($seconds / 60) . ' minutes.'
-            ], 429);
+                'message' => "Too many registration attempts. Please try again in $seconds seconds."
+            ], 429)->header('Retry-After', $seconds);
         }
         RateLimiter::hit($key, 300); // 5 minutes
 
@@ -144,8 +144,8 @@ class AuthController extends Controller
         $seconds = RateLimiter::availableIn($key);
         Log::warning('Rate limit exceeded for verification', ['ip' => $request->ip()]);
         return response()->json([
-            'message' => 'Too many verification attempts. Please try again in ' . ceil($seconds / 60) . ' minutes.'
-        ], 429);
+            'message' => "Too many verification attempts. Please try again in $seconds seconds."
+        ], 429)->header('Retry-After', $seconds);
     }
 
     $request->validate([
@@ -404,8 +404,8 @@ class AuthController extends Controller
             $seconds = RateLimiter::availableIn($key);
             Log::warning('Resend rate limit exceeded', ['email' => $request->email]);
             return response()->json([
-                'message' => 'Too many resend attempts. Please try again in ' . ceil($seconds / 60) . ' minutes.'
-            ], 429);
+                'message' => "Too many resend attempts. Please try again in $seconds seconds."
+            ], 429)->header('Retry-After', $seconds);
         }
         RateLimiter::hit($key, 600); // 10 minutes
 
@@ -492,8 +492,8 @@ class AuthController extends Controller
             $seconds = RateLimiter::availableIn($key);
             Log::warning('Login rate limit exceeded', ['ip' => $request->ip()]);
             return response()->json([
-                'message' => 'Too many login attempts. Please try again in ' . ceil($seconds / 60) . ' minutes.'
-            ], 429);
+                'message' => "Too many login attempts. Please try again in $seconds seconds."
+            ], 429)->header('Retry-After', $seconds);
         }
 
         $request->validate([
@@ -615,10 +615,6 @@ class AuthController extends Controller
             $user->last_activity_at = now();
             $user->save();
 
-            // Record last activity
-            $user->last_activity_at = now();
-            $user->save();
-
             // Log in the user using the session guard (Sanctum SPA mode)
             Auth::login($user);
             
@@ -655,10 +651,14 @@ class AuthController extends Controller
             return response()->json($response);
 
         } catch (\Exception $e) {
-            Log::error('❌ TOKEN CREATION FAILED: ' . $e->getMessage());
-            Log::error('Stack trace: ' . $e->getTraceAsString());
+            Log::error('❌ Login processing failed: ' . $e->getMessage(), [
+                'user_id' => $user->id,
+                'email' => $user->email,
+                'exception' => get_class($e),
+                'trace' => $e->getTraceAsString()
+            ]);
             return response()->json([
-                'message' => 'Login failed - please try again',
+                'message' => 'Login failed - please contact support if the problem persists',
                 'success' => false
             ], 500);
         }

@@ -70,11 +70,12 @@ if (API_URL) {
   axios.defaults.baseURL = API_URL;
 }
 
-// Re-enable StrictMode — helps catch bugs in development (no effect in production)
+const RootWrapper = import.meta.env.DEV ? React.Fragment : React.StrictMode;
+
 ReactDOM.createRoot(document.getElementById('root')).render(
-  <React.StrictMode>
+  <RootWrapper>
     <App />
-  </React.StrictMode>
+  </RootWrapper>
 )
 
 // Laravel Echo (real-time) initialization (optional)

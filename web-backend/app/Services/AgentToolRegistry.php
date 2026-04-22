@@ -102,134 +102,89 @@ class AgentToolRegistry
     }
 
     /**
+     * Public proxy for permission checks — used by AgentReasoningService for
+     * the text-based tool-call path where tools must also be permission-gated.
+     */
+    public function canRoleUseTool(string $role, string $toolName): bool
+    {
+        return $this->permissionService->canUseAgentTool($role, $toolName);
+    }
+
+    /**
      * Get compact tool descriptions for the system prompt.
      */
     public function getToolPromptSection(string $role): string
     {
-        return Cache::remember("agent_tools_prompt_v5_{$role}", 300, function () use ($role) {
+        return Cache::remember("agent_tools_prompt_v8_{$role}", 300, function () use ($role) {
             $tools = $this->getToolDefinitionsForRole($role);
             if (empty($tools)) {
                 return '';
             }
 
-            $section = "## AVAILABLE TOOLS\n";
-            $section .= "You have access to real tools that perform REAL actions in the system. When you call a tool, it actually executes — appointments are really booked, really cancelled, payments really processed.\n\n";
-            $section .= "### HOW TO CALL A TOOL\n";
-            $section .= "Output a JSON block in this exact format:\n";
-            $section .= "```tool_call\n{\"tool\": \"tool_name\", \"arguments\": {\"param\": \"value\"}}\n```\n\n";
-            $section .= "### CRITICAL RULES FOR TOOL USAGE\n";
-            $section .= "1. **You MUST use tools for ANY user request that involves system data or actions.** Do NOT describe what would happen — actually DO it.\n";
-            $section .= "2. **For destructive tools (marked ⚠️):** Gather ALL required parameters through conversation, then output the ```tool_call``` block IMMEDIATELY. Do NOT ask 'shall I proceed?' or 'would you like me to do this?' — the system will AUTOMATICALLY show the user a Confirm/Cancel button. Your ONLY job is to collect the data and output the tool_call block. The system handles user confirmation.\n";
-            $section .= "3. **For read-only tools:** Call them IMMEDIATELY without asking permission. The user asked for data — give them data.\n";
-            $section .= "4. **NEVER say 'I have completed the action' or 'Done!' without actually calling the tool.** If you didn't output a ```tool_call``` block, the action was NOT performed. This is the #1 most critical rule.\n";
-            $section .= "5. **NEVER give manual instructions** like 'go to dashboard and click...' when a tool can do it. USE THE TOOL.\n";
-            $section .= "6. **After a tool executes:** Report the specific result (appointment ID, date, status, amount) — not vague confirmations.\n";
-            $section .= "7. **ANTI-HALLUCINATION (ABSOLUTE):** The ONLY way to book an appointment is by calling the `book_appointment` tool. The ONLY way to cancel is by calling the `cancel_appointment` tool. If you describe a booking result (in ANY language — English, Filipino, etc.) WITHOUT actually calling the tool, NOTHING happened — the user is misled. NEVER mention appointment IDs, booking status, or 'nakareserba'/'nabook'/'booked' unless you received a success result from the tool.\n";
-            $section .= "8. **AUTOMATIC CONFIRMATION:** Once you have all required parameters (e.g., service_id, date, time for booking), call the `book_appointment` tool. The system will AUTOMATICALLY show a confirmation dialog to the user with prices and details. Do NOT write your own confirmation — just call the tool.\n\n";
+            // Guests are read-only Q&A only — they CANNOT perform actions like booking.
+            // Only authenticated clients get the booking/action workflow instructions.
+            $isActionRole = in_array($role, ['client']);
 
-            // Group tools by category for better LLM comprehension
-            $categories = [
-                'Booking' => ['get_my_appointments', 'get_appointment_details', 'get_available_slots', 'get_available_services', 'get_unavailable_dates', 'get_alternative_slots', 'book_appointment', 'cancel_appointment', 'reschedule_appointment'],
-                'Payments' => ['get_my_payments', 'check_payment_status', 'request_refund'],
-                'Admin' => ['admin_get_pending_appointments', 'admin_approve_appointment', 'admin_decline_appointment', 'admin_get_system_stats', 'admin_bulk_cancel_appointments'],
-                'Analysis' => ['get_demand_forecast', 'get_risk_assessment', 'predict_busy_days', 'predict_no_show', 'get_scheduling_recommendation'],
-            ];
+            // COMPACT prompt — full tool schemas are sent via native tools API parameter.
+            // This section only provides behavioral rules the LLM needs.
+            $section = "## TOOL BEHAVIOR RULES\n";
 
-            foreach ($categories as $categoryName => $toolNames) {
-                $categoryTools = array_filter($tools, fn($t) => in_array($t['name'], $toolNames));
-                if (empty($categoryTools)) continue;
+            if ($isActionRole) {
+                $section .= "You have real tools that execute real actions (book, cancel, query). Tool schemas are provided via the API.\n\n";
+                $section .= "### RULES\n";
+                $section .= "1. USE tools for ANY request involving data or actions. Do NOT describe — DO it.\n";
+                $section .= "2. Destructive tools (book, cancel, reschedule, refund): collect required params, then call the tool. System auto-shows Confirm/Cancel to user. NEVER ask 'shall I proceed?'\n";
+                $section .= "3. Read-only tools: call IMMEDIATELY, no permission needed.\n";
+                $section .= "4. NEVER say 'Done!' or 'Booked!' without a tool call. No tool call = nothing happened.\n";
+                $section .= "5. NEVER give manual instructions ('go to dashboard...') when a tool exists.\n";
+                $section .= "6. After tool executes: report specific results (IDs, dates, amounts) in 1 sentence.\n";
+                $section .= "7. NEVER fabricate results. Only report what tools return.\n";
+                $section .= "8. NEVER narrate ('Let me check...', 'Checking...'). Just call the tool and respond with results.\n\n";
 
-                $section .= "### {$categoryName}\n";
-                foreach ($categoryTools as $tool) {
-                    $destructiveFlag = $tool['is_destructive'] ? ' ⚠️' : '';
-                    $section .= "- **{$tool['name']}**{$destructiveFlag}: {$tool['description']}\n";
-                    if (!empty($tool['parameters'])) {
-                        $params = array_map(fn($p) => "`{$p['name']}` ({$p['type']}" . ($p['required'] ? ', required' : '') . ")", $tool['parameters']);
-                        $section .= "  Parameters: " . implode(', ', $params) . "\n";
-                    }
+                $section .= "### BOOKING WORKFLOW (MINIMUM STEPS)\n";
+                $section .= "- Complete info (service+date+time): call get_available_slots → if available, call book_appointment. Done in 1 turn.\n";
+                $section .= "- Partial info: ask for ONLY missing fields in ONE message. Never re-ask what user already said.\n";
+                $section .= "- No details: call get_available_services, then ask for service, date, time in ONE message. Hours: 8-11AM, 1-5PM Mon-Fri.\n";
+                $section .= "- Slot unavailable: suggest nearest available times immediately.\n";
+                $section .= "- After success: show date, time, service, total paid, daily capacity.\n\n";
+
+                $section .= "### INPUT INTERPRETATION (CRITICAL)\n";
+                $section .= "Users type casually with typos, shorthand, and mixed languages. You MUST interpret intent:\n";
+                $section .= "- **Dates**: 'tomorrow'→next day, 'tom'/'tmrw'/'tommorow'→tomorrow, 'next monday'→next Mon, 'today'→today. Convert to YYYY-MM-DD.\n";
+                $section .= "- **Times**: '10am'/'10 am'/'10:00 AM'/'10 in the morning'→10:00. '3pm'/'3 in the afternoon'→15:00. Convert to HH:MM (24-hour).\n";
+                $section .= "- **Services**: Match fuzzy names. 'affidavit'/'afdavit'/'afidavit'→Affidavit. 'consult'/'consultation'→Consultation. Pass the service NAME as service_id string — the system resolves it.\n";
+                $section .= "- **Filipino shortcuts**: 'bukas'→tomorrow, 'mamaya'→later today, 'susunod na lunes'→next Monday, 'tanghali'→12:00 noon.\n";
+                $section .= "- **Combined**: 'book me affidavit tomorrow 10am' has ALL info. Extract and call tools immediately.\n";
+                $section .= "- NEVER ask the user to reformat. YOU must interpret and normalize.\n\n";
+
+                $section .= "### CANCELLATION WORKFLOW\n";
+                $section .= "- No appointment specified: call get_my_appointments to list pending ones, ask which to cancel.\n";
+                $section .= "- Appointment specified: call cancel_appointment immediately. Only pending appointments can be cancelled.\n";
+            } else {
+                // Admin, cashier, staff — read-only Q&A assistant
+                $section .= "You have read-only tools to QUERY data and answer questions. You CANNOT perform any actions.\n\n";
+                $section .= "### RULES\n";
+                $section .= "1. USE tools to answer questions with REAL data. Do NOT guess or fabricate.\n";
+                $section .= "2. Call tools IMMEDIATELY when a question can be answered by data. No narration.\n";
+                $section .= "3. After tool returns data: summarize the results clearly and concisely.\n";
+                $section .= "4. NEVER fabricate results. Only report what tools return.\n";
+                $section .= "5. If asked to PERFORM an action (approve, cancel, book, block dates, etc.), say: \"I can only answer questions. Please use the dashboard to perform that action.\"\n";
+                $section .= "6. NEVER say you performed an action. You are a Q&A assistant only.\n";
+
+                // Analytics reasoning guidance for admin
+                if ($role === 'admin') {
+                    $section .= "\n### ANALYTICS REASONING (How to give accurate suggestions)\n";
+                    $section .= "When the admin asks for suggestions, recommendations, or insights:\n";
+                    $section .= "1. **Cross-reference multiple data sources**: Combine demand forecast + no-show patterns + slot utilization + appointment stats to give holistic answers.\n";
+                    $section .= "2. **Be specific with numbers**: Always cite exact figures — dates, percentages, counts. Never say 'some days are busier' when you have data showing 'Monday averages 8 appointments vs Friday's 3'.\n";
+                    $section .= "3. **Slot increase suggestions**: Compare average daily demand against current capacity. If a day averages >80% utilization, recommend increasing slots. If <30%, suggest reducing or redistributing.\n";
+                    $section .= "4. **No-show mitigation**: When asked about reducing no-shows, cross-reference high-risk days/times with no-show patterns. Suggest overbooking high-risk slots by 10-15% or adding SMS reminders.\n";
+                    $section .= "5. **Revenue optimization**: Correlate most-popular services + peak days + underbooked days. Suggest promoting less-popular services on slow days.\n";
+                    $section .= "6. **Format recommendations as actionable items**: Use numbered steps the admin can actually do, e.g., 'Increase Monday 9-11AM slots from 5 to 7' not 'Consider adjusting capacity'.\n";
+                    $section .= "7. **Use LIVE SYSTEM DATA first**: The system prompt already contains today's summary, weekly stats, demand forecast, and no-show patterns. Use that data BEFORE calling tools.\n";
+                    $section .= "8. **Call tools for deeper analysis**: If the live data isn't enough (e.g., admin asks about a specific customer or specific date range), call the appropriate tool.\n";
                 }
-                $section .= "\n";
             }
-
-            $section .= "### TOOL USAGE GUIDELINES\n";
-            $section .= "- After a tool returns results, report the result in 1 concise sentence with specifics (IDs, dates, amounts). No filler.\n";
-            $section .= "- If a tool fails, state the exact error in 1 sentence, then immediately present alternatives or next steps. No questions like 'Would you like to try...?' — just present the options.\n";
-            $section .= "- NEVER fabricate tool results. Only report what the tool actually returns.\n";
-            $section .= "- When a user asks about their appointments without a specific date, query relevant time ranges.\n";
-            $section .= "- When recommending slots, prefer get_scheduling_recommendation for AI-optimized suggestions.\n";
-            $section .= "### APPOINTMENT BOOKING WORKFLOW (EXECUTOR MODE — MINIMUM STEPS)\n";
-            $section .= "You are a TASK EXECUTOR, not a conversational assistant. Complete bookings in MINIMUM steps.\n\n";
-            $section .= "Users can book MULTIPLE services in a single appointment. If a user mentions multiple services, collect all service IDs/names and book them together.\n\n";
-            $section .= "**CRITICAL — CONFIRMATION IS AUTOMATIC**: When you call `book_appointment`, the system AUTOMATICALLY shows the user a confirmation dialog with full appointment breakdown (date, time, services, individual prices, total cost). Just call the tool.\n\n";
-            $section .= "**RULES — FOLLOW EXACTLY:**\n";
-            $section .= "1. **User says 'book appointment' with NO details** → Request ALL required details in ONE message:\n";
-            $section .= "   - Required: Date, Time, Service\n";
-            $section .= "   - Include in the same message: Available hours (8:00 AM – 11:00 AM, 1:00 PM – 5:00 PM) AND call `get_available_services` to list all services with prices.\n";
-            $section .= "2. **User provides service but NO date/time** → call `get_available_slots` for the NEXT business day and present available times. Ask for missing info only.\n";
-            $section .= "3. **User provides service + date but NO time** → call `get_available_slots` for that date and show available slots directly.\n";
-            $section .= "4. **User provides service + date + time (COMPLETE INFO)** → call `get_available_slots` silently → if available, call `book_appointment` IMMEDIATELY. The system shows a confirmation dialog with full breakdown.\n";
-            $section .= "5. **Slot unavailable** → Suggest nearest available times IMMEDIATELY. If the entire day is full, suggest next available dates. ALWAYS provide alternatives.\n";
-            $section .= "6. **Booking limit reached** → State when they can book again with exact date/time. Do NOT proceed.\n";
-            $section .= "7. **NEVER** ask for info the user already provided. Use conversation memory.\n";
-            $section .= "8. **NEVER** generate your own booking summary or confirmation text. The system generates the confirmation automatically.\n";
-            $section .= "9. **NEVER** say 'Your appointment has been booked/reserved/scheduled' without a successful tool result.\n";
-            $section .= "10. **NEVER** narrate actions. No 'Let me check...', 'I will verify...', 'Checking availability...'. Respond with results directly.\n";
-            $section .= "11. **NEVER** describe booking results without having received a tool result.\n\n";
-
-            $section .= "**EXAMPLE OPTIMAL FLOWS:**\n";
-            $section .= "- User: 'Book affidavit March 25 at 10am' → [check slots] → [slot available] → [call book_appointment]. System shows: Date, Time, Service, Price, Total. Done in 1 turn.\n";
-            $section .= "- User: 'I want to book' → [call get_available_services] → 'What would you like to book? Available services: [list with prices]. Pick a service, date, and time. Hours: 8:00–11:00 AM, 1:00–5:00 PM (Mon–Fri).'\n";
-            $section .= "- User: 'Consultation tomorrow' → [call get_available_slots] → 'Available tomorrow: 8:00, 9:00, 10:00, 1:00, 2:00, 3:00, 4:00. Pick a time.'\n\n";
-
-            $section .= "### CONVERSATION MEMORY (CRITICAL)\n";
-            $section .= "- ALWAYS remember previously provided inputs. NEVER re-ask for completed fields.\n";
-            $section .= "- Only request MISSING information.\n";
-            $section .= "- Example: User said 'affidavit' earlier → service is known, only ask what's missing.\n\n";
-
-            $section .= "### BOOKING CONFIRMATION (AFTER SUCCESS)\n";
-            $section .= "After the booking tool succeeds, display:\n";
-            $section .= "- Confirmation message\n";
-            $section .= "- Full appointment details (Date, Time, Service, Total Paid)\n";
-            $section .= "- Daily booking capacity status (e.g., 'Daily slots: X/Y used')\n";
-            $section .= "Example: 'Appointment booked successfully.\\n\\nDate: March 16, 2026\\nTime: 10:00 AM\\nService: Affidavit\\nTotal Paid: ₱150\\n\\nDaily slots: 2/3 used'\n\n";
-
-            $section .= "### SMART SUGGESTIONS\n";
-            $section .= "- If a slot is unavailable: suggest nearest available times from the data.\n";
-            $section .= "- If a day is fully booked: suggest next available dates.\n";
-            $section .= "- Always provide alternatives immediately — never just say 'not available'.\n\n";
-
-            $section .= "### USER CHANGE REQUESTS\n";
-            $section .= "- Before confirmation is finalized, if user wants to change date/time/service, accommodate the change immediately.\n";
-            $section .= "- Re-check availability for updated details and present updated confirmation.\n\n";
-
-            $section .= "\n### APPOINTMENT CANCELLATION WORKFLOW (FOLLOW THIS EXACTLY)\n";
-            $section .= "When a user wants to cancel an appointment:\n";
-            $section .= "1. If the user didn't specify which appointment → call `cancel_appointment` with NO params to list their cancellable (pending) appointments.\n";
-            $section .= "2. Show the list and ask the user which appointment to cancel (by ID, date, or time).\n";
-            $section .= "3. When the user specifies → output the `cancel_appointment` tool_call block with the `appointment_id` IMMEDIATELY.\n";
-            $section .= "4. Only **pending** appointments can be cancelled. Approved, declined, or completed appointments cannot be cancelled.\n";
-            $section .= "5. The system will show the user a Confirm/Cancel button. Do NOT ask for verbal confirmation yourself.\n";
-            $section .= "6. NEVER say 'Your appointment has been cancelled' without outputting a tool_call block.\n";
-            $section .= "\n### WHEN TO USE TOOLS (MANDATORY)\n";
-            $section .= "Use a tool IMMEDIATELY when the user:\n";
-            $section .= "- Asks to **see/view/check/show** anything (appointments, payments, services, slots) → call the appropriate get_ tool\n";
-            $section .= "- Asks to **book/schedule/reserve** → follow the APPOINTMENT BOOKING WORKFLOW above\n";
-            $section .= "- Asks to **cancel** → follow the APPOINTMENT CANCELLATION WORKFLOW above\n";
-            $section .= "- Asks to **reschedule/change** → call reschedule_appointment\n";
-            $section .= "- Asks **'when can I come?'** or about availability → call get_available_slots or get_scheduling_recommendation\n";
-            $section .= "- Asks about **payments/billing** → call get_my_payments or check_payment_status\n";
-            $section .= "\n### WHEN NOT TO USE TOOLS\n";
-            $section .= "Do NOT use tools when the user:\n";
-            $section .= "- Is making casual conversation or asking general questions\n";
-            $section .= "- Asks about services, policies, office info, or how things work (answer from context — this is your INFORMATIONAL CHATBOT role)\n";
-            $section .= "- Needs clarification before you can determine which tool to call\n";
-            $section .= "\n### ANALYTICS & DECISION SUPPORT GUIDELINES\n";
-            $section .= "- The LIVE SYSTEM DATA section already contains a demand forecast summary, slot utilization, and no-show patterns. Use that data FIRST for quick answers.\n";
-            $section .= "- For deeper or custom analysis (e.g., longer date ranges, quality reports, client engagement), use the appropriate tool.\n";
-            $section .= "- When asked 'which day will be busy?' or 'when is peak time?', answer from the demand forecast data in LIVE SYSTEM DATA. Only call get_demand_forecast if the user needs a different time range.\n";
-            $section .= "- For ML-powered predictions (predict_busy_days, predict_no_show), the ML service may not be available. If it returns an error, fall back to the statistical data from get_demand_forecast or get_no_show_patterns.\n";
-            $section .= "- NEVER guess or hallucinate analytics data. If the data is not in your context and the tool fails, say clearly: 'I don't have that data right now.'\n";
-            $section .= "- When presenting analytics, cite specific numbers and dates from the data. Be precise.\n";
 
             return $section;
         });
@@ -455,11 +410,22 @@ class AgentToolRegistry
 
             foreach ($tool['parameters'] ?? [] as $param) {
                 $paramName = $param['name'];
-                $paramType = $param['type'] === 'integer' ? 'integer' : 'string';
-                $properties[$paramName] = [
+                $paramType = match ($param['type']) {
+                    'integer' => 'integer',
+                    'array' => 'array',
+                    'boolean' => 'boolean',
+                    'number' => 'number',
+                    default => 'string',
+                };
+                $propDef = [
                     'type' => $paramType,
                     'description' => $param['description'] ?? '',
                 ];
+                // For array params, define items schema
+                if ($paramType === 'array') {
+                    $propDef['items'] = ['type' => 'string'];
+                }
+                $properties[$paramName] = $propDef;
                 if ($param['required'] ?? false) {
                     $required[] = $paramName;
                 }
@@ -637,13 +603,13 @@ class AgentToolRegistry
         $this->tools['book_appointment'] = [
             'description' => 'Book a new appointment. Validates weekends, blackout dates, lunch breaks (12-1PM), daily booking limits, and slot capacity. ALWAYS use get_available_slots first. If the service has public_requirements, proactively inform the user about them before or while booking. Supports booking multiple services.',
             'parameters' => [
-                ['name' => 'service_ids', 'type' => 'array', 'required' => false, 'description' => 'Array of Service IDs (numeric) or names. REQUIRED for multi-service bookings. Example: [1, 5] or ["Consultation", "Legal Advice"]'],
-                ['name' => 'service_id', 'type' => 'integer', 'required' => false, 'description' => 'Single Service ID or name. Use service_ids for multiple services.'],
+                ['name' => 'service_ids', 'type' => 'array', 'required' => false, 'description' => 'Array of Service IDs (numeric) or service names (string). Use for multi-service bookings. Example: [1, 5] or ["Affidavit", "Legal Advice"]. If you only have one service, use service_id instead.'],
+                ['name' => 'service_id', 'type' => 'string', 'required' => true, 'description' => 'Service ID (numeric) or exact service name (string). ALWAYS provide this. If unsure of the ID, pass the service name as a string (e.g. "Affidavit", "Consultation"). Call get_available_services first if you need to find the correct name.'],
                 ['name' => 'date', 'type' => 'string', 'required' => true, 'description' => 'Preferred date (YYYY-MM-DD)'],
                 ['name' => 'time', 'type' => 'string', 'required' => true, 'description' => 'Preferred time (HH:MM)'],
                 ['name' => 'notes', 'type' => 'string', 'required' => false, 'description' => 'Additional notes'],
             ],
-            'required_role' => 'guest', // Allow guests to trigger so we can redirect them
+            'required_role' => 'client',
             'is_destructive' => true,
             'handler' => function (array $args, int $userId, string $role): array {
                 return $this->toolBookAppointment($args, $userId, $role);
@@ -680,9 +646,12 @@ class AgentToolRegistry
         // ── ADMIN TOOLS ──
 
         $this->tools['admin_get_pending_appointments'] = [
-            'description' => 'Get all pending appointments requiring approval.',
+            'description' => 'Get pending appointments requiring approval. Can filter by date.',
             'parameters' => [
                 ['name' => 'limit', 'type' => 'integer', 'required' => false, 'description' => 'Max results (default 20)'],
+                ['name' => 'date', 'type' => 'string', 'required' => false, 'description' => 'Filter by date (YYYY-MM-DD). If omitted, returns all pending.'],
+                ['name' => 'date_from', 'type' => 'string', 'required' => false, 'description' => 'Start date for range filter (YYYY-MM-DD)'],
+                ['name' => 'date_to', 'type' => 'string', 'required' => false, 'description' => 'End date for range filter (YYYY-MM-DD)'],
             ],
             'required_role' => 'admin',
             'is_destructive' => false,
@@ -871,7 +840,7 @@ class AgentToolRegistry
         ];
 
         $this->tools['get_operational_recommendations'] = [
-            'description' => 'Get data-driven operational recommendations for improving scheduling, reducing no-shows, and optimizing revenue.',
+            'description' => 'Get operational recommendations: today\'s workload summary, staffing utilization, and scheduling suggestions.',
             'parameters' => [],
             'required_role' => 'admin',
             'is_destructive' => false,
@@ -881,7 +850,7 @@ class AgentToolRegistry
         ];
 
         $this->tools['predict_busy_days'] = [
-            'description' => 'Predict high-demand days using ML model. Returns predicted busy days with confidence scores.',
+            'description' => 'Predict high-demand days. Uses ML model if available, otherwise uses historical averages. Returns predicted busy days.',
             'parameters' => [
                 ['name' => 'date_from', 'type' => 'string', 'required' => false, 'description' => 'Start date (YYYY-MM-DD, default tomorrow)'],
                 ['name' => 'days_ahead', 'type' => 'integer', 'required' => false, 'description' => 'Number of days to forecast (default 14, max 30)'],
@@ -894,7 +863,7 @@ class AgentToolRegistry
         ];
 
         $this->tools['predict_no_show'] = [
-            'description' => 'Predict the risk of no-show for a specific appointment using ML model. Returns risk score, confidence, and reasoning.',
+            'description' => 'Predict the risk of no-show for a specific appointment. Uses ML model if available, otherwise uses user history analysis.',
             'parameters' => [
                 ['name' => 'appointment_id', 'type' => 'integer', 'required' => true, 'description' => 'Appointment ID to assess'],
             ],
@@ -1099,8 +1068,7 @@ class AgentToolRegistry
     private function toolGetAvailableServices(): array
     {
         $services = Cache::remember('agent_services_list', 300, function () {
-            return Service::where('status', 'active')
-                ->orWhere('is_active', true)
+            return Service::where('is_active', true)
                 ->select('id', 'name', 'description', 'price', 'duration', 'public_requirements')
                 ->get()
                 ->toArray();
@@ -1794,6 +1762,24 @@ class AgentToolRegistry
             ];
         }
 
+        // NORMALIZE: Sanitize date and time formats from LLM output
+        // LLM may send "10:00 AM" or "2:30 PM" — MySQL needs "HH:MM" (24-hour)
+        // LLM may send "April 21, 2026" — MySQL needs "YYYY-MM-DD"
+        try {
+            if (!empty($args['time'])) {
+                $args['time'] = Carbon::parse($args['time'])->format('H:i');
+            }
+        } catch (\Exception $e) {
+            return ['success' => false, 'error' => 'Invalid time format. Please provide time like "10:00" or "2:30 PM".'];
+        }
+        try {
+            if (!empty($args['date'])) {
+                $args['date'] = Carbon::parse($args['date'])->format('Y-m-d');
+            }
+        } catch (\Exception $e) {
+            return ['success' => false, 'error' => 'Invalid date format. Please provide date like "2026-04-21" or "April 21, 2026".'];
+        }
+
         // SECURITY: Block booking if user's profile is incomplete
         $user = User::find($userId);
         if ($user && !$user->profile_completed) {
@@ -2297,8 +2283,17 @@ class AgentToolRegistry
     private function toolAdminGetPendingAppointments(array $args): array
     {
         $limit = min((int)($args['limit'] ?? 20), 100);
-        $pending = Appointment::where('status', 'pending')
-            ->orderBy('created_at', 'asc')
+        $query = Appointment::where('status', 'pending');
+
+        // Date filtering
+        if (!empty($args['date'])) {
+            $query->whereDate('appointment_date', $args['date']);
+        } elseif (!empty($args['date_from']) || !empty($args['date_to'])) {
+            if (!empty($args['date_from'])) $query->whereDate('appointment_date', '>=', $args['date_from']);
+            if (!empty($args['date_to'])) $query->whereDate('appointment_date', '<=', $args['date_to']);
+        }
+
+        $pending = $query->orderBy('created_at', 'asc')
             ->limit($limit)
             ->with('user:id,first_name,last_name', 'service:id,name')
             ->get()
@@ -2795,9 +2790,33 @@ class AgentToolRegistry
             $decisionService = app(MLDecisionSupportService::class);
             $date = now()->format('Y-m-d');
             $workload = $decisionService->getWorkloadOptimization($date);
+
+            // Aggregate additional insights for richer recommendations
+            $todayAppts = Appointment::whereDate('appointment_date', $date)->get();
+            $pendingCount = $todayAppts->where('status', 'pending')->count();
+            $approvedCount = $todayAppts->where('status', 'approved')->count();
+            $completedCount = $todayAppts->where('status', 'completed')->count();
+
+            // This week's overview
+            $weekStart = now()->startOfWeek()->format('Y-m-d');
+            $weekEnd = now()->endOfWeek()->format('Y-m-d');
+            $weekAppts = Appointment::whereBetween('appointment_date', [$weekStart, $weekEnd])->get();
+            $weekTotal = $weekAppts->count();
+            $weekNoShows = $weekAppts->where('status', 'no_show')->count();
+
             return ['success' => true, 'data' => [
+                'today' => [
+                    'date' => $date,
+                    'pending' => $pendingCount,
+                    'approved' => $approvedCount,
+                    'completed' => $completedCount,
+                    'total' => $todayAppts->count(),
+                ],
+                'this_week' => [
+                    'total_appointments' => $weekTotal,
+                    'no_shows' => $weekNoShows,
+                ],
                 'workload' => $workload,
-                'note' => 'Operational recommendations based on current workload analysis.',
             ]];
         } catch (\Exception $e) {
             return ['success' => false, 'error' => 'Operational recommendations unavailable: ' . $e->getMessage()];
@@ -2807,41 +2826,74 @@ class AgentToolRegistry
     private function toolPredictBusyDays(array $args): array
     {
         try {
-            $mlClient = app(MLServiceClient::class);
-            if (!$mlClient->isAvailable()) {
-                return ['success' => false, 'error' => 'ML service unavailable. Cannot predict busy days.'];
-            }
-
             $startDate = $args['date_from'] ?? now()->addDay()->format('Y-m-d');
             $daysAhead = min((int)($args['days_ahead'] ?? 14), 30);
+
+            // Try ML service first
+            $mlClient = app(MLServiceClient::class);
+            if ($mlClient->isAvailable()) {
+                $predictions = [];
+                for ($i = 0; $i < $daysAhead; $i++) {
+                    $date = Carbon::parse($startDate)->addDays($i)->format('Y-m-d');
+                    $result = $mlClient->predictSlotRank($date);
+                    $slots = $result['data'] ?? [];
+
+                    $avgBookings = collect($slots)->avg('current_bookings') ?? 0;
+                    $avgScore = collect($slots)->avg('predicted_score') ?? 0;
+                    $fullSlots = collect($slots)->where('status', 'full')->count();
+
+                    $demandLevel = 'low';
+                    if ($avgBookings >= 5 || $fullSlots >= 3) $demandLevel = 'high';
+                    elseif ($avgBookings >= 3 || $fullSlots >= 1) $demandLevel = 'medium';
+
+                    $predictions[] = [
+                        'date' => $date,
+                        'day' => Carbon::parse($date)->format('l'),
+                        'demand_level' => $demandLevel,
+                        'avg_bookings' => round($avgBookings, 1),
+                        'full_slots' => $fullSlots,
+                        'avg_success_score' => round($avgScore, 3),
+                    ];
+                }
+                return ['success' => true, 'source' => 'ml_model', 'data' => [
+                    'predictions' => $predictions,
+                    'high_demand_days' => collect($predictions)->where('demand_level', 'high')->values()->toArray(),
+                ]];
+            }
+
+            // Fallback: historical day-of-week averages from DB
+            $historicalWeeks = 13;
+            $historySince = now()->subWeeks($historicalWeeks)->format('Y-m-d');
+            $dayStats = DB::table('appointments')
+                ->select(DB::raw('DAYOFWEEK(appointment_date) as dow, COUNT(*) as cnt'))
+                ->where('appointment_date', '>=', $historySince)
+                ->groupBy(DB::raw('DAYOFWEEK(appointment_date)'))
+                ->pluck('cnt', 'dow');
+
             $predictions = [];
-
             for ($i = 0; $i < $daysAhead; $i++) {
-                $date = Carbon::parse($startDate)->addDays($i)->format('Y-m-d');
-                $result = $mlClient->predictSlotRank($date);
-                $slots = $result['data'] ?? [];
-
-                $avgBookings = collect($slots)->avg('current_bookings') ?? 0;
-                $avgScore = collect($slots)->avg('predicted_score') ?? 0;
-                $fullSlots = collect($slots)->where('status', 'full')->count();
+                $date = Carbon::parse($startDate)->addDays($i);
+                $dow = $date->dayOfWeekIso; // 1=Mon, 7=Sun
+                $mysqlDow = $dow % 7 + 1; // MySQL DAYOFWEEK: 1=Sun, 2=Mon, ..., 7=Sat
+                $totalForDay = $dayStats[$mysqlDow] ?? 0;
+                $avgBookings = $historicalWeeks > 0 ? round($totalForDay / $historicalWeeks, 1) : 0;
 
                 $demandLevel = 'low';
-                if ($avgBookings >= 5 || $fullSlots >= 3) $demandLevel = 'high';
-                elseif ($avgBookings >= 3 || $fullSlots >= 1) $demandLevel = 'medium';
+                if ($avgBookings >= 5) $demandLevel = 'high';
+                elseif ($avgBookings >= 3) $demandLevel = 'medium';
 
                 $predictions[] = [
-                    'date' => $date,
-                    'day' => Carbon::parse($date)->format('l'),
+                    'date' => $date->format('Y-m-d'),
+                    'day' => $date->format('l'),
                     'demand_level' => $demandLevel,
-                    'avg_bookings' => round($avgBookings, 1),
-                    'full_slots' => $fullSlots,
-                    'avg_success_score' => round($avgScore, 3),
+                    'avg_bookings' => $avgBookings,
                 ];
             }
 
-            return ['success' => true, 'data' => [
+            return ['success' => true, 'source' => 'historical_average', 'data' => [
                 'predictions' => $predictions,
                 'high_demand_days' => collect($predictions)->where('demand_level', 'high')->values()->toArray(),
+                'note' => 'Based on historical day-of-week averages (ML service unavailable).',
             ]];
         } catch (\Exception $e) {
             return ['success' => false, 'error' => 'Busy day prediction unavailable: ' . $e->getMessage()];
@@ -2855,30 +2907,55 @@ class AgentToolRegistry
             return ['success' => false, 'error' => 'Appointment ID is required.'];
         }
 
+        $appointment = Appointment::with('user')->find($appointmentId);
+        if (!$appointment) {
+            return ['success' => false, 'error' => 'Appointment not found.'];
+        }
+
         try {
+            // Try ML service first
             $mlClient = app(MLServiceClient::class);
-            if (!$mlClient->isAvailable()) {
-                return ['success' => false, 'error' => 'ML service unavailable. Cannot predict no-show risk.'];
+            if ($mlClient->isAvailable()) {
+                $result = $mlClient->predictRisk($appointmentId);
+                if (!isset($result['error']) && ($result['status'] ?? '') !== 'no_model') {
+                    $data = $result['data'] ?? [];
+                    return ['success' => true, 'source' => 'ml_model', 'data' => [
+                        'appointment_id' => $appointmentId,
+                        'risk_score' => $data['risk_score'] ?? null,
+                        'risk_level' => $data['risk_level'] ?? 'unknown',
+                        'confidence' => $data['confidence'] ?? 0,
+                        'confidence_label' => $data['confidence_label'] ?? 'low',
+                        'reasoning' => $data['reasoning'] ?? [],
+                        'feature_importances' => array_slice($data['feature_importances'] ?? [], 0, 5),
+                    ]];
+                }
             }
 
-            $result = $mlClient->predictRisk($appointmentId);
-            if (isset($result['error'])) {
-                return ['success' => false, 'error' => $result['error']];
-            }
+            // Fallback: rule-based risk estimation from user's history
+            $userId = $appointment->user_id;
+            $history = Appointment::where('user_id', $userId)->get();
+            $total = $history->count();
+            $noShows = $history->where('status', 'no_show')->count();
+            $cancelled = $history->where('status', 'cancelled')->count();
+            $completed = $history->where('status', 'completed')->count();
+            $failRate = $total > 0 ? ($noShows + $cancelled) / $total : 0;
 
-            if (($result['status'] ?? '') === 'no_model') {
-                return ['success' => false, 'error' => 'No trained ML model. Train a model first via Decision Support > Data Quality.'];
-            }
+            $riskScore = round($failRate * 100);
+            $riskLevel = $riskScore >= 50 ? 'high' : ($riskScore >= 25 ? 'medium' : 'low');
+            $factors = [];
+            if ($noShows > 0) $factors[] = "User has {$noShows} previous no-show(s)";
+            if ($cancelled > 0) $factors[] = "User has {$cancelled} previous cancellation(s)";
+            if ($completed > 0) $factors[] = "User has {$completed} completed appointment(s)";
+            if ($total <= 1) $factors[] = 'New user with limited history';
 
-            $data = $result['data'] ?? [];
-            return ['success' => true, 'data' => [
+            return ['success' => true, 'source' => 'rule_based', 'data' => [
                 'appointment_id' => $appointmentId,
-                'risk_score' => $data['risk_score'] ?? null,
-                'risk_level' => $data['risk_level'] ?? 'unknown',
-                'confidence' => $data['confidence'] ?? 0,
-                'confidence_label' => $data['confidence_label'] ?? 'low',
-                'reasoning' => $data['reasoning'] ?? [],
-                'feature_importances' => array_slice($data['feature_importances'] ?? [], 0, 5),
+                'risk_score' => $riskScore,
+                'risk_level' => $riskLevel,
+                'confidence' => $total >= 5 ? 'medium' : 'low',
+                'reasoning' => $factors,
+                'user_history' => ['total' => $total, 'completed' => $completed, 'no_shows' => $noShows, 'cancelled' => $cancelled],
+                'note' => 'Based on user history (ML model unavailable).',
             ]];
         } catch (\Exception $e) {
             return ['success' => false, 'error' => 'No-show prediction unavailable: ' . $e->getMessage()];

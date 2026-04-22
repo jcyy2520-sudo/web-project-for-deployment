@@ -157,10 +157,15 @@ const ProfilePage = ({ onBack, onTabChange, onLogout }) => {
       root.classList.remove('user-light');
     } else {
       root.classList.remove('dark');
-      root.style.setProperty('--primary', '#1E3A8A');
-      root.style.setProperty('--secondary', '#2563EB');
-      root.style.setProperty('--accent', '#F59E0B');
-      root.style.setProperty('--background', '#F9FAFB');
+      root.style.setProperty('--primary', '#1D3557');
+      root.style.setProperty('--secondary', '#3F6FA6');
+      root.style.setProperty('--accent', '#C96D02');
+      root.style.setProperty('--background', '#ECF1F6');
+      root.style.setProperty('--sidebar-bg', '#F4F7FB');
+      root.style.setProperty('--surface', '#F8FAFD');
+      root.style.setProperty('--text-primary', '#0F172A');
+      root.style.setProperty('--text-secondary', '#475569');
+      root.style.setProperty('--borders', '#CFDAE6');
       root.classList.add('user-light');
     }
   };

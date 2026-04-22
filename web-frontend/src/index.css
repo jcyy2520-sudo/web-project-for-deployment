@@ -8,22 +8,22 @@
 
 /* Light mode color variables (used across user pages) */
 :root {
-  /* Modern Blue light palette (user-side) */
-  --background: #F8FAFC;            /* Background */
-  --sidebar-bg: #FFFFFF;            /* Sidebar / surface */
-  --surface: #FFFFFF;               /* Card / Surface */
-  --primary: #1F3A5F;               /* Primary (buttons/links) */
-  --primary-hover: #162C47;         /* Primary hover */
-  --secondary: #3B82F6;             /* Secondary (icons, subtle) */
-  --accent: #2563EB;                /* Accent / CTA */
-  --accent-hover: #1D4ED8;          /* Accent hover */
+  /* Comfort light palette (reduced glare) */
+  --background: #ECF1F6;            /* App background */
+  --sidebar-bg: #F4F7FB;            /* Sidebar / soft surface */
+  --surface: #F8FAFD;               /* Card / Surface */
+  --primary: #1D3557;               /* Primary (buttons/links) */
+  --primary-hover: #16304F;         /* Primary hover */
+  --secondary: #3F6FA6;             /* Secondary (icons, subtle) */
+  --accent: #C96D02;                /* Accent / CTA */
+  --accent-hover: #B86100;          /* Accent hover */
   --text-primary: #0F172A;          /* Text primary */
   --text-secondary: #475569;        /* Text secondary */
-  --borders: #E6EDF7;               /* Borders / Dividers */
-  --secondary-10: rgba(59,130,246,0.08);
-  --secondary-20: rgba(59,130,246,0.16);
+  --borders: #CFDAE6;               /* Borders / Dividers */
+  --secondary-10: rgba(63,111,166,0.10);
+  --secondary-20: rgba(63,111,166,0.18);
   --success: #16A34A;
-  --warning: #F59E0B;
+  --warning: #D18A00;
   --error: #DC2626;
 }
 

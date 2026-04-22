@@ -158,7 +158,7 @@ const ChatbotMessage = ({ message, isDarkMode = true, onFeedback, isLastMessage 
               className={`text-xs px-2.5 py-1.5 rounded-xl transition-all flex items-center gap-1 ${
                 isDarkMode
                   ? 'bg-gray-900 border border-amber-500/20 text-amber-400 hover:bg-amber-500/10 hover:border-amber-500/40'
-                  : 'bg-white border border-gray-200/80 text-gray-600 hover:border-purple-200 hover:text-purple-600 hover:shadow-sm'
+                  : 'bg-white border border-gray-200/80 text-gray-600 hover:border-amber-200 hover:text-amber-600 hover:shadow-sm'
               }`}
               onClick={() => {
                 if (action.route) {
@@ -605,7 +605,7 @@ const ChatbotMessage = ({ message, isDarkMode = true, onFeedback, isLastMessage 
               parts.push(<em key={`i-${lineIdx}-${key++}`}>{match[3]}</em>);
             } else if (match[4]) {
               // `code`
-              parts.push(<code key={`c-${lineIdx}-${key++}`} className={`px-1 py-0.5 rounded text-xs font-mono ${isDarkMode ? 'bg-amber-900/30 text-amber-300' : 'bg-purple-50 text-purple-600'}`}>{match[4]}</code>);
+              parts.push(<code key={`c-${lineIdx}-${key++}`} className={`px-1 py-0.5 rounded text-xs font-mono ${isDarkMode ? 'bg-amber-900/30 text-amber-300' : 'bg-amber-50 text-amber-700'}`}>{match[4]}</code>);
             }
             remaining = remaining.substring(match.index + match[0].length);
           } else {
@@ -632,7 +632,7 @@ const ChatbotMessage = ({ message, isDarkMode = true, onFeedback, isLastMessage 
         inList = false;
         const text = trimmed.replace(/^>\s+/, '');
         elements.push(
-          <span key={`bq-${lineIdx}`} className={`block pl-3 border-l-2 ${isDarkMode ? 'border-amber-500/40 text-gray-300' : 'border-purple-300 text-gray-600'} italic my-1`}>
+          <span key={`bq-${lineIdx}`} className={`block pl-3 border-l-2 ${isDarkMode ? 'border-amber-500/40 text-gray-300' : 'border-amber-300 text-gray-600'} italic my-1`}>
             {processInline(text)}
           </span>
         );
@@ -717,10 +717,12 @@ const ChatbotMessage = ({ message, isDarkMode = true, onFeedback, isLastMessage 
       <div
         className={`max-w-[85%] rounded-2xl px-4 py-3 ${
           isUser
-            ? (isDarkMode ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/20' : 'bg-gradient-to-r from-orange-500 via-pink-500 to-purple-500 text-white shadow-md shadow-purple-200')
+            ? (isDarkMode 
+                ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/20' 
+                : 'bg-[#FF9100] text-white shadow-md shadow-amber-200 border border-amber-500/10')
             : isPriority 
               ? (isDarkMode ? 'bg-gray-900 text-gray-100 border-2 border-red-500/40 ring-2 ring-red-500/20' : 'bg-red-50 text-red-700 border-2 border-red-200')
-              : (isDarkMode ? 'bg-gray-900 text-gray-100 border border-gray-700/50' : 'bg-white/90 text-gray-800 border border-gray-100 shadow-sm')
+              : (isDarkMode ? 'bg-gray-900 text-gray-100 border border-gray-700/50' : 'bg-white text-gray-800 border border-slate-200 shadow-sm')
         }`}
       >
         <div>

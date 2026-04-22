@@ -2,11 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import useChatbot from '../../hooks/useChatbot';
+import { useAuth } from '../../context/AuthContext';
 import ChatbotMessage from './ChatbotMessage';
 import ChatbotInput from './ChatbotInput';
 
 const ChatbotModal = ({ onClose, isDarkMode = true }) => {
   const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
+  const isGuest = !isAuthenticated;
   const {
     messages,
     loading,
@@ -258,14 +261,20 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
       />
 
       {/* Modal - Responsive: full-screen on mobile, positioned on desktop */}
-      <div className={`fixed bottom-20 left-3 right-3 h-[65vh] max-h-[480px] w-auto sm:inset-auto sm:bottom-24 sm:right-6 sm:left-auto sm:h-[600px] sm:w-[400px] sm:max-w-[calc(100vw-3rem)] sm:max-h-[calc(100vh-8rem)] rounded-xl shadow-2xl flex flex-col z-[9999] overflow-hidden border ${isDarkMode ? 'bg-gray-900 border-amber-500/30' : 'bg-white border-slate-200'}`}>
+      <div className={`fixed bottom-20 left-4 right-4 h-[75vh] max-h-[600px] w-auto sm:inset-auto sm:bottom-24 sm:right-6 sm:left-auto sm:h-[600px] sm:w-[400px] sm:max-w-[calc(100vw-3rem)] sm:max-h-[calc(100vh-8rem)] rounded-2xl shadow-2xl flex flex-col z-[9999] overflow-hidden border ${isDarkMode ? 'bg-gray-900 border-amber-500/30' : 'bg-white border-slate-200'}`}>
         {/* Header */}
         <div className={`px-5 py-4 flex justify-between items-center flex-shrink-0 ${isDarkMode ? 'bg-gray-900 border-b border-amber-500/20 text-gray-100' : 'bg-slate-50 border-b border-slate-200 text-slate-900'}`}>
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center">
-              <svg className="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
-              </svg>
+            <div className="w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0">
+              <img 
+                src={isDarkMode ? '/logo-dark-v2.png' : '/logo-light-v2.png'} 
+                alt="Logo" 
+                className="h-full w-full object-contain pointer-events-none drop-shadow-sm transition-opacity duration-300"
+                onError={(e) => {
+                  e.target.onerror = null;
+                  e.target.src = '/logo.png';
+                }}
+              />
             </div>
             <div>
               <h2 className={`font-semibold text-base ${isDarkMode ? 'text-gray-100' : 'text-slate-900'}`}>Chat Assistant</h2>
@@ -280,7 +289,8 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
             </div>
           </div>
           <div className="flex gap-1">
-            {/* New Chat Button */}
+            {/* New Chat Button — authenticated users only */}
+            {!isGuest && (
             <button
               onClick={handleNewConversation}
               className={`p-2 rounded-lg transition-all ${isDarkMode ? 'hover:bg-amber-500/10 hover:text-amber-500 text-gray-400' : 'hover:bg-slate-50 hover:text-amber-600 text-slate-600'}`}
@@ -291,7 +301,9 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
               </svg>
             </button>
-            {/* History Button */}
+            )}
+            {/* History Button — authenticated users only */}
+            {!isGuest && (
             <button
               onClick={toggleHistory}
               className={`p-2 rounded-lg transition-all ${isDarkMode ? (showHistory ? 'bg-amber-500/20 text-amber-500' : 'text-gray-400 hover:bg-amber-500/10 hover:text-amber-500') : (showHistory ? 'bg-slate-200 text-amber-600' : 'text-slate-600 hover:bg-slate-50 hover:text-amber-600')}`}
@@ -302,6 +314,9 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </button>
+            )}
+            {/* Clear History Button — authenticated users only */}
+            {!isGuest && (
             <button
               onClick={() => setShowClearConfirm(true)}
               className={`p-2 rounded-lg transition-all ${isDarkMode ? 'hover:bg-amber-500/10 hover:text-amber-500 text-gray-400' : 'hover:bg-slate-50 hover:text-amber-600 text-slate-600'}`}
@@ -312,6 +327,7 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
               </svg>
             </button>
+            )}
             <button
               onClick={onClose}
               className={`p-2 rounded-lg transition-all ${isDarkMode ? 'hover:bg-amber-500/10 hover:text-amber-500 text-gray-400' : 'hover:bg-slate-50 hover:text-amber-600 text-slate-600'}`}
@@ -335,15 +351,21 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
                 </svg>
                 <div>
                   <p className={`text-sm font-medium ${isDarkMode ? 'text-amber-300' : 'text-amber-700'}`}>Message Limit Reached</p>
-                  <p className={`text-xs ${isDarkMode ? 'text-amber-400/80' : 'text-amber-600'}`}>{rateLimitMessage || 'Start a new conversation to continue chatting.'}</p>
+                  <p className={`text-xs ${isDarkMode ? 'text-amber-400/80' : 'text-amber-600'}`}>
+                    {isGuest
+                      ? 'Please log in or register to continue chatting.'
+                      : (rateLimitMessage || 'Start a new conversation to continue chatting.')}
+                  </p>
                 </div>
               </div>
+              {!isGuest && (
               <button
                 onClick={handleNewConversation}
                 className={`px-3 py-1.5 text-sm font-medium rounded-lg hover:opacity-95 transition-all ${isDarkMode ? 'bg-amber-500 text-gray-900 hover:bg-amber-400' : 'bg-amber-600 text-white hover:bg-slate-500'}`}
               >
                 New Chat
               </button>
+              )}
             </div>
           </div>
         )}
@@ -355,12 +377,14 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
               <span className="text-xs text-gray-400">
                 {rateLimitInfo.remaining} message{rateLimitInfo.remaining !== 1 ? 's' : ''} remaining in this conversation
               </span>
+              {!isGuest && (
               <button
                 onClick={handleNewConversation}
                 className={`text-xs transition-colors ${isDarkMode ? 'text-amber-400 hover:text-amber-300' : 'text-amber-600 hover:text-slate-500'}`}
               >
                 Start new
               </button>
+              )}
             </div>
           </div>
         )}
@@ -396,7 +420,8 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
           </div>
         )}
 
-        {showHistory && (
+        {/* Conversation History Panel — authenticated users only */}
+        {!isGuest && showHistory && (
           <div className={`absolute inset-0 top-[73px] z-10 flex flex-col border-t ${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-slate-200'}`}>
             {/* History Header */}
             <div className={`px-4 py-3 border-b ${isDarkMode ? 'border-amber-500/20' : 'border-slate-200'} flex items-center justify-between`}>
@@ -833,8 +858,8 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
         />
       </div>
 
-      {/* Clear Confirmation Modal */}
-      {showClearConfirm && (
+      {/* Clear Confirmation Modal — authenticated users only */}
+      {!isGuest && showClearConfirm && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[10000] flex items-center justify-center p-4">
           <div className="bg-gray-900 border border-amber-500/30 rounded-xl p-6 max-w-sm w-full shadow-2xl">
             <div className="flex items-center gap-3 mb-4">
@@ -867,8 +892,8 @@ const ChatbotModal = ({ onClose, isDarkMode = true }) => {
         </div>
       )}
 
-      {/* Delete Conversation Confirmation Modal */}
-      {deleteConfirmId && (
+      {/* Delete Conversation Confirmation Modal — authenticated users only */}
+      {!isGuest && deleteConfirmId && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[10000] flex items-center justify-center p-4">
           <div className="bg-gray-900 border border-amber-500/30 rounded-xl p-6 max-w-sm w-full shadow-2xl">
             <div className="flex items-center gap-3 mb-4">

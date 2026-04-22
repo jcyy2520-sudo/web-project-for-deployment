@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
+import { useTheme } from '../context/ThemeContext';
 import {
   HomeIcon,
   CalendarDaysIcon,
@@ -16,6 +17,7 @@ const BottomNav = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { logout } = useAuth();
+  const { isDarkMode } = useTheme();
   
   // Determine active tab from current URL
   const searchParams = new URLSearchParams(location.search);
@@ -36,8 +38,12 @@ const BottomNav = () => {
   return (
     <div>
       {/* Bottom nav only visible on small screens */}
-      <nav aria-label="Main navigation" style={{paddingBottom: 'env(safe-area-inset-bottom)'}} className="fixed bottom-0 left-0 right-0 sm:hidden z-[60] pointer-events-auto px-4 pb-4">
-        <div className="bg-gray-900/80 backdrop-blur-3xl rounded-[28px] border border-white/[0.1] shadow-[0_12px_48px_rgba(0,0,0,0.6),0_2px_16px_rgba(0,0,0,0.4)] px-1.5 py-1.5 ring-1 ring-white/5">
+      <nav aria-label="Main navigation" className="fixed bottom-3 left-3 right-3 sm:hidden z-[60] pointer-events-auto">
+        <div className={`backdrop-blur-xl rounded-[28px] border shadow-[0_12px_40px_rgba(0,0,0,0.15)] transition-all duration-300 px-1 py-1 ${
+          isDarkMode 
+            ? 'bg-gray-950/90 border-white/10 ring-1 ring-white/5' 
+            : 'bg-white/95 border-amber-100 ring-1 ring-black/5'
+        }`}>
           <div className="flex items-center justify-between" role="tablist">
             {navItems.map(({ key, label, icon: Icon, to }) => {
               const isActive = activeTab === key;
@@ -52,15 +58,17 @@ const BottomNav = () => {
                     role="tab"
                     className="flex flex-col items-center justify-center transition-all duration-300"
                   >
-                    <div className={`w-12 h-12 rounded-full flex items-center justify-center shadow-lg transition-all duration-300 ${
+                    <div className={`w-11 h-11 rounded-full flex items-center justify-center transition-all duration-300 ${
                       isActive 
-                        ? 'bg-amber-500 scale-105' 
-                        : 'bg-gray-800 border border-white/10'
+                        ? 'bg-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.5)] scale-105' 
+                        : isDarkMode 
+                          ? 'bg-gray-800 border border-white/10 shadow-lg shadow-black/20 hover:shadow-amber-500/20' 
+                          : 'bg-amber-50/50 border border-amber-200/70 shadow-sm shadow-amber-500/5 hover:border-amber-300'
                     }`}>
-                      <Icon className={`w-6 h-6 ${isActive ? 'text-white' : 'text-amber-500'}`} strokeWidth={isActive ? 2.5 : 2} />
+                      <Icon className={`w-6 h-6 ${isActive ? 'text-white' : 'text-amber-600 filter drop-shadow-[0_0_3px_rgba(245,158,11,0.3)]'}`} strokeWidth={isActive ? 2.5 : 2} />
                     </div>
                     <span className={`text-[10px] font-bold mt-1 transition-colors duration-200 ${
-                      isActive ? 'text-amber-400' : 'text-gray-400'
+                      isActive ? (isDarkMode ? 'text-amber-400' : 'text-amber-700') : (isDarkMode ? 'text-gray-400' : 'text-slate-400')
                     }`}>
                       {label}
                     </span>
@@ -76,8 +84,10 @@ const BottomNav = () => {
                   role="tab"
                   aria-label={label}
                   aria-selected={isActive}
-                  className={`flex flex-col items-center justify-center gap-1 py-1 rounded-2xl transition-all duration-300 min-w-[60px] ${
-                    isActive ? 'text-amber-400' : 'text-gray-500'
+                  className={`flex flex-col items-center justify-center gap-0.5 py-1 rounded-2xl transition-all duration-300 min-w-[55px] ${
+                    isActive 
+                      ? (isDarkMode ? 'text-amber-400' : 'text-amber-600') 
+                      : (isDarkMode ? 'text-gray-500' : 'text-slate-400')
                   }`}
                 >
                   <Icon 

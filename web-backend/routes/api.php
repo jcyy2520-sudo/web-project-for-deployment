@@ -103,8 +103,8 @@ if (app()->environment('local', 'testing')) {
 
 // ==================== PUBLIC ROUTES ====================
 
-// Public routes (Rate-limited for security)
-Route::middleware('throttle:5,1')->group(function () {
+// Public routes (Rate-limited for security via controller and provider)
+Route::group([], function () {
     Route::post('/register-step1', [AuthController::class, 'registerStep1']);
     Route::post('/verify-code', [AuthController::class, 'verifyCode']);
     Route::post('/complete-registration', [AuthController::class, 'completeRegistration']);

@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 import { useApi } from '../hooks/useApi';
 import Modal from '../components/Modal';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -23,9 +24,9 @@ import {
   FunnelIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
-  TrashIcon,
   InformationCircleIcon,
-  SparklesIcon
+  SparklesIcon,
+  MagnifyingGlassIcon
 } from '@heroicons/react/24/outline';
 import axios from 'axios';
 
@@ -33,11 +34,16 @@ import { formatDateDisplay } from '../utils/format';
 
 const ClientAppointments = () => {
   const { user } = useAuth();
+  const { isDarkMode } = useTheme();
   const { callApi, loading } = useApi();
   const [appointments, setAppointments] = useState([]);
   const [isBookModalOpen, setIsBookModalOpen] = useState(false);
   const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
   const [selectedAppointmentToCancel, setSelectedAppointmentToCancel] = useState(null);
+  const [cancelReason, setCancelReason] = useState('');
+  const [customCancelReason, setCustomCancelReason] = useState('');
+  const [isViewModalOpen, setIsViewModalOpen] = useState(false);
+  const [selectedAppointmentToView, setSelectedAppointmentToView] = useState(null);
   const [availableSlots, setAvailableSlots] = useState([]);
   const [slotDetails, setSlotDetails] = useState([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
@@ -46,6 +52,7 @@ const ClientAppointments = () => {
   const [unavailableDates, setUnavailableDates] = useState([]);
   const [slotCapacities, setSlotCapacities] = useState({});
   const [statusFilter, setStatusFilter] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState('newest');
   const [currentPage, setCurrentPage] = useState(1);
   const appointmentsPerPage = 8;
@@ -325,8 +332,17 @@ const ClientAppointments = () => {
       filtered = filtered.filter(apt => apt.status === statusFilter);
     }
 
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      filtered = filtered.filter(apt =>
+        apt.type?.toLowerCase().includes(q) ||
+        apt.notes?.toLowerCase().includes(q) ||
+        apt.appointment_date?.toLowerCase().includes(q)
+      );
+    }
+
     return filtered;
-  }, [appointments, statusFilter]);
+  }, [appointments, statusFilter, searchQuery]);
 
   // Sort appointments
   const sortedAppointments = useMemo(() => {
@@ -493,13 +509,19 @@ const ClientAppointments = () => {
   const handleCancelAppointment = async () => {
     if (!selectedAppointmentToCancel) return;
 
+    const reason = cancelReason === 'other' ? customCancelReason : cancelReason;
+
     const result = await callApi((signal) =>
-      axios.put(`/api/appointments/${selectedAppointmentToCancel.id}/cancel`, {}, { signal })
+      axios.put(`/api/appointments/${selectedAppointmentToCancel.id}/cancel`, {
+        cancellation_reason: reason || ''
+      }, { signal })
     );
 
     if (result.success) {
       setIsCancelModalOpen(false);
       setSelectedAppointmentToCancel(null);
+      setCancelReason('');
+      setCustomCancelReason('');
       await loadAppointments();
       window.showToast?.('Success', 'Appointment cancelled successfully!', 'success');
     }
@@ -598,7 +620,14 @@ const ClientAppointments = () => {
   };
   const openCancelModal = (appointment) => {
     setSelectedAppointmentToCancel(appointment);
+    setCancelReason('');
+    setCustomCancelReason('');
     setIsCancelModalOpen(true);
+  };
+
+  const openViewModal = (appointment) => {
+    setSelectedAppointmentToView(appointment);
+    setIsViewModalOpen(true);
   };  const getStatusIcon = (status) => {
     switch (status) {
       case 'completed':
@@ -615,289 +644,314 @@ const ClientAppointments = () => {
   };
 
   const getStatusColor = (status) => {
+    if (isDarkMode) {
+      switch (status) {
+        case 'completed': return 'bg-green-500/20 text-green-400 border border-green-500/30';
+        case 'approved': return 'bg-blue-500/20 text-blue-400 border border-blue-500/30';
+        case 'declined': return 'bg-red-500/20 text-red-400 border border-red-500/30';
+        case 'cancelled': return 'bg-gray-500/20 text-gray-400 border border-gray-500/30';
+        default: return 'bg-amber-500/20 text-amber-400 border border-amber-500/30';
+      }
+    }
     switch (status) {
-      case 'completed': return 'bg-green-100 text-green-800 dark:bg-green-500/20 dark:text-green-300';
-      case 'approved': return 'bg-blue-100 text-blue-800 dark:bg-blue-500/20 dark:text-blue-300';
-      case 'declined': return 'bg-red-100 text-red-800 dark:bg-red-500/20 dark:text-red-300';
-      case 'cancelled': return 'bg-slate-300 text-slate-900 dark:bg-slate-500/30 dark:text-slate-200';
-      default: return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-500/20 dark:text-yellow-300';
+      case 'completed': return 'bg-green-50 text-green-700 border border-green-200';
+      case 'approved': return 'bg-blue-50 text-blue-700 border border-blue-200';
+      case 'declined': return 'bg-red-50 text-red-700 border border-red-200';
+      case 'cancelled': return 'bg-gray-100 text-gray-600 border border-gray-200';
+      default: return 'bg-amber-50 text-amber-700 border border-amber-200';
     }
   };
 
-  return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b">
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex justify-between items-center">
-            <div>
-            <h1 className="text-2xl font-bold text-gray-900">My Appointments</h1>
-              <p className="text-gray-600">Manage your notarization appointments</p>
-            </div>
-            <button
-              onClick={() => {
-                setIsBookModalOpen(true);
-                // Refresh the daily limit when opening the modal
-                checkDailyLimit();
-              }}
-              className="btn-primary"
-              disabled={dailyLimitInfo.hasReachedLimit}
-              title={dailyLimitInfo.hasReachedLimit ? (dailyLimitInfo.message || 'Booking limit reached') : 'Book New Appointment'}
-            >
-              {dailyLimitInfo.hasReachedLimit ? '✓ Limit Reached' : 'Book New Appointment'}
-            </button>
-          </div>
-        </div>
-      </header>
+  const getStatusBorderColor = (status) => {
+    switch (status) {
+      case 'completed': return 'border-l-green-500';
+      case 'approved': return 'border-l-blue-500';
+      case 'declined': return 'border-l-red-500';
+      case 'cancelled': return 'border-l-gray-400';
+      default: return 'border-l-amber-500';
+    }
+  };
 
-      {/* Main Content */}
-      <main className="container mx-auto px-4 py-8">
-        {/* Daily limit banner (non-popup) */}
+  const formatAppointmentDateTime = (dateStr, timeStr) => {
+    try {
+      const date = new Date(dateStr + 'T00:00:00');
+      const formatted = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      const time = formatTime12Hour((timeStr || '').substring(0, 5));
+      return `${formatted} · ${time}`;
+    } catch {
+      return `${dateStr} ${timeStr || ''}`;
+    }
+  };
+
+  const STATUS_TABS = [
+    { value: 'all', label: 'All' },
+    { value: 'pending', label: 'Pending' },
+    { value: 'approved', label: 'Approved' },
+    { value: 'completed', label: 'Completed' },
+    { value: 'declined', label: 'Declined' },
+    { value: 'cancelled', label: 'Cancelled' },
+  ];
+
+  const dm = isDarkMode;
+
+  return (
+    <>
+    <div className={`min-h-screen ${dm ? 'bg-gray-900' : 'bg-gray-50'}`}>
+
+      {/* ── Page Header ── */}
+      <div className={`border-b px-4 sm:px-6 py-4 sm:py-5 flex flex-col sm:flex-row sm:items-center gap-3 sm:justify-between ${dm ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'}`}>
+        <div>
+          <h1 className={`text-lg sm:text-xl font-bold ${dm ? 'text-white' : 'text-gray-900'}`}>My Appointments</h1>
+          <p className={`text-xs sm:text-sm mt-0.5 ${dm ? 'text-gray-400' : 'text-gray-500'}`}>View and manage your appointments</p>
+        </div>
+        <button
+          onClick={() => { setIsBookModalOpen(true); checkDailyLimit(); }}
+          disabled={dailyLimitInfo.hasReachedLimit}
+          className={`w-full sm:w-auto px-4 py-2 rounded-lg text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed ${
+            dm ? 'bg-amber-500 text-gray-900 hover:bg-amber-400' : 'bg-amber-500 text-white hover:bg-amber-600'
+          }`}
+        >
+          {dailyLimitInfo.hasReachedLimit ? 'Limit Reached' : '+ New Appointment'}
+        </button>
+      </div>
+
+      <div className="px-4 sm:px-6 py-4 sm:py-5 space-y-4">
+        {/* Daily limit banner */}
         {dailyLimitInfo.hasReachedLimit && (
-          <div className="mb-6 rounded-lg border p-4 bg-blue-50 border-blue-200">
-            <h3 className="font-semibold text-blue-700">📅 Booking Limit Reached</h3>
-            <p className="text-sm text-blue-600 mt-1">{dailyLimitInfo.message || `You have reached your booking limit of ${dailyLimitInfo.limit} appointments per 24 hours.`}</p>
-            {dailyLimitInfo.bookingsToday?.length > 0 && (
-              <div className="mt-3 text-sm text-blue-600">
-                <p className="font-medium">Your recent bookings (last 24h):</p>
-                <ul className="ml-4 mt-1">
-                  {dailyLimitInfo.bookingsToday.map((b, i) => (
-                    <li key={i}>• {formatTime12Hour(b.time)} — {b.service}</li>
-                  ))}
-                </ul>
+          <div className={`rounded-lg border p-4 ${dm ? 'bg-amber-500/10 border-amber-500/30' : 'bg-amber-50 border-amber-200'}`}>
+            <p className={`text-sm font-semibold ${dm ? 'text-amber-400' : 'text-amber-700'}`}>Booking Limit Reached</p>
+            <p className={`text-sm mt-0.5 ${dm ? 'text-amber-300/80' : 'text-amber-600'}`}>
+              {dailyLimitInfo.message || `You've reached your booking limit of ${dailyLimitInfo.limit} per 24 hours.`}
+            </p>
+          </div>
+        )}
+
+        {/* ── Section Tabs ── */}
+        <div className={`flex gap-1 border-b ${dm ? 'border-gray-700' : 'border-gray-200'}`}>
+          {[{ key: 'appointments', label: 'My Appointments' }, { key: 'refunds', label: 'Refund History' }].map(t => (
+            <button
+              key={t.key}
+              onClick={() => setActiveTab(t.key)}
+              className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px ${
+                activeTab === t.key
+                  ? dm ? 'border-amber-500 text-amber-400' : 'border-amber-500 text-amber-600'
+                  : dm ? 'border-transparent text-gray-400 hover:text-gray-200' : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {t.label}{t.key === 'appointments' ? ` (${appointments.length})` : ''}
+            </button>
+          ))}
+        </div>
+
+        {/* ── Appointments Tab ── */}
+        {activeTab === 'appointments' && (
+          <div className="space-y-4">
+            {/* Status filter pills */}
+            <div className="flex flex-wrap gap-2">
+              {STATUS_TABS.map(tab => {
+                const count = tab.value === 'all'
+                  ? appointments.length
+                  : appointments.filter(a => a.status === tab.value).length;
+                const isActive = statusFilter === tab.value;
+                return (
+                  <button
+                    key={tab.value}
+                    onClick={() => { setStatusFilter(tab.value); setCurrentPage(1); }}
+                    className={`px-3 py-1 rounded-full text-xs font-semibold border ${
+                      isActive
+                        ? dm ? 'bg-amber-500 border-amber-500 text-gray-900' : 'bg-amber-500 border-amber-500 text-white'
+                        : dm ? 'bg-transparent border-gray-700 text-gray-400 hover:text-gray-200 hover:border-gray-500' : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
+                    }`}
+                  >
+                    {tab.label}{count > 0 ? ` ${count}` : ''}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Search + Sort */}
+            <div className="flex flex-col sm:flex-row gap-3">
+              <div className="relative flex-1 max-w-sm">
+                <MagnifyingGlassIcon className={`absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 ${dm ? 'text-gray-500' : 'text-gray-400'}`} />
+                <input
+                  type="text"
+                  placeholder="Search by service or notes…"
+                  value={searchQuery}
+                  onChange={e => { setSearchQuery(e.target.value); setCurrentPage(1); }}
+                  className={`w-full pl-9 pr-3 py-2 text-sm rounded-lg border focus:outline-none focus:ring-1 focus:ring-amber-500 ${
+                    dm
+                      ? 'bg-gray-800 border-gray-700 text-white placeholder-gray-500 focus:border-amber-500'
+                      : 'bg-white border-gray-200 text-gray-900 placeholder-gray-400 focus:border-amber-500'
+                  }`}
+                />
               </div>
+              <select
+                value={sortBy}
+                onChange={e => { setSortBy(e.target.value); setCurrentPage(1); }}
+                className={`px-3 py-2 text-sm rounded-lg border focus:outline-none focus:ring-1 focus:ring-amber-500 ${
+                  dm
+                    ? 'bg-gray-800 border-gray-700 text-white focus:border-amber-500'
+                    : 'bg-white border-gray-200 text-gray-900 focus:border-amber-500'
+                }`}
+              >
+                <option value="newest">Newest First</option>
+                <option value="date">Date Asc</option>
+                <option value="date-desc">Date Desc</option>
+                <option value="status">By Status</option>
+              </select>
+            </div>
+
+            {/* Results count */}
+            <p className={`text-xs ${dm ? 'text-gray-500' : 'text-gray-400'}`}>
+              {sortedAppointments.length} appointment{sortedAppointments.length !== 1 ? 's' : ''}
+            </p>
+
+            {/* Empty states */}
+            {appointments.length === 0 ? (
+              <div className={`rounded-xl border py-16 text-center ${dm ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+                <CalendarIcon className={`h-10 w-10 mx-auto mb-3 ${dm ? 'text-gray-600' : 'text-gray-300'}`} />
+                <p className={`font-semibold ${dm ? 'text-gray-300' : 'text-gray-700'}`}>No appointments yet</p>
+                <p className={`text-sm mt-1 ${dm ? 'text-gray-500' : 'text-gray-400'}`}>Book your first appointment to get started.</p>
+              </div>
+            ) : paginatedAppointments.length === 0 ? (
+              <div className={`rounded-xl border py-10 text-center ${dm ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+                <p className={`text-sm ${dm ? 'text-gray-400' : 'text-gray-500'}`}>No appointments match your filters.</p>
+              </div>
+            ) : (
+              <>
+                {/* Appointment cards */}
+                <div className="space-y-2">
+                  {paginatedAppointments.map(appointment => (
+                    <div
+                      key={appointment.id}
+                      className={`rounded-xl border-l-4 border ${getStatusBorderColor(appointment.status)} ${
+                        dm ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
+                      }`}
+                    >
+                      {/* Main row */}
+                      <div className="flex flex-col sm:flex-row sm:items-center gap-3 px-4 py-3 sm:px-5 sm:py-4">
+                        {/* Info */}
+                        <div className="flex-1 min-w-0">
+                          <p className={`font-semibold text-sm truncate ${dm ? 'text-white' : 'text-gray-900'}`}>
+                            {appointment.type || 'Appointment'}
+                          </p>
+                          <p className={`text-xs mt-0.5 ${dm ? 'text-gray-400' : 'text-gray-500'}`}>
+                            {formatAppointmentDateTime(appointment.appointment_date, appointment.appointment_time)}
+                          </p>
+                          {appointment.staff_notes && (
+                            <p className={`text-xs mt-1 truncate ${dm ? 'text-gray-500' : 'text-gray-400'}`}>
+                              {appointment.staff_notes}
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Status + Actions row */}
+                        <div className="flex items-center justify-between sm:justify-end gap-2 sm:gap-3">
+                          {/* Status badge */}
+                          <span className={`shrink-0 px-2.5 py-0.5 rounded-full text-xs font-semibold capitalize ${getStatusColor(appointment.status)}`}>
+                            {appointment.status}
+                          </span>
+
+                          {/* Actions */}
+                          <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            onClick={() => openViewModal(appointment)}
+                            className={`px-2.5 py-1 rounded text-xs font-medium ${dm ? 'text-blue-400 hover:bg-blue-500/10' : 'text-blue-600 hover:bg-blue-50'}`}
+                          >
+                            View
+                          </button>
+                          {appointment.status === 'completed' &&
+                           appointment.payment_status === 'paid' &&
+                           appointment.payment_amount > 0 &&
+                           !appointment.refunds?.some(r => ['pending', 'approved'].includes(r.status)) && (
+                            <button
+                              onClick={() => openRefundDetailsModal(appointment)}
+                              className={`px-2.5 py-1 rounded text-xs font-medium ${dm ? 'text-amber-400 hover:bg-amber-500/10' : 'text-amber-600 hover:bg-amber-50'}`}
+                              title="Request refund"
+                            >
+                              Refund
+                            </button>
+                          )}
+                          {(appointment.status === 'pending' || appointment.status === 'approved') && (
+                            <button
+                              onClick={() => openCancelModal(appointment)}
+                              className={`px-2.5 py-1 rounded text-xs font-medium ${dm ? 'text-red-400 hover:bg-red-500/10' : 'text-red-500 hover:bg-red-50'}`}
+                            >
+                              Cancel
+                            </button>
+                          )}
+                        </div>
+                        </div>
+                      </div>
+
+                      {/* Completion row */}
+                      {appointment.status === 'completed' && appointment.completed_at && (
+                        <div className={`px-5 pb-3 pt-0 border-t text-xs ${dm ? 'border-gray-700 text-green-400' : 'border-gray-100 text-green-600'}`}>
+                          Completed {new Date(appointment.completed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} at {new Date(appointment.completed_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                          {appointment.completion_notes && <span className="ml-2 opacity-70">· {appointment.completion_notes}</span>}
+                        </div>
+                      )}
+
+                      {/* Payment row */}
+                      {appointment.payment_status === 'paid' && (
+                        <div className={`px-5 pb-3 pt-0 border-t text-xs ${dm ? 'border-gray-700 text-blue-400' : 'border-gray-100 text-blue-600'}`}>
+                          Paid ₱{parseFloat(appointment.payment_amount || 0).toFixed(2)}
+                          {appointment.discount_amount > 0 && <span className="ml-1 opacity-70">(Discount ₱{parseFloat(appointment.discount_amount).toFixed(2)})</span>}
+                        </div>
+                      )}
+
+                      {/* Refund status */}
+                      <AppointmentRefundStatus
+                        appointment={appointment}
+                        onRefundRequested={() => loadAppointments()}
+                      />
+
+                      {/* Risk assessment for active appointments */}
+                      {(appointment.status === 'pending' || appointment.status === 'approved') && (
+                        <div className={`px-5 pb-4 pt-0 border-t ${dm ? 'border-gray-700' : 'border-gray-100'}`}>
+                          <AppointmentRiskAssessment appointmentId={appointment.id} isDarkMode={isDarkMode} />
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Pagination */}
+                {totalPages > 1 && (
+                  <div className={`flex items-center justify-between pt-1 text-sm ${dm ? 'text-gray-400' : 'text-gray-500'}`}>
+                    <span>{startIdx + 1}–{Math.min(startIdx + appointmentsPerPage, sortedAppointments.length)} of {sortedAppointments.length}</span>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                        disabled={currentPage === 1}
+                        className={`p-2 rounded disabled:opacity-30 disabled:cursor-not-allowed ${dm ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}
+                      >
+                        <ChevronLeftIcon className="h-4 w-4" />
+                      </button>
+                      <span className="px-2 text-xs">Page {currentPage} of {totalPages}</span>
+                      <button
+                        onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                        disabled={currentPage === totalPages}
+                        className={`p-2 rounded disabled:opacity-30 disabled:cursor-not-allowed ${dm ? 'hover:bg-gray-700' : 'hover:bg-gray-100'}`}
+                      >
+                        <ChevronRightIcon className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
 
-        {/* Tabs */}
-        <div className="mb-6 border-b bg-white rounded-t-lg">
-          <div className="flex gap-1 p-4">
-            <button
-              onClick={() => setActiveTab('appointments')}
-              className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
-                activeTab === 'appointments'
-                  ? 'bg-black text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              My Appointments ({appointments.length})
-            </button>
-            <button
-              onClick={() => setActiveTab('refunds')}
-              className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
-                activeTab === 'refunds'
-                  ? 'bg-black text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-              }`}
-            >
-              Refund History
-            </button>
-          </div>
-        </div>
-
-        {/* Appointments Tab */}
-        {activeTab === 'appointments' && (
-        <div className="bg-white rounded-lg shadow-sm border">
-          {appointments.length === 0 ? (
-            <div className="text-center py-12">
-              <CalendarIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-lg font-semibold text-gray-900">No appointments yet</h3>
-              <p className="text-gray-600 mt-2">Book your first appointment to get started.</p>
-            </div>
-          ) : (
-            <>
-              {/* Filter and Sort Controls */}
-              <div className="border-b p-4 space-y-3">
-                <div className="flex items-center gap-2 mb-2">
-                  <FunnelIcon className="h-4 w-4 text-gray-600" />
-                  <span className="text-sm font-medium text-gray-700">Filters & Sort</span>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Status</label>
-                    <select
-                      value={statusFilter}
-                      onChange={(e) => {
-                        setStatusFilter(e.target.value);
-                        setCurrentPage(1);
-                      }}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black"
-                    >
-                      <option value="all">All Status</option>
-                      <option value="pending">Pending</option>
-                      <option value="approved">Approved</option>
-                      <option value="completed">Completed</option>
-                      <option value="declined">Declined</option>
-                      <option value="cancelled">Cancelled</option>
-                      <option value="refunded">Refunded</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Sort By</label>
-                    <select
-                      value={sortBy}
-                      onChange={(e) => {
-                        setSortBy(e.target.value);
-                        setCurrentPage(1);
-                      }}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-black"
-                    >
-                      <option value="newest">Newest First</option>
-                      <option value="date">Date (Oldest First)</option>
-                      <option value="date-desc">Date (Newest First)</option>
-                      <option value="status">Status</option>
-                    </select>
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium text-gray-600 mb-1">Results</p>
-                    <p className="text-sm text-gray-700">{sortedAppointments.length} appointment{sortedAppointments.length !== 1 ? 's' : ''}</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Appointments List */}
-              <div className="divide-y">
-                {paginatedAppointments.length === 0 ? (
-                  <div className="text-center py-8">
-                    <p className="text-gray-500">No appointments match your filters</p>
-                  </div>
-                ) : (
-                  paginatedAppointments.map((appointment) => (
-                    <div key={appointment.id} className="p-6 hover:bg-gray-50">
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center space-x-4">
-                          {getStatusIcon(appointment.status)}
-                          <div>
-                            <h4 className="font-semibold text-gray-900">
-                              {formatDateDisplay(appointment.appointment_date)} at {appointment.appointment_time}
-                            </h4>
-                            {appointment.staff_notes && (
-                              <p className="text-sm text-gray-500 mt-1">
-                                Notes: {appointment.staff_notes}
-                              </p>
-                            )}
-                            {appointment.status === 'completed' && appointment.completed_at && (
-                              <p className="text-sm text-green-600 mt-1">
-                                ✓ Completed on {new Date(appointment.completed_at).toLocaleDateString()} at {new Date(appointment.completed_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex items-center space-x-4">
-                          <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(appointment.status)}`}>
-                            {appointment.status}
-                          </span>
-                          {(appointment.status === 'pending' || appointment.status === 'approved') && (
-                            <button
-                              onClick={() => openCancelModal(appointment)}
-                              className="text-red-500 hover:text-red-700 transition-colors duration-200 p-1 rounded hover:bg-red-100"
-                              title="Cancel appointment"
-                            >
-                              <TrashIcon className="h-4 w-4" />
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                      
-                      {/* Completion Information */}
-                      {appointment.status === 'completed' && appointment.completion_notes && (
-                        <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
-                          <p className="text-xs font-semibold text-green-800 mb-1">Completion Notes:</p>
-                          <p className="text-sm text-green-700">{appointment.completion_notes}</p>
-                        </div>
-                      )}
-
-                      {/* Payment Information & Refund Status */}
-                      {appointment.payment_status === 'paid' && (
-                        <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                          <div className="flex justify-between items-start">
-                            <div>
-                              <p className="text-xs font-semibold text-blue-800 mb-1">Payment Status:</p>
-                              <p className="text-sm text-blue-700">
-                                ✓ Paid - ₱{parseFloat(appointment.payment_amount || 0).toFixed(2)}
-                                {appointment.discount_amount > 0 && (
-                                  <span> (Discount: ₱{parseFloat(appointment.discount_amount).toFixed(2)})</span>
-                                )}
-                              </p>
-                            </div>
-                            <div className="flex gap-2">
-                              {appointment.status === 'completed' && 
-                               appointment.payment_status === 'paid' && 
-                               appointment.payment_amount > 0 && 
-                               !appointment.refunds?.some(r => ['pending', 'approved'].includes(r.status)) && (
-                                <button
-                                  onClick={() => openRefundDetailsModal(appointment)}
-                                  className="flex items-center gap-1 bg-black text-white hover:bg-gray-800 transition-all duration-200 px-3 py-2 rounded-lg text-xs font-semibold shadow-sm hover:shadow-md"
-                                  title="Request refund for this completed appointment"
-                                >
-                                  💰 Request Refund
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Refund Status Display */}
-                      <AppointmentRefundStatus 
-                        appointment={appointment}
-                        onRefundRequested={() => loadAppointments()}
-                      />
-                      
-                      {/* Risk Assessment for pending/approved appointments */}
-                      {(appointment.status === 'pending' || appointment.status === 'approved') && (
-                        <div className="mt-3 pt-3 border-t">
-                          <AppointmentRiskAssessment 
-                            appointmentId={appointment.id}
-                            isDarkMode={false}
-                          />
-                        </div>
-                      )}
-                    </div>
-                  ))
-                )}
-              </div>
-
-              {/* Pagination Controls */}
-              {totalPages > 1 && (
-                <div className="border-t p-4 flex items-center justify-between">
-                  <div className="text-sm text-gray-600">
-                    Showing {startIdx + 1}-{Math.min(startIdx + appointmentsPerPage, sortedAppointments.length)} of {sortedAppointments.length}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-                      disabled={currentPage === 1}
-                      className="p-2 border border-gray-300 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <ChevronLeftIcon className="h-4 w-4" />
-                    </button>
-                    <span className="text-sm text-gray-600">
-                      Page {currentPage} of {totalPages}
-                    </span>
-                    <button
-                      onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
-                      disabled={currentPage === totalPages}
-                      className="p-2 border border-gray-300 rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <ChevronRightIcon className="h-4 w-4" />
-                    </button>
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-        )}
-
-        {/* Refunds Tab */}
+        {/* ── Refunds Tab ── */}
         {activeTab === 'refunds' && (
-        <div className="bg-white rounded-lg shadow-sm border p-6">
-          <UserRefundHistory />
-        </div>
+          <div className={`rounded-xl border p-6 ${dm ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
+            <UserRefundHistory />
+          </div>
         )}
-      </main>
+      </div>
+    </div>
 
       {/* Cancel Appointment Modal */}
       <Modal
@@ -905,36 +959,105 @@ const ClientAppointments = () => {
         onClose={() => {
           setIsCancelModalOpen(false);
           setSelectedAppointmentToCancel(null);
+          setCancelReason('');
+          setCustomCancelReason('');
         }}
         title="Cancel Appointment"
         size="md"
       >
         {selectedAppointmentToCancel && (
           <div className="space-y-4">
-            <div className="bg-red-50 border border-red-200 rounded p-4">
-              <p className="text-sm text-red-800">
-                <strong>Warning:</strong> Are you sure you want to cancel this appointment?
+            <div className={`rounded-lg p-4 ${dm ? 'bg-red-500/10 border border-red-500/20' : 'bg-red-50 border border-red-200'}`}>
+              <p className={`text-sm font-medium ${dm ? 'text-red-400' : 'text-red-800'}`}>
+                Are you sure you want to cancel this appointment?
               </p>
             </div>
 
-            <div className="bg-gray-50 rounded p-4 space-y-2">
-              <div className="text-sm">
-                <strong>Date:</strong> {formatDateDisplay(selectedAppointmentToCancel.appointment_date)} at {selectedAppointmentToCancel.appointment_time}
+            <div className={`rounded-lg p-4 space-y-1.5 ${dm ? 'bg-gray-700/50' : 'bg-gray-50'}`}>
+              <div className={`text-sm ${dm ? 'text-gray-200' : 'text-gray-800'}`}>
+                <span className="font-medium">Service:</span> {selectedAppointmentToCancel.type || selectedAppointmentToCancel.service_type || 'Appointment'}
+              </div>
+              <div className={`text-sm ${dm ? 'text-gray-200' : 'text-gray-800'}`}>
+                <span className="font-medium">Date:</span> {formatDateDisplay(selectedAppointmentToCancel.appointment_date)} at {selectedAppointmentToCancel.appointment_time}
+              </div>
+              <div className={`text-sm ${dm ? 'text-gray-200' : 'text-gray-800'}`}>
+                <span className="font-medium">Status:</span> <span className="capitalize">{selectedAppointmentToCancel.status}</span>
               </div>
             </div>
 
-            <p className="text-sm text-gray-600">
+            {/* Reason selection (optional) */}
+            <div>
+              <label className={`block text-sm font-medium mb-2 ${dm ? 'text-gray-300' : 'text-gray-700'}`}>
+                Reason for cancellation <span className={`font-normal ${dm ? 'text-gray-500' : 'text-gray-400'}`}>(optional)</span>
+              </label>
+              <div className="space-y-2">
+                {[
+                  { value: 'schedule_conflict', label: 'Schedule conflict' },
+                  { value: 'no_longer_needed', label: 'No longer needed' },
+                  { value: 'found_alternative', label: 'Found an alternative' },
+                  { value: 'financial_reasons', label: 'Financial reasons' },
+                  { value: 'emergency', label: 'Emergency' },
+                  { value: 'other', label: 'Other' },
+                ].map((option) => (
+                  <label
+                    key={option.value}
+                    className={`flex items-center gap-3 p-2.5 rounded-lg border cursor-pointer transition-colors ${
+                      cancelReason === option.value
+                        ? dm
+                          ? 'border-amber-500/50 bg-amber-500/10'
+                          : 'border-amber-500 bg-amber-50'
+                        : dm
+                          ? 'border-gray-700 hover:border-gray-600'
+                          : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="cancelReason"
+                      value={option.value}
+                      checked={cancelReason === option.value}
+                      onChange={(e) => setCancelReason(e.target.value)}
+                      className="accent-amber-500"
+                    />
+                    <span className={`text-sm ${dm ? 'text-gray-200' : 'text-gray-700'}`}>{option.label}</span>
+                  </label>
+                ))}
+              </div>
+
+              {/* Custom reason text area (shown when "Other" is selected) */}
+              {cancelReason === 'other' && (
+                <textarea
+                  value={customCancelReason}
+                  onChange={(e) => setCustomCancelReason(e.target.value)}
+                  placeholder="Please specify your reason..."
+                  rows={3}
+                  className={`w-full mt-2 px-3 py-2 text-sm rounded-lg border focus:outline-none focus:ring-1 focus:ring-amber-500 resize-none ${
+                    dm
+                      ? 'bg-gray-800 border-gray-700 text-white placeholder-gray-500'
+                      : 'bg-white border-gray-200 text-gray-900 placeholder-gray-400'
+                  }`}
+                />
+              )}
+            </div>
+
+            <p className={`text-xs ${dm ? 'text-gray-500' : 'text-gray-400'}`}>
               A cancellation notification will be sent to your email, and the admin will be notified.
             </p>
 
-            <div className="flex justify-end gap-3">
+            <div className="flex justify-end gap-3 pt-2">
               <button
                 type="button"
                 onClick={() => {
                   setIsCancelModalOpen(false);
                   setSelectedAppointmentToCancel(null);
+                  setCancelReason('');
+                  setCustomCancelReason('');
                 }}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50"
+                className={`px-4 py-2 text-sm font-medium rounded-lg border ${
+                  dm
+                    ? 'text-gray-300 bg-gray-700 border-gray-600 hover:bg-gray-600'
+                    : 'text-gray-700 bg-white border-gray-300 hover:bg-gray-50'
+                }`}
               >
                 Keep Appointment
               </button>
@@ -942,9 +1065,105 @@ const ClientAppointments = () => {
                 type="button"
                 onClick={handleCancelAppointment}
                 disabled={loading}
-                className="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-red-600 rounded hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 border border-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {loading ? 'Cancelling...' : 'Cancel Appointment'}
+                {loading ? 'Cancelling...' : 'Confirm Cancellation'}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* View Appointment Details Modal */}
+      <Modal
+        isOpen={isViewModalOpen}
+        onClose={() => {
+          setIsViewModalOpen(false);
+          setSelectedAppointmentToView(null);
+        }}
+        title="Appointment Details"
+        size="md"
+      >
+        {selectedAppointmentToView && (
+          <div className="space-y-4">
+            <div className={`rounded-lg p-4 space-y-3 ${dm ? 'bg-gray-700/50' : 'bg-gray-50'}`}>
+              <div className="flex items-center justify-between">
+                <span className={`text-xs font-medium uppercase tracking-wide ${dm ? 'text-gray-400' : 'text-gray-500'}`}>Status</span>
+                <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold capitalize ${getStatusColor(selectedAppointmentToView.status)}`}>
+                  {selectedAppointmentToView.status}
+                </span>
+              </div>
+
+              {[
+                { label: 'Service', value: selectedAppointmentToView.type || selectedAppointmentToView.service_type || 'N/A' },
+                { label: 'Date', value: formatDateDisplay(selectedAppointmentToView.appointment_date) },
+                { label: 'Time', value: selectedAppointmentToView.appointment_time || 'N/A' },
+                ...(selectedAppointmentToView.notes ? [{ label: 'Notes', value: selectedAppointmentToView.notes }] : []),
+                ...(selectedAppointmentToView.staff_notes ? [{ label: 'Staff Notes', value: selectedAppointmentToView.staff_notes }] : []),
+              ].map((item, idx) => (
+                <div key={idx} className="flex items-start justify-between gap-4">
+                  <span className={`text-xs font-medium uppercase tracking-wide shrink-0 ${dm ? 'text-gray-400' : 'text-gray-500'}`}>{item.label}</span>
+                  <span className={`text-sm text-right ${dm ? 'text-gray-200' : 'text-gray-800'}`}>{item.value}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Payment info */}
+            {selectedAppointmentToView.payment_status === 'paid' && (
+              <div className={`rounded-lg p-4 space-y-2 ${dm ? 'bg-blue-500/10 border border-blue-500/20' : 'bg-blue-50 border border-blue-200'}`}>
+                <p className={`text-xs font-medium uppercase tracking-wide ${dm ? 'text-blue-400' : 'text-blue-600'}`}>Payment</p>
+                <p className={`text-sm ${dm ? 'text-gray-200' : 'text-gray-800'}`}>
+                  ₱{parseFloat(selectedAppointmentToView.payment_amount || 0).toFixed(2)}
+                  {selectedAppointmentToView.discount_amount > 0 && (
+                    <span className="ml-2 opacity-70">(Discount: ₱{parseFloat(selectedAppointmentToView.discount_amount).toFixed(2)})</span>
+                  )}
+                </p>
+              </div>
+            )}
+
+            {/* Completion info */}
+            {selectedAppointmentToView.status === 'completed' && selectedAppointmentToView.completed_at && (
+              <div className={`rounded-lg p-4 space-y-2 ${dm ? 'bg-green-500/10 border border-green-500/20' : 'bg-green-50 border border-green-200'}`}>
+                <p className={`text-xs font-medium uppercase tracking-wide ${dm ? 'text-green-400' : 'text-green-600'}`}>Completed</p>
+                <p className={`text-sm ${dm ? 'text-gray-200' : 'text-gray-800'}`}>
+                  {new Date(selectedAppointmentToView.completed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} at {new Date(selectedAppointmentToView.completed_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                </p>
+                {selectedAppointmentToView.completion_notes && (
+                  <p className={`text-sm ${dm ? 'text-gray-300' : 'text-gray-600'}`}>{selectedAppointmentToView.completion_notes}</p>
+                )}
+              </div>
+            )}
+
+            {/* Cancellation reason */}
+            {selectedAppointmentToView.status === 'cancelled' && selectedAppointmentToView.cancellation_reason && (
+              <div className={`rounded-lg p-4 space-y-2 ${dm ? 'bg-red-500/10 border border-red-500/20' : 'bg-red-50 border border-red-200'}`}>
+                <p className={`text-xs font-medium uppercase tracking-wide ${dm ? 'text-red-400' : 'text-red-600'}`}>Cancellation Reason</p>
+                <p className={`text-sm ${dm ? 'text-gray-200' : 'text-gray-800'}`}>{selectedAppointmentToView.cancellation_reason}</p>
+              </div>
+            )}
+
+            {/* Decline reason */}
+            {selectedAppointmentToView.status === 'declined' && selectedAppointmentToView.decline_reason && (
+              <div className={`rounded-lg p-4 space-y-2 ${dm ? 'bg-red-500/10 border border-red-500/20' : 'bg-red-50 border border-red-200'}`}>
+                <p className={`text-xs font-medium uppercase tracking-wide ${dm ? 'text-red-400' : 'text-red-600'}`}>Decline Reason</p>
+                <p className={`text-sm ${dm ? 'text-gray-200' : 'text-gray-800'}`}>{selectedAppointmentToView.decline_reason}</p>
+              </div>
+            )}
+
+            <div className="flex justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsViewModalOpen(false);
+                  setSelectedAppointmentToView(null);
+                }}
+                className={`px-4 py-2 text-sm font-medium rounded-lg border ${
+                  dm
+                    ? 'text-gray-300 bg-gray-700 border-gray-600 hover:bg-gray-600'
+                    : 'text-gray-700 bg-white border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                Close
               </button>
             </div>
           </div>
@@ -1572,7 +1791,7 @@ const ClientAppointments = () => {
         appointment={selectedAppointmentForDetails}
         onConfirm={() => loadAppointments()}
       />
-    </div>
+    </>
   );
 };
 

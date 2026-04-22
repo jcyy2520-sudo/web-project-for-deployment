@@ -49,7 +49,7 @@ app.add_middleware(
     CORSMiddleware,
     # SECURITY: Only allow the backend to make requests.
     # If the frontend never calls this directly, we can keep it strictly to localhost/127.0.0.1
-    allow_origins=["http://localhost", "http://127.0.0.1", "http://localhost:8000"],
+    allow_origins=["http://localhost", "http://127.0.0.1", "http://localhost:8000", "http://192.168.8.10", "http://192.168.8.10:8000"],
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type", "X-API-Key", "Authorization"],
 )

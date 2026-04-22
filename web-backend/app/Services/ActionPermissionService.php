@@ -351,52 +351,40 @@ class ActionPermissionService
      * Maps each tool name to the minimum role required.
      */
     private const AGENT_TOOL_ROLES = [
-        // Read tools — open to clients (and above)
-        'get_my_appointments'        => ['client', 'cashier', 'staff', 'admin'],
-        'get_appointment_details'    => ['client', 'cashier', 'staff', 'admin'],
-        'get_available_services'     => ['guest', 'client', 'cashier', 'staff', 'admin'],
-        'get_available_slots'        => ['guest', 'client', 'cashier', 'staff', 'admin'],
-        'get_unavailable_dates'      => ['guest', 'client', 'cashier', 'staff', 'admin'],
-        'get_alternative_slots'      => ['guest', 'client', 'cashier', 'staff', 'admin'],
-        'get_my_payments'            => ['client', 'admin'],
-        'check_payment_status'       => ['client', 'cashier', 'admin'],
-        'check_booking_limit'        => ['client', 'admin'],
-        'get_notifications'          => ['client', 'cashier', 'staff', 'admin'],
+        // ─── GUEST: Very limited read-only (services & slots info only) ───
+        'get_available_services'          => ['guest', 'client', 'admin'],
+        'get_available_slots'             => ['guest', 'client', 'admin'],
+        'get_unavailable_dates'           => ['guest', 'client', 'admin'],
+        'get_alternative_slots'           => ['guest', 'client', 'admin'],
 
-        // Write tools — destructive, role-restricted
-        'cancel_appointment'         => ['client', 'admin'],
-        'book_appointment'           => ['guest', 'client', 'admin'],
-        'reschedule_appointment'     => ['client', 'admin'],
-        'request_refund'             => ['client', 'admin'],
+        // ─── CLIENT: Full action capability ───
+        'get_my_appointments'             => ['client', 'admin'],
+        'get_appointment_details'         => ['client', 'admin'],
+        'get_my_payments'                 => ['client'],
+        'check_payment_status'            => ['client', 'cashier'],
+        'check_booking_limit'             => ['client'],
+        'get_notifications'               => ['client'],
+        'get_scheduling_recommendation'   => ['client'],
+        'cancel_appointment'              => ['client'],
+        'book_appointment'                => ['client'],
+        'reschedule_appointment'          => ['client'],
+        'request_refund'                  => ['client'],
 
-        // Admin operations
+        // ─── ADMIN: Read-only analytics & Q&A only (no destructive actions) ───
         'admin_get_pending_appointments'  => ['admin', 'staff'],
-        'admin_approve_appointment'       => ['admin'],
-        'admin_decline_appointment'       => ['admin'],
         'admin_get_system_stats'          => ['admin'],
         'admin_get_appointment_stats'     => ['admin'],
-        'admin_bulk_cancel_appointments'  => ['admin'],
-
-        // Analytics tools — admin only
         'get_demand_forecast'             => ['admin'],
         'get_no_show_patterns'            => ['admin'],
         'get_auto_alerts'                 => ['admin'],
         'get_quality_report'              => ['admin'],
-
-        // AI Decision Support tools
-        'get_risk_assessment'             => ['admin', 'staff', 'cashier'],
-        'get_scheduling_recommendation'   => ['client', 'admin', 'staff'],
+        'get_risk_assessment'             => ['admin', 'cashier', 'staff'],
         'get_workload_optimization'       => ['admin'],
-        'get_customer_insights'           => ['admin', 'staff', 'cashier'],
+        'get_customer_insights'           => ['admin', 'cashier', 'staff'],
         'get_client_engagement_scores'    => ['admin'],
         'get_operational_recommendations' => ['admin'],
-
-        // ML prediction tools — staff and admin
-        'predict_busy_days'               => ['staff', 'admin', 'cashier'],
-        'predict_no_show'                 => ['staff', 'admin', 'cashier'],
-
-        // Notification tool — staff and admin
-        'send_notification'               => ['staff', 'admin'],
+        'predict_busy_days'               => ['admin', 'cashier', 'staff'],
+        'predict_no_show'                 => ['admin', 'cashier', 'staff'],
     ];
 
     /**

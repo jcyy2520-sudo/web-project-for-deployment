@@ -52,6 +52,7 @@ import {
   BoltIcon
 } from '@heroicons/react/24/outline';
 import AdminSettings from '../components/admin/AdminSettings';
+import ThemeToggle from '../components/ui/ThemeToggle';
 import UserStatusManagement from '../components/admin/UserStatusManagement';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { formatServiceName, formatPrice } from '../utils/format';
@@ -1840,68 +1841,72 @@ const AdminDashboard = () => {
             root.classList.remove('dark');
             root.classList.add('user-light');
             // Use same variables as user light mode defaults (fallbacks included)
-            root.style.setProperty('--primary', parsed.primary || '#1E3A8A');
-            root.style.setProperty('--secondary', parsed.secondary || '#2563EB');
-            root.style.setProperty('--accent', parsed.accent || '#F59E0B');
-            root.style.setProperty('--background', parsed.background || '#F9FAFB');
-            root.style.setProperty('--surface', parsed.surface || '#FFFFFF');
-            root.style.setProperty('--text-primary', parsed.textPrimary || '#111827');
-            root.style.setProperty('--text-secondary', parsed.textSecondary || '#6B7280');
-            root.style.setProperty('--borders', parsed.borders || '#E5E7EB');
+            root.style.setProperty('--primary', parsed.primary || '#1D3557');
+            root.style.setProperty('--secondary', parsed.secondary || '#3F6FA6');
+            root.style.setProperty('--accent', parsed.accent || '#C96D02');
+            root.style.setProperty('--background', parsed.background || '#ECF1F6');
+            root.style.setProperty('--sidebar-bg', parsed.sidebarBg || '#F4F7FB');
+            root.style.setProperty('--surface', parsed.surface || '#F8FAFD');
+            root.style.setProperty('--text-primary', parsed.textPrimary || '#0F172A');
+            root.style.setProperty('--text-secondary', parsed.textSecondary || '#475569');
+            root.style.setProperty('--borders', parsed.borders || '#CFDAE6');
             root.style.setProperty('--success', parsed.success || '#16A34A');
             root.style.setProperty('--error', parsed.error || '#DC2626');
-            root.style.backgroundColor = parsed.background || '#F9FAFB';
-            root.style.color = parsed.textPrimary || '#111827';
+            root.style.backgroundColor = parsed.background || '#ECF1F6';
+            root.style.color = parsed.textPrimary || '#0F172A';
           } else {
             // If user preference isn't light, apply sensible light defaults
             root.classList.remove('dark');
             root.classList.add('user-light');
-            root.style.setProperty('--primary', '#1E3A8A');
-            root.style.setProperty('--secondary', '#2563EB');
-            root.style.setProperty('--accent', '#F59E0B');
-            root.style.setProperty('--background', '#F9FAFB');
-            root.style.setProperty('--surface', '#FFFFFF');
-            root.style.setProperty('--text-primary', '#111827');
-            root.style.setProperty('--text-secondary', '#6B7280');
-            root.style.setProperty('--borders', '#E5E7EB');
+            root.style.setProperty('--primary', '#1D3557');
+            root.style.setProperty('--secondary', '#3F6FA6');
+            root.style.setProperty('--accent', '#C96D02');
+            root.style.setProperty('--background', '#ECF1F6');
+            root.style.setProperty('--sidebar-bg', '#F4F7FB');
+            root.style.setProperty('--surface', '#F8FAFD');
+            root.style.setProperty('--text-primary', '#0F172A');
+            root.style.setProperty('--text-secondary', '#475569');
+            root.style.setProperty('--borders', '#CFDAE6');
             root.style.setProperty('--success', '#16A34A');
             root.style.setProperty('--error', '#DC2626');
-            root.style.backgroundColor = '#F9FAFB';
-            root.style.color = '#111827';
+            root.style.backgroundColor = '#ECF1F6';
+            root.style.color = '#0F172A';
           }
         } catch (e) {
           // fallback light palette
           root.classList.remove('dark');
           root.classList.add('user-light');
-          root.style.setProperty('--primary', '#1E3A8A');
-          root.style.setProperty('--secondary', '#2563EB');
-          root.style.setProperty('--accent', '#F59E0B');
-          root.style.setProperty('--background', '#F9FAFB');
-          root.style.setProperty('--surface', '#FFFFFF');
-          root.style.setProperty('--text-primary', '#111827');
-          root.style.setProperty('--text-secondary', '#6B7280');
-          root.style.setProperty('--borders', '#E5E7EB');
+          root.style.setProperty('--primary', '#1D3557');
+          root.style.setProperty('--secondary', '#3F6FA6');
+          root.style.setProperty('--accent', '#C96D02');
+          root.style.setProperty('--background', '#ECF1F6');
+          root.style.setProperty('--sidebar-bg', '#F4F7FB');
+          root.style.setProperty('--surface', '#F8FAFD');
+          root.style.setProperty('--text-primary', '#0F172A');
+          root.style.setProperty('--text-secondary', '#475569');
+          root.style.setProperty('--borders', '#CFDAE6');
           root.style.setProperty('--success', '#16A34A');
           root.style.setProperty('--error', '#DC2626');
-          root.style.backgroundColor = '#F9FAFB';
-          root.style.color = '#111827';
+          root.style.backgroundColor = '#ECF1F6';
+          root.style.color = '#0F172A';
         }
       } else {
         // No user settings; apply defaults for light mode
         root.classList.remove('dark');
         root.classList.add('user-light');
-        root.style.setProperty('--primary', '#1E3A8A');
-        root.style.setProperty('--secondary', '#2563EB');
-        root.style.setProperty('--accent', '#F59E0B');
-        root.style.setProperty('--background', '#F9FAFB');
-        root.style.setProperty('--surface', '#FFFFFF');
-        root.style.setProperty('--text-primary', '#111827');
-        root.style.setProperty('--text-secondary', '#6B7280');
-        root.style.setProperty('--borders', '#E5E7EB');
+        root.style.setProperty('--primary', '#1D3557');
+        root.style.setProperty('--secondary', '#3F6FA6');
+        root.style.setProperty('--accent', '#C96D02');
+        root.style.setProperty('--background', '#ECF1F6');
+        root.style.setProperty('--sidebar-bg', '#F4F7FB');
+        root.style.setProperty('--surface', '#F8FAFD');
+        root.style.setProperty('--text-primary', '#0F172A');
+        root.style.setProperty('--text-secondary', '#475569');
+        root.style.setProperty('--borders', '#CFDAE6');
         root.style.setProperty('--success', '#16A34A');
         root.style.setProperty('--error', '#DC2626');
-        root.style.backgroundColor = '#F9FAFB';
-        root.style.color = '#111827';
+        root.style.backgroundColor = '#ECF1F6';
+        root.style.color = '#0F172A';
       }
     } else {
       // Dark mode: clear user-light and apply dark root class
@@ -5019,6 +5024,9 @@ const AdminDashboard = () => {
                     {appointment.decline_reason && (
                       <div className="text-xs text-red-400 mt-0.5 font-medium">Reason: {appointment.decline_reason}</div>
                     )}
+                    {appointment.cancellation_reason && (
+                      <div className="text-xs text-red-400 mt-0.5 font-medium">Cancel reason: {appointment.cancellation_reason}</div>
+                    )}
                   </td>
                   <td className="px-3 py-2 hidden lg:table-cell">
                     <div className="text-xs text-amber-50 font-medium">
@@ -5973,13 +5981,16 @@ const AdminDashboard = () => {
         <div className="lg:hidden fixed top-0 left-0 right-0 z-40 flex items-center justify-between px-3 sm:px-4 py-3 bg-gray-900 border-b border-amber-500/20 shadow">
           <div className="w-10"></div>
           <span className="text-amber-50 font-bold text-base">Legal Ease</span>
-          <button
-            onClick={() => setShowMobileSidebar(!showMobileSidebar)}
-            className="text-amber-400 hover:text-amber-300 transition-colors p-2 rounded-lg hover:bg-amber-500/10"
-            title="Toggle sidebar"
-          >
-            <Bars3Icon className="h-6 w-6" />
-          </button>
+          <div className="flex items-center gap-1">
+            <ThemeToggle />
+            <button
+              onClick={() => setShowMobileSidebar(!showMobileSidebar)}
+              className="text-amber-400 hover:text-amber-300 transition-colors p-2 rounded-lg hover:bg-amber-500/10"
+              title="Toggle sidebar"
+            >
+              <Bars3Icon className="h-6 w-6" />
+            </button>
+          </div>
         </div>
 
         {/* Mobile Sidebar Overlay */}
@@ -5997,8 +6008,16 @@ const AdminDashboard = () => {
           <div className="flex flex-col h-full overflow-hidden">
             <div className={`flex items-center justify-between h-16 shadow-md ${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-gray-50 border-amber-300/40'} px-3 border-b transition-colors duration-300 flex-shrink-0`}>
               <div className="flex items-center space-x-2">
-                <div className="w-8 h-8 bg-gradient-to-r from-amber-500 to-amber-600 rounded-lg flex items-center justify-center shadow">
-                  <BuildingLibraryIcon className="h-4 w-4 text-white" />
+                <div className="w-12 h-12 flex items-center justify-center flex-shrink-0">
+                  <img 
+                    src={isDarkMode ? '/logo-dark-v2.png' : '/logo-light-v2.png'} 
+                    alt="Logo" 
+                    className="h-full w-full object-contain pointer-events-none drop-shadow-sm transition-opacity duration-300"
+                    onError={(e) => {
+                      e.target.onerror = null;
+                      e.target.src = '/logo.png';
+                    }}
+                  />
                 </div>
                 <span className={`text-sm lg:text-base font-bold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'} transition-colors duration-300 truncate hidden lg:inline ${isCollapsedDesktop ? 'lg:hidden' : ''}`}>LEGAL EASE</span>
               </div>
@@ -6164,6 +6183,7 @@ const AdminDashboard = () => {
                     day: 'numeric' 
                   })}
                 </div>
+                <ThemeToggle />
 
                 {/* Refresh button - always available on dashboard */}
                 {activeTab === 'dashboard' && (

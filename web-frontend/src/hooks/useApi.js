@@ -5,6 +5,7 @@ import logger from '../utils/logger';
 
 // Global CSRF token flag
 let csrfTokenLoaded = false;
+let csrfTokenPromise = null;
 
 // Global cache for API responses with TTL
 const apiCache = new Map();
@@ -66,25 +67,40 @@ export const useApi = () => {
 
   const ensureCsrfToken = useCallback(async () => {
     if (csrfTokenLoaded) return;
+    if (csrfTokenPromise) {
+      try {
+        await csrfTokenPromise;
+      } catch {
+        // Non-blocking: individual API calls can still proceed and handle their own failures.
+      }
+      return;
+    }
     
     try {
-      await axios.get('/sanctum/csrf-cookie');
+      csrfTokenPromise = axios.get('/sanctum/csrf-cookie');
+      await csrfTokenPromise;
       csrfTokenLoaded = true;
     } catch (error) {
       console.error('CSRF token failed:', error);
+    } finally {
+      csrfTokenPromise = null;
     }
   }, []);
 
   // Reset CSRF token on 419 error (token mismatch / expired)
   const resetCsrfToken = useCallback(async () => {
     csrfTokenLoaded = false;
+    csrfTokenPromise = null;
     try {
-      await axios.get('/sanctum/csrf-cookie');
+      csrfTokenPromise = axios.get('/sanctum/csrf-cookie');
+      await csrfTokenPromise;
       csrfTokenLoaded = true;
       return true;
     } catch (error) {
       console.error('CSRF token reset failed:', error);
       return false;
+    } finally {
+      csrfTokenPromise = null;
     }
   }, []);
 
@@ -279,9 +295,14 @@ export const useApi = () => {
             });
           } else if (err.response) {
             // Server responded with error status
-            errorMessage = err.response.data?.message || 
-                          err.response.data?.error || 
-                          `Request failed with status ${err.response.status}`;
+            if (err.response.status === 429) {
+              const retryAfter = err.response.headers?.['retry-after'] || err.response.headers?.['Retry-After'] || 60;
+              errorMessage = err.response.data?.message || `Too many attempts! Please try again in ${retryAfter} seconds.`;
+            } else {
+              errorMessage = err.response.data?.message || 
+                            err.response.data?.error || 
+                            `Request failed with status ${err.response.status}`;
+            }
 
             recordApiMetric(err.config?.url || endpoint || 'unknown', duration, err.response.status);
 

@@ -226,13 +226,13 @@ const ChatbotButton = ({ className = '', isDarkMode }) => {
               className={`absolute -top-14 right-0 whitespace-nowrap px-3 py-2 rounded-xl text-xs font-medium shadow-lg animate-bounce ${
                 resolvedDark
                   ? 'bg-amber-500 text-gray-900'
-                  : 'bg-gradient-to-r from-orange-500 via-pink-500 to-purple-500 text-white'
+                  : 'bg-amber-600 text-white shadow-amber-600/20'
               }`}
               style={{ animationDuration: '2s' }}
             >
               Chat with AI Assistant! 💬
               <div className={`absolute -bottom-1.5 right-6 w-3 h-3 rotate-45 ${
-                resolvedDark ? 'bg-amber-500' : 'bg-purple-500'
+                resolvedDark ? 'bg-amber-500' : 'bg-amber-600'
               }`} />
             </div>
           )}
@@ -249,10 +249,10 @@ const ChatbotButton = ({ className = '', isDarkMode }) => {
             } ${
               resolvedDark
                 ? 'ring-amber-500/50 ring-offset-gray-900 shadow-amber-500/20'
-                : 'ring-purple-500/50 ring-offset-white shadow-purple-500/20'
+                : 'ring-amber-600/50 ring-offset-white shadow-amber-600/20'
             } ${
               !isLandingPage
-                ? (resolvedDark ? 'bg-amber-500' : 'bg-gradient-to-r from-orange-500 via-pink-500 to-purple-500')
+                ? (resolvedDark ? 'bg-amber-500' : 'bg-gradient-to-r from-amber-500 to-amber-600')
                 : ''
             }`}
             aria-label="Chat with AI Assistant"

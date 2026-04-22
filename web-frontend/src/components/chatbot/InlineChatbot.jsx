@@ -232,26 +232,31 @@ const InlineChatbot = ({ isDarkMode, sectionData = {} }) => {
   };
 
   return (
-    <div className={`rounded-3xl overflow-hidden backdrop-blur-xl border transition-all duration-500 flex flex-col relative ${
+    <div className={`rounded-3xl overflow-hidden backdrop-blur-xl border transition-all duration-500 flex flex-col relative h-[500px] max-h-[70vh] md:h-[600px] md:max-h-[80vh] ${
       isDarkMode
         ? 'bg-gray-900/60 border-gray-700/40 shadow-2xl shadow-black/20'
         : 'bg-white/80 border-gray-200/60 shadow-2xl shadow-gray-300/30'
-    }`} style={{ minHeight: 'min(450px, 75vh)', maxHeight: 'min(700px, 80vh)' }}>
+    }`}>
 
       {/* Sidebar Icons - hidden on mobile */}
       <div className={`absolute left-0 top-0 bottom-0 w-12 hidden md:flex flex-col items-center py-5 gap-3 z-20 border-r ${
         isDarkMode ? 'bg-gray-900/80 border-gray-700/30' : 'bg-gray-50/90 border-gray-200/40'
       }`}>
         {/* Logo / Bot icon */}
-        <div className={`w-8 h-8 rounded-xl flex items-center justify-center mb-2 ${
-          isDarkMode ? 'bg-amber-500/20' : 'bg-blue-500/15'
-        }`}>
-          <svg className={`w-4.5 h-4.5 ${isDarkMode ? 'text-amber-400' : 'text-blue-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
-          </svg>
+        <div className="w-12 h-12 flex items-center justify-center mb-2 flex-shrink-0">
+          <img 
+            src={isDarkMode ? '/logo-dark-v2.png' : '/logo-light-v2.png'} 
+            alt="Logo" 
+            className="h-full w-full object-contain pointer-events-none drop-shadow-sm transition-opacity duration-300"
+            onError={(e) => {
+              e.target.onerror = null;
+              e.target.src = '/logo.png';
+            }}
+          />
         </div>
 
-        {/* New conversation */}
+        {/* New conversation — authenticated users only */}
+        {userRole !== 'guest' && (
         <button
           onClick={handleNewConversation}
           className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all ${
@@ -263,8 +268,10 @@ const InlineChatbot = ({ isDarkMode, sectionData = {} }) => {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
           </svg>
         </button>
+        )}
 
-        {/* Search / History */}
+        {/* Search / History — authenticated users only */}
+        {userRole !== 'guest' && (
         <button
           onClick={toggleHistory}
           className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all ${
@@ -278,8 +285,10 @@ const InlineChatbot = ({ isDarkMode, sectionData = {} }) => {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
         </button>
+        )}
 
-        {/* History clock */}
+        {/* History clock — authenticated users only */}
+        {userRole !== 'guest' && (
         <button
           onClick={toggleHistory}
           className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all ${
@@ -291,6 +300,7 @@ const InlineChatbot = ({ isDarkMode, sectionData = {} }) => {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
         </button>
+        )}
 
         {/* Spacer */}
         <div className="flex-1" />

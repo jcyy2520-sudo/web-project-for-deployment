@@ -1,9 +1,0 @@
-1773978252s:837:"- Appointment booking requires a registered account
-- Appointments go through approval: Pending → Approved → Completed
-- Only admins can approve or decline appointment requests
-- Payments are processed by cashiers/admins after appointment approval
-- Refunds must be requested, then approved by admin, then processed by cashier
-- Users can cancel their own pending appointments
-- Approved appointments cannot be cancelled by the client (must contact admin)
-- Maximum 3 appointment(s) per user per day
-- Valid refund reasons: Customer Request, Service Not Provided, Duplicate Payment, Service Cancellation, Poor Service, Other, Duplicate Refund Request, Outside Refund Policy, No Service Issue Found, Insufficient Documentation, Request Too Late (30 days), Service Completed Successfully, Refund Not Due to Business Fault, Other Reason";

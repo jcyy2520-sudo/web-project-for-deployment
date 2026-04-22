@@ -45,6 +45,7 @@ class Appointment extends Model
         'reminder_sent_at',
         'reminder_level',
         'decline_reason',
+        'cancellation_reason',
         'paymongo_checkout_id',
         'paymongo_payment_id',
         'paymongo_checkout_url',

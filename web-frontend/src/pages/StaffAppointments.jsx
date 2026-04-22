@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 import { useApi } from '../hooks/useApi';
@@ -26,21 +26,60 @@ const StaffAppointments = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const appointmentsPerPage = 8;
 
+  const loadInFlightRef = useRef(false);
+
+  const loadAppointments = useCallback(async () => {
+    if (loadInFlightRef.current) return;
+    loadInFlightRef.current = true;
+
+    const url = statusFilter === 'all'
+      ? '/api/appointments'
+      : `/api/appointments?status=${statusFilter}`;
+
+    try {
+      const result = await callApi((signal) => axios.get(url, { signal }), {
+        abortPrevious: false,
+      });
+
+      if (result.success) {
+        setAppointments(result.data.data || result.data);
+        setCurrentPage(1);
+      }
+    } finally {
+      loadInFlightRef.current = false;
+    }
+  }, [callApi, statusFilter]);
+
   useEffect(() => {
     loadAppointments();
-  }, [statusFilter]);
+  }, [loadAppointments]);
 
   // Poll for appointment changes as a fallback when real-time is not configured
   useEffect(() => {
-    const POLL_INTERVAL_MS = 15000; // 15s
+    const POLL_INTERVAL_MS = 30000;
     const id = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) {
+        return;
+      }
       loadAppointments();
     }, POLL_INTERVAL_MS);
 
     const handleLogout = () => clearInterval(id);
     window.addEventListener('auth:logout', handleLogout);
-    return () => { clearInterval(id); window.removeEventListener('auth:logout', handleLogout); };
-  }, [statusFilter]);
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        loadAppointments();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      clearInterval(id);
+      window.removeEventListener('auth:logout', handleLogout);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [loadAppointments]);
 
   // Real-time subscription via Laravel Echo (if configured)
   useEffect(() => {
@@ -82,19 +121,7 @@ const StaffAppointments = () => {
       try { channel.stopListening('AppointmentCreated'); } catch (e) {}
       try { if (channel._pusher) { channel._pusher.unbind('AppointmentUpdated'); channel._pusher.unbind('AppointmentCreated'); } } catch (e) {}
     };
-  }, [statusFilter]);
-
-  const loadAppointments = async () => {
-    const url = statusFilter === 'all' 
-      ? '/api/appointments'
-      : `/api/appointments?status=${statusFilter}`;
-    
-    const result = await callApi((signal) => axios.get(url, { signal }));
-    if (result.success) {
-      setAppointments(result.data.data || result.data);
-      setCurrentPage(1);
-    }
-  };
+  }, [loadAppointments]);
 
   // Sort appointments
   const sortedAppointments = useMemo(() => {

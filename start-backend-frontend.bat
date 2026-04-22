@@ -25,7 +25,7 @@ if /I "%~1"=="-single" goto :single
 if /I "%~1"=="/single" goto :single
 
 echo Starting backend in a new terminal...
-start "Backend - Laravel" cmd /k "cd /d ""%BACKEND_DIR%"" && php artisan serve"
+start "Backend - Laravel" cmd /k "cd /d ""%BACKEND_DIR%"" && php artisan serve --host=0.0.0.0 --port=8000"
 
 echo Starting frontend in a new terminal...
 start "Frontend - Vite Dev" cmd /k "cd /d ""%FRONTEND_DIR%"" && set NODE_OPTIONS=--max-old-space-size=4096 && npm run dev"
@@ -38,7 +38,7 @@ goto :eof
 
 :single
 echo Starting backend in background (hidden window)...
-start "" /min cmd /c "cd /d ""%BACKEND_DIR%"" && php artisan serve"
+start "" /min cmd /c "cd /d ""%BACKEND_DIR%"" && php artisan serve --host=0.0.0.0 --port=8000"
 
 echo Starting frontend in current terminal...
 cd /d "%FRONTEND_DIR%"

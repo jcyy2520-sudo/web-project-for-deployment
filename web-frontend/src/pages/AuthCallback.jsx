@@ -2,6 +2,12 @@ import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
+import { useAuth } from '../context/AuthContext';
+import {
+  clearPostAuthRedirecting,
+  getDashboardRouteByRole,
+  markPostAuthRedirecting,
+} from '../utils/authRedirect';
 
 /**
  * AuthCallback Component
@@ -12,6 +18,19 @@ const AuthCallback = () => {
   const navigate = useNavigate();
 
   const { setAuthData } = useAuth();
+
+  const parseOAuthUser = (rawUser) => {
+    if (!rawUser) {
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(rawUser);
+      return typeof parsed === 'object' && parsed !== null ? parsed : null;
+    } catch {
+      return null;
+    }
+  };
 
   useEffect(() => {
     const handleCallback = async () => {
@@ -26,9 +45,11 @@ const AuthCallback = () => {
       const message = hashParams.get('message') || searchParams.get('message');
       const tab = hashParams.get('tab') || searchParams.get('tab');
       const registrationStatus = hashParams.get('registration') || searchParams.get('registration');
+      const rawUser = hashParams.get('user') || searchParams.get('user');
 
       // 1. Handle registration confirmation (email link)
       if (registrationStatus === 'confirmed') {
+        clearPostAuthRedirecting();
         sessionStorage.setItem('oauth_success_message', 'Registration confirmed. You can now sign in.');
         navigate('/?auth_modal=open', { replace: true });
         return;
@@ -36,6 +57,7 @@ const AuthCallback = () => {
 
       // 2. Handle OAuth Errors
       if (oauthStatus === 'error') {
+        clearPostAuthRedirecting();
         if (message) sessionStorage.setItem('oauth_error_message', message);
         if (tab) sessionStorage.setItem('oauth_error_tab', tab);
         navigate('/?auth_modal=open', { replace: true });
@@ -44,6 +66,8 @@ const AuthCallback = () => {
 
       // 3. Handle OAuth Success
       if (oauthStatus === 'success' && token) {
+        const fallbackUser = parseOAuthUser(rawUser);
+
         try {
           // Initialize auth headers and storage immediately to prevent race conditions
           localStorage.setItem('token', token);
@@ -57,33 +81,44 @@ const AuthCallback = () => {
           const userData = userResp.data?.data || userResp.data;
           
           // Update global auth state directly (no page reload)
-          setAuthData(userData, token);
-          
-          // Successful login/register -> Dashboard
-          navigate('/dashboard', { replace: true });
+          setAuthData(userData || fallbackUser, token);
+
+          markPostAuthRedirecting();
+          navigate(getDashboardRouteByRole((userData || fallbackUser)?.role), { replace: true });
         } catch (error) {
           console.error('OAuth finalization failed:', error);
           
           if (error.response?.status === 401) {
+            clearPostAuthRedirecting();
             localStorage.removeItem('token');
             localStorage.removeItem('user');
             sessionStorage.setItem('oauth_error_message', 'Session invalid. Please sign in again.');
             navigate('/?auth_modal=open', { replace: true });
           } else {
-             // Non-auth failures (network/timeout) - still proceed with token
-             // AuthContext will handle background refreshing if needed
-             setAuthData(null, token);
-             navigate('/dashboard', { replace: true });
+             // Non-auth failures (network/timeout): proceed with fallback user if available.
+             setAuthData(fallbackUser, token);
+             markPostAuthRedirecting();
+             navigate(getDashboardRouteByRole(fallbackUser?.role), { replace: true });
           }
         }
+      } else if (oauthStatus === 'success') {
+        clearPostAuthRedirecting();
+        if (message) {
+          sessionStorage.setItem('oauth_success_message', message);
+        }
+        if (tab) {
+          sessionStorage.setItem('oauth_error_tab', tab);
+        }
+        navigate('/?auth_modal=open', { replace: true });
       } else {
         // No valid oauth state found, go back home
+        clearPostAuthRedirecting();
         navigate('/', { replace: true });
       }
     };
 
     handleCallback();
-  }, [navigate]);
+  }, [navigate, setAuthData]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-900">

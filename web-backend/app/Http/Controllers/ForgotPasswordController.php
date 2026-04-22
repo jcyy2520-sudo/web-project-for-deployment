@@ -23,8 +23,8 @@ class ForgotPasswordController extends Controller
         if (RateLimiter::tooManyAttempts($key, 5)) {
             $seconds = RateLimiter::availableIn($key);
             return response()->json([
-                'message' => 'Too many attempts. Please try again in ' . ceil($seconds / 60) . ' minutes.'
-            ], 429);
+                'message' => "Too many attempts. Please try again in $seconds seconds."
+            ], 429)->header('Retry-After', $seconds);
         }
         RateLimiter::hit($key, 300);
 
@@ -93,8 +93,8 @@ class ForgotPasswordController extends Controller
         if (RateLimiter::tooManyAttempts($key, 5)) {
             $seconds = RateLimiter::availableIn($key);
             return response()->json([
-                'message' => 'Too many attempts. Please try again in ' . ceil($seconds / 60) . ' minutes.'
-            ], 429);
+                'message' => "Too many attempts. Please try again in $seconds seconds."
+            ], 429)->header('Retry-After', $seconds);
         }
 
         $request->validate([
@@ -198,8 +198,8 @@ class ForgotPasswordController extends Controller
         if (RateLimiter::tooManyAttempts($key, 3)) {
             $seconds = RateLimiter::availableIn($key);
             return response()->json([
-                'message' => 'Too many resend attempts. Please try again in ' . ceil($seconds / 60) . ' minutes.'
-            ], 429);
+                'message' => "Too many resend attempts. Please try again in $seconds seconds."
+            ], 429)->header('Retry-After', $seconds);
         }
         RateLimiter::hit($key, 600);
 

@@ -5,6 +5,7 @@ import axios from 'axios';
 import Modal from '../Modal';
 import LoadingSpinner from '../LoadingSpinner';
 import { useNavigate } from 'react-router-dom';
+import { getDashboardRouteByRole, markPostAuthRedirecting } from '../../utils/authRedirect';
 import TermsPrivacyModal from './TermsPrivacyModal';
 import { 
   EyeIcon, 
@@ -133,18 +134,61 @@ const AuthTabsModal = ({ isOpen, onClose, isDarkMode = true }) => {
     }
   }, [isOpen]);
 
-  // Timer effect for step 2
+  // Timer effect for registration verification code
   useEffect(() => {
     if (registerStep === 2 && timeLeft > 0) {
       const timer = setTimeout(() => {
         setTimeLeft(timeLeft - 1);
-      }, 60000); // 1 minute
+      }, 60000); // This one is minutes
       return () => clearTimeout(timer);
     } else if (registerStep === 2 && timeLeft === 0) {
       showRegisterNotification('Verification code has expired. Please request a new one.', 'error');
       setRegisterStep(1);
     }
   }, [registerStep, timeLeft]);
+
+  // Live countdown timer for rate limit messages (Login)
+  useEffect(() => {
+    if (loginError && loginError.includes('try again in')) {
+      const match = loginError.match(/try again in (\d+) seconds/i);
+      if (match && match[1]) {
+        const seconds = parseInt(match[1], 10);
+        if (seconds > 0) {
+          const timer = setTimeout(() => {
+            setLoginError(`Too many attempts! Please try again in ${seconds - 1} seconds.`);
+          }, 1000);
+          return () => clearTimeout(timer);
+        } else {
+          setLoginError('You can try logging in again now.');
+        }
+      }
+    }
+  }, [loginError]);
+
+  // Live countdown timer for rate limit messages (Register Notifications)
+  useEffect(() => {
+    if (registerNotification.show && registerNotification.message?.includes('try again in')) {
+      const match = registerNotification.message.match(/try again in (\d+) seconds/i);
+      if (match && match[1]) {
+        const seconds = parseInt(match[1], 10);
+        if (seconds > 0) {
+          const timer = setTimeout(() => {
+            setRegisterNotification(prev => ({
+              ...prev,
+              message: prev.message.replace(/in \d+ seconds/i, `in ${seconds - 1} seconds`)
+            }));
+          }, 1000);
+          return () => clearTimeout(timer);
+        } else {
+          setRegisterNotification(prev => ({
+            ...prev,
+            message: 'You can try again now.',
+            type: 'success'
+          }));
+        }
+      }
+    }
+  }, [registerNotification.show, registerNotification.message]);
 
   // Reset timer when moving to step 2
   useEffect(() => {
@@ -156,9 +200,18 @@ const AuthTabsModal = ({ isOpen, onClose, isDarkMode = true }) => {
   // Show register notification
   const showRegisterNotification = (message, type = 'success') => {
     setRegisterNotification({ show: true, message, type });
-    setTimeout(() => {
-      setRegisterNotification({ show: false, message: '', type: 'success' });
-    }, 5000);
+    // If it's a rate limit message, don't auto-hide it after 5 seconds
+    if (!message?.includes('try again in')) {
+      setTimeout(() => {
+        setRegisterNotification(prev => {
+          // Check if it's still the same message to avoid clearing new notifications
+          if (prev.message === message) {
+            return { show: false, message: '', type: 'success' };
+          }
+          return prev;
+        });
+      }, 5000);
+    }
   };
 
   // Login handlers
@@ -197,19 +250,12 @@ const AuthTabsModal = ({ isOpen, onClose, isDarkMode = true }) => {
     }
 
     setLoginLoading(false);
+    markPostAuthRedirecting();
+    navigate(getDashboardRouteByRole(result.user?.role), { replace: true });
     onClose();
-    
-    // Route based on user role
-    if (result.user && result.user.role === 'admin') {
-      navigate('/admin/dashboard');
-    } else if (result.user && (result.user.role === 'cashier' || result.user.role === 'staff')) {
-      navigate('/cashier');
-    } else {
-      navigate('/dashboard');
-    }
   };
 
-  // Forgot password timer
+  // Forgot password timer for code expiration
   useEffect(() => {
     if (forgotStep === 2 && forgotCodeTimeLeft > 0) {
       const timer = setTimeout(() => {
@@ -221,6 +267,24 @@ const AuthTabsModal = ({ isOpen, onClose, isDarkMode = true }) => {
       setForgotStep(1);
     }
   }, [forgotStep, forgotCodeTimeLeft]);
+
+  // Live countdown timer for rate limit messages (Forgot Password)
+  useEffect(() => {
+    if (forgotError && forgotError.includes('try again in')) {
+      const match = forgotError.match(/try again in (\d+) seconds/i);
+      if (match && match[1]) {
+        const seconds = parseInt(match[1], 10);
+        if (seconds > 0) {
+          const timer = setTimeout(() => {
+            setForgotError(prev => prev.replace(/in \d+ seconds/i, `in ${seconds - 1} seconds`));
+          }, 1000);
+          return () => clearTimeout(timer);
+        } else {
+          setForgotError('You can try again now.');
+        }
+      }
+    }
+  }, [forgotError]);
 
   // Forgot password handlers
   const resetForgotState = () => {

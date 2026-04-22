@@ -57,10 +57,11 @@ const ChatbotInput = ({
           <div className={`absolute bottom-2 right-4 w-48 rounded-xl border shadow-xl overflow-hidden ${
             isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
           }`}>
+            {mobileActions.userRole !== 'guest' && (
             <button
               onClick={() => { mobileActions.onNewConversation(); setShowMobileMenu(false); }}
               className={`w-full text-left px-4 py-2.5 text-sm flex items-center gap-2.5 transition-colors ${
-                isDarkMode ? 'text-gray-300 hover:bg-gray-700 hover:text-amber-400' : 'text-gray-700 hover:bg-gray-50 hover:text-purple-600'
+                isDarkMode ? 'text-gray-300 hover:bg-gray-700 hover:text-amber-400' : 'text-gray-700 hover:bg-gray-50 hover:text-amber-600'
               }`}
             >
               <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -68,12 +69,14 @@ const ChatbotInput = ({
               </svg>
               New Conversation
             </button>
+            )}
+            {mobileActions.userRole !== 'guest' && (
             <button
               onClick={() => { mobileActions.onToggleHistory(); setShowMobileMenu(false); }}
               className={`w-full text-left px-4 py-2.5 text-sm flex items-center gap-2.5 transition-colors ${
                 mobileActions.showHistory
-                  ? (isDarkMode ? 'bg-amber-500/10 text-amber-400' : 'bg-purple-50 text-purple-600')
-                  : (isDarkMode ? 'text-gray-300 hover:bg-gray-700 hover:text-amber-400' : 'text-gray-700 hover:bg-gray-50 hover:text-purple-600')
+                  ? (isDarkMode ? 'bg-amber-500/10 text-amber-400' : 'bg-amber-50 text-amber-600')
+                  : (isDarkMode ? 'text-gray-300 hover:bg-gray-700 hover:text-amber-400' : 'text-gray-700 hover:bg-gray-50 hover:text-amber-600')
               }`}
             >
               <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -81,7 +84,10 @@ const ChatbotInput = ({
               </svg>
               Chat History
             </button>
-            <div className={`border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-100'}`} />
+            )}
+            {mobileActions.userRole !== 'guest' && (
+              <div className={`border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-100'}`} />
+            )}
             <button
               onClick={() => { mobileActions.onClearHistory(); setShowMobileMenu(false); }}
               className={`w-full text-left px-4 py-2.5 text-sm flex items-center gap-2.5 transition-colors ${
@@ -95,7 +101,7 @@ const ChatbotInput = ({
             </button>
             <div className={`px-4 py-2.5 flex items-center gap-2.5 border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-100'}`}>
               <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-medium flex-shrink-0 ${
-                isDarkMode ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' : 'bg-purple-100 text-purple-600 border border-purple-200'
+                isDarkMode ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' : 'bg-amber-100 text-amber-700 border border-amber-200'
               }`}>
                 {mobileActions.userRole === 'guest' ? '?' : mobileActions.userRole.charAt(0).toUpperCase()}
               </div>
@@ -110,7 +116,7 @@ const ChatbotInput = ({
       <div className={`rounded-2xl border overflow-hidden transition-all ${
         isDarkMode
           ? 'bg-gray-800/60 border-gray-700/40 focus-within:border-amber-500/40 focus-within:shadow-lg focus-within:shadow-amber-500/5'
-          : 'bg-white/90 border-gray-200/60 focus-within:border-purple-300 focus-within:shadow-lg focus-within:shadow-purple-100/50'
+          : 'bg-white border-slate-200 focus-within:border-amber-500/50 focus-within:shadow-lg focus-within:shadow-amber-500/5'
       }`}>
         {/* Text area row */}
         <div className="flex items-end gap-2 px-4 pt-3 pb-2">
@@ -135,7 +141,7 @@ const ChatbotInput = ({
           />
           {/* AI badge */}
           <div className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs whitespace-nowrap flex-shrink-0 mb-0.5 ${
-            isDarkMode ? 'bg-amber-500/10 text-amber-400' : 'bg-purple-50 text-purple-500'
+            isDarkMode ? 'bg-amber-500/10 text-amber-400' : 'bg-amber-50 text-amber-600 border border-amber-200'
           }`}>
             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
@@ -161,8 +167,8 @@ const ChatbotInput = ({
                 onClick={() => setShowMobileMenu(!showMobileMenu)}
                 className={`p-1.5 rounded-lg transition-colors md:hidden ${
                   showMobileMenu
-                    ? (isDarkMode ? 'bg-amber-500/20 text-amber-400' : 'bg-purple-100 text-purple-600')
-                    : (isDarkMode ? 'text-gray-500 hover:text-amber-400 hover:bg-gray-700' : 'text-gray-400 hover:text-purple-500 hover:bg-gray-100')
+                    ? (isDarkMode ? 'bg-amber-500/20 text-amber-400' : 'bg-amber-50 text-amber-600 border border-amber-200')
+                    : (isDarkMode ? 'text-gray-500 hover:text-amber-400 hover:bg-gray-700' : 'text-slate-400 hover:text-amber-700 hover:bg-amber-50')
                 }`}
                 title="Menu"
               >
@@ -196,7 +202,7 @@ const ChatbotInput = ({
                 inputValue.trim() && !isOverLimit
                   ? (isDarkMode
                     ? 'bg-amber-500 text-gray-900 hover:bg-amber-400 shadow-lg shadow-amber-500/20'
-                    : 'bg-gradient-to-r from-orange-500 via-pink-500 to-purple-500 text-white hover:shadow-lg hover:shadow-purple-200')
+                    : 'bg-amber-600 text-white hover:bg-amber-700 shadow-lg shadow-amber-600/20')
                   : (isDarkMode
                     ? 'bg-gray-700 text-gray-500'
                     : 'bg-gray-200 text-gray-400')
