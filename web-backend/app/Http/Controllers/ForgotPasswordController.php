@@ -9,25 +9,62 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\RateLimiter;
 
 class ForgotPasswordController extends Controller
 {
+    private function forgotPasswordSuccessResponse(string $email, bool $resent = false)
+    {
+        $message = $resent
+            ? 'If this email is registered, a new verification code has been sent.'
+            : 'If this email is registered, a verification code has been sent. The code will expire in 15 minutes.';
+
+        if (app()->environment('local')) {
+            $message .= ' If nothing arrives during local testing, check the backend log because local mail can fall back there.';
+        }
+
+        return [
+            'message' => $message,
+            'email' => $email,
+            'expires_in' => '15 minutes',
+        ];
+    }
+
+    private function dispatchPasswordResetCodeMail(string $email, string $code): void
+    {
+        if (!app()->environment('local')) {
+            Mail::to($email)->queue(new PasswordResetCodeMail($code));
+            Log::info('Password reset code sent to: ' . $email, [
+                'delivery_channel' => 'default',
+            ]);
+
+            return;
+        }
+
+        try {
+            Mail::mailer('smtp')->to($email)->send(new PasswordResetCodeMail($code));
+            Log::info('Password reset code sent to: ' . $email, [
+                'delivery_channel' => 'smtp',
+            ]);
+        } catch (\Throwable $exception) {
+            Log::warning('SMTP delivery failed for password reset email, falling back to log mailer.', [
+                'email' => $email,
+                'error' => $exception->getMessage(),
+            ]);
+
+            Mail::mailer('log')->to($email)->send(new PasswordResetCodeMail($code));
+
+            Log::info('Password reset code written to backend log for local delivery fallback.', [
+                'email' => $email,
+                'delivery_channel' => 'log',
+            ]);
+        }
+    }
+
     /**
      * Step 1: Send a reset code to the user's email
      */
     public function sendCode(Request $request)
     {
-        // Rate limiting
-        $key = 'forgot-password:' . ($request->ip() ?? 'unknown');
-        if (RateLimiter::tooManyAttempts($key, 5)) {
-            $seconds = RateLimiter::availableIn($key);
-            return response()->json([
-                'message' => "Too many attempts. Please try again in $seconds seconds."
-            ], 429)->header('Retry-After', $seconds);
-        }
-        RateLimiter::hit($key, 300);
-
         $request->validate([
             'email' => 'required|email',
         ]);
@@ -44,11 +81,7 @@ class ForgotPasswordController extends Controller
             Log::info('Password reset requested for non-existent/deleted email', [
                 'ip' => $request->ip()
             ]);
-            return response()->json([
-                'message' => 'If this email is registered, a verification code has been sent. The code will expire in 15 minutes.',
-                'email' => $email,
-                'expires_in' => '15 minutes',
-            ]);
+            return response()->json($this->forgotPasswordSuccessResponse($email));
         }
 
         // Clean up old codes for this email
@@ -66,14 +99,9 @@ class ForgotPasswordController extends Controller
         ]);
 
         try {
-            Mail::to($email)->queue(new PasswordResetCodeMail($code));
-            Log::info('Password reset code sent to: ' . $email);
+            $this->dispatchPasswordResetCodeMail($email, $code);
 
-            return response()->json([
-                'message' => 'If this email is registered, a verification code has been sent. The code will expire in 15 minutes.',
-                'email' => $email,
-                'expires_in' => '15 minutes',
-            ]);
+            return response()->json($this->forgotPasswordSuccessResponse($email));
         } catch (\Exception $e) {
             Log::error('Failed to send password reset email: ' . $e->getMessage());
             PasswordResetCode::where('email', $email)->delete();
@@ -89,26 +117,14 @@ class ForgotPasswordController extends Controller
      */
     public function verifyCode(Request $request)
     {
-        $key = 'forgot-verify:' . ($request->ip() ?? 'unknown');
-        if (RateLimiter::tooManyAttempts($key, 5)) {
-            $seconds = RateLimiter::availableIn($key);
-            return response()->json([
-                'message' => "Too many attempts. Please try again in $seconds seconds."
-            ], 429)->header('Retry-After', $seconds);
-        }
-
         $request->validate([
             'email' => 'required|email',
             'code' => 'required|string|size:6',
         ]);
 
-        $resetCode = PasswordResetCode::where('email', $request->email)
-            ->where('code', $request->code)
-            ->active()
-            ->first();
+        $resetCode = PasswordResetCode::findActiveMatchForEmail($request->email, $request->code);
 
         if (!$resetCode) {
-            RateLimiter::hit($key, 300);
             return response()->json([
                 'message' => 'Invalid or expired verification code. Please request a new one.'
             ], 422);
@@ -116,9 +132,6 @@ class ForgotPasswordController extends Controller
 
         // Mark code as used
         $resetCode->update(['used' => true]);
-
-        // Clear rate limit on success
-        RateLimiter::clear($key);
 
         return response()->json([
             'message' => 'Code verified successfully. You can now set a new password.',
@@ -194,15 +207,6 @@ class ForgotPasswordController extends Controller
      */
     public function resendCode(Request $request)
     {
-        $key = 'forgot-resend:' . $request->email;
-        if (RateLimiter::tooManyAttempts($key, 3)) {
-            $seconds = RateLimiter::availableIn($key);
-            return response()->json([
-                'message' => "Too many resend attempts. Please try again in $seconds seconds."
-            ], 429)->header('Retry-After', $seconds);
-        }
-        RateLimiter::hit($key, 600);
-
         $request->validate([
             'email' => 'required|email',
         ]);
@@ -210,11 +214,7 @@ class ForgotPasswordController extends Controller
         $user = User::where('email', $request->email)->first();
         if (!$user) {
             // SECURITY: Generic message to prevent email enumeration
-            return response()->json([
-                'message' => 'If this email is registered, a new verification code has been sent.',
-                'email' => $request->email,
-                'expires_in' => '15 minutes',
-            ]);
+            return response()->json($this->forgotPasswordSuccessResponse($request->email, true));
         }
 
         // Clean up old codes
@@ -230,13 +230,9 @@ class ForgotPasswordController extends Controller
         ]);
 
         try {
-            Mail::to($request->email)->queue(new PasswordResetCodeMail($code));
+            $this->dispatchPasswordResetCodeMail($request->email, $code);
 
-            return response()->json([
-                'message' => 'New verification code sent to your email.',
-                'email' => $request->email,
-                'expires_in' => '15 minutes',
-            ]);
+            return response()->json($this->forgotPasswordSuccessResponse($request->email, true));
         } catch (\Exception $e) {
             Log::error('Failed to resend password reset email: ' . $e->getMessage());
             return response()->json([

@@ -6,10 +6,9 @@ import axios from 'axios';
  * ------------------
  * Centralizes every Decision-Support API call behind a single React hook.
  *
- * Auth: reads the Bearer token from localStorage('token') and attaches it to
- * each request via the Authorization header (same pattern used throughout the
- * codebase).  The global axios.defaults.baseURL is already configured by
- * main.jsx / AuthContext so all paths here are relative.
+ * Auth: uses the shared cookie-backed session configured in axios defaults.
+ * The global axios.defaults.baseURL is already configured by main.jsx /
+ * AuthContext so all paths here are relative.
  */
 export const useDecisionSupport = () => {
   const [loading, setLoading] = useState(false);
@@ -23,8 +22,6 @@ export const useDecisionSupport = () => {
   // Internal helper – authenticated request with consistent error handling
   // -----------------------------------------------------------------------
   const apiCall = useCallback(async (method, path, body = null, params = null) => {
-    const token = localStorage.getItem('token');
-
     const config = {
       method,
       url: path,
@@ -32,7 +29,6 @@ export const useDecisionSupport = () => {
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       ...(body ? { data: body } : {}),
       ...(params ? { params } : {}),

@@ -88,7 +88,20 @@ class ChatbotRealTimeDataService
             return false;
         }
 
-        return $requestingUser->hasAnyRole(['admin', 'staff', 'cashier']);
+        $dbRole = strtolower((string) ($requestingUser->role ?? ''));
+        if (in_array($dbRole, ['admin', 'staff', 'cashier'], true)) {
+            return true;
+        }
+
+        try {
+            return $requestingUser->hasAnyRole(['admin', 'staff', 'cashier']);
+        } catch (\Exception $e) {
+            Log::debug('Failed to resolve elevated chatbot role via Spatie', [
+                'user_id' => $requestingUser->id,
+                'error' => $e->getMessage(),
+            ]);
+            return false;
+        }
     }
 
     /**
@@ -346,20 +359,30 @@ class ChatbotRealTimeDataService
                 return $cached;
             }
 
-            $appointments = Appointment::whereIn('payment_status', ['pending', 'partial'])
-                ->where('status', '!=', 'cancelled')
+            $appointments = Appointment::where('status', 'approved')
+                ->where(function ($query) {
+                    $query->whereNull('payment_status')
+                        ->orWhereNotIn('payment_status', ['paid', 'refunded', 'partially_refunded']);
+                })
                 ->orderBy('appointment_date', 'asc')
                 ->limit($limit)
-                ->with('user:id,first_name,last_name')
+                ->with('user:id,first_name,last_name', 'service:id,name,price')
                 ->get()
                 ->map(function ($apt) {
+                    $clientName = trim(($apt->user?->first_name ?? '') . ' ' . ($apt->user?->last_name ?? '')) ?: 'Unknown client';
+                    $amountDue = max(0, (float) ($apt->payment_amount ?? $apt->service?->price ?? 0) - (float) ($apt->discount_amount ?? 0));
+
                     return [
                         'appointment_id' => $apt->id,
-                        'user_name' => $apt->user?->first_name . ' ' . $apt->user?->last_name,
+                        'user_name' => $clientName,
+                        'client_name' => $clientName,
                         // SECURITY: user_email intentionally excluded — PII not sent to LLMs
-                        'amount_due' => $apt->payment_amount - ($apt->discount_amount ?? 0),
-                        'service' => $apt->service_type,
+                        'amount_due' => $amountDue,
+                        'amount' => $amountDue,
+                        'service' => $apt->service_type ?: ($apt->service?->name ?? 'Service'),
                         'date' => $apt->appointment_date?->format('Y-m-d'),
+                        'status' => $apt->status,
+                        'payment_status' => $apt->payment_status ?? 'unpaid',
                         'is_overdue' => $apt->appointment_date && $apt->appointment_date->isPast(),
                     ];
                 })->toArray();
@@ -922,34 +945,61 @@ class ChatbotRealTimeDataService
             $startOfDay = $targetDate->copy()->startOfDay();
             $endOfDay = $targetDate->copy()->endOfDay();
 
-            $payments = Payment::where('recorded_by', $cashierId)
-                ->whereBetween('created_at', [$startOfDay, $endOfDay])
+            $appointments = Appointment::where('payment_status', 'paid')
+                ->where('processed_by', $cashierId)
+                ->whereBetween('payment_date', [$startOfDay, $endOfDay])
                 ->get();
 
-            $refunds = Refund::where('approved_by', $cashierId)
+            $appointmentIds = $appointments->pluck('id')->all();
+
+            $refunds = Refund::whereIn('appointment_id', $appointmentIds)
                 ->where('status', 'completed')
                 ->whereBetween('completed_at', [$startOfDay, $endOfDay])
                 ->get();
 
+            $totalRevenue = (float) $appointments->sum('payment_amount');
+            $totalDiscounts = (float) $appointments->sum('discount_amount');
+            $totalRefunded = (float) $refunds->sum('refund_amount');
+            $cashCollected = (float) $appointments->where('payment_type', 'cash')->sum('payment_amount');
+            $cardCollected = (float) $appointments->where('payment_type', 'card')->sum('payment_amount');
+            $partialCollected = (float) $appointments->where('payment_type', 'partial')->sum('payment_amount');
+            $inKindCount = (int) $appointments->where('payment_type', 'in-kind')->count();
+
+            if ($cashCollected === 0.0 && $cardCollected === 0.0 && $partialCollected === 0.0 && $inKindCount === 0) {
+                $cashCollected = $totalRevenue;
+            }
+
             return [
                 'date' => $targetDate->format('Y-m-d'),
+                'from' => $targetDate->format('Y-m-d'),
+                'to' => $targetDate->format('Y-m-d'),
                 'cashier_id' => $cashierId,
-                'payments_processed' => $payments->count(),
-                'total_collected' => $payments->sum('amount_paid'),
+                'payments_processed' => $appointments->count(),
+                'total_collected' => $totalRevenue,
                 'refunds_processed' => $refunds->count(),
-                'total_refunded' => $refunds->sum('refund_amount'),
-                'net_amount' => $payments->sum('amount_paid') - $refunds->sum('refund_amount'),
+                'total_refunded' => $totalRefunded,
+                'net_amount' => $totalRevenue - $totalRefunded,
+                'total_revenue' => $totalRevenue,
+                'total_sales' => $appointments->count(),
+                'total_discounts' => $totalDiscounts,
+                'cash_collected' => $cashCollected,
+                'card_collected' => $cardCollected,
+                'partial_collected' => $partialCollected,
+                'in_kind_count' => $inKindCount,
+                'refund_count' => $refunds->count(),
+                'net_revenue' => $totalRevenue - $totalRefunded,
                 'transactions' => [
-                    'payments' => $payments->map(fn($p) => [
-                        'id' => $p->id,
-                        'appointment_id' => $p->appointment_id,
-                        'amount' => $p->amount_paid,
-                        'time' => $p->created_at?->format('H:i'),
+                    'payments' => $appointments->map(fn($appointment) => [
+                        'id' => $appointment->id,
+                        'appointment_id' => $appointment->id,
+                        'amount' => (float) $appointment->payment_amount,
+                        'payment_type' => $appointment->payment_type,
+                        'time' => $appointment->payment_date?->format('H:i'),
                     ])->toArray(),
                     'refunds' => $refunds->map(fn($r) => [
                         'id' => $r->id,
                         'appointment_id' => $r->appointment_id,
-                        'amount' => $r->refund_amount,
+                        'amount' => (float) $r->refund_amount,
                         'time' => $r->completed_at?->format('H:i'),
                     ])->toArray(),
                 ],
@@ -964,9 +1014,98 @@ class ChatbotRealTimeDataService
                 'refunds_processed' => 0,
                 'total_refunded' => 0,
                 'net_amount' => 0,
+                'total_revenue' => 0,
+                'total_sales' => 0,
+                'total_discounts' => 0,
+                'cash_collected' => 0,
+                'card_collected' => 0,
+                'partial_collected' => 0,
+                'in_kind_count' => 0,
+                'refund_count' => 0,
+                'net_revenue' => 0,
                 'transactions' => ['payments' => [], 'refunds' => []],
             ];
         }
+    }
+
+    /**
+     * Get cashier dashboard revenue summary for a timeframe.
+     * Mirrors the cashier dashboard stats scope.
+     */
+    public function getCashierRevenueSummary(string $timeframe = 'monthly', ?User $requestingUser = null): array
+    {
+        if (config('chatbot_unified.features.data_ownership', true) && !$this->isElevatedRole($requestingUser)) {
+            return [];
+        }
+
+        $normalizedTimeframe = $this->normalizeCashierTimeframe($timeframe);
+        $cacheKey = "chatbot_cashier_revenue_summary_{$normalizedTimeframe}";
+
+        return Cache::remember($cacheKey, $this->criticalDataTtl, function () use ($normalizedTimeframe) {
+            [$start, $end] = $this->getCashierTimeframeRange($normalizedTimeframe);
+
+            $periodStats = Appointment::where('payment_status', 'paid')
+                ->whereBetween('payment_date', [$start, $end])
+                ->selectRaw('COUNT(*) as total_sales, COALESCE(SUM(payment_amount), 0) as total_revenue')
+                ->first();
+
+            $todayStats = Appointment::where('payment_status', 'paid')
+                ->whereDate('payment_date', now())
+                ->selectRaw('COUNT(*) as today_sales, COALESCE(SUM(payment_amount), 0) as today_revenue')
+                ->first();
+
+            return [
+                'timeframe' => $normalizedTimeframe,
+                'date_range' => [
+                    'from' => $start->format('Y-m-d'),
+                    'to' => $end->format('Y-m-d'),
+                ],
+                'total_revenue' => (float) ($periodStats->total_revenue ?? 0),
+                'total_sales' => (int) ($periodStats->total_sales ?? 0),
+                'today_revenue' => (float) ($todayStats->today_revenue ?? 0),
+                'today_sales' => (int) ($todayStats->today_sales ?? 0),
+            ];
+        });
+    }
+
+    /**
+     * Get cashier refund workload with optional status filtering.
+     */
+    public function getCashierRefundQueue(string $status = 'approved', int $limit = 20, ?User $requestingUser = null): array
+    {
+        if (config('chatbot_unified.features.data_ownership', true) && !$this->isElevatedRole($requestingUser)) {
+            return [];
+        }
+
+        $normalizedStatus = $this->normalizeCashierRefundStatus($status);
+        $cacheKey = "chatbot_cashier_refund_queue_{$normalizedStatus}_{$limit}";
+
+        return Cache::remember($cacheKey, $this->criticalDataTtl, function () use ($normalizedStatus, $limit) {
+            $query = Refund::with(['appointment.user:id,first_name,last_name'])
+                ->orderByDesc('approved_at')
+                ->orderByDesc('created_at')
+                ->limit($limit);
+
+            if ($normalizedStatus !== 'all') {
+                $query->where('status', $normalizedStatus);
+            }
+
+            return $query->get()->map(function ($refund) {
+                $clientName = trim(($refund->appointment?->user?->first_name ?? '') . ' ' . ($refund->appointment?->user?->last_name ?? '')) ?: 'Unknown client';
+
+                return [
+                    'id' => $refund->id,
+                    'appointment_id' => $refund->appointment_id,
+                    'client_name' => $clientName,
+                    'amount' => (float) $refund->refund_amount,
+                    'reason' => $refund->reason,
+                    'status' => $refund->status,
+                    'requested_at' => $refund->created_at?->toDateTimeString(),
+                    'approved_at' => $refund->approved_at?->toDateTimeString(),
+                    'completed_at' => $refund->completed_at?->toDateTimeString(),
+                ];
+            })->toArray();
+        });
     }
 
     /**
@@ -1033,7 +1172,7 @@ class ChatbotRealTimeDataService
                 'completed' => $appointments->where('status', 'completed')->count(),
                 'cancelled' => $appointments->where('status', 'cancelled')->count(),
                 'collections' => Payment::whereDate('created_at', $today)->where('payment_status', 'paid')->sum('amount_paid'),
-                'refunds' => Refund::whereDate('updated_at', $today)->where('status', 'completed')->sum('amount'),
+                'refunds' => Refund::whereDate('completed_at', $today)->where('status', 'completed')->sum('refund_amount'),
                 'appointments_for_payment' => Appointment::whereDate('appointment_date', $today)
                     ->whereIn('payment_status', ['pending', 'partial'])
                     ->count(),
@@ -1056,5 +1195,35 @@ class ChatbotRealTimeDataService
                 'appointments_for_payment' => 0,
             ];
         }
+    }
+
+    private function normalizeCashierTimeframe(string $timeframe): string
+    {
+        $normalized = strtolower(trim($timeframe));
+
+        return in_array($normalized, ['daily', 'weekly', 'monthly', 'yearly'], true)
+            ? $normalized
+            : 'monthly';
+    }
+
+    private function getCashierTimeframeRange(string $timeframe): array
+    {
+        $now = now();
+
+        return match ($timeframe) {
+            'daily' => [$now->copy()->startOfDay(), $now->copy()->endOfDay()],
+            'weekly' => [$now->copy()->startOfWeek(), $now->copy()->endOfWeek()],
+            'yearly' => [$now->copy()->startOfYear(), $now->copy()->endOfYear()],
+            default => [$now->copy()->startOfMonth(), $now->copy()->endOfMonth()],
+        };
+    }
+
+    private function normalizeCashierRefundStatus(string $status): string
+    {
+        $normalized = strtolower(trim($status));
+
+        return in_array($normalized, ['pending', 'approved', 'completed', 'rejected', 'all'], true)
+            ? $normalized
+            : 'approved';
     }
 }

@@ -42,6 +42,7 @@ use App\Http\Controllers\ChatbotPositionController;
 use App\Http\Controllers\ForgotPasswordController;
 use App\Http\Controllers\AnnouncementController;
 use App\Http\Controllers\LandingPageController;
+use App\Http\Controllers\PushSubscriptionController;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Mail;
 use App\Mail\VerificationCodeMail;
@@ -113,16 +114,16 @@ Route::group([], function () {
 });
 Route::get('/check-verification-status', [AuthController::class, 'checkVerificationStatus']);
 
-// Forgot Password routes (public) - Rate-limited to prevent abuse
-Route::prefix('forgot-password')->middleware('throttle:5,1')->group(function () {
-    Route::post('/send-code', [ForgotPasswordController::class, 'sendCode']);
-    Route::post('/verify-code', [ForgotPasswordController::class, 'verifyCode']);
-    Route::post('/reset', [ForgotPasswordController::class, 'resetPassword']);
-    Route::post('/resend-code', [ForgotPasswordController::class, 'resendCode']);
+// Forgot Password routes (public) - Rate-limited per email and IP to avoid shared-IP lockouts
+Route::prefix('forgot-password')->group(function () {
+    Route::post('/send-code', [ForgotPasswordController::class, 'sendCode'])->middleware('throttle:forgot-password-send-code');
+    Route::post('/verify-code', [ForgotPasswordController::class, 'verifyCode'])->middleware('throttle:forgot-password-verify-code');
+    Route::post('/reset', [ForgotPasswordController::class, 'resetPassword'])->middleware('throttle:forgot-password-reset');
+    Route::post('/resend-code', [ForgotPasswordController::class, 'resendCode'])->middleware('throttle:forgot-password-resend-code');
 });
 
-// Health check route
-Route::get('/health', [\App\Http\Controllers\HealthCheckController::class, 'check'])->middleware('throttle:30,1');
+// Public health route returns minimal status only.
+Route::get('/health', [\App\Http\Controllers\HealthCheckController::class, 'publicCheck'])->middleware('throttle:30,1');
 
 // ==================== PUBLIC APPEAL ROUTES ====================
 Route::get('/appeals/verify/{token}', [\App\Http\Controllers\AppealController::class, 'verify']);
@@ -252,11 +253,13 @@ Route::get('/public/init', function () {
 
 // Helper to "blur" numbers for public consumption (e.g. 123 -> "100+")
 // Added locally for the closure; for StatsController we'll add a proper method.
-function blurNumber($num) {
-    if ($num < 10) return $num;
-    if ($num < 50) return floor($num / 10) * 10 . "+";
-    if ($num < 100) return "50+";
-    return floor($num / 100) * 100 . "+";
+if (!function_exists('blurNumber')) {
+    function blurNumber($num) {
+        if ($num < 10) return $num;
+        if ($num < 50) return floor($num / 10) * 10 . "+";
+        if ($num < 100) return "50+";
+        return floor($num / 100) * 100 . "+";
+    }
 }
 
 // User-facing analytics (public for checking slot availability)
@@ -272,6 +275,7 @@ Route::prefix('unavailable-dates')->middleware('throttle:30,1')->group(function 
 // Real-time updates endpoints (public - no auth needed for polling)
 // Rate-limited to prevent abuse from polling clients
 Route::prefix('realtime')->middleware('throttle:60,1')->group(function () {
+    Route::get('/broadcast-config', [\App\Http\Controllers\RealtimeUpdateController::class, 'getBroadcastConfig']);
     Route::get('/updates', [\App\Http\Controllers\RealtimeUpdateController::class, 'getUpdates']);
     Route::get('/slot-capacities', [\App\Http\Controllers\RealtimeUpdateController::class, 'getSlotCapacityData']);
     Route::get('/appointment-settings', [\App\Http\Controllers\RealtimeUpdateController::class, 'getAppointmentSettings']);
@@ -356,7 +360,7 @@ Route::post('/password-reset-request', function (Request $request) {
                         ->to($user->email)
                         ->setBody("Reset password: {$tokenData['secure_url']}", 'text/html');
             });
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::error('Password reset email failed: ' . $e->getMessage());
         }
     }
@@ -409,7 +413,7 @@ Route::get('/verify-email/{uuid}', function ($uuid) {
 })->name('verify.email');
 
 // Generate share link (7 days expiration)
-Route::middleware('auth:sanctum')->post('/generate-share-token/{resourceType}/{resourceId}', function (Request $request, $resourceType, $resourceId) {
+Route::middleware(['auth:sanctum', 'action.log'])->post('/generate-share-token/{resourceType}/{resourceId}', function (Request $request, $resourceType, $resourceId) {
     $user = auth()->user();
 
     $tokenData = \App\Services\TokenService::generateTokenizedUrl(
@@ -423,9 +427,12 @@ Route::middleware('auth:sanctum')->post('/generate-share-token/{resourceType}/{r
         ]
     );
 
+    $shareUrl = rtrim((string) config('app.url'), '/')
+        . "/api/shared-resource/{$tokenData['uuid']}?token={$tokenData['token']}";
+
     return response()->json([
         'share_token' => $tokenData['token'],
-        'share_url' => $tokenData['secure_url'],
+        'share_url' => $shareUrl,
         'expires_at' => $tokenData['expires_at'],
         'uuid' => $tokenData['uuid']
     ]);
@@ -448,7 +455,7 @@ Route::get('/shared-resource/{uuid}', function (Request $request, $uuid) {
     return response()->json([
         'user' => \App\Services\TokenService::getSecureUserData($result['user']),
         'resource' => $result['metadata'],
-        'token_data' => $result['token_data']
+        'expires_at' => optional($result['token_data']->expires_at)->toIso8601String(),
     ]);
 });
 
@@ -463,7 +470,7 @@ Route::get('/testimonials/feedbacks/all', [FeedbackController::class, 'getAllTes
 // ==================== PROTECTED ROUTES ====================
 
 // Protected routes
-Route::middleware(['auth:sanctum', 'throttle:120,1'])->group(function () {
+Route::middleware(['auth:sanctum', 'action.log', 'throttle:120,1'])->group(function () {
     // Auth routes
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/user', [AuthController::class, 'user']);
@@ -499,6 +506,7 @@ Route::middleware(['auth:sanctum', 'throttle:120,1'])->group(function () {
         
         // REFUND ROUTES - Request and view refunds
         Route::post('/refunds/request', [RefundController::class, 'requestRefund']);
+        Route::get('/refunds', [RefundController::class, 'getAllRefunds']);
         Route::get('/refunds/pending', [RefundController::class, 'getPendingRefunds']);
         Route::get('/appointments/{appointment}/refunds', [RefundController::class, 'getAppointmentRefunds']);
         Route::get('/refund-reasons/active', [RefundReasonController::class, 'getActive']);
@@ -899,6 +907,12 @@ Route::middleware(['auth:sanctum', 'throttle:120,1'])->group(function () {
         Route::put('/preferences', [NotificationController::class, 'updatePreferences']);
     });
 
+            Route::prefix('push')->group(function () {
+                Route::get('/public-key', [PushSubscriptionController::class, 'publicKey']);
+                Route::post('/subscriptions', [PushSubscriptionController::class, 'store']);
+                Route::delete('/subscriptions', [PushSubscriptionController::class, 'destroy']);
+            });
+
     // DOCUMENTS ROUTES
     Route::prefix('documents')->group(function () {
         Route::get('/', [DocumentController::class, 'index']);
@@ -1088,7 +1102,7 @@ Route::middleware(['auth:sanctum', 'admin'])->prefix('analytics')->group(functio
 });
 
 // Security & DDoS endpoints (Admin only)
-Route::middleware(['auth:sanctum', 'admin'])->prefix('security')->group(function () {
+Route::middleware(['auth:sanctum', 'action.log', 'admin'])->prefix('security')->group(function () {
     Route::get('/events', [\App\Http\Controllers\SecurityController::class, 'getSecurityEvents']);
     Route::get('/blocked-ips', [\App\Http\Controllers\SecurityController::class, 'getBlockedIps']);
     Route::post('/ip/block', [\App\Http\Controllers\SecurityController::class, 'blockIp']);
@@ -1099,7 +1113,7 @@ Route::middleware(['auth:sanctum', 'admin'])->prefix('security')->group(function
 });
 
 // Backup & Recovery endpoints (Admin only)
-Route::middleware(['auth:sanctum', 'admin'])->prefix('backups')->group(function () {
+Route::middleware(['auth:sanctum', 'action.log', 'admin'])->prefix('backups')->group(function () {
     Route::get('/', [\App\Http\Controllers\BackupController::class, 'list']);
     Route::post('/create', [\App\Http\Controllers\BackupController::class, 'create']);
     Route::get('/{id}/verify', [\App\Http\Controllers\BackupController::class, 'verify']);
@@ -1112,7 +1126,7 @@ Route::middleware(['auth:sanctum', 'admin'])->prefix('backups')->group(function 
 });
 
 // Cleanup & Maintenance endpoints (Admin only)
-Route::middleware(['auth:sanctum', 'admin'])->prefix('maintenance')->group(function () {
+Route::middleware(['auth:sanctum', 'action.log', 'admin'])->prefix('maintenance')->group(function () {
     Route::post('/cleanup', [\App\Http\Controllers\MaintenanceController::class, 'cleanup']);
     Route::post('/cleanup/logs', [\App\Http\Controllers\MaintenanceController::class, 'rotateLogs']);
     Route::post('/cleanup/cache', [\App\Http\Controllers\MaintenanceController::class, 'clearCache']);
@@ -1123,7 +1137,7 @@ Route::middleware(['auth:sanctum', 'admin'])->prefix('maintenance')->group(funct
 });
 
 // System Health & Monitoring (Admin only, with optional public health endpoint)
-Route::get('/health/public', [\App\Http\Controllers\HealthCheckController::class, 'publicCheck']);
+Route::get('/health/public', [\App\Http\Controllers\HealthCheckController::class, 'publicCheck'])->middleware('throttle:30,1');
 Route::middleware(['auth:sanctum', 'admin'])->get('/health/detailed', [\App\Http\Controllers\HealthCheckController::class, 'detailedCheck']);
 
 // Fallback route for undefined API endpoints

@@ -156,6 +156,32 @@ return [
             'messages_per_conversation' => 200,
         ],
     ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Load Management
+    |--------------------------------------------------------------------------
+    | Global chatbot admission control for peak-load protection.
+    | The system prefers a short wait plus degraded-mode processing over hard
+    | failures, then falls back to a professional busy response if capacity is
+    | still exhausted.
+    */
+    'load' => [
+        'enabled' => env('CHATBOT_LOAD_MANAGEMENT', true),
+        'max_active_requests' => env('CHATBOT_MAX_ACTIVE_REQUESTS', 12),
+        'warning_threshold' => env('CHATBOT_WARNING_ACTIVE_REQUESTS', 8),
+        'degraded_threshold' => env('CHATBOT_DEGRADED_ACTIVE_REQUESTS', 10),
+        'stale_request_seconds' => env('CHATBOT_STALE_REQUEST_SECONDS', 120),
+        'wait_poll_ms' => env('CHATBOT_LOAD_WAIT_POLL_MS', 75),
+        'retry_after_seconds' => env('CHATBOT_LOAD_RETRY_AFTER_SECONDS', 5),
+        'wait_ms' => [
+            'high' => env('CHATBOT_LOAD_WAIT_HIGH_MS', 1800),
+            'normal' => env('CHATBOT_LOAD_WAIT_NORMAL_MS', 900),
+            'low' => env('CHATBOT_LOAD_WAIT_LOW_MS', 250),
+        ],
+        'degraded_max_history' => env('CHATBOT_DEGRADED_MAX_HISTORY', 8),
+        'degraded_max_context_docs' => env('CHATBOT_DEGRADED_MAX_CONTEXT_DOCS', 3),
+    ],
     
     /*
     |--------------------------------------------------------------------------

@@ -255,12 +255,21 @@ const UserFeedback = () => {
     ? 'bg-amber-500'
     : 'bg-green-500';
 
+  const handleBack = () => {
+    if (window.history.length > 1) {
+      navigate(-1);
+      return;
+    }
+
+    navigate('/dashboard?tab=home');
+  };
+
   return (
     <div className="w-full max-w-3xl lg:max-w-full mx-auto px-2 sm:px-4">
       {/* Header */}
       <div className="flex items-center gap-3 mb-4 sm:mb-6">
         <button
-          onClick={() => navigate('/dashboard?tab=home')}
+          onClick={handleBack}
           className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors"
         >
           <XMarkIcon className="w-5 h-5" />

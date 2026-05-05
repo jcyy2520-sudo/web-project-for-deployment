@@ -2,7 +2,17 @@ import React, { useState, useEffect } from 'react';
 import { XMarkIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline';
 import { formatDateDisplay } from '../../utils/format';
 
-const DeclineModal = ({ isOpen, onClose, appointment, onConfirm, loading, isDarkMode = true }) => {
+const DeclineModal = ({
+  isOpen,
+  onClose,
+  appointment,
+  summary,
+  onConfirm,
+  loading,
+  title = 'Decline Appointment',
+  confirmLabel = 'Decline Appointment',
+  isDarkMode = true,
+}) => {
   const [reason, setReason] = useState('');
 
   useEffect(() => {
@@ -16,7 +26,9 @@ const DeclineModal = ({ isOpen, onClose, appointment, onConfirm, loading, isDark
     onConfirm(reason);
   };
 
-  if (!isOpen || !appointment) return null;
+  if (!isOpen || (!appointment && !summary)) return null;
+
+  const summaryAppointments = summary?.appointments || [];
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4 animate-fadeIn">
@@ -26,7 +38,7 @@ const DeclineModal = ({ isOpen, onClose, appointment, onConfirm, loading, isDark
           <div className="flex items-center">
             <ExclamationTriangleIcon className="h-5 w-5 text-red-500 mr-2" />
             <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-red-50' : 'text-red-900'}`}>
-              Decline Appointment
+              {title}
             </h3>
           </div>
           <button 
@@ -41,14 +53,34 @@ const DeclineModal = ({ isOpen, onClose, appointment, onConfirm, loading, isDark
         {/* Content */}
         <div className="flex-1 min-h-0 overflow-y-auto p-4">
           {/* Appointment Info */}
-          <div className={`${isDarkMode ? 'bg-red-500/10 border-red-500/30' : 'bg-red-50 border-red-200'} border rounded-lg p-3 mb-4`}>
-            <p className={`text-xs ${isDarkMode ? 'text-red-200' : 'text-red-700'}`}>
-              <strong>Client:</strong> {appointment.user?.first_name} {appointment.user?.last_name}
-            </p>
-            <p className={`text-xs ${isDarkMode ? 'text-red-200' : 'text-red-700'} mt-1`}>
-              <strong>Date:</strong> {formatDateDisplay(appointment.appointment_date)} at {appointment.appointment_time}
-            </p>
-          </div>
+          {appointment && (
+            <div className={`${isDarkMode ? 'bg-red-500/10 border-red-500/30' : 'bg-red-50 border-red-200'} border rounded-lg p-3 mb-4`}>
+              <p className={`text-xs ${isDarkMode ? 'text-red-200' : 'text-red-700'}`}>
+                <strong>Client:</strong> {appointment.user?.first_name} {appointment.user?.last_name}
+              </p>
+              <p className={`text-xs ${isDarkMode ? 'text-red-200' : 'text-red-700'} mt-1`}>
+                <strong>Date:</strong> {formatDateDisplay(appointment.appointment_date)} at {appointment.appointment_time}
+              </p>
+            </div>
+          )}
+
+          {!appointment && summary && (
+            <div className={`${isDarkMode ? 'bg-red-500/10 border-red-500/30' : 'bg-red-50 border-red-200'} border rounded-lg p-3 mb-4 space-y-2`}>
+              <p className={`text-xs font-semibold ${isDarkMode ? 'text-red-200' : 'text-red-700'}`}>
+                {summary.count} pending appointment{summary.count === 1 ? '' : 's'} selected
+              </p>
+              {summaryAppointments.slice(0, 3).map((item) => (
+                <p key={item.id} className={`text-xs ${isDarkMode ? 'text-red-200' : 'text-red-700'}`}>
+                  <strong>{item.user?.first_name} {item.user?.last_name}</strong> on {formatDateDisplay(item.appointment_date)} at {item.appointment_time}
+                </p>
+              ))}
+              {summary.count > summaryAppointments.length && (
+                <p className={`text-xs ${isDarkMode ? 'text-red-300' : 'text-red-800'}`}>
+                  +{summary.count - summaryAppointments.length} more appointment{summary.count - summaryAppointments.length === 1 ? '' : 's'}
+                </p>
+              )}
+            </div>
+          )}
 
           <form onSubmit={handleSubmit} className="flex flex-col h-full">
             <div className="flex-1 flex flex-col">
@@ -89,7 +121,7 @@ const DeclineModal = ({ isOpen, onClose, appointment, onConfirm, loading, isDark
                     Declining...
                   </>
                 ) : (
-                  'Decline Appointment'
+                  confirmLabel
                 )}
               </button>
             </div>

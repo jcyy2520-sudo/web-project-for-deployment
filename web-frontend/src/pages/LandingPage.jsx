@@ -359,29 +359,35 @@ const LandingPage = () => {
   // Fetch all landing page data in a single call
   useEffect(() => {
     let isMounted = true;
+    let hasStartedFallback = false;
+    let initRequestSettled = false;
+    let fallbackTimerId;
 
-    const fetchLandingData = async () => {
-      // Prefer the combined cached endpoint — returns stats, services, testimonials AND CMS
-      try {
-        const resp = await axios.get('/api/public/init', { timeout: 5000 });
-        if (isMounted && resp.data?.data) {
-          const data = resp.data.data;
-          if (Array.isArray(data.services)) setServices(data.services.slice(0, 4));
-          if (data.stats) setStats(normalizeStats(data.stats));
-          if (Array.isArray(data.testimonials)) setTestimonials(data.testimonials.map(normalizeTestimonial));
-          if (data.cms) {
-            setCmsSections(data.cms.sections || {});
-            setCmsSettings(data.cms.settings || {});
-          }
-          return;
-        }
-      } catch (err) {
-        logger.debug('Public init endpoint unavailable, falling back to individual calls');
+    const applyInitPayload = (data) => {
+      if (!isMounted || !data) {
+        return;
       }
 
-      // Fallback: fetch CMS, services and feedback testimonials in parallel to reduce render delays.
-      const [cmsResult, servicesResult, feedbackResult] = await Promise.allSettled([
+      if (Array.isArray(data.services)) setServices(data.services.slice(0, 4));
+      if (data.stats) setStats(normalizeStats(data.stats));
+      if (Array.isArray(data.testimonials)) setTestimonials(data.testimonials.map(normalizeTestimonial));
+      if (data.cms) {
+        setCmsSections(data.cms.sections || {});
+        setCmsSettings(data.cms.settings || {});
+      }
+    };
+
+    const fetchFallbackData = async () => {
+      if (hasStartedFallback || !isMounted) {
+        return;
+      }
+
+      hasStartedFallback = true;
+
+      // Fallback: fetch CMS, stats, services and feedback testimonials in parallel.
+      const [cmsResult, statsResult, servicesResult, feedbackResult] = await Promise.allSettled([
         axios.get('/api/landing-page', { timeout: 5000 }),
+        axios.get('/api/stats/summary', { timeout: 3000 }),
         axios.get('/api/services', { timeout: 3000 }),
         axios.get('/api/testimonials/feedbacks?limit=3', { timeout: 3000 }),
       ]);
@@ -392,6 +398,12 @@ const LandingPage = () => {
         setCmsSettings(cmsData.settings || {});
       } else if (cmsResult.status === 'rejected') {
         logger.debug('Landing page CMS unavailable, using defaults');
+      }
+
+      if (statsResult.status === 'fulfilled' && isMounted && statsResult.value.data?.data) {
+        setStats(normalizeStats(statsResult.value.data.data));
+      } else if (statsResult.status === 'rejected') {
+        logger.debug('Public stats unavailable');
       }
 
       if (servicesResult.status === 'fulfilled' && isMounted) {
@@ -434,10 +446,39 @@ const LandingPage = () => {
       }
     };
 
+    const fetchLandingData = async () => {
+      // Prefer the combined cached endpoint — returns stats, services, testimonials AND CMS.
+      // If it stays slow, start the granular fallback requests instead of blocking the page.
+      fallbackTimerId = window.setTimeout(() => {
+        if (!initRequestSettled) {
+          logger.debug('Public init endpoint is slow, starting fallback landing page fetches');
+          void fetchFallbackData();
+        }
+      }, 1200);
+
+      try {
+        const resp = await axios.get('/api/public/init', { timeout: 5000 });
+        initRequestSettled = true;
+        window.clearTimeout(fallbackTimerId);
+
+        if (resp.data?.data) {
+          applyInitPayload(resp.data.data);
+          return;
+        }
+      } catch (err) {
+        initRequestSettled = true;
+        window.clearTimeout(fallbackTimerId);
+        logger.debug('Public init endpoint unavailable, falling back to individual calls');
+      }
+
+      await fetchFallbackData();
+    };
+
     fetchLandingData();
 
     return () => {
       isMounted = false;
+      window.clearTimeout(fallbackTimerId);
     };
   }, []);
 

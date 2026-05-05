@@ -19,25 +19,16 @@ if %errorLevel% neq 0 (
     exit /b 1
 )
 
-set PYTHON_EXE=C:\Users\ASUS\AppData\Local\Programs\Python\Python313\python.exe
-set ML_SERVICE_DIR=c:\laragon\www\web\ml-service
-set MAIN_PY=%ML_SERVICE_DIR%\main.py
+set ROOT=%~dp0
+set START_SCRIPT=%ROOT%start-ml-service.bat
 set TASK_NAME=MLService
 
-echo Python: %PYTHON_EXE%
-echo Service: %MAIN_PY%
+echo ML launcher: %START_SCRIPT%
 echo.
 
-REM Verify Python exists
-if not exist "%PYTHON_EXE%" (
-    echo ERROR: Python not found at %PYTHON_EXE%
-    pause
-    exit /b 1
-)
-
-REM Verify main.py exists
-if not exist "%MAIN_PY%" (
-    echo ERROR: main.py not found at %MAIN_PY%
+REM Verify launcher exists
+if not exist "%START_SCRIPT%" (
+    echo ERROR: ML launcher not found at %START_SCRIPT%
     pause
     exit /b 1
 )
@@ -49,7 +40,7 @@ REM Delete existing task if it exists
 schtasks /delete /tn "%TASK_NAME%" /f >nul 2>&1
 
 REM Create new task to run at system startup
-schtasks /create /tn "%TASK_NAME%" /tr "\"%PYTHON_EXE%\" \"%MAIN_PY%\"" ^
+schtasks /create /tn "%TASK_NAME%" /tr "%START_SCRIPT%" ^
     /sc onstart /ru SYSTEM /rl highest /f
 
 if %errorLevel% equ 0 (

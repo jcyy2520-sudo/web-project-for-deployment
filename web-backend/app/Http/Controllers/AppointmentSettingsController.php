@@ -8,6 +8,7 @@ use App\Traits\SafeExperimentalFeature;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use App\Models\ActionLog;
+use Symfony\Component\HttpFoundation\Response;
 
 class AppointmentSettingsController extends Controller
 {
@@ -91,10 +92,28 @@ class AppointmentSettingsController extends Controller
      * Get current limit for a specific user
      * GET /api/appointment-settings/user-limit/{userId}/{date}
      */
-    public function getUserLimit($userId, $date = null)
+    public function getUserLimit(Request $request, $userId, $date = null)
     {
-        return $this->wrapExperimental(function () use ($userId, $date) {
+        return $this->wrapExperimental(function () use ($request, $userId, $date) {
             try {
+                $actor = $request->user();
+                $requestedUserId = (int) $userId;
+
+                if (!$actor) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Authentication is required to view booking limits.',
+                    ], Response::HTTP_UNAUTHORIZED);
+                }
+
+                $isAdmin = method_exists($actor, 'hasRole') && $actor->hasRole('admin');
+                if (!$isAdmin && $actor->id !== $requestedUserId) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'You are not allowed to view another user\'s booking limits.',
+                    ], Response::HTTP_FORBIDDEN);
+                }
+
                 $settings = AppointmentSettings::getCurrent();
 
                 if (!$settings || !$settings->is_active) {
@@ -110,15 +129,15 @@ class AppointmentSettingsController extends Controller
                     ]);
                 }
 
-                $bookings = AppointmentSettings::getUserBookingsForDate($userId);
-                $remaining = AppointmentSettings::getRemainingBookingsForUser($userId);
-                $hasReachedLimit = AppointmentSettings::userHasReachedDailyLimit($userId);
+                $bookings = AppointmentSettings::getUserBookingsForDate($requestedUserId, $date);
+                $remaining = AppointmentSettings::getRemainingBookingsForUser($requestedUserId, $date);
+                $hasReachedLimit = AppointmentSettings::userHasReachedDailyLimit($requestedUserId, $date);
 
                 // Calculate when the user can book again (exact datetime)
                 $nextAvailableTime = null;
                 $nextAvailableFormatted = null;
                 if ($hasReachedLimit) {
-                    $nextAvailable = AppointmentSettings::getNextAvailableTime($userId);
+                    $nextAvailable = AppointmentSettings::getNextAvailableTime($requestedUserId, $date);
                     if ($nextAvailable) {
                         $nextAvailableTime = $nextAvailable->toIso8601String();
                         $nextAvailableFormatted = $nextAvailable->format('M d, Y \a\t g:i A');
@@ -144,8 +163,10 @@ class AppointmentSettingsController extends Controller
                         'next_available_time' => $nextAvailableTime,
                         'next_available_formatted' => $nextAvailableFormatted,
                         'message' => $hasReachedLimit 
-                            ? "You have reached your booking limit of {$settings->daily_booking_limit_per_user} appointments per 24 hours." 
-                              . ($nextAvailableFormatted ? " You can book again on {$nextAvailableFormatted}." : '')
+                                                        ? "You have reached your daily booking limit of {$settings->daily_booking_limit_per_user} appointments"
+                                                            . ($date ? ' for ' . \Carbon\Carbon::parse($date)->format('M d, Y') : '')
+                                                            . '.'
+                                                            . ($nextAvailableFormatted ? " Please choose another date. The next available business day starts on {$nextAvailableFormatted}." : '')
                             : null,
                     ],
                 ]);

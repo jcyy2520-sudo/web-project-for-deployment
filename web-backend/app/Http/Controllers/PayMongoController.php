@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\Appointment;
 use App\Models\Payment;
+use App\Models\PaymentMethod;
+use App\Models\DiscountRate;
 use App\Models\ActionLog;
 use App\Models\Message;
 use Illuminate\Http\Request;
@@ -15,16 +17,31 @@ use Carbon\Carbon;
 class PayMongoController extends Controller
 {
     /**
-     * PayMongo API base URL
-     */
-    private string $apiBaseUrl = 'https://api.paymongo.com/v1';
-
-    /**
      * Get the secret key for server-side API calls
      */
     private function getSecretKey(): string
     {
         return config('paymongo.secret_key');
+    }
+
+    private function getWebhookSecret(): ?string
+    {
+        return config('paymongo.webhook_secret');
+    }
+
+    private function getApiBaseUrl(): string
+    {
+        return config('paymongo.api_base_url', 'https://api.paymongo.com/v1');
+    }
+
+    private function getFrontendUrl(): string
+    {
+        return rtrim(config('paymongo.frontend_url', config('app.url', 'http://localhost:5173')), '/');
+    }
+
+    private function getWebhookToleranceSeconds(): int
+    {
+        return max(0, (int) config('paymongo.webhook_tolerance_seconds', 300));
     }
 
     /**
@@ -38,8 +55,8 @@ class PayMongoController extends Controller
     {
         $request->validate([
             'payment_amount' => 'required|numeric|min:1',
-            'discount_amount' => 'nullable|numeric|min:0',
             'discount_type' => 'nullable|string|max:255',
+            'discount_proof' => 'nullable|string|max:255',
         ]);
 
         try {
@@ -67,6 +84,14 @@ class PayMongoController extends Controller
                 ], 422);
             }
 
+            if (in_array($appointment->payment_status, ['partial', 'partially_paid'], true) || $this->getPriorPaidTotal($appointment) > 0.01) {
+                DB::rollBack();
+                return response()->json([
+                    'message' => 'Online checkout currently supports only unpaid appointments with no prior installments',
+                    'success' => false
+                ], 422);
+            }
+
             // Check if there's already an active checkout session
             if ($appointment->paymongo_checkout_id && $appointment->paymongo_status === 'active') {
                 // Return existing checkout URL if still active
@@ -82,12 +107,31 @@ class PayMongoController extends Controller
                 }
             }
 
-            $paymentAmount = (float) $request->payment_amount;
-            $discountAmount = (float) ($request->discount_amount ?? 0);
-            $totalAmount = max(0, $paymentAmount - $discountAmount);
+            $servicePrice = round((float) ($appointment->service->price ?? 0), 2);
+
+            if ($servicePrice <= 0) {
+                DB::rollBack();
+                return response()->json([
+                    'message' => 'This appointment has no billable service price configured',
+                    'success' => false
+                ], 422);
+            }
+
+            [$discountAmount, $discountType] = $this->resolveCheckoutDiscount($request, $servicePrice);
+            $expectedAmount = round(max(0, $servicePrice - $discountAmount), 2);
+            $requestedAmount = round((float) $request->payment_amount, 2);
+
+            if (abs($requestedAmount - $expectedAmount) > 0.01) {
+                DB::rollBack();
+                return response()->json([
+                    'message' => 'Checkout amount does not match the server-calculated payable amount',
+                    'success' => false,
+                    'expected_amount' => $expectedAmount,
+                ], 422);
+            }
 
             // PayMongo expects amounts in centavos (smallest currency unit)
-            $amountInCentavos = (int) round($totalAmount * 100);
+            $amountInCentavos = (int) round($expectedAmount * 100);
 
             if ($amountInCentavos < 100) {
                 DB::rollBack();
@@ -101,11 +145,9 @@ class PayMongoController extends Controller
             $serviceName = $appointment->service->name ?? 'Legal Service';
             $clientName = trim(($appointment->user->first_name ?? '') . ' ' . ($appointment->user->last_name ?? ''));
 
-            // Get the frontend URL for redirect
-            $frontendUrl = config('app.url', 'http://localhost:5173');
-            // Try to determine the correct frontend URL
-            $successUrl = $request->input('success_url', $frontendUrl . '/cashier?payment=success&appointment_id=' . $appointmentId);
-            $cancelUrl = $request->input('cancel_url', $frontendUrl . '/cashier?payment=cancelled&appointment_id=' . $appointmentId);
+            $frontendUrl = $this->getFrontendUrl();
+            $successUrl = $frontendUrl . '/cashier?payment=success&appointment_id=' . $appointmentId;
+            $cancelUrl = $frontendUrl . '/cashier?payment=cancelled&appointment_id=' . $appointmentId;
 
             $description = "Appointment #{$appointmentId} - {$serviceName} for {$clientName}";
             if ($discountAmount > 0) {
@@ -141,8 +183,10 @@ class PayMongoController extends Controller
                             'service_name' => $serviceName,
                             'cashier_id' => (string) $request->user()->id,
                             'discount_amount' => (string) $discountAmount,
-                            'discount_type' => $request->discount_type ?? '',
-                            'original_amount' => (string) $paymentAmount,
+                            'discount_type' => $discountType,
+                            'discount_proof' => (string) ($request->discount_proof ?? ''),
+                            'service_price' => (string) $servicePrice,
+                            'charge_amount' => (string) $expectedAmount,
                         ],
                     ]
                 ]
@@ -159,7 +203,7 @@ class PayMongoController extends Controller
 
             $response = Http::withBasicAuth($this->getSecretKey(), '')
                 ->timeout(30)
-                ->post($this->apiBaseUrl . '/checkout_sessions', $checkoutData);
+                ->post($this->getApiBaseUrl() . '/checkout_sessions', $checkoutData);
 
             if (!$response->successful()) {
                 DB::rollBack();
@@ -185,6 +229,8 @@ class PayMongoController extends Controller
             $appointment->paymongo_checkout_url = $checkoutUrl;
             $appointment->paymongo_status = 'active';
             $appointment->payment_type = 'online';
+            $appointment->discount_amount = $discountAmount;
+            $appointment->discount_type = $discountType;
             $appointment->save();
 
             // Log the action
@@ -201,10 +247,16 @@ class PayMongoController extends Controller
                 'success' => true,
                 'checkout_url' => $checkoutUrl,
                 'checkout_id' => $checkoutId,
-                'amount' => $totalAmount,
+                'amount' => $expectedAmount,
                 'message' => 'Checkout session created successfully'
             ]);
 
+        } catch (\InvalidArgumentException $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => $e->getMessage(),
+                'success' => false
+            ], 422);
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('PayMongo checkout creation error: ' . $e->getMessage(), [
@@ -269,7 +321,7 @@ class PayMongoController extends Controller
             $appointment->save();
 
             // If payment completed, process it
-            if ($sessionStatus === 'active' && !empty($payments)) {
+            if ($this->hasSuccessfulPayment($session)) {
                 // Payment was made - process it
                 $this->completePaymentFromCheckout($appointment, $session);
 
@@ -316,9 +368,22 @@ class PayMongoController extends Controller
      */
     public function handleWebhook(Request $request)
     {
+        $rawPayload = $request->getContent();
+
         try {
-            $payload = $request->all();
+            $payload = json_decode($rawPayload, true, 512, JSON_THROW_ON_ERROR);
+
+            if (!$this->verifyWebhookSignature($request, $rawPayload, $payload)) {
+                Log::warning('PayMongo webhook rejected due to invalid signature');
+                return response()->json(['success' => false, 'message' => 'Invalid webhook signature'], 401);
+            }
+
             $eventType = $payload['data']['attributes']['type'] ?? '';
+            $reservation = $this->reserveWebhookEvent($payload);
+
+            if ($reservation['already_processed'] ?? false) {
+                return response()->json(['success' => true, 'duplicate' => true], 200);
+            }
 
             Log::info('PayMongo webhook received', [
                 'type' => $eventType,
@@ -330,15 +395,28 @@ class PayMongoController extends Controller
                 $this->handlePaymentPaid($payload);
             }
 
+            if (in_array($eventType, ['payment.refunded', 'payment.refund.updated'], true)) {
+                Log::info('PayMongo refund webhook received', ['type' => $eventType]);
+            }
+
+            if (!empty($reservation['event_id'])) {
+                $this->markWebhookProcessed($reservation['event_id']);
+            }
+
             // Always return 200 to acknowledge receipt
             return response()->json(['success' => true], 200);
 
         } catch (\Exception $e) {
+            $payload = $payload ?? [];
+            $eventId = $payload['data']['id'] ?? null;
+            if ($eventId) {
+                $this->markWebhookFailed($eventId, $e->getMessage());
+            }
             Log::error('PayMongo webhook error: ' . $e->getMessage(), [
                 'trace' => $e->getTraceAsString(),
             ]);
-            // Still return 200 to prevent PayMongo from retrying
-            return response()->json(['success' => true], 200);
+
+            return response()->json(['success' => false], 500);
         }
     }
 
@@ -349,6 +427,7 @@ class PayMongoController extends Controller
     {
         $resourceData = $payload['data']['attributes']['data'] ?? [];
         $metadata = $resourceData['attributes']['metadata'] ?? [];
+        $resourceType = $resourceData['type'] ?? null;
 
         // Try to find appointment by metadata
         $appointmentId = $metadata['appointment_id'] ?? null;
@@ -385,8 +464,15 @@ class PayMongoController extends Controller
 
         // Retrieve the full checkout session to get accurate payment details
         $session = null;
-        if ($appointment->paymongo_checkout_id) {
+        if ($resourceType === 'checkout_session') {
+            $session = $resourceData;
+        } elseif ($appointment->paymongo_checkout_id) {
             $session = $this->retrieveCheckoutSession($appointment->paymongo_checkout_id);
+        }
+
+        if (!$session) {
+            Log::warning("PayMongo webhook: checkout session unavailable for appointment #{$appointmentId}");
+            return;
         }
 
         $this->completePaymentFromCheckout($appointment, $session, $resourceData);
@@ -412,28 +498,41 @@ class PayMongoController extends Controller
                 return;
             }
 
-            // Extract payment details from checkout session or payment data
-            $metadata = [];
-            $paymongoPaymentId = null;
-
-            if ($session) {
-                $metadata = $session['attributes']['metadata'] ?? [];
-                $payments = $session['attributes']['payments'] ?? [];
-                if (!empty($payments)) {
-                    $paymongoPaymentId = $payments[0]['id'] ?? null;
-                }
+            if (!$session || !$this->hasSuccessfulPayment($session)) {
+                DB::rollBack();
+                Log::warning('PayMongo payment completion skipped because checkout session has no successful payment', [
+                    'appointment_id' => $appointment->id,
+                ]);
+                return;
             }
 
+            $successfulPayment = $this->extractSuccessfulPayment($session);
+            $paymentAttributes = $successfulPayment['attributes'] ?? [];
+            $metadata = $session['attributes']['metadata'] ?? [];
             if ($paymentData) {
-                $paymongoPaymentId = $paymongoPaymentId ?? ($paymentData['id'] ?? null);
                 $metadata = array_merge($metadata, $paymentData['attributes']['metadata'] ?? []);
             }
 
-            $originalAmount = (float) ($metadata['original_amount'] ?? $appointment->service->price ?? 0);
-            $discountAmount = (float) ($metadata['discount_amount'] ?? 0);
-            $discountType = $metadata['discount_type'] ?? '';
-            $cashierId = $metadata['cashier_id'] ?? null;
-            $totalPaid = max(0, $originalAmount - $discountAmount);
+            $paymongoPaymentId = $successfulPayment['id'] ?? ($paymentData['id'] ?? null);
+            $servicePrice = round((float) ($appointment->service->price ?? ($metadata['service_price'] ?? 0)), 2);
+            $discountAmount = round((float) ($appointment->discount_amount ?? ($metadata['discount_amount'] ?? 0)), 2);
+            $discountType = $appointment->discount_type ?? ($metadata['discount_type'] ?? '');
+            $cashierId = isset($metadata['cashier_id']) ? (int) $metadata['cashier_id'] : null;
+            $paidAmount = round(((float) ($paymentAttributes['amount'] ?? 0)) / 100, 2);
+
+            if ($paidAmount <= 0) {
+                DB::rollBack();
+                Log::warning('PayMongo payment completion skipped because provider amount is invalid', [
+                    'appointment_id' => $appointment->id,
+                    'payment_id' => $paymongoPaymentId,
+                ]);
+                return;
+            }
+
+            $providerMethod = $session['attributes']['payment_method_used']
+                ?? $paymentAttributes['source']['type']
+                ?? null;
+            $paymentMethodId = $this->resolvePaymentMethodId($providerMethod);
 
             // Update appointment
             $appointment->update([
@@ -446,7 +545,8 @@ class PayMongoController extends Controller
             ]);
 
             $appointment->payment_status = 'paid';
-            $appointment->payment_amount = $totalPaid;
+            $appointment->payment_amount = $paidAmount;
+            $appointment->balance_remaining = 0;
             $appointment->processed_by = $cashierId;
             $appointment->status = 'completed';
             $appointment->completed_by = $cashierId;
@@ -456,14 +556,17 @@ class PayMongoController extends Controller
 
             // Create a Payment record for consistency
             try {
-                $existingPayment = Payment::where('appointment_id', $appointment->id)->first();
+                $existingPayment = Payment::where('appointment_id', $appointment->id)
+                    ->where('notes', 'like', '%' . ($paymongoPaymentId ?? 'NO_ID') . '%')
+                    ->first();
                 if (!$existingPayment) {
                     $newPayment = Payment::create([
                         'appointment_id' => $appointment->id,
                         'recorded_by' => $cashierId,
-                        'service_price' => $appointment->service->price ?? $originalAmount,
-                        'amount_paid' => $totalPaid,
+                        'service_price' => $servicePrice,
+                        'amount_paid' => $paidAmount,
                         'discount_amount' => $discountAmount,
+                        'payment_method_id' => $paymentMethodId,
                         'payment_date' => now(),
                         'notes' => 'Paid via PayMongo online checkout (PayMongo ID: ' . ($paymongoPaymentId ?? 'N/A') . ')',
                     ]);
@@ -478,7 +581,7 @@ class PayMongoController extends Controller
             // Log the action
             ActionLog::log(
                 'paymongo_payment_completed',
-                "Online payment of ₱" . number_format($totalPaid, 2) . " completed via PayMongo for " .
+                "Online payment of ₱" . number_format($paidAmount, 2) . " completed via PayMongo for " .
                     ($appointment->user ? "{$appointment->user->first_name} {$appointment->user->last_name}" : "Appointment #{$appointment->id}") .
                     " - " . ($appointment->service->name ?? 'N/A'),
                 'Appointment',
@@ -505,7 +608,7 @@ class PayMongoController extends Controller
                 Log::debug('Failed to broadcast PayMongo payment event: ' . $e->getMessage());
             }
 
-            Log::info("PayMongo payment completed for appointment #{$appointment->id}, amount: ₱" . number_format($totalPaid, 2));
+            Log::info("PayMongo payment completed for appointment #{$appointment->id}, amount: ₱" . number_format($paidAmount, 2));
 
         } catch (\Exception $e) {
             DB::rollBack();
@@ -524,7 +627,7 @@ class PayMongoController extends Controller
         try {
             $response = Http::withBasicAuth($this->getSecretKey(), '')
                 ->timeout(15)
-                ->get($this->apiBaseUrl . '/checkout_sessions/' . $checkoutId);
+                ->get($this->getApiBaseUrl() . '/checkout_sessions/' . $checkoutId);
 
             if ($response->successful()) {
                 return $response->json('data');
@@ -625,7 +728,7 @@ class PayMongoController extends Controller
             // Expire the checkout session on PayMongo
             $response = Http::withBasicAuth($this->getSecretKey(), '')
                 ->timeout(15)
-                ->post($this->apiBaseUrl . '/checkout_sessions/' . $appointment->paymongo_checkout_id . '/expire');
+                ->post($this->getApiBaseUrl() . '/checkout_sessions/' . $appointment->paymongo_checkout_id . '/expire');
 
             // Update local status regardless
             $appointment->paymongo_status = 'expired';
@@ -650,5 +753,195 @@ class PayMongoController extends Controller
                 'message' => 'Failed to cancel checkout session'
             ], 500);
         }
+    }
+
+    private function resolveCheckoutDiscount(Request $request, float $servicePrice): array
+    {
+        if (!$request->filled('discount_type')) {
+            return [0.0, ''];
+        }
+
+        $discountType = $this->normalizeDiscountTypeKey($request->input('discount_type'));
+        $discountRate = DiscountRate::getByType($discountType);
+
+        if (!$discountRate) {
+            throw new \InvalidArgumentException('Unknown or inactive discount type: ' . $request->input('discount_type'));
+        }
+
+        $discountAmount = round(($servicePrice * (float) $discountRate->discount_percentage) / 100, 2);
+
+        return [
+            $discountAmount,
+            ucfirst(str_replace('_', ' ', $discountType)) . " ({$discountRate->discount_percentage}%)",
+        ];
+    }
+
+    private function normalizeDiscountTypeKey(?string $discountType): string
+    {
+        $discountKey = str_replace([' ', '-'], '_', strtolower((string) $discountType));
+
+        return match ($discountKey) {
+            'pwd', '20%_pwd_discount' => 'pwd',
+            'senior', 'senior_citizen', '20%_senior_discount' => 'senior_citizen',
+            'student', '10%_student_discount' => 'student',
+            default => $discountKey,
+        };
+    }
+
+    private function getPriorPaidTotal(Appointment $appointment): float
+    {
+        $paymentTotal = round((float) Payment::where('appointment_id', $appointment->id)->sum('amount_paid'), 2);
+        $appointmentTotal = round((float) ($appointment->payment_amount ?? 0), 2);
+
+        return max($paymentTotal, $appointmentTotal);
+    }
+
+    private function hasSuccessfulPayment(array $session): bool
+    {
+        return $this->extractSuccessfulPayment($session) !== null;
+    }
+
+    private function extractSuccessfulPayment(array $session): ?array
+    {
+        foreach (($session['attributes']['payments'] ?? []) as $payment) {
+            if (($payment['attributes']['status'] ?? null) === 'paid') {
+                return $payment;
+            }
+        }
+
+        return null;
+    }
+
+    private function resolvePaymentMethodId(?string $providerMethod): int
+    {
+        $normalized = strtolower((string) $providerMethod);
+
+        $definition = match (true) {
+            $normalized === 'card' => ['slug' => 'card', 'name' => 'Card', 'description' => 'Credit/Debit card payment'],
+            $normalized === 'gcash',
+            $normalized === 'grab_pay',
+            $normalized === 'paymaya',
+            $normalized === 'qrph',
+            $normalized === 'dob',
+            $normalized === 'dob_ubp',
+            str_starts_with($normalized, 'brankas'),
+            $normalized === 'billease' => ['slug' => 'online_gateway', 'name' => 'Online Gateway', 'description' => 'Hosted online checkout payment'],
+            default => ['slug' => 'online_gateway', 'name' => 'Online Gateway', 'description' => 'Hosted online checkout payment'],
+        };
+
+        return PaymentMethod::firstOrCreate(
+            ['slug' => $definition['slug']],
+            [
+                'name' => $definition['name'],
+                'description' => $definition['description'],
+            ]
+        )->id;
+    }
+
+    private function verifyWebhookSignature(Request $request, string $rawPayload, ?array $payload = null): bool
+    {
+        $secret = $this->getWebhookSecret();
+        if (!$secret) {
+            Log::error('PayMongo webhook secret is not configured');
+            return false;
+        }
+
+        $parsed = $this->parseSignatureHeader($request->header('Paymongo-Signature'));
+        if (!$parsed || empty($parsed['timestamp'])) {
+            return false;
+        }
+
+        $tolerance = $this->getWebhookToleranceSeconds();
+        if ($tolerance > 0 && abs(time() - (int) $parsed['timestamp']) > $tolerance) {
+            Log::warning('PayMongo webhook rejected because timestamp is outside tolerance', [
+                'timestamp' => $parsed['timestamp'],
+            ]);
+            return false;
+        }
+
+        $signatureBase = $parsed['timestamp'] . '.' . $rawPayload;
+        $computed = hash_hmac('sha256', $signatureBase, $secret);
+        $isLive = (bool) ($payload['data']['attributes']['livemode'] ?? false);
+        $expected = $isLive ? ($parsed['live'] ?? null) : ($parsed['test'] ?? null);
+
+        return !empty($expected) && hash_equals($expected, $computed);
+    }
+
+    private function parseSignatureHeader(?string $header): ?array
+    {
+        if (!$header) {
+            return null;
+        }
+
+        $parts = [];
+        foreach (explode(',', $header) as $part) {
+            [$key, $value] = array_pad(explode('=', trim($part), 2), 2, null);
+            if ($key && $value) {
+                $parts[$key] = $value;
+            }
+        }
+
+        return [
+            'timestamp' => $parts['t'] ?? null,
+            'test' => $parts['te'] ?? null,
+            'live' => $parts['li'] ?? null,
+        ];
+    }
+
+    private function reserveWebhookEvent(array $payload): array
+    {
+        $eventId = $payload['data']['id'] ?? null;
+        if (!$eventId) {
+            return ['already_processed' => false, 'event_id' => null];
+        }
+
+        $existing = DB::table('paymongo_webhook_events')->where('event_id', $eventId)->first();
+        if ($existing) {
+            DB::table('paymongo_webhook_events')
+                ->where('event_id', $eventId)
+                ->update([
+                    'attempts' => (int) $existing->attempts + 1,
+                    'updated_at' => now(),
+                ]);
+
+            return [
+                'already_processed' => $existing->processed_at !== null,
+                'event_id' => $eventId,
+            ];
+        }
+
+        DB::table('paymongo_webhook_events')->insert([
+            'event_id' => $eventId,
+            'event_type' => $payload['data']['attributes']['type'] ?? null,
+            'livemode' => (bool) ($payload['data']['attributes']['livemode'] ?? false),
+            'payload' => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'received_at' => now(),
+            'attempts' => 1,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        return ['already_processed' => false, 'event_id' => $eventId];
+    }
+
+    private function markWebhookProcessed(string $eventId): void
+    {
+        DB::table('paymongo_webhook_events')
+            ->where('event_id', $eventId)
+            ->update([
+                'processed_at' => now(),
+                'processing_error' => null,
+                'updated_at' => now(),
+            ]);
+    }
+
+    private function markWebhookFailed(string $eventId, string $error): void
+    {
+        DB::table('paymongo_webhook_events')
+            ->where('event_id', $eventId)
+            ->update([
+                'processing_error' => mb_substr($error, 0, 65535),
+                'updated_at' => now(),
+            ]);
     }
 }

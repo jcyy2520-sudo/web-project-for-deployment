@@ -56,7 +56,8 @@ const StaffAppointments = () => {
 
   // Poll for appointment changes as a fallback when real-time is not configured
   useEffect(() => {
-    const POLL_INTERVAL_MS = 30000;
+    const connectionState = window?.Echo?.connector?.pusher?.connection?.state;
+    const POLL_INTERVAL_MS = connectionState === 'connected' ? 30000 : 10000;
     const id = setInterval(() => {
       if (typeof document !== 'undefined' && document.hidden) {
         return;

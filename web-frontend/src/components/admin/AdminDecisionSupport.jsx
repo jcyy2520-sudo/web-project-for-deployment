@@ -62,11 +62,14 @@ const AdminDecisionSupport = ({ isDarkMode = true }) => {
       try {
         const res = await axios.get('/api/decision-support/data-quality');
         const data = res.data?.data || res.data || {};
+        const qualityData = data.data || {};
+        const modelStatus = data.model_status || data.model || data.model_info || null;
         setMlStatus({
           available: data.status !== 'service_unavailable',
-          hasModel: !!(data.model ?? data.model_info),
-          records: data.total_records ?? data.record_count ?? 0,
+          hasModel: Boolean(modelStatus?.has_model ?? modelStatus),
+          records: qualityData.total_records ?? qualityData.record_count ?? data.total_records ?? data.record_count ?? 0,
         });
+        setLastRefresh(new Date());
       } catch {
         setMlStatus({ available: false, hasModel: false, records: 0 });
       }

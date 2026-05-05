@@ -77,17 +77,17 @@ class BookingLimitTest extends TestCase
         );
         $this->assertTrue($userHasReached, "Should be at limit with 2 bookings");
         
-        // Cancelled doesn't count
+        // Cancellation should not restore the consumed booking slot.
         $apt = Appointment::first();
         $apt->status = 'cancelled';
         $apt->save();
         
-        // After cancellation, should NOT be at limit
+        // After cancellation, the user should still be at limit inside the same 24-hour window.
         $userHasReached = \App\Models\AppointmentSettings::userHasReachedDailyLimit(
             $this->user->id, 
             $this->tomorrow
         );
-        $this->assertFalse($userHasReached, "Should not be at limit after cancellation");
+        $this->assertTrue($userHasReached, "Cancellation should not reduce the user's consumed booking count");
     }
 
     /** @test Limit resets per day */

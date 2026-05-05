@@ -69,6 +69,7 @@ class AgentToolRegistry
         $this->dataService = $dataService;
         $this->permissionService = $permissionService;
         $this->registerCoreTools();
+        $this->registerCashierReadOnlyTools();
         $this->registerAnalyticsTools();
         $this->registerDecisionSupportTools();
     }
@@ -115,7 +116,7 @@ class AgentToolRegistry
      */
     public function getToolPromptSection(string $role): string
     {
-        return Cache::remember("agent_tools_prompt_v8_{$role}", 300, function () use ($role) {
+        return Cache::remember("agent_tools_prompt_v11_{$role}", 300, function () use ($role) {
             $tools = $this->getToolDefinitionsForRole($role);
             if (empty($tools)) {
                 return '';
@@ -133,7 +134,7 @@ class AgentToolRegistry
                 $section .= "You have real tools that execute real actions (book, cancel, query). Tool schemas are provided via the API.\n\n";
                 $section .= "### RULES\n";
                 $section .= "1. USE tools for ANY request involving data or actions. Do NOT describe — DO it.\n";
-                $section .= "2. Destructive tools (book, cancel, reschedule, refund): collect required params, then call the tool. System auto-shows Confirm/Cancel to user. NEVER ask 'shall I proceed?'\n";
+                $section .= "2. Destructive tools (book, cancel, reschedule, refund) require confirmation. For booking, gather and normalize all details in one turn, then trigger the confirmation flow immediately. Do NOT present the appointment as booked until the user confirms. If the request is ambiguous, conflicting, or uncertain, ask one clarification question instead of confirming.\n";
                 $section .= "3. Read-only tools: call IMMEDIATELY, no permission needed.\n";
                 $section .= "4. NEVER say 'Done!' or 'Booked!' without a tool call. No tool call = nothing happened.\n";
                 $section .= "5. NEVER give manual instructions ('go to dashboard...') when a tool exists.\n";
@@ -142,8 +143,8 @@ class AgentToolRegistry
                 $section .= "8. NEVER narrate ('Let me check...', 'Checking...'). Just call the tool and respond with results.\n\n";
 
                 $section .= "### BOOKING WORKFLOW (MINIMUM STEPS)\n";
-                $section .= "- Complete info (service+date+time): call get_available_slots → if available, call book_appointment. Done in 1 turn.\n";
-                $section .= "- Partial info: ask for ONLY missing fields in ONE message. Never re-ask what user already said.\n";
+                $section .= "- Complete info (service+date+time): call get_available_slots → if available, call book_appointment so the system can show a confirmation prompt in the same turn. Do not say it is booked yet.\n";
+                $section .= "- Partial info: ask for ONLY missing fields in ONE message. Never re-ask what user already said. If the user gives multiple possible services, dates, or times, ask them to choose one.\n";
                 $section .= "- No details: call get_available_services, then ask for service, date, time in ONE message. Hours: 8-11AM, 1-5PM Mon-Fri.\n";
                 $section .= "- Slot unavailable: suggest nearest available times immediately.\n";
                 $section .= "- After success: show date, time, service, total paid, daily capacity.\n\n";
@@ -152,9 +153,10 @@ class AgentToolRegistry
                 $section .= "Users type casually with typos, shorthand, and mixed languages. You MUST interpret intent:\n";
                 $section .= "- **Dates**: 'tomorrow'→next day, 'tom'/'tmrw'/'tommorow'→tomorrow, 'next monday'→next Mon, 'today'→today. Convert to YYYY-MM-DD.\n";
                 $section .= "- **Times**: '10am'/'10 am'/'10:00 AM'/'10 in the morning'→10:00. '3pm'/'3 in the afternoon'→15:00. Convert to HH:MM (24-hour).\n";
-                $section .= "- **Services**: Match fuzzy names. 'affidavit'/'afdavit'/'afidavit'→Affidavit. 'consult'/'consultation'→Consultation. Pass the service NAME as service_id string — the system resolves it.\n";
+                $section .= "- **Services**: Match names case-insensitively and fuzzily. Accept ALL CAPS, lowercase, mixed case, natural aliases, and minor typos. 'affidavit'/'AFDAVIT'/'afidavit'→Affidavit. 'consult'/'CONSULTATION'→Consultation. Pass the service NAME as service_id string — the system resolves it.\n";
                 $section .= "- **Filipino shortcuts**: 'bukas'→tomorrow, 'mamaya'→later today, 'susunod na lunes'→next Monday, 'tanghali'→12:00 noon.\n";
-                $section .= "- **Combined**: 'book me affidavit tomorrow 10am' has ALL info. Extract and call tools immediately.\n";
+                $section .= "- **Combined**: 'book me affidavit tomorrow 10am' has ALL info. Extract it, check availability, and present the booking confirmation immediately.\n";
+                $section .= "- **Ambiguous requests**: If the user sounds unsure, asks for availability instead of a definite booking, or gives conflicting options, ask one short clarification question instead of booking.\n";
                 $section .= "- NEVER ask the user to reformat. YOU must interpret and normalize.\n\n";
 
                 $section .= "### CANCELLATION WORKFLOW\n";
@@ -171,8 +173,14 @@ class AgentToolRegistry
                 $section .= "5. If asked to PERFORM an action (approve, cancel, book, block dates, etc.), say: \"I can only answer questions. Please use the dashboard to perform that action.\"\n";
                 $section .= "6. NEVER say you performed an action. You are a Q&A assistant only.\n";
 
-                // Analytics reasoning guidance for admin
-                if ($role === 'admin') {
+                if ($role === 'cashier') {
+                    $section .= "\n### CASHIER QUERY GUIDANCE\n";
+                    $section .= "- For revenue, collection, sales, or dashboard-summary questions: call `cashier_get_revenue_summary`.\n";
+                    $section .= "- For shift-report, today's collection, or cashier performance questions: call `cashier_get_shift_report`.\n";
+                    $section .= "- For payment queue questions: call `cashier_get_pending_payments`.\n";
+                    $section .= "- For refund workload or approved refund questions: call `cashier_get_refund_queue`.\n";
+                    $section .= "- Cashiers MAY answer cashier financial summaries, but MUST NOT answer admin-only system analytics, user management, or configuration questions.\n";
+                } elseif ($role === 'admin') {
                     $section .= "\n### ANALYTICS REASONING (How to give accurate suggestions)\n";
                     $section .= "When the admin asks for suggestions, recommendations, or insights:\n";
                     $section .= "1. **Cross-reference multiple data sources**: Combine demand forecast + no-show patterns + slot utilization + appointment stats to give holistic answers.\n";
@@ -748,6 +756,60 @@ class AgentToolRegistry
         ];
     }
 
+    private function registerCashierReadOnlyTools(): void
+    {
+        $this->tools['cashier_get_revenue_summary'] = [
+            'description' => 'Get cashier dashboard revenue and sales summary for a timeframe.',
+            'parameters' => [
+                ['name' => 'timeframe', 'type' => 'string', 'required' => false, 'description' => 'Timeframe: daily, weekly, monthly, yearly (default monthly)'],
+            ],
+            'required_role' => 'cashier',
+            'is_destructive' => false,
+            'handler' => function (array $args, int $userId, string $role): array {
+                return $this->toolCashierGetRevenueSummary($args, $userId);
+            },
+        ];
+
+        $this->tools['cashier_get_shift_report'] = [
+            'description' => 'Get the cashier shift report for a specific date. Defaults to today.',
+            'parameters' => [
+                ['name' => 'date', 'type' => 'string', 'required' => false, 'description' => 'Date to inspect (YYYY-MM-DD). Defaults to today.'],
+            ],
+            'required_role' => 'cashier',
+            'is_destructive' => false,
+            'handler' => function (array $args, int $userId, string $role): array {
+                return $this->toolCashierGetShiftReport($args, $userId);
+            },
+        ];
+
+        $this->tools['cashier_get_pending_payments'] = [
+            'description' => 'List approved appointments awaiting payment or balance collection.',
+            'parameters' => [
+                ['name' => 'limit', 'type' => 'integer', 'required' => false, 'description' => 'Maximum number of appointments to return (default 10)'],
+                ['name' => 'date', 'type' => 'string', 'required' => false, 'description' => 'Optional appointment date filter (YYYY-MM-DD)'],
+                ['name' => 'overdue_only', 'type' => 'boolean', 'required' => false, 'description' => 'If true, only return overdue unpaid appointments'],
+            ],
+            'required_role' => 'cashier',
+            'is_destructive' => false,
+            'handler' => function (array $args, int $userId, string $role): array {
+                return $this->toolCashierGetPendingPayments($args, $userId);
+            },
+        ];
+
+        $this->tools['cashier_get_refund_queue'] = [
+            'description' => 'Get the cashier refund queue, including approved refunds ready for processing.',
+            'parameters' => [
+                ['name' => 'status', 'type' => 'string', 'required' => false, 'description' => 'Refund status: approved, pending, completed, rejected, all (default approved)'],
+                ['name' => 'limit', 'type' => 'integer', 'required' => false, 'description' => 'Maximum refunds to return (default 10)'],
+            ],
+            'required_role' => 'cashier',
+            'is_destructive' => false,
+            'handler' => function (array $args, int $userId, string $role): array {
+                return $this->toolCashierGetRefundQueue($args, $userId);
+            },
+        ];
+    }
+
     // ─── ANALYTICS TOOL REGISTRATIONS ──────────────────────────────
 
     private function registerAnalyticsTools(): void
@@ -1017,7 +1079,117 @@ class AgentToolRegistry
             return $bestMatch->id;
         }
 
+        // 4. Alias-based matching for common natural phrases the user says
+        // instead of the exact service label stored in the database.
+        $aliasMatchId = $this->resolveServiceIdByAlias($inputNormalized);
+        if ($aliasMatchId !== null) {
+            return $aliasMatchId;
+        }
+
         return null;
+    }
+
+    private function resolveServiceIdByAlias(string $inputNormalized): ?int
+    {
+        $services = Service::where('is_active', true)
+            ->get(['id', 'name', 'description']);
+
+        if ($services->isEmpty()) {
+            return null;
+        }
+
+        $aliasGroups = [
+            [
+                'inputs' => [
+                    'document signing',
+                    'signing',
+                    'sign document',
+                    'sign a document',
+                    'loan signing',
+                    'notary',
+                    'notarial',
+                    'notarization',
+                    'notarisation',
+                    'certification',
+                    'certify',
+                ],
+                'service_terms' => ['notarization', 'notarial', 'notary', 'loan signing', 'certification'],
+            ],
+            [
+                'inputs' => [
+                    'document review',
+                    'review document',
+                    'review my document',
+                    'check document',
+                    'check my document',
+                ],
+                'service_terms' => ['document review', 'review'],
+            ],
+            [
+                'inputs' => [
+                    'legal advice',
+                    'consult',
+                    'consultation',
+                    'talk to a lawyer',
+                ],
+                'service_terms' => ['consultation', 'consult'],
+            ],
+        ];
+
+        foreach ($aliasGroups as $group) {
+            if (!$this->matchesAnyAliasInput($inputNormalized, $group['inputs'])) {
+                continue;
+            }
+
+            $bestService = null;
+            $bestScore = 0;
+
+            foreach ($services as $service) {
+                $score = $this->scoreServiceAliasMatch($service, $group['service_terms']);
+                if ($score > $bestScore) {
+                    $bestScore = $score;
+                    $bestService = $service;
+                }
+            }
+
+            if ($bestService !== null && $bestScore > 0) {
+                return $bestService->id;
+            }
+        }
+
+        return null;
+    }
+
+    private function matchesAnyAliasInput(string $inputNormalized, array $aliases): bool
+    {
+        foreach ($aliases as $alias) {
+            if (str_contains($inputNormalized, $alias)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function scoreServiceAliasMatch(Service $service, array $serviceTerms): int
+    {
+        $name = mb_strtolower((string) $service->name);
+        $description = mb_strtolower((string) ($service->description ?? ''));
+        $haystack = trim($name . ' ' . $description);
+        $score = 0;
+
+        foreach ($serviceTerms as $term) {
+            if (str_contains($name, $term)) {
+                $score += 4;
+                continue;
+            }
+
+            if (str_contains($haystack, $term)) {
+                $score += 2;
+            }
+        }
+
+        return $score;
     }
 
     /**
@@ -2115,7 +2287,7 @@ class AgentToolRegistry
             ];
         })->toArray();
 
-        $message = "Appointment booked successfully! Your appointment ID is #{$appointment->id} for {$serviceNames} on {$dateFormatted} at {$timeFormatted}. Status: pending approval.";
+        $message = "Appointment booked successfully! Your appointment for {$serviceNames} on {$dateFormatted} at {$timeFormatted} is now pending approval.";
         if ($remainingBookings !== null && $remainingBookings > 0) {
             $message .= " You can still book {$remainingBookings} more appointment(s) today.";
         } elseif ($remainingBookings === 0) {
@@ -2585,6 +2757,85 @@ class AgentToolRegistry
         ];
     }
 
+    private function toolCashierGetRevenueSummary(array $args, int $userId): array
+    {
+        $cashier = User::find($userId);
+        if (!$cashier) {
+            return ['success' => false, 'error' => 'Cashier account not found.'];
+        }
+
+        $summary = $this->dataService->getCashierRevenueSummary($args['timeframe'] ?? 'monthly', $cashier);
+
+        if (empty($summary)) {
+            return ['success' => false, 'error' => 'Revenue summary unavailable.'];
+        }
+
+        return [
+            'success' => true,
+            'data' => $summary,
+        ];
+    }
+
+    private function toolCashierGetShiftReport(array $args, int $userId): array
+    {
+        $cashier = User::find($userId);
+        if (!$cashier) {
+            return ['success' => false, 'error' => 'Cashier account not found.'];
+        }
+
+        $date = !empty($args['date']) ? Carbon::parse($args['date'])->format('Y-m-d') : now()->format('Y-m-d');
+
+        return [
+            'success' => true,
+            'data' => $this->dataService->getCashierShiftData($cashier->id, $date),
+        ];
+    }
+
+    private function toolCashierGetPendingPayments(array $args, int $userId): array
+    {
+        $cashier = User::find($userId);
+        if (!$cashier) {
+            return ['success' => false, 'error' => 'Cashier account not found.'];
+        }
+
+        $limit = min(max((int) ($args['limit'] ?? 10), 1), 50);
+        $payments = $this->dataService->getPendingPayments($limit, $cashier);
+
+        if (!empty($args['date'])) {
+            $targetDate = Carbon::parse($args['date'])->format('Y-m-d');
+            $payments = array_values(array_filter($payments, fn(array $payment) => ($payment['date'] ?? null) === $targetDate));
+        }
+
+        if (!empty($args['overdue_only'])) {
+            $payments = array_values(array_filter($payments, fn(array $payment) => (bool) ($payment['is_overdue'] ?? false)));
+        }
+
+        return [
+            'success' => true,
+            'count' => count($payments),
+            'data' => $payments,
+        ];
+    }
+
+    private function toolCashierGetRefundQueue(array $args, int $userId): array
+    {
+        $cashier = User::find($userId);
+        if (!$cashier) {
+            return ['success' => false, 'error' => 'Cashier account not found.'];
+        }
+
+        $status = $args['status'] ?? 'approved';
+        $limit = min(max((int) ($args['limit'] ?? 10), 1), 50);
+        $refunds = $this->dataService->getCashierRefundQueue($status, $limit, $cashier);
+
+        return [
+            'success' => true,
+            'status' => $status,
+            'count' => count($refunds),
+            'data' => $refunds,
+        ];
+    }
+
     /**
      * Bulk cancel appointments on a specific date.
      */
@@ -2862,38 +3113,57 @@ class AgentToolRegistry
             }
 
             // Fallback: historical day-of-week averages from DB
+            // EXCLUDE weekends — office is closed Saturday & Sunday
             $historicalWeeks = 13;
             $historySince = now()->subWeeks($historicalWeeks)->format('Y-m-d');
             $dayStats = DB::table('appointments')
                 ->select(DB::raw('DAYOFWEEK(appointment_date) as dow, COUNT(*) as cnt'))
                 ->where('appointment_date', '>=', $historySince)
+                ->where('status', '!=', 'cancelled')
+                // Exclude weekends: MySQL DAYOFWEEK 1=Sunday, 7=Saturday
+                ->whereRaw('DAYOFWEEK(appointment_date) NOT IN (1, 7)')
                 ->groupBy(DB::raw('DAYOFWEEK(appointment_date)'))
                 ->pluck('cnt', 'dow');
 
             $predictions = [];
             for ($i = 0; $i < $daysAhead; $i++) {
                 $date = Carbon::parse($startDate)->addDays($i);
-                $dow = $date->dayOfWeekIso; // 1=Mon, 7=Sun
-                $mysqlDow = $dow % 7 + 1; // MySQL DAYOFWEEK: 1=Sun, 2=Mon, ..., 7=Sat
-                $totalForDay = $dayStats[$mysqlDow] ?? 0;
-                $avgBookings = $historicalWeeks > 0 ? round($totalForDay / $historicalWeeks, 1) : 0;
+                $carbonDow = $date->dayOfWeek; // 0=Sun, 6=Sat
+                $isWeekend = ($carbonDow === 0 || $carbonDow === 6);
 
-                $demandLevel = 'low';
-                if ($avgBookings >= 5) $demandLevel = 'high';
-                elseif ($avgBookings >= 3) $demandLevel = 'medium';
+                if ($isWeekend) {
+                    $predictions[] = [
+                        'date' => $date->format('Y-m-d'),
+                        'day' => $date->format('l'),
+                        'demand_level' => 'closed',
+                        'avg_bookings' => 0,
+                        'is_closed' => true,
+                        'closed_reason' => 'Office is closed on weekends (Saturday & Sunday)',
+                    ];
+                } else {
+                    $mysqlDow = $carbonDow + 1; // Carbon 0=Sun→MySQL 1, Carbon 1=Mon→MySQL 2, etc.
+                    $totalForDay = $dayStats[$mysqlDow] ?? 0;
+                    $avgBookings = $historicalWeeks > 0 ? round($totalForDay / $historicalWeeks, 1) : 0;
 
-                $predictions[] = [
-                    'date' => $date->format('Y-m-d'),
-                    'day' => $date->format('l'),
-                    'demand_level' => $demandLevel,
-                    'avg_bookings' => $avgBookings,
-                ];
+                    $demandLevel = 'low';
+                    if ($avgBookings >= 5) $demandLevel = 'high';
+                    elseif ($avgBookings >= 3) $demandLevel = 'medium';
+
+                    $predictions[] = [
+                        'date' => $date->format('Y-m-d'),
+                        'day' => $date->format('l'),
+                        'demand_level' => $demandLevel,
+                        'avg_bookings' => $avgBookings,
+                        'is_closed' => false,
+                    ];
+                }
             }
 
             return ['success' => true, 'source' => 'historical_average', 'data' => [
                 'predictions' => $predictions,
                 'high_demand_days' => collect($predictions)->where('demand_level', 'high')->values()->toArray(),
-                'note' => 'Based on historical day-of-week averages (ML service unavailable).',
+                'operating_days' => 'Monday to Friday (closed Saturday & Sunday)',
+                'note' => 'Based on historical weekday averages (ML service unavailable). Weekend days are always closed.',
             ]];
         } catch (\Exception $e) {
             return ['success' => false, 'error' => 'Busy day prediction unavailable: ' . $e->getMessage()];

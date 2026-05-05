@@ -1,20 +1,47 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import axios from 'axios';
+import { unsubscribeDeviceFromPush } from '../utils/pushNotifications';
 
 const AuthContext = createContext();
+const LOGOUT_PUSH_CLEANUP_TIMEOUT_MS = 2000;
 
 // Track whether a logout is already in progress globally to prevent cascading logouts
 let isLoggingOutGlobal = false;
 
+const clearFrontendApiCaches = () => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  if ('caches' in window) {
+    void Promise.allSettled([
+      window.caches.delete('api-cache'),
+      window.caches.delete('public-api-cache'),
+    ]);
+  }
+
+  if (navigator.serviceWorker?.controller) {
+    navigator.serviceWorker.controller.postMessage({ type: 'CLEAR_API_CACHES' });
+  }
+};
+
 // Configure axios defaults based on environment
 // In development (Vite): Use proxy (/api routes via vite.config.js)
 // In production (Vercel): Use full backend URL from env variable
+const normalizeApiBaseUrl = (value) => {
+  if (!value) {
+    return value;
+  }
+
+  return value.replace(/\/$/, '').replace(/\/api$/, '');
+};
+
 const getApiBaseUrl = () => {
   // Check if we're in production (Vercel)
   if (import.meta.env.PROD) {
     // Get from environment variable
     const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-    return backendUrl;
+    return normalizeApiBaseUrl(backendUrl);
   }
   // Development: Use proxy (no baseURL needed)
   return null;
@@ -23,13 +50,6 @@ const getApiBaseUrl = () => {
 const apiBaseUrl = getApiBaseUrl();
 if (apiBaseUrl) {
   axios.defaults.baseURL = apiBaseUrl;
-}
-
-// Initialize Authorization header from localStorage if token exists
-// This ensures that the first requests (like /api/user mapping) have the token
-const storedToken = localStorage.getItem('token');
-if (storedToken) {
-  axios.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
 }
 
 axios.defaults.withCredentials = true;
@@ -74,7 +94,10 @@ export const AuthProvider = ({ children }) => {
           // Dispatch a global event so other components can react (e.g. show a toast)
           window.dispatchEvent(new CustomEvent('auth:expired'));
           
+          localStorage.removeItem('token');
           localStorage.removeItem('user');
+          clearFrontendApiCaches();
+          delete axios.defaults.headers.common['Authorization'];
           setUser(null);
           // Allow future logouts after a brief delay
           setTimeout(() => { isLoggingOutGlobal = false; }, 2000);
@@ -90,12 +113,6 @@ export const AuthProvider = ({ children }) => {
     const initializeAuth = async () => {
       try {
         const storedUser = localStorage.getItem('user');
-        const token = localStorage.getItem('token');
-
-        // If a token exists but isn't in headers yet, apply it
-        if (token && !axios.defaults.headers.common['Authorization']) {
-          axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-        }
 
         if (storedUser) {
           try {
@@ -129,10 +146,25 @@ export const AuthProvider = ({ children }) => {
             handleLogout();
             setLoading(false);
           }
-        } else {
-          setUser(null);
-          setLoading(false);
         }
+
+        try {
+          const response = await axios.get('/api/user', { timeout: 8000 });
+          const freshUserData = response.data.data || response.data;
+          localStorage.setItem('user', JSON.stringify(freshUserData));
+          setUser(freshUserData);
+          setConnectionError(false);
+        } catch (verifyError) {
+          if (verifyError.response?.status === 401) {
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            setUser(null);
+          } else if (!verifyError.response) {
+            setConnectionError(true);
+          }
+        }
+
+        setLoading(false);
       } catch (error) {
         console.error('Auth initialization failed:', error);
         handleLogout();
@@ -218,6 +250,7 @@ export const AuthProvider = ({ children }) => {
   const handleLogout = () => {
     localStorage.removeItem('user');
     localStorage.removeItem('token');
+    clearFrontendApiCaches();
     delete axios.defaults.headers.common['Authorization'];
     setUser(null);
     
@@ -253,8 +286,13 @@ export const AuthProvider = ({ children }) => {
   };
 
   const logout = async () => {
+    // If auth is already being torn down, still clear local frontend state.
+    if (logoutInProgressRef.current || isLoggingOutGlobal) {
+      handleLogout();
+      return;
+    }
+
     // Prevent concurrent logout calls that cause cascading failures
-    if (logoutInProgressRef.current || isLoggingOutGlobal) return;
     logoutInProgressRef.current = true;
     isLoggingOutGlobal = true;
 
@@ -262,6 +300,17 @@ export const AuthProvider = ({ children }) => {
     window.dispatchEvent(new CustomEvent('auth:logout'));
 
     try {
+      try {
+        await Promise.race([
+          unsubscribeDeviceFromPush({ unsubscribeBrowser: true }),
+          new Promise((resolve) => {
+            window.setTimeout(resolve, LOGOUT_PUSH_CLEANUP_TIMEOUT_MS);
+          }),
+        ]);
+      } catch (pushError) {
+        console.warn('Failed to remove push subscription during logout:', pushError);
+      }
+
       await axios.post('/api/logout', null, { timeout: 5000 });
     } catch (error) {
       console.error('Logout error:', error);
@@ -287,10 +336,6 @@ export const AuthProvider = ({ children }) => {
   };
 
   const setAuthData = (userData, token) => {
-    if (token) {
-      localStorage.setItem('token', token);
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-    }
     if (userData) {
       localStorage.setItem('user', JSON.stringify(userData));
       setUser(userData);

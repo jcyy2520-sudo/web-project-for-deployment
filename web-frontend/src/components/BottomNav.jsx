@@ -1,22 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
-import axios from 'axios';
 import { useTheme } from '../context/ThemeContext';
 import {
   HomeIcon,
   CalendarDaysIcon,
   PlusIcon,
   ChatBubbleLeftRightIcon,
-  BellIcon,
-  ChevronDownIcon,
-    UserIcon,
+  UserCircleIcon,
 } from '@heroicons/react/24/outline';
 
 const BottomNav = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { logout } = useAuth();
   const { isDarkMode } = useTheme();
   
   // Determine active tab from current URL
@@ -32,17 +27,17 @@ const BottomNav = () => {
     { key: 'appointments', label: 'Appointments', icon: CalendarDaysIcon, to: '/dashboard?tab=appointments' },
     { key: 'book', label: 'Book', icon: PlusIcon, to: '/dashboard?tab=book' },
     { key: 'messages', label: 'Messages', icon: ChatBubbleLeftRightIcon, to: '/dashboard?tab=messages' },
-    { key: 'profile', label: 'Profile', icon: UserIcon, to: '/dashboard?tab=profile' },
+    { key: 'profile', label: 'Profile', icon: UserCircleIcon, to: '/dashboard?tab=profile' },
   ];
 
   return (
     <div>
       {/* Bottom nav only visible on small screens */}
       <nav aria-label="Main navigation" className="fixed bottom-3 left-3 right-3 sm:hidden z-[60] pointer-events-auto">
-        <div className={`backdrop-blur-xl rounded-[28px] border shadow-[0_12px_40px_rgba(0,0,0,0.15)] transition-all duration-300 px-1 py-1 ${
+        <div className={`backdrop-blur-2xl rounded-[28px] shadow-[0_8px_32px_rgba(0,0,0,0.12)] transition-all duration-300 px-1 py-1 ${
           isDarkMode 
-            ? 'bg-gray-950/90 border-white/10 ring-1 ring-white/5' 
-            : 'bg-white/95 border-amber-100 ring-1 ring-black/5'
+            ? 'bg-gray-950/55 ring-1 ring-white/5 shadow-black/40' 
+            : 'bg-white/55 ring-1 ring-black/5 shadow-black/8'
         }`}>
           <div className="flex items-center justify-between" role="tablist">
             {navItems.map(({ key, label, icon: Icon, to }) => {
@@ -91,11 +86,11 @@ const BottomNav = () => {
                   }`}
                 >
                   <Icon 
-                    className={`transition-all duration-300 ${
-                      isActive ? 'w-6 h-6' : 'w-5 h-5'
-                    }`} 
-                    strokeWidth={isActive ? 2.5 : 1.5}
-                  />
+                      className={`transition-all duration-300 ${
+                        isActive ? 'w-6 h-6' : 'w-5 h-5'
+                      }`} 
+                      strokeWidth={isActive ? 2.5 : 1.5}
+                    />
                   <span className={`text-[10px] font-medium transition-opacity ${isActive ? 'opacity-100' : 'opacity-70'}`}>
                     {label}
                   </span>

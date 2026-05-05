@@ -36,6 +36,7 @@ class UserFactory extends Factory
             'remember_token' => Str::random(10),
             'role' => 'client',
             'is_active' => true,
+            'profile_completed' => true,
         ];
     }
 

@@ -19,9 +19,9 @@ if %errorLevel% neq 0 (
     exit /b 1
 )
 
-set PYTHON_EXE=C:\Users\ASUS\AppData\Local\Programs\Python\Python313\python.exe
-set ML_SERVICE_DIR=c:\laragon\www\web\ml-service
-set MAIN_PY=%ML_SERVICE_DIR%\main.py
+set ROOT=%~dp0
+set START_SCRIPT=%ROOT%start-ml-service.bat
+set ML_SERVICE_DIR=%ROOT%ml-service
 set SERVICE_NAME=MLService
 set NSSM_URL=https://nssm.cc/download
 
@@ -54,8 +54,14 @@ if %errorLevel% equ 0 (
     exit /b 1
 )
 
+if not exist "%START_SCRIPT%" (
+    echo ERROR: ML launcher not found at %START_SCRIPT%
+    pause
+    exit /b 1
+)
+
 echo.
-echo Python executable: %PYTHON_EXE%
+echo ML launcher: %START_SCRIPT%
 echo ML Service directory: %ML_SERVICE_DIR%
 echo Service name: %SERVICE_NAME%
 echo.
@@ -73,7 +79,7 @@ if %errorLevel% equ 0 (
 )
 
 echo Creating new service...
-%NSSM_EXE% install %SERVICE_NAME% "%PYTHON_EXE%" "%MAIN_PY%"
+%NSSM_EXE% install %SERVICE_NAME% "%ComSpec%" "/c %START_SCRIPT%"
 
 if %errorLevel% neq 0 (
     echo ERROR: Failed to create service

@@ -4,10 +4,13 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Http\Request;
 
 class ActionLog extends Model
 {
     use HasFactory;
+
+    private const REQUEST_RECORDED_ATTRIBUTE = 'action_log.recorded';
 
     protected $fillable = [
         'user_id',
@@ -31,6 +34,13 @@ class ActionLog extends Model
     public function user()
     {
         return $this->belongsTo(User::class)->withTrashed();
+    }
+
+    protected static function booted(): void
+    {
+        static::created(function (): void {
+            self::markCurrentRequestAsRecorded();
+        });
     }
 
     /**
@@ -64,6 +74,28 @@ class ActionLog extends Model
             \Illuminate\Support\Facades\Log::warning('ActionLog::log failed (non-blocking): ' . $e->getMessage());
             return null;
         }
+    }
+
+    public static function wasRecordedForCurrentRequest(?Request $request = null): bool
+    {
+        $request ??= app()->bound('request') ? request() : null;
+
+        if (!$request) {
+            return false;
+        }
+
+        return (bool) $request->attributes->get(self::REQUEST_RECORDED_ATTRIBUTE, false);
+    }
+
+    public static function markCurrentRequestAsRecorded(?Request $request = null): void
+    {
+        $request ??= app()->bound('request') ? request() : null;
+
+        if (!$request) {
+            return;
+        }
+
+        $request->attributes->set(self::REQUEST_RECORDED_ATTRIBUTE, true);
     }
 
     /**

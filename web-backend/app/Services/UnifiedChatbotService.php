@@ -116,6 +116,83 @@ class UnifiedChatbotService
             // Zero-trust: role is determined server-side BEFORE any processing
             $userContext = $this->getUserContext($userId);
             $role = $userContext['role'];
+            $sessionId = is_string($options['session_id'] ?? null) ? $options['session_id'] : null;
+            $actorKey = $this->resolveActorKey($userId, $conversationId, $options);
+            $isLoadShedding = ($options['load_shedding_mode'] ?? 'normal') === 'degraded';
+            $historyLimit = $isLoadShedding
+                ? min($this->maxConversationHistory, (int) config('chatbot_unified.load.degraded_max_history', 8))
+                : $this->maxConversationHistory;
+            $contextDocLimit = $isLoadShedding
+                ? min($this->maxContextDocs, (int) config('chatbot_unified.load.degraded_max_context_docs', 3))
+                : $this->maxContextDocs;
+
+            $hasPendingConfirmation = false;
+
+            // ── 0c. FAST PATH: Explicit pending confirmation replies ──
+            // Only short-circuit when the user actually says yes/no. If they send any other
+            // follow-up message, keep the pending state and let the normal agent pipeline handle it.
+            if (config('chatbot_unified.features.agent_mode', false) && $this->agentReasoning) {
+                $hasPendingConfirmation = AgentReasoningService::hasPendingConfirmation($actorKey);
+
+                if ($hasPendingConfirmation) {
+                    $confirmationIntent = AgentReasoningService::detectConfirmationIntent($userMessage);
+
+                    if (($confirmationIntent['is_confirm'] ?? false) || ($confirmationIntent['is_deny'] ?? false)) {
+                        $pending = AgentReasoningService::getPendingConfirmation($actorKey);
+                        if ($pending) {
+                            Log::info('UnifiedChatbot: Fast-path explicit confirmation handling', [
+                                'user_id' => $userId,
+                                'pending_tool' => $pending['tool'] ?? 'unknown',
+                            ]);
+
+                            $agentResult = $this->agentReasoning->reason(
+                                $userMessage,
+                                '',
+                                [],
+                                $userId,
+                                $role,
+                                $pending,
+                                $actorKey
+                            );
+
+                            $response = $agentResult['response'] ?? 'Action processed.';
+                            $response = $this->validateAndCleanResponse($response);
+
+                            $resultMeta = [
+                                'provider' => $agentResult['provider'] ?? 'agent_confirm',
+                                'processing_time_ms' => round((microtime(true) - $startTime) * 1000, 2),
+                                'role' => $role,
+                                'agent_tool_calls' => count($agentResult['tool_calls'] ?? []),
+                            ];
+
+                            if (!empty($agentResult['action_buttons'])) {
+                                $resultMeta['action_buttons'] = $agentResult['action_buttons'];
+                            }
+                            if (!empty($agentResult['requires_confirmation'])) {
+                                $resultMeta['requires_confirmation'] = true;
+                                $resultMeta['confirmation_key'] = $agentResult['confirmation_key'] ?? null;
+                                if (!empty($agentResult['pending_tool'])) {
+                                    $resultMeta['pending_tool'] = $agentResult['pending_tool'];
+                                }
+                            }
+
+                            $this->feedbackService->logInteraction([
+                                'user_id' => $userId,
+                                'conversation_id' => $conversationId,
+                                'user_message' => $userMessage,
+                                'bot_response' => $response,
+                                'context_used' => [],
+                                'llm_provider' => 'agent_confirm_fast_path',
+                                'processing_time_ms' => (microtime(true) - $startTime) * 1000,
+                                'role' => $role,
+                                'language' => 'en',
+                            ]);
+
+                            return $this->createResponse($response, 'llm', $resultMeta);
+                        }
+                    }
+                }
+            }
 
             // Run comprehensive security checks (prompt injection + role escalation + abuse)
             $securityResult = $this->securityService->runSecurityChecks(
@@ -137,67 +214,6 @@ class UnifiedChatbotService
                         'role' => $role,
                     ]
                 );
-            }
-
-            // ── 0c. FAST PATH: Pending confirmation short-circuit ──
-            // When there's a pending confirmation (user saying "yes"/"no"), skip the entire
-            // RAG pipeline (embedding, retrieval, knowledge feed, prompt building) and go
-            // straight to the agent reasoning service. This saves 3-5 seconds of wasted processing.
-            // NOTE: Works for both authenticated users AND guests. For guests, the confirmation
-            // will be rejected at the tool permission layer (executeTool checks canUseAgentTool).
-            if (config('chatbot_unified.features.agent_mode', false) && $this->agentReasoning) {
-                $pending = AgentReasoningService::getPendingConfirmation($userId);
-                if ($pending) {
-                    Log::info('UnifiedChatbot: Fast-path confirmation handling', [
-                        'user_id' => $userId,
-                        'pending_tool' => $pending['tool'] ?? 'unknown',
-                    ]);
-
-                    $agentResult = $this->agentReasoning->reason(
-                        $userMessage,
-                        '', // No system prompt needed for confirmation
-                        [], // No conversation history needed
-                        $userId,
-                        $role,
-                        $pending
-                    );
-
-                    $response = $agentResult['response'] ?? 'Action processed.';
-                    $response = $this->validateAndCleanResponse($response);
-
-                    $resultMeta = [
-                        'provider' => $agentResult['provider'] ?? 'agent_confirm',
-                        'processing_time_ms' => round((microtime(true) - $startTime) * 1000, 2),
-                        'role' => $role,
-                        'agent_tool_calls' => count($agentResult['tool_calls'] ?? []),
-                    ];
-
-                    if (!empty($agentResult['action_buttons'])) {
-                        $resultMeta['action_buttons'] = $agentResult['action_buttons'];
-                    }
-                    if (!empty($agentResult['requires_confirmation'])) {
-                        $resultMeta['requires_confirmation'] = true;
-                        $resultMeta['confirmation_key'] = $agentResult['confirmation_key'] ?? null;
-                        if (!empty($agentResult['pending_tool'])) {
-                            $resultMeta['pending_tool'] = $agentResult['pending_tool'];
-                        }
-                    }
-
-                    // Log interaction
-                    $this->feedbackService->logInteraction([
-                        'user_id' => $userId,
-                        'conversation_id' => $conversationId,
-                        'user_message' => $userMessage,
-                        'bot_response' => $response,
-                        'context_used' => [],
-                        'llm_provider' => 'agent_confirm_fast_path',
-                        'processing_time_ms' => (microtime(true) - $startTime) * 1000,
-                        'role' => $role,
-                        'language' => 'en',
-                    ]);
-
-                    return $this->createResponse($response, 'llm', $resultMeta);
-                }
             }
 
             // ── 0d. FAST PATH for trivial messages (greetings, thanks) ──
@@ -259,11 +275,78 @@ class UnifiedChatbotService
             // 3. DETECT LANGUAGE from the user's message
             $detectedLanguage = $this->detectLanguage($userMessage);
 
-            // ── 3a. INTENT DETECTION (Speed Optimization) ──
+            // ── 3a. FAST PATH for public system/developer questions ──
+            // Public questions about what the system does and who built it should
+            // not depend on role-specific prompts. Answer them from curated system
+            // info so guests and staff-facing roles get a stable response.
+            $publicSystemInfoFastPath = $this->tryPublicSystemInfoFastPath($userMessage, $role);
+            if ($publicSystemInfoFastPath !== null) {
+                $interactionId = $this->feedbackService->logInteraction([
+                    'user_id' => $userId,
+                    'conversation_id' => $conversationId,
+                    'user_message' => $userMessage,
+                    'bot_response' => $publicSystemInfoFastPath['response'],
+                    'context_used' => $publicSystemInfoFastPath['context_used'] ?? [],
+                    'llm_provider' => 'public_system_info_fast_path',
+                    'processing_time_ms' => (microtime(true) - $startTime) * 1000,
+                    'role' => $role,
+                    'language' => $detectedLanguage,
+                ]);
+
+                return $this->createResponse(
+                    $publicSystemInfoFastPath['response'],
+                    'public_system_info_fast_path',
+                    [
+                        'provider' => 'public_system_info_fast_path',
+                        'interaction_id' => $interactionId,
+                        'processing_time_ms' => round((microtime(true) - $startTime) * 1000, 2),
+                        'role' => $role,
+                        'detected_language' => $detectedLanguage,
+                        'suggestions' => $publicSystemInfoFastPath['suggestions'] ?? [],
+                    ]
+                );
+            }
+
+            // ── 3b. FAST PATH for guest landing-page FAQ intents ──
+            // Guests on the landing page mostly ask public questions about services,
+            // pricing, location, hours, requirements, registration, and booking steps.
+            // Those do not need the full RAG + agent pipeline, so answer them directly
+            // from live system data to cut response time for the common guest path.
+            if ($role === 'guest') {
+                $guestFastPath = $this->tryGuestPublicInfoFastPath($userMessage);
+                if ($guestFastPath !== null) {
+                    $interactionId = $this->feedbackService->logInteraction([
+                        'user_id' => $userId,
+                        'conversation_id' => $conversationId,
+                        'user_message' => $userMessage,
+                        'bot_response' => $guestFastPath['response'],
+                        'context_used' => $guestFastPath['context_used'] ?? [],
+                        'llm_provider' => 'guest_public_fast_path',
+                        'processing_time_ms' => (microtime(true) - $startTime) * 1000,
+                        'role' => $role,
+                        'language' => $detectedLanguage,
+                    ]);
+
+                    return $this->createResponse(
+                        $guestFastPath['response'],
+                        'guest_public_fast_path',
+                        [
+                            'provider' => 'guest_public_fast_path',
+                            'interaction_id' => $interactionId,
+                            'processing_time_ms' => round((microtime(true) - $startTime) * 1000, 2),
+                            'role' => $role,
+                            'detected_language' => $detectedLanguage,
+                            'suggestions' => $guestFastPath['suggestions'] ?? [],
+                        ]
+                    );
+                }
+            }
+
+            // ── 3b. INTENT DETECTION (Speed Optimization) ──
             $isMinimal = $this->isTrivialMessage($userMessage);
             
             // 4. GET CONVERSATION HISTORY (critical for context continuity)
-            $conversationHistory = $this->getConversationHistory($userId, $conversationId);
+            $conversationHistory = $this->getConversationHistory($userId, $conversationId, $sessionId, $historyLimit);
             
             // ── 4a. CONTEXT OVERFLOW PROTECTION (feature-flagged) ──
             if (config('chatbot_unified.features.context_overflow', false)) {
@@ -293,7 +376,7 @@ class UnifiedChatbotService
             // 5. SEMANTIC RETRIEVAL — skip for trivial messages (greetings, thanks)
             $retrievedContext = ['documents' => [], 'context_text' => '', 'total_found' => 0];
             if (!$this->isTrivialMessage($userMessage)) {
-                $retrievedContext = $this->retrieveRelevantContext($userMessage, $role);
+                $retrievedContext = $this->retrieveRelevantContext($userMessage, $role, $contextDocLimit, $isLoadShedding);
             }
             
             // 6. GATHER REAL-TIME DATA (appointments, services, payments, stats)
@@ -304,12 +387,12 @@ class UnifiedChatbotService
             
             // 7. GATHER CONVERSATION MEMORY (past interactions, preferences)
             $conversationMemory = [];
-            if (!$isMinimal) {
+            if (!$isMinimal && !$isLoadShedding) {
                 $conversationMemory = $this->gatherConversationMemory($userId, $conversationId);
             }
             
             // ── 7a. LONG-TERM MEMORY — cross-session summaries (feature-flagged) ──
-            if (config('chatbot_unified.features.long_term_memory', false) && $this->memoryService && $userId) {
+            if (!$isLoadShedding && config('chatbot_unified.features.long_term_memory', false) && $this->memoryService && $userId) {
                 try {
                     $maxSummaries = config('chatbot_unified.long_term_memory.max_past_summaries', 3);
                     $pastSummaries = $this->memoryService->getCrossSessionHistory($userId, $maxSummaries);
@@ -327,13 +410,16 @@ class UnifiedChatbotService
             }
             
             // 8. GATHER FEEDBACK INSIGHTS (learned corrections, common issues)
-            $feedbackInsights = $this->gatherFeedbackInsights();
+            $feedbackInsights = $isLoadShedding ? [] : $this->gatherFeedbackInsights();
             
             // 9. GATHER DYNAMIC KNOWLEDGE FEED (DB schema, API, UI, workflows, errors)
-            $knowledgeFeed = $this->knowledgeFeedService->getKnowledgeFeedAsPromptSection(
-                $role,
-                $userId
-            );
+            $knowledgeFeed = '';
+            if (!$isLoadShedding) {
+                $knowledgeFeed = $this->knowledgeFeedService->getKnowledgeFeedAsPromptSection(
+                    $role,
+                    $userId
+                );
+            }
             
             // 10. BUILD FULLY DYNAMIC SYSTEM PROMPT (zero hard-coded content)
             $isMinimal = $this->isTrivialMessage($userMessage);
@@ -377,9 +463,13 @@ class UnifiedChatbotService
             $requiresConfirmation = false;
             $confirmationKey = null;
             $pendingToolName = null;
-            
-            // Note: pending confirmations are now handled by the fast-path short-circuit above (step 0c).
-            // If we reach here, there is no pending confirmation.
+            $pendingConfirmation = [];
+            if ($hasPendingConfirmation) {
+                $pending = AgentReasoningService::getPendingConfirmation($actorKey);
+                if ($pending) {
+                    $pendingConfirmation = $pending;
+                }
+            }
             
             if (config('chatbot_unified.features.agent_mode', false) && $this->agentReasoning) {
                 // AGENT MODE: Use ReAct reasoning loop with tool execution
@@ -388,7 +478,9 @@ class UnifiedChatbotService
                     $systemPrompt,
                     $conversationHistory,
                     $userId,
-                    $role
+                    $role,
+                    $pendingConfirmation,
+                    $actorKey
                 );
                 
                 $agentToolCalls = $agentResult['tool_calls'] ?? [];
@@ -475,6 +567,7 @@ class UnifiedChatbotService
             
             // 12. POST-PROCESS & VALIDATE RESPONSE
             $response = $this->validateAndCleanResponse($response);
+            $response = $this->normalizeAgentVisibleResponse($response, $agentToolCalls);
             
             // ── 12a. MANDATORY OUTPUT SECURITY VALIDATION (always-on) ──
             $outputValidation = $this->securityService->validateOutput($response, $role);
@@ -560,6 +653,7 @@ class UnifiedChatbotService
                 'role' => $role,
                 'detected_language' => $detectedLanguage,
                 'agent_tool_calls' => count($agentToolCalls),
+                'load_shedding_mode' => $isLoadShedding ? 'degraded' : 'normal',
             ];
             
             // Include action buttons from agent tool execution
@@ -627,11 +721,72 @@ class UnifiedChatbotService
             }
             return $result;
         }
+
+        $startTime = microtime(true);
         
         try {
             // MANDATORY SECURITY CHECKS for streaming (same as non-streaming)
             $userContext = $this->getUserContext($userId);
             $role = $userContext['role'];
+            $sessionId = is_string($options['session_id'] ?? null) ? $options['session_id'] : null;
+            $actorKey = $this->resolveActorKey($userId, $conversationId, $options);
+            $isLoadShedding = ($options['load_shedding_mode'] ?? 'normal') === 'degraded';
+            $historyLimit = $isLoadShedding
+                ? min($this->maxConversationHistory, (int) config('chatbot_unified.load.degraded_max_history', 8))
+                : $this->maxConversationHistory;
+            $contextDocLimit = $isLoadShedding
+                ? min($this->maxContextDocs, (int) config('chatbot_unified.load.degraded_max_context_docs', 3))
+                : $this->maxContextDocs;
+
+            $hasPendingConfirmation = false;
+
+            if (config('chatbot_unified.features.agent_mode', false) && $this->agentReasoning) {
+                $hasPendingConfirmation = AgentReasoningService::hasPendingConfirmation($actorKey);
+
+                if ($hasPendingConfirmation) {
+                    $confirmationIntent = AgentReasoningService::detectConfirmationIntent($userMessage);
+
+                    if (($confirmationIntent['is_confirm'] ?? false) || ($confirmationIntent['is_deny'] ?? false)) {
+                        $pending = AgentReasoningService::getPendingConfirmation($actorKey);
+                        if ($pending) {
+                            Log::info('UnifiedChatbot: Streaming fast-path explicit confirmation handling', [
+                                'user_id' => $userId,
+                                'pending_tool' => $pending['tool'] ?? 'unknown',
+                            ]);
+
+                            $agentResult = $this->agentReasoning->reason(
+                                $userMessage,
+                                '',
+                                [],
+                                $userId,
+                                $role,
+                                $pending,
+                                $actorKey
+                            );
+
+                            $response = $agentResult['response'] ?? 'Action processed.';
+                            $response = $this->validateAndCleanResponse($response);
+
+                            $result = $this->createResponse($response, 'llm', [
+                                'provider' => $agentResult['provider'] ?? 'agent_confirm',
+                                'processing_time_ms' => round((microtime(true) - $startTime) * 1000, 2),
+                                'role' => $role,
+                                'agent_tool_calls' => count($agentResult['tool_calls'] ?? []),
+                                'action_buttons' => $agentResult['action_buttons'] ?? [],
+                            ]);
+
+                            if ($onToken) {
+                                $onToken($result['response'], ['final' => true]);
+                            }
+                            if ($onComplete) {
+                                $onComplete($result);
+                            }
+
+                            return $result;
+                        }
+                    }
+                }
+            }
 
             $securityResult = $this->securityService->runSecurityChecks(
                 $userMessage,
@@ -653,18 +808,113 @@ class UnifiedChatbotService
                 ]);
             }
 
+            $safetyCheck = $this->performSafetyCheck($userMessage);
+            if (!$safetyCheck['safe']) {
+                $result = $this->createResponse(
+                    $safetyCheck['response'],
+                    'safety_filter',
+                    ['filtered' => true, 'reason' => $safetyCheck['reason'], 'role' => $role]
+                );
+
+                if ($onToken) {
+                    $onToken($result['response'], ['final' => true, 'filtered' => true]);
+                }
+                if ($onComplete) {
+                    $onComplete($result);
+                }
+
+                return $result;
+            }
+
             // Same context gathering as non-streaming
             $detectedLanguage = $this->detectLanguage($userMessage);
-            $conversationHistory = $this->getConversationHistory($userId, $conversationId);
+
+            $publicSystemInfoFastPath = $this->tryPublicSystemInfoFastPath($userMessage, $role);
+            if ($publicSystemInfoFastPath !== null) {
+                $interactionId = $this->feedbackService->logInteraction([
+                    'user_id' => $userId,
+                    'conversation_id' => $conversationId,
+                    'user_message' => $userMessage,
+                    'bot_response' => $publicSystemInfoFastPath['response'],
+                    'context_used' => $publicSystemInfoFastPath['context_used'] ?? [],
+                    'llm_provider' => 'public_system_info_fast_path',
+                    'processing_time_ms' => (microtime(true) - $startTime) * 1000,
+                    'role' => $role,
+                    'language' => $detectedLanguage,
+                ]);
+
+                $result = $this->createResponse(
+                    $publicSystemInfoFastPath['response'],
+                    'public_system_info_fast_path',
+                    [
+                        'provider' => 'public_system_info_fast_path',
+                        'interaction_id' => $interactionId,
+                        'processing_time_ms' => round((microtime(true) - $startTime) * 1000, 2),
+                        'role' => $role,
+                        'detected_language' => $detectedLanguage,
+                        'suggestions' => $publicSystemInfoFastPath['suggestions'] ?? [],
+                    ]
+                );
+
+                if ($onToken) {
+                    $onToken($result['response'], ['final' => true]);
+                }
+                if ($onComplete) {
+                    $onComplete($result);
+                }
+
+                return $result;
+            }
+
+            if ($role === 'guest') {
+                $guestFastPath = $this->tryGuestPublicInfoFastPath($userMessage);
+                if ($guestFastPath !== null) {
+                    $interactionId = $this->feedbackService->logInteraction([
+                        'user_id' => $userId,
+                        'conversation_id' => $conversationId,
+                        'user_message' => $userMessage,
+                        'bot_response' => $guestFastPath['response'],
+                        'context_used' => $guestFastPath['context_used'] ?? [],
+                        'llm_provider' => 'guest_public_fast_path',
+                        'processing_time_ms' => (microtime(true) - $startTime) * 1000,
+                        'role' => $role,
+                        'language' => $detectedLanguage,
+                    ]);
+
+                    $result = $this->createResponse(
+                        $guestFastPath['response'],
+                        'guest_public_fast_path',
+                        [
+                            'provider' => 'guest_public_fast_path',
+                            'interaction_id' => $interactionId,
+                            'processing_time_ms' => round((microtime(true) - $startTime) * 1000, 2),
+                            'role' => $role,
+                            'detected_language' => $detectedLanguage,
+                            'suggestions' => $guestFastPath['suggestions'] ?? [],
+                        ]
+                    );
+
+                    if ($onToken) {
+                        $onToken($result['response'], ['final' => true]);
+                    }
+                    if ($onComplete) {
+                        $onComplete($result);
+                    }
+
+                    return $result;
+                }
+            }
+
+            $conversationHistory = $this->getConversationHistory($userId, $conversationId, $sessionId, $historyLimit);
 
             $retrievedContext = ['documents' => [], 'context_text' => '', 'total_found' => 0];
             if (!$this->isTrivialMessage($userMessage)) {
-                $retrievedContext = $this->retrieveRelevantContext($userMessage, $role);
+                $retrievedContext = $this->retrieveRelevantContext($userMessage, $role, $contextDocLimit, $isLoadShedding);
             }
 
             $realTimeData = $this->gatherRealTimeData($userId, $role, $userMessage);
-            $conversationMemory = $this->gatherConversationMemory($userId, $conversationId);
-            $feedbackInsights = $this->gatherFeedbackInsights();
+            $conversationMemory = $isLoadShedding ? [] : $this->gatherConversationMemory($userId, $conversationId);
+            $feedbackInsights = $isLoadShedding ? [] : $this->gatherFeedbackInsights();
             
             // Build fully dynamic system prompt
             $systemPrompt = $this->promptService->build(
@@ -677,7 +927,9 @@ class UnifiedChatbotService
                 $conversationId
             );
             
-            $knowledgeFeed = $this->knowledgeFeedService->getKnowledgeFeedAsPromptSection($role, $userId);
+            $knowledgeFeed = $isLoadShedding
+                ? ''
+                : $this->knowledgeFeedService->getKnowledgeFeedAsPromptSection($role, $userId);
             if (!empty($knowledgeFeed)) {
                 // SECURITY: Sanitize dynamic knowledge feed to prevent indirect prompt injection
                 $sanitizedFeed = $this->securityService->sanitizeInjectedContent($knowledgeFeed);
@@ -693,8 +945,8 @@ class UnifiedChatbotService
 
                 // Check for pending confirmations
                 $pendingConfirmation = [];
-                if ($userId) {
-                    $pending = AgentReasoningService::getPendingConfirmation($userId);
+                if ($hasPendingConfirmation) {
+                    $pending = AgentReasoningService::getPendingConfirmation($actorKey);
                     if ($pending) {
                         $pendingConfirmation = $pending;
                     }
@@ -706,7 +958,8 @@ class UnifiedChatbotService
                     $conversationHistory,
                     $userId,
                     $role,
-                    $pendingConfirmation
+                    $pendingConfirmation,
+                    $actorKey
                 );
 
                 $agentResponse = $agentResult['response'] ?? '';
@@ -797,18 +1050,20 @@ class UnifiedChatbotService
      * Retrieve relevant context using vector embeddings
      * This replaces hardcoded intent patterns with semantic understanding
      */
-    private function retrieveRelevantContext(string $message, string $role): array
+    private function retrieveRelevantContext(string $message, string $role, ?int $contextLimit = null, bool $skipReranker = false): array
     {
         try {
+            $limit = $contextLimit ?? $this->maxContextDocs;
+
             // Get semantic search results from knowledge base
             $searchResults = $this->embeddingService->semanticSearch(
                 $message,
                 null, // Search all categories
-                $this->maxContextDocs
+                $limit
             );
             
             // ── RERANKER: if enabled, rerank results for higher precision ──
-            if (config('chatbot_unified.features.reranker', false)) {
+            if (!$skipReranker && config('chatbot_unified.features.reranker', false)) {
                 $searchResults = $this->rerankerSort($searchResults, $message);
             }
             
@@ -860,17 +1115,26 @@ class UnifiedChatbotService
     /**
      * Get conversation history for context continuity
      */
-    private function getConversationHistory(?int $userId, string $conversationId): array
+    private function getConversationHistory(?int $userId, string $conversationId, ?string $sessionId = null, ?int $limit = null): array
     {
-        if (!$userId) {
+        if (!$userId && !$sessionId) {
             return [];
         }
         
         try {
-            $messages = ChatMessage::where('user_id', $userId)
-                ->where('conversation_id', $conversationId)
+            $query = ChatMessage::where('conversation_id', $conversationId);
+
+            if ($userId) {
+                $query->where('user_id', $userId);
+            } else {
+                $query->where('session_id', $sessionId);
+            }
+
+            $historyLimit = $limit ?? $this->maxConversationHistory;
+
+            $messages = $query
                 ->orderBy('created_at', 'desc')
-                ->limit($this->maxConversationHistory)
+                ->limit($historyLimit)
                 ->get()
                 ->reverse()
                 ->values();
@@ -884,6 +1148,25 @@ class UnifiedChatbotService
             Log::debug('Failed to get conversation history: ' . $e->getMessage());
             return [];
         }
+    }
+
+    private function resolveActorKey(?int $userId, string $conversationId, array $options): string
+    {
+        $actorKey = $options['actor_key'] ?? null;
+        if (is_string($actorKey) && $actorKey !== '') {
+            return $actorKey;
+        }
+
+        if ($userId) {
+            return "user_{$userId}";
+        }
+
+        $sessionId = $options['session_id'] ?? null;
+        if (is_string($sessionId) && $sessionId !== '') {
+            return 'guest_session_' . sha1($sessionId);
+        }
+
+        return 'guest_conversation_' . sha1($conversationId);
     }
     
     /**
@@ -1016,23 +1299,8 @@ class UnifiedChatbotService
             
             // User-specific data
             if ($userId) {
-                // IMPORTANT: Preserve pending tool confirmation before flushing specific caches
-                // If user is confirming an action, we MUST NOT delete the pending confirmation
-                $pendingConfirmation = AgentReasoningService::getPendingConfirmation($userId);
-                
-                // Clear targeted caches for this user to ensure fresh data every request
-                \Illuminate\Support\Facades\Cache::forget("chatbot_appointments_user_{$userId}_all");
-                \Illuminate\Support\Facades\Cache::forget("chatbot_appointments_user_{$userId}_pending");
-                \Illuminate\Support\Facades\Cache::forget("chatbot_appointments_user_{$userId}_approved");
-                \Illuminate\Support\Facades\Cache::forget("chatbot_appointments_user_{$userId}_completed");
-                \Illuminate\Support\Facades\Cache::forget("chatbot_appointments_user_{$userId}_cancelled");
-                \Illuminate\Support\Facades\Cache::forget("chatbot_booking_limit_{$userId}");
-                
-                // Restore pending confirmation if it existed
-                if ($pendingConfirmation) {
-                    \Illuminate\Support\Facades\Cache::put('agent_confirm_' . $userId . '_pending', $pendingConfirmation, 300);
-                }
-                
+                // Mutation paths already invalidate these caches via observers/tool handlers.
+                // Keep the warm cache for read-only chat turns to avoid forced DB misses.
                 $data['user_appointments'] = $this->dataService->getUserAppointments($userId, null, 8);
                 $data['user_payments'] = $this->dataService->getUserPayments($userId, null, 8);
 
@@ -1090,9 +1358,44 @@ class UnifiedChatbotService
                     } catch (\Exception $e) {
                         Log::debug('Failed to get monthly revenue: ' . $e->getMessage());
                     }
+
+                    // Per-date appointment breakdown (next 14 days) — admin often asks
+                    // "which dates have appointments?" or "what does next week look like?"
+                    try {
+                        $upcomingDates = Appointment::whereBetween('appointment_date', [now()->toDateString(), now()->addDays(14)->toDateString()])
+                            ->where('status', '!=', 'cancelled')
+                            ->selectRaw('appointment_date, status, COUNT(*) as count')
+                            ->groupBy('appointment_date', 'status')
+                            ->orderBy('appointment_date')
+                            ->get();
+
+                        if ($upcomingDates->isNotEmpty()) {
+                            $dateBreakdown = [];
+                            foreach ($upcomingDates as $row) {
+                                $dateStr = Carbon::parse($row->appointment_date)->format('Y-m-d');
+                                if (!isset($dateBreakdown[$dateStr])) {
+                                    $dateBreakdown[$dateStr] = [
+                                        'date' => $dateStr,
+                                        'day' => Carbon::parse($row->appointment_date)->format('l'),
+                                        'total' => 0,
+                                        'pending' => 0,
+                                        'approved' => 0,
+                                        'completed' => 0,
+                                    ];
+                                }
+                                $dateBreakdown[$dateStr]['total'] += $row->count;
+                                if (isset($dateBreakdown[$dateStr][$row->status])) {
+                                    $dateBreakdown[$dateStr][$row->status] += $row->count;
+                                }
+                            }
+                            $data['upcoming_appointment_dates'] = array_values($dateBreakdown);
+                        }
+                    } catch (\Exception $e) {
+                        Log::debug('Failed to get upcoming appointment dates: ' . $e->getMessage());
+                    }
                     // ── Decision Support / Smart Analytics data ──
                     // Inject summary analytics ONLY if the user is asking for stats or forecast
-                    $intentKeywords = ['busy', 'forecast', 'stats', 'utilization', 'trend', 'pattern', 'busy day', 'slow day', 'increase', 'slot', 'capacity', 'demand', 'suggest', 'recommend', 'improve', 'optimize', 'peak', 'schedule', 'no-show', 'no show', 'revenue', 'how many', 'appointment', 'summary', 'overview', 'analytics', 'report', 'insight', 'performance'];
+                    $intentKeywords = ['busy', 'busiest', 'forecast', 'stats', 'utilization', 'trend', 'pattern', 'busy day', 'slow day', 'increase', 'slot', 'capacity', 'demand', 'suggest', 'recommend', 'improve', 'optimize', 'peak', 'schedule', 'no-show', 'no show', 'revenue', 'how many', 'appointment', 'summary', 'overview', 'analytics', 'report', 'insight', 'performance', 'date', 'which day', 'week', 'today', 'tomorrow', 'closed', 'open'];
                     $needsAnalytics = false;
                     foreach ($intentKeywords as $kw) {
                         if (stripos($message, $kw) !== false) {
@@ -1188,8 +1491,12 @@ class UnifiedChatbotService
                     }
 
                 } elseif ($role === 'cashier') {
+                    $requestingUser = User::find($userId);
                     $data['today_summary'] = $this->dataService->getTodaysSummary();
-                    $data['pending_payments'] = $this->dataService->getPendingPayments(10);
+                    $data['pending_payments'] = $this->dataService->getPendingPayments(10, $requestingUser);
+                    $data['cashier_revenue_summary'] = $this->dataService->getCashierRevenueSummary('monthly', $requestingUser);
+                    $data['cashier_shift_summary'] = $this->dataService->getCashierShiftData($userId);
+                    $data['refund_queue'] = $this->dataService->getCashierRefundQueue('approved', 10, $requestingUser);
                 }
             }
             
@@ -1496,6 +1803,37 @@ class UnifiedChatbotService
                 ];
             }
         }
+
+        // Refuse clearly abusive or harmful messages before they reach the LLM.
+        // Keep this focused so legitimate but messy queries still go through.
+        try {
+            /** @var AdvancedContentModerationService $moderationService */
+            $moderationService = App::make(AdvancedContentModerationService::class);
+            $moderationResult = $moderationService->checkContentSafety($message);
+            $reasons = array_values(array_filter(
+                (array) ($moderationResult['reasons'] ?? []),
+                static fn ($reason): bool => is_string($reason) && $reason !== ''
+            ));
+
+            $hasDirectedProfanity = in_array('profanity', $reasons, true)
+                && preg_match('/\b(you|bot|ai|assistant|chatbot|system|this)\b/i', $message);
+            $shouldRefuse = $hasDirectedProfanity
+                || in_array('harassment', $reasons, true)
+                || in_array('hate_speech', $reasons, true)
+                || in_array('harmful_intent', $reasons, true);
+
+            if ($shouldRefuse) {
+                $violationType = (string) ($moderationResult['violation_type'] ?? ($reasons[0] ?? 'default'));
+
+                return [
+                    'safe' => false,
+                    'reason' => $violationType,
+                    'response' => $moderationService->getSafeResponse($violationType),
+                ];
+            }
+        } catch (\Throwable $e) {
+            Log::debug('Advanced content moderation unavailable: ' . $e->getMessage());
+        }
         
         // Everything else — including offensive language, profanity, frustration —
         // is passed through to the LLM which handles it with graduated responses
@@ -1524,6 +1862,7 @@ class UnifiedChatbotService
         // SECURITY: Strip any tool call / action call JSON that leaked into the response
         // This prevents internal agent protocol from being shown to users
         $response = preg_replace('/```tool_call.*?```/s', '', $response);
+        $response = preg_replace('/<[a-z_]+>\s*(?:<parameter=[a-z_]+>.*?<\/parameter>\s*)+<\/[a-z_]+>/is', '', $response);
         $response = preg_replace('/```(?:json)?\s*\n?\s*\{\s*"(?:action|tool|function|name)"\s*:.*?\}\s*\n?\s*```/s', '', $response);
         $response = preg_replace('/\b_?(?:tool_?)?call\s*\n?\s*\{[^}]*"(?:action|tool|function|name)"[^}]*\}/si', '', $response);
         $response = preg_replace('/_call\s*\n?\s*\{(?:[^{}]|(?R))*\}/s', '', $response);
@@ -1569,6 +1908,151 @@ class UnifiedChatbotService
         }
 
         return trim($response);
+    }
+
+    /**
+     * Normalize the final agent response before it is shown to the user.
+     *
+     * This prevents internal tool identifiers such as `get_available_services`
+     * from leaking into chat when the agent fails to turn tool output into a
+     * user-facing answer.
+     */
+    private function normalizeAgentVisibleResponse(string $response, array $agentToolCalls): string
+    {
+        $response = trim($response);
+
+        if (empty($agentToolCalls)) {
+            return $response;
+        }
+
+        if (!$this->isInternalAgentToolLeak($response, $agentToolCalls)) {
+            return $response;
+        }
+
+        $lastToolCall = $agentToolCalls[array_key_last($agentToolCalls)] ?? null;
+        if (is_array($lastToolCall)) {
+            $fallback = $this->formatAgentToolResultFallback($lastToolCall);
+            if ($fallback !== null) {
+                return $fallback;
+            }
+        }
+
+        return 'I found the relevant information, but I could not present it clearly. Please try your request again.';
+    }
+
+    /**
+     * Detect tool-protocol leakage in the final visible response.
+     */
+    private function isInternalAgentToolLeak(string $response, array $agentToolCalls): bool
+    {
+        $normalized = trim(mb_strtolower($response), " \t\n\r\0\x0B`.:;!?-");
+        if ($normalized === '') {
+            return true;
+        }
+
+        $toolNames = [];
+        foreach ($agentToolCalls as $call) {
+            if (!is_array($call)) {
+                continue;
+            }
+
+            $toolName = mb_strtolower((string) ($call['tool'] ?? ''));
+            if ($toolName !== '') {
+                $toolNames[] = $toolName;
+            }
+        }
+
+        if (in_array($normalized, $toolNames, true)) {
+            return true;
+        }
+
+        if (preg_match('/^(?:calling|running|executing|attempting)(?:\s+(?:tool|action))?\s*:?\s*([a-z_]+)$/i', trim($response), $matches)) {
+            return in_array(mb_strtolower($matches[1]), $toolNames, true);
+        }
+
+        return false;
+    }
+
+    /**
+     * Build a user-safe fallback from the last executed tool result.
+     */
+    private function formatAgentToolResultFallback(array $toolCall): ?string
+    {
+        $toolName = (string) ($toolCall['tool'] ?? '');
+        $result = (array) ($toolCall['result'] ?? []);
+        $success = (bool) ($result['success'] ?? false);
+
+        if ($toolName === 'get_available_services') {
+            if (!$success) {
+                $error = trim((string) ($result['error'] ?? ''));
+                return $error !== ''
+                    ? "I could not load the available services right now: {$error}"
+                    : 'I could not load the available services right now.';
+            }
+
+            $services = array_values(array_filter(
+                (array) ($result['data'] ?? []),
+                static fn ($service) => is_array($service) && trim((string) ($service['name'] ?? '')) !== ''
+            ));
+
+            if (empty($services)) {
+                return 'I could not find any active services right now.';
+            }
+
+            $lines = [];
+            foreach (array_slice($services, 0, 6) as $service) {
+                $name = trim((string) ($service['name'] ?? 'Service'));
+                $price = is_numeric($service['price'] ?? null)
+                    ? 'PHP ' . number_format((float) $service['price'], 2)
+                    : 'Price available on request';
+                $lines[] = "- {$name}: {$price}";
+            }
+
+            return "Here are the available services I found:\n" . implode("\n", $lines)
+                . "\n\nTell me which service you want, and I will continue with the booking.";
+        }
+
+        if ($toolName === 'get_available_slots') {
+            if (!$success) {
+                $error = trim((string) ($result['error'] ?? ''));
+                return $error !== ''
+                    ? "I could not check the available slots right now: {$error}"
+                    : 'I could not check the available slots right now.';
+            }
+
+            $message = trim((string) ($result['message'] ?? ''));
+            $availableSlots = array_values(array_filter(
+                (array) ($result['available_slots'] ?? []),
+                static fn ($slot) => is_string($slot) && trim($slot) !== ''
+            ));
+
+            if (empty($availableSlots)) {
+                return $message !== ''
+                    ? $message
+                    : 'I checked the schedule, but there are no available slots on that date.';
+            }
+
+            $formattedSlots = array_map(static function (string $slot): string {
+                try {
+                    return \Carbon\Carbon::createFromFormat('H:i', trim($slot))->format('g:i A');
+                } catch (\Throwable $e) {
+                    return trim($slot);
+                }
+            }, array_slice($availableSlots, 0, 8));
+
+            $prefix = $message !== '' ? $message : 'These time slots are currently available:';
+
+            return $prefix . "\n" . implode(', ', $formattedSlots);
+        }
+
+        if (!$success) {
+            $error = trim((string) ($result['error'] ?? ''));
+            return $error !== '' ? $error : null;
+        }
+
+        $message = trim((string) ($result['message'] ?? ''));
+
+        return $message !== '' ? $message : null;
     }
 
     
@@ -1628,11 +2112,19 @@ class UnifiedChatbotService
      */
     public function getHealthStatus(): array
     {
-        return [
+        $health = [
             'llm' => $this->llmService->healthCheck(),
             'embeddings' => $this->embeddingService->isAvailable(),
             'knowledge_base_indexed' => $this->embeddingService->getIndexedDocumentCount(),
         ];
+
+        try {
+            $health['load'] = app(\App\Services\ChatbotLoadManagerService::class)->snapshot();
+        } catch (\Exception $e) {
+            Log::debug('Failed to get chatbot load health snapshot: ' . $e->getMessage());
+        }
+
+        return $health;
     }
 
     // ─── NEW FEATURE-FLAGGED HELPER METHODS ───────────────────────
@@ -1846,6 +2338,397 @@ class UnifiedChatbotService
             }
             return null;
         }
+    }
+
+    /**
+     * Answer public questions about the system itself without relying on role-specific prompts.
+     */
+    private function tryPublicSystemInfoFastPath(string $message, string $role): ?array
+    {
+        $normalized = mb_strtolower(trim(preg_replace('/\s+/', ' ', $message)));
+        if ($normalized === '') {
+            return null;
+        }
+
+        $isPublicSystemQuery = preg_match(
+            '/\b(developer|creator|who\s+(?:made|built|developed|created)|about\s+(?:the\s+)?system|what\s+is\s+this\s+system|what\s+is\s+(?:the\s+)?system\s+about|what(?:\'s|\s+is)\s+(?:the\s+)?system\s+about|what\s+does\s+(?:this\s+)?system\s+do|system\s+overview|system\s+features|sino\s+(?:ang\s+)?(?:gumawa|developer)|ano(?:ng|\s+itong)?\s+system|para\s+saan\s+ang\s+system|tungkol\s+sa\s+system|mga\s+features\s+ng\s+system)\b/i',
+            $normalized
+        ) === 1;
+
+        $isOperationalSystemQuery = preg_match(
+            '/\b(system\s+status|server\s+status|health\s+check|uptime|analytics|dashboard|report|revenue|collection|collections|total\s+users?|user\s+count|appointment\s+count)\b/i',
+            $normalized
+        ) === 1;
+
+        $isPublicSecurityQuery = preg_match(
+            '/\b(privacy|security|data\s+protection|ssl|tls|https|seguridad|protektado|ligtas)\b/i',
+            $normalized
+        ) === 1
+            || preg_match('/\bsafe\s+ba\b.*\b(data|information|info)\b/i', $normalized) === 1
+            || preg_match('/\b(paano|how)\b.*\b(data|information|info)\b.*\b(safe|secure|protected|ligtas)\b/i', $normalized) === 1;
+
+        if ($isOperationalSystemQuery) {
+            return null;
+        }
+
+        if ($isPublicSecurityQuery) {
+            return $this->buildPublicSystemSecurityFastPathResponse();
+        }
+
+        if (!$isPublicSystemQuery) {
+            return null;
+        }
+
+        return $this->buildPublicSystemInfoFastPathResponse($role);
+    }
+
+    private function buildPublicSystemSecurityFastPathResponse(): array
+    {
+        $info = [];
+
+        try {
+            /** @var SystemInfoProvider $provider */
+            $provider = App::make(SystemInfoProvider::class);
+            $info = $provider->getSystemInfo('standard');
+        } catch (\Throwable $e) {
+            Log::debug('Public system security fast path fell back to defaults: ' . $e->getMessage());
+        }
+
+        $security = (array) ($info['features']['security_features'] ?? []);
+        $securityFeatures = array_values(array_filter(
+            (array) ($security['features'] ?? []),
+            static fn ($feature): bool => is_string($feature) && trim($feature) !== ''
+        ));
+
+        if (empty($securityFeatures)) {
+            $securityFeatures = [
+                'Role-based access control (RBAC)',
+                'User authentication and authorization',
+                'Session management',
+                'Activity logging',
+                'Secure data transmission (HTTPS)',
+            ];
+        }
+
+        $response = "Here are the documented security features available in this system:\n"
+            . implode("\n", array_map(static fn ($feature): string => "- {$feature}", $securityFeatures))
+            . "\n\nI can confirm only these documented protections from the system data available to me. "
+            . "I do not have verified information about other safeguards unless they are explicitly documented here. "
+            . "For questions about data retention, information sharing, or payment-provider compliance, please contact the office directly.";
+
+        return [
+            'response' => $response,
+            'suggestions' => [
+                'What services are available?',
+                'What are the business hours?',
+                'How do I book an appointment?',
+            ],
+            'context_used' => ['system_info_security'],
+        ];
+    }
+
+    private function buildPublicSystemInfoFastPathResponse(string $role): array
+    {
+        $info = [];
+
+        try {
+            /** @var SystemInfoProvider $provider */
+            $provider = App::make(SystemInfoProvider::class);
+            $info = $provider->getSystemInfo('standard');
+        } catch (\Throwable $e) {
+            Log::debug('Public system info fast path fell back to defaults: ' . $e->getMessage());
+        }
+
+        $system = (array) ($info['system'] ?? []);
+        $developer = (array) ($info['developer'] ?? []);
+        $education = (array) ($developer['education'] ?? []);
+        $features = (array) ($info['features'] ?? []);
+
+        $systemName = trim((string) ($system['name'] ?? 'Appointment Management & Legal Services System'));
+        $purpose = trim((string) ($system['purpose'] ?? 'A web-based platform for legal-service appointments and related service workflows.'));
+        $developerName = trim((string) ($developer['name'] ?? 'IT Student Developer'));
+        $school = trim((string) ($education['school'] ?? 'Mindoro State University - Bongabong Campus'));
+        $program = trim((string) ($education['program'] ?? 'Bachelor of Science in Information Technology'));
+
+        $featureLines = [];
+        foreach (array_slice($features, 0, 3, true) as $featureKey => $featureData) {
+            if (!is_array($featureData)) {
+                continue;
+            }
+
+            $description = trim((string) ($featureData['description'] ?? ''));
+            if ($description === '') {
+                continue;
+            }
+
+            $label = ucwords(str_replace('_', ' ', (string) $featureKey));
+            $featureLines[] = "- {$label}: {$description}";
+        }
+
+        $response = "{$systemName} is {$purpose}\n\n"
+            . "It was developed by {$developerName}";
+
+        if ($school !== '' || $program !== '') {
+            $response .= ' from ' . trim($school . ($program !== '' ? ' (' . $program . ')' : ''));
+        }
+
+        $response .= '.';
+
+        if (!empty($featureLines)) {
+            $response .= "\n\nKey capabilities include:\n" . implode("\n", $featureLines);
+        }
+
+        $response .= $role === 'guest'
+            ? "\n\nIf you want, I can also explain the services, office hours, or how to get started with booking."
+            : "\n\nIf you want, I can also explain the available services, office hours, or appointment flow.";
+
+        return [
+            'response' => $response,
+            'suggestions' => $role === 'guest'
+                ? [
+                    'What services do you offer and how much do they cost?',
+                    'What are your business hours?',
+                    'How do I book an appointment?',
+                ]
+                : [
+                    'What services are available?',
+                    'What are the business hours?',
+                    'How does the appointment flow work?',
+                ],
+            'context_used' => ['system_info'],
+        ];
+    }
+
+    /**
+     * Answer common guest landing-page questions directly from live public data.
+     *
+     * This bypasses the full RAG + LLM pipeline for repetitive public FAQ intents
+     * that dominate guest landing-page usage.
+     */
+    private function tryGuestPublicInfoFastPath(string $message): ?array
+    {
+        $normalized = mb_strtolower(trim(preg_replace('/\s+/', ' ', $message)));
+        if ($normalized === '') {
+            return null;
+        }
+
+        if (
+            preg_match('/\b(what services|services do you offer|services are available|how much|price|pricing|cost)\b/i', $normalized)
+            && !preg_match('/\b(book|schedule|resched|cancel)\b/i', $normalized)
+        ) {
+            return $this->buildGuestServicesFastPathResponse();
+        }
+
+        if (preg_match('/\b(where is your office|office located|office location|location|address|contact)\b/i', $normalized)) {
+            return $this->buildGuestLocationFastPathResponse();
+        }
+
+        if (preg_match('/\b(business hours|office hours|what are your hours|when are you open|open today|hours)\b/i', $normalized)) {
+            return $this->buildGuestHoursFastPathResponse();
+        }
+
+        if (preg_match('/\b(what documents|what should i bring|requirements|documents to bring|bring to my appointment)\b/i', $normalized)) {
+            return $this->buildGuestRequirementsFastPathResponse();
+        }
+
+        if (preg_match('/\b(how do i register|register for an account|create an account|sign up|log in|login)\b/i', $normalized)) {
+            return $this->buildGuestRegistrationFastPathResponse();
+        }
+
+        if (preg_match('/\b(how do i book|book an appointment|schedule an appointment|make an appointment|can you book)\b/i', $normalized)) {
+            return $this->buildGuestBookingFastPathResponse();
+        }
+
+        return null;
+    }
+
+    private function buildGuestServicesFastPathResponse(): array
+    {
+        $services = $this->dataService->getAvailableServices();
+        $lines = [];
+
+        foreach (array_slice($services, 0, 8) as $service) {
+            $name = trim((string) ($service['name'] ?? 'Service'));
+            $price = $this->formatGuestFastPathPrice($service['price'] ?? null);
+            if ($name !== '') {
+                $lines[] = "- {$name}: {$price}";
+            }
+        }
+
+        $response = !empty($lines)
+            ? "Here are our active services and prices:\n" . implode("\n", $lines) . "\n\nTo book an appointment, please register or log in first."
+            : "I don't see any active services listed right now. Please contact the office for the latest service and pricing details.";
+
+        return [
+            'response' => $response,
+            'suggestions' => [
+                'How do I book an appointment?',
+                'What are your business hours?',
+                'Where is your office located?',
+            ],
+            'context_used' => ['services'],
+        ];
+    }
+
+    private function buildGuestLocationFastPathResponse(): array
+    {
+        $businessInfo = $this->dataService->getBusinessInfo();
+        $address = trim((string) ($businessInfo['address'] ?? 'Address not available.'));
+        $phone = trim((string) ($businessInfo['phone'] ?? 'Not available'));
+        $email = trim((string) ($businessInfo['email'] ?? 'Not available'));
+
+        $response = "Our office is located at {$address}\nPhone: {$phone}\nEmail: {$email}\n\nIf you'd like to book an appointment, please register or log in first.";
+
+        return [
+            'response' => $response,
+            'suggestions' => [
+                'What are your business hours?',
+                'How do I book an appointment?',
+                'What services do you offer and how much do they cost?',
+            ],
+            'context_used' => ['business_info'],
+        ];
+    }
+
+    private function buildGuestHoursFastPathResponse(): array
+    {
+        $hours = $this->dataService->getBusinessHours();
+        $hoursSummary = $this->formatGuestFastPathHours($hours);
+        $openToday = $hours['is_open_today'] ?? null;
+
+        $response = $hoursSummary !== ''
+            ? "Our current business hours:\n{$hoursSummary}"
+            : "Business hours are not currently available in the system. Please contact the office for the latest schedule.";
+
+        if ($hoursSummary !== '' && is_bool($openToday)) {
+            $response .= $openToday ? "\n\nWe are open today." : "\n\nWe are closed today.";
+        }
+
+        return [
+            'response' => $response,
+            'suggestions' => [
+                'Where is your office located?',
+                'How do I book an appointment?',
+                'What services do you offer and how much do they cost?',
+            ],
+            'context_used' => ['business_hours'],
+        ];
+    }
+
+    private function buildGuestRequirementsFastPathResponse(): array
+    {
+        $servicesWithRequirements = Service::query()
+            ->where('is_active', true)
+            ->whereNotNull('public_requirements')
+            ->get(['name', 'public_requirements']);
+
+        $lines = [];
+        foreach ($servicesWithRequirements as $service) {
+            $requirements = array_values(array_filter(
+                (array) $service->public_requirements,
+                static fn ($item) => is_string($item) && trim($item) !== ''
+            ));
+
+            if (empty($requirements)) {
+                continue;
+            }
+
+            $lines[] = '- ' . $service->name . ': ' . implode(', ', array_slice($requirements, 0, 3));
+
+            if (count($lines) >= 4) {
+                break;
+            }
+        }
+
+        $response = !empty($lines)
+            ? "Requirements depend on the service. Here are the public requirements currently listed:\n" . implode("\n", $lines) . "\n\nIf you're unsure which service applies to you, contact the office or choose a service first after registering."
+            : "Requirements depend on the service you choose. I don't see public requirements listed right now, so please contact the office to confirm what documents to bring.";
+
+        return [
+            'response' => $response,
+            'suggestions' => [
+                'What services do you offer and how much do they cost?',
+                'How do I book an appointment?',
+                'Where is your office located?',
+            ],
+            'context_used' => ['service_requirements'],
+        ];
+    }
+
+    private function buildGuestRegistrationFastPathResponse(): array
+    {
+        return [
+            'response' => "To create an account, open the Register page and fill in your basic details. After registration, log in to book appointments, track your requests, and access personalized features.",
+            'suggestions' => [
+                'How do I book an appointment?',
+                'What services do you offer and how much do they cost?',
+                'What are your business hours?',
+            ],
+            'context_used' => ['registration'],
+        ];
+    }
+
+    private function buildGuestBookingFastPathResponse(): array
+    {
+        return [
+            'response' => "Guests can ask about services, prices, office hours, and requirements, but booking requires an account.\n\nTo book an appointment:\n1. Register or log in.\n2. Choose a service.\n3. Pick an available date and time.\n4. Submit the appointment request and wait for confirmation.",
+            'suggestions' => [
+                'How do I register for an account?',
+                'What services do you offer and how much do they cost?',
+                'What are your business hours?',
+            ],
+            'context_used' => ['booking'],
+        ];
+    }
+
+    private function formatGuestFastPathPrice(mixed $price): string
+    {
+        if (!is_numeric($price)) {
+            return 'Contact the office for pricing';
+        }
+
+        return 'PHP ' . number_format((float) $price, 2);
+    }
+
+    private function formatGuestFastPathHours(array $hours): string
+    {
+        $businessHours = $hours['business_hours'] ?? null;
+        if (is_string($businessHours)) {
+            return trim($businessHours);
+        }
+
+        if (!is_array($businessHours)) {
+            return '';
+        }
+
+        $lines = [];
+        foreach ($businessHours as $day => $schedule) {
+            $label = ucwords(str_replace('_', ' ', (string) $day));
+
+            if (is_string($schedule) && trim($schedule) !== '') {
+                $lines[] = "- {$label}: {$schedule}";
+                continue;
+            }
+
+            if (!is_array($schedule)) {
+                continue;
+            }
+
+            $isClosed = array_key_exists('enabled', $schedule) && !$schedule['enabled'];
+            if ($isClosed) {
+                $lines[] = "- {$label}: Closed";
+                continue;
+            }
+
+            $open = $schedule['open'] ?? $schedule['start'] ?? null;
+            $close = $schedule['close'] ?? $schedule['end'] ?? null;
+
+            if ($open && $close) {
+                $lines[] = "- {$label}: {$open} - {$close}";
+            }
+        }
+
+        return implode("\n", $lines);
     }
 
     /**

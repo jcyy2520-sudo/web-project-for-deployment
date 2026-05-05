@@ -167,7 +167,7 @@ const AdminRefundManagement = ({ isUserLight: isUserLightProp } = {}) => {
 
       if (response.data?.success) {
         if (window?.showToast) {
-          window.showToast('Success', 'Refund approved successfully. Processing...', 'success');
+          window.showToast('Success', 'Refund approved successfully. It is now ready for completion.', 'success');
         }
         
         // Reload data immediately without blocking
@@ -176,9 +176,6 @@ const AdminRefundManagement = ({ isUserLight: isUserLightProp } = {}) => {
         setRefundMethod('original_method');
         loadRefunds(page);
         
-        if (window?.showToast) {
-          window.showToast('Success', 'Refund completed. User has been notified.', 'success');
-        }
       }
     } catch (err) {
       console.error('Approval error:', err);
@@ -1007,7 +1004,7 @@ const AdminRefundManagement = ({ isUserLight: isUserLightProp } = {}) => {
               {selectedRefund.status === 'approved' && (
                 <div className="bg-gray-800 p-4 rounded-lg border border-yellow-500/30">
                   <p className="text-sm text-yellow-300">
-                    ℹ️ This refund was approved and will be automatically completed. The user will be notified via email.
+                    ℹ️ This refund was approved and is awaiting final completion. If the original payment was PayMongo online, completion will create the provider refund automatically.
                   </p>
                 </div>
               )}

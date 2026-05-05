@@ -52,7 +52,7 @@ class RefundCompletedMail extends Mailable
     public function content(): Content
     {
         return new Content(
-            view: 'emails.refund-completed',
+            markdown: 'emails.refund-completed',
             with: [
                 'refund' => $this->refund,
                 'appointmentDetails' => $this->appointmentDetails,

@@ -385,6 +385,10 @@ class ActionPermissionService
         'get_operational_recommendations' => ['admin'],
         'predict_busy_days'               => ['admin', 'cashier', 'staff'],
         'predict_no_show'                 => ['admin', 'cashier', 'staff'],
+        'cashier_get_revenue_summary'     => ['cashier'],
+        'cashier_get_shift_report'        => ['cashier'],
+        'cashier_get_pending_payments'    => ['cashier'],
+        'cashier_get_refund_queue'        => ['cashier'],
     ];
 
     /**

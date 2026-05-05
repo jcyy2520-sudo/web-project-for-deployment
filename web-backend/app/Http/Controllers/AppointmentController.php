@@ -56,6 +56,7 @@ class AppointmentController extends Controller
                 'id', 'user_id', 'staff_id', 'type', 'service_id', 'service_type',
                 'appointment_date', 'appointment_time', 'purpose', 'status',
                 'notes', 'staff_notes', 'completion_notes', 'completed_at', 'completed_by',
+                'cancellation_reason',
                 'payment_status', 'payment_amount', 'discount_amount', 'original_price',
                 'payment_type', 'payment_date', 'processed_by', 'payment_notes',
                 'created_at', 'updated_at'
@@ -159,7 +160,7 @@ class AppointmentController extends Controller
 
     public function store(Request $request)
     {
-        // Request deduplication: prevent duplicate submissions within 5 seconds
+        // Keep duplicate protection limited to the current in-flight request.
         $userId = $request->user()->id;
         $dedupKey = 'appt_dedup_' . $userId . '_' . md5(json_encode($request->only(['type', 'appointment_date', 'appointment_time'])));
         if (Cache::has($dedupKey)) {
@@ -169,6 +170,9 @@ class AppointmentController extends Controller
             ], 429);
         }
         Cache::put($dedupKey, true, 5);
+        app()->terminating(static function () use ($dedupKey) {
+            Cache::forget($dedupKey);
+        });
 
         $request->validate([
             'type' => 'required|string|max:255', // Flexible type - can be from static types or service names
@@ -177,11 +181,14 @@ class AppointmentController extends Controller
             'service_ids.*' => 'exists:services,id',
             'service_type' => 'nullable|string|max:255',
             'appointment_date' => 'required|date|after_or_equal:today', // Allow today
-            'appointment_time' => 'required|date_format:H:i',
+            'appointment_time' => ['required', 'regex:/^(?:[01]?\d|2[0-3]):[0-5]\d$/'],
             'purpose' => 'nullable|string|max:500',
             'documents' => 'nullable|array',
             'notes' => 'nullable|string|max:1000',
         ]);
+
+        $normalizedAppointmentTime = $this->normalizeAppointmentTime($request->appointment_time);
+        $request->merge(['appointment_time' => $normalizedAppointmentTime]);
 
         $appointmentDate = Carbon::createFromFormat('Y-m-d', $request->appointment_date);
         $appointmentTime = $request->appointment_time;
@@ -285,15 +292,16 @@ class AppointmentController extends Controller
         }
 
         // Pre-check daily appointment limit (non-atomic, for fast rejection before entering transaction)
-        $hasReachedLimit = \App\Models\AppointmentSettings::userHasReachedDailyLimit($request->user()->id);
+        $hasReachedLimit = \App\Models\AppointmentSettings::userHasReachedDailyLimit($request->user()->id, $request->appointment_date);
         if ($hasReachedLimit) {
             $settings = \App\Models\AppointmentSettings::getCurrent();
-            $nextAvailable = \App\Models\AppointmentSettings::getNextAvailableTime($request->user()->id);
+            $nextAvailable = \App\Models\AppointmentSettings::getNextAvailableTime($request->user()->id, $request->appointment_date);
             $nextAvailableFormatted = $nextAvailable ? $nextAvailable->format('M d, Y \a\t g:i A') : null;
 
             return response()->json([
-                'message' => "You have reached your booking limit of {$settings->daily_booking_limit_per_user} appointments per 24 hours."
-                    . ($nextAvailableFormatted ? " You can book again on {$nextAvailableFormatted}." : ''),
+                'success' => false,
+                'message' => "You have reached your daily booking limit of {$settings->daily_booking_limit_per_user} appointments for {$appointmentDate->format('M d, Y')}."
+                    . ($nextAvailableFormatted ? " Please choose another date. The next available business day starts on {$nextAvailableFormatted}." : ''),
                 'limit' => $settings->daily_booking_limit_per_user,
                 'next_available_time' => $nextAvailable?->toIso8601String(),
                 'next_available_formatted' => $nextAvailableFormatted,
@@ -366,10 +374,8 @@ class AppointmentController extends Controller
                 // ATOMIC daily limit check inside transaction with lock to prevent race condition
                 $limitSettings = \App\Models\AppointmentSettings::getCurrent();
                 if ($limitSettings && $limitSettings->is_active) {
-                    $since = \Carbon\Carbon::now()->subHours(24);
                     $recentBookingCount = Appointment::where('user_id', $request->user()->id)
-                        ->where('created_at', '>=', $since)
-                        ->whereIn('status', ['pending', 'approved', 'completed'])
+                        ->whereDate('appointment_date', $request->appointment_date)
                         ->lockForUpdate()
                         ->count();
 
@@ -419,22 +425,25 @@ class AppointmentController extends Controller
         } catch (\Exception $e) {
             if ($e->getMessage() === 'SLOT_FULL') {
                 return response()->json([
+                    'success' => false,
                     'message' => 'This time slot is at full capacity. Please select another time'
                 ], 422);
             }
             if ($e->getMessage() === 'USER_DUPLICATE') {
                 return response()->json([
+                    'success' => false,
                     'message' => 'You already have an appointment booked at this time'
                 ], 422);
             }
             if ($e->getMessage() === 'DAILY_LIMIT') {
                 $settings = \App\Models\AppointmentSettings::getCurrent();
-                $nextAvailable = \App\Models\AppointmentSettings::getNextAvailableTime($request->user()->id);
+                $nextAvailable = \App\Models\AppointmentSettings::getNextAvailableTime($request->user()->id, $request->appointment_date);
                 $nextAvailableFormatted = $nextAvailable ? $nextAvailable->format('M d, Y \a\t g:i A') : null;
 
                 return response()->json([
-                    'message' => "You have reached your booking limit of {$settings->daily_booking_limit_per_user} appointments per 24 hours."
-                        . ($nextAvailableFormatted ? " You can book again on {$nextAvailableFormatted}." : ''),
+                    'success' => false,
+                    'message' => "You have reached your daily booking limit of {$settings->daily_booking_limit_per_user} appointments for {$appointmentDate->format('M d, Y')}."
+                        . ($nextAvailableFormatted ? " Please choose another date. The next available business day starts on {$nextAvailableFormatted}." : ''),
                     'limit' => $settings->daily_booking_limit_per_user,
                     'next_available_time' => $nextAvailable?->toIso8601String(),
                     'next_available_formatted' => $nextAvailableFormatted,
@@ -545,6 +554,13 @@ class AppointmentController extends Controller
             ->first();
 
         return $capacity ? $capacity->max_appointments_per_slot : 3;
+    }
+
+    private function normalizeAppointmentTime(string $time): string
+    {
+        [$hour, $minute] = explode(':', $time, 2);
+
+        return sprintf('%02d:%02d', (int) $hour, (int) $minute);
     }
 
     public function show(Appointment $appointment)
@@ -658,16 +674,16 @@ class AppointmentController extends Controller
                 ]);
             }
 
-            // If status changed to approved, notify cashiers
-            if ($request->status === 'approved') {
-                try {
-                    $appointment->refresh();
-                    $appointment->load(['user', 'staff', 'service']);
-                    \App\Services\NotificationService::appointmentApproved($appointment);
+            try {
+                $appointment->refresh();
+                $appointment->load(['user', 'staff', 'service']);
+                \App\Services\NotificationService::appointmentStatusUpdated($appointment, $oldStatus, $request->status);
+
+                if ($request->status === 'approved') {
                     \App\Services\NotificationService::notifyCashiersAppointmentApproved($appointment);
-                } catch (\Exception $e) {
-                    \Log::error('Failed to notify cashiers: ' . $e->getMessage());
                 }
+            } catch (\Exception $e) {
+                \Log::error('Failed to create status notification: ' . $e->getMessage());
             }
         }
 
@@ -1317,7 +1333,7 @@ class AppointmentController extends Controller
     public function cancel(Request $request, $id)
     {
         $user = $request->user();
-        $cancellationReason = $request->input('cancellation_reason', '');
+        $cancellationReason = $this->normalizeCancellationReason($request->input('cancellation_reason'));
         
         // Admin and staff can cancel any appointment, clients can only cancel their own
         if ($user->isAdmin() || $user->isStaff()) {
@@ -1342,7 +1358,7 @@ class AppointmentController extends Controller
 
             // Set protected field explicitly (not mass-assignable)
             $appointment->status = 'cancelled';
-            $appointment->cancellation_reason = $cancellationReason ?: null;
+            $appointment->cancellation_reason = $cancellationReason;
             $appointment->save();
 
             // Log the action - differentiate between user and admin/staff cancellation
@@ -1411,6 +1427,26 @@ class AppointmentController extends Controller
             'message' => 'Appointment cancelled successfully',
             'success' => true
         ]);
+    }
+
+    private function normalizeCancellationReason($reason): ?string
+    {
+        $reason = trim((string) ($reason ?? ''));
+
+        if ($reason === '') {
+            return null;
+        }
+
+        $presetReasons = [
+            'schedule_conflict' => 'Schedule conflict',
+            'no_longer_needed' => 'No longer needed',
+            'found_alternative' => 'Found an alternative',
+            'financial_reasons' => 'Financial reasons',
+            'emergency' => 'Emergency',
+            'other' => null,
+        ];
+
+        return $presetReasons[$reason] ?? $reason;
     }
 
     public function availableSlots(Request $request, $date)

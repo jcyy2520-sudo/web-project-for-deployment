@@ -126,12 +126,21 @@ const ActionLogViewer = ({ isDarkMode = true }) => {
     setShowDetailModal(true);
   };
 
+  const handleBack = () => {
+    if (window.history.length > 1) {
+      navigate(-1);
+      return;
+    }
+
+    navigate('/dashboard?tab=profile');
+  };
+
   return (
     <div className="space-y-6">
       {/* Mobile Header with Back Button */}
       <div className="flex lg:hidden items-center gap-3 -mx-3 -mt-3 px-3 py-3 border-b border-gray-700">
         <button
-          onClick={() => navigate('/dashboard?tab=profile')}
+          onClick={handleBack}
           className="p-2 rounded-lg hover:bg-gray-800 transition-colors"
         >
           <ArrowLeftIcon className="w-5 h-5 text-gray-300" />

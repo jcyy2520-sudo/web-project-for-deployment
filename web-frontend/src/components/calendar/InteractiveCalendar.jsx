@@ -154,25 +154,19 @@ const InteractiveCalendar = ({
   // Determine if date has appointments matching filters
   const hasMatchingAppointments = useCallback((day) => {
     const dateAppts = getAppointmentsForDate(day);
-    
-    // Disable weekends and unavailable dates
-    if (isWeekend(day) || isDateUnavailable(day)) {
-      return false;
-    }
-    
+
     if (dateAppts.length === 0) return false;
 
-    // If no filters applied, show all dates with approved or completed appointments
-    if (!filters || Object.keys(filters).length === 0) {
-      return dateAppts.some(a => a.status === 'approved' || a.status === 'completed' || a.payment_status === 'paid');
+    const hasActiveFilters = filters && Object.values(filters).some(Boolean);
+
+    // If no filters applied, show all dates with pending or approved appointments
+    if (!hasActiveFilters) {
+      return dateAppts.some(a => a.status === 'approved' || a.status === 'pending');
     }
 
     // Apply active filters
     return dateAppts.some(apt => {
       if (filters.approved && apt.status === 'approved') return true;
-      if (filters.completed && (apt.payment_status === 'paid' || apt.status === 'completed')) return true;
-      if (filters.unpaid && (apt.payment_status === 'unpaid' || apt.payment_status === 0 || !apt.payment_status)) return true;
-      if (filters.partiallyPaid && (apt.payment_status === 'partially_paid' || apt.payment_status === 'partial')) return true;
       if (filters.pending && apt.status === 'pending') return true;
       return false;
     });
@@ -181,9 +175,9 @@ const InteractiveCalendar = ({
   // Determine badge color based on appointment status
   const getBadgeColor = useCallback((day) => {
     const stats = getDateStats(day);
-    if (stats.cancelled > 0 && stats.cancelled >= stats.approved) return 'bg-red-500 text-white';
-    if (stats.partiallyPaid > 0 && stats.partiallyPaid >= stats.approved) return 'bg-yellow-500 text-white';
-    if (stats.completed > 0 && stats.completed >= stats.approved) return 'bg-green-500 text-white';
+    if (stats.approved > 0 && stats.pending > 0) return 'bg-blue-500 text-white';
+    if (stats.approved > 0) return 'bg-green-500 text-white';
+    if (stats.pending > 0) return 'bg-amber-500 text-gray-900';
     return 'bg-amber-500 text-gray-900';
   }, [getDateStats]);
 
@@ -289,7 +283,8 @@ const InteractiveCalendar = ({
             const hasAppts = hasMatchingAppointments(day);
             const stats = day ? allDayStats[day] : null;
             const tooltip = day ? getTooltipContent(day) : null;
-            const isDisabled = day && (isWeekend(day) || isDateUnavailable(day));
+            const isUnavailable = day && (isWeekend(day) || isDateUnavailable(day));
+            const isDisabled = day && isUnavailable && !hasAppts;
 
             return (
               <div
@@ -359,9 +354,6 @@ const InteractiveCalendar = ({
 const CalendarFilters = ({ filters = {}, onFiltersChange = () => {}, onClose = () => {}, isDarkMode = true }) => {
   const filterOptions = [
     { key: 'approved', label: 'Approved', icon: '✓' },
-    { key: 'completed', label: 'Completed', icon: '✓' },
-    { key: 'unpaid', label: 'Unpaid', icon: '∅' },
-    { key: 'partiallyPaid', label: 'Partial', icon: '◐' },
     { key: 'pending', label: 'Pending', icon: '◉' },
   ];
 
@@ -383,7 +375,7 @@ const CalendarFilters = ({ filters = {}, onFiltersChange = () => {}, onClose = (
           <XMarkIcon className="h-3 w-3" />
         </button>
       </div>
-      <div className="grid grid-cols-3 md:grid-cols-5 gap-1">
+      <div className="grid grid-cols-2 gap-1">
         {filterOptions.map(option => (
           <label
             key={option.key}
@@ -409,32 +401,28 @@ const CalendarFilters = ({ filters = {}, onFiltersChange = () => {}, onClose = (
 const CalendarSummary = ({ summary = {}, isDarkMode = true }) => {
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-      {/* Total Approved */}
+      <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/30' : 'bg-white border-amber-300'} border rounded-lg p-2`}>
+        <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} mb-0.5`}>Pending</p>
+        <p className="text-lg font-bold text-amber-400">{summary.totalPending || 0}</p>
+        <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} mt-0.5`}>appts</p>
+      </div>
+
       <div className={`${isDarkMode ? 'bg-gray-900 border-emerald-500/30' : 'bg-white border-emerald-300'} border rounded-lg p-2`}>
-        <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} mb-0.5`}>Total Approved</p>
+        <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} mb-0.5`}>Approved</p>
         <p className="text-lg font-bold text-emerald-400">{summary.totalApproved || 0}</p>
         <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} mt-0.5`}>appts</p>
       </div>
 
-      {/* Completed */}
-      <div className={`${isDarkMode ? 'bg-gray-900 border-green-500/30' : 'bg-white border-green-300'} border rounded-lg p-2`}>
-        <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} mb-0.5`}>Completed</p>
-        <p className="text-lg font-bold text-green-400">{summary.totalCompleted || 0}</p>
-        <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} mt-0.5`}>paid</p>
-      </div>
-
-      {/* Expected Revenue */}
       <div className={`${isDarkMode ? 'bg-gray-900 border-blue-500/30' : 'bg-white border-blue-300'} border rounded-lg p-2`}>
-        <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} mb-0.5`}>Expected</p>
-        <p className="text-lg font-bold text-blue-400">{formatPrice(summary.expectedRevenue || 0)}</p>
-        <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} mt-0.5`}>revenue</p>
+        <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} mb-0.5`}>Total</p>
+        <p className="text-lg font-bold text-blue-400">{summary.totalAppointments || 0}</p>
+        <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} mt-0.5`}>visible</p>
       </div>
 
-      {/* Actual Revenue */}
       <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/30' : 'bg-white border-amber-300'} border rounded-lg p-2`}>
-        <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} mb-0.5`}>Actual</p>
-        <p className="text-lg font-bold text-amber-400">{formatPrice(summary.actualRevenue || 0)}</p>
-        <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} mt-0.5`}>collected</p>
+        <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'} mb-0.5`}>Expected</p>
+        <p className="text-lg font-bold text-amber-400">{formatPrice(summary.expectedRevenue || 0)}</p>
+        <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} mt-0.5`}>value</p>
       </div>
     </div>
   );

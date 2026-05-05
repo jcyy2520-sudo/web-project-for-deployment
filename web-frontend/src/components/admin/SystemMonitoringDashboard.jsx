@@ -17,12 +17,10 @@ const SystemMonitoringDashboard = () => {
     frontendErrors: null,
   });
 
-  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
-
   // Fetch health check
   const fetchHealth = async () => {
     try {
-      const response = await axios.get(`${API_URL}/health`);
+      const response = await axios.get('/api/health/detailed');
       setData(prev => ({ ...prev, health: response.data }));
     } catch (error) {
       console.error('Failed to fetch health:', error);
@@ -32,9 +30,7 @@ const SystemMonitoringDashboard = () => {
   // Fetch metrics dashboard
   const fetchMetrics = async () => {
     try {
-      const response = await axios.get(`${API_URL}/admin/metrics/dashboard`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      });
+      const response = await axios.get('/api/admin/metrics/dashboard');
       setData(prev => ({ ...prev, metrics: response.data }));
     } catch (error) {
       console.error('Failed to fetch metrics:', error);
@@ -44,9 +40,7 @@ const SystemMonitoringDashboard = () => {
   // Fetch alerts dashboard
   const fetchAlerts = async () => {
     try {
-      const response = await axios.get(`${API_URL}/admin/alerts/dashboard`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      });
+      const response = await axios.get('/api/admin/alerts/dashboard');
       setData(prev => ({ ...prev, alerts: response.data }));
     } catch (error) {
       console.error('Failed to fetch alerts:', error);
@@ -56,9 +50,7 @@ const SystemMonitoringDashboard = () => {
   // Fetch backups
   const fetchBackups = async () => {
     try {
-      const response = await axios.get(`${API_URL}/admin/backups`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      });
+      const response = await axios.get('/api/admin/backups');
       setData(prev => ({ ...prev, backups: response.data }));
     } catch (error) {
       console.error('Failed to fetch backups:', error);
@@ -68,9 +60,7 @@ const SystemMonitoringDashboard = () => {
   // Fetch job metrics
   const fetchJobs = async () => {
     try {
-      const response = await axios.get(`${API_URL}/admin/jobs/dashboard`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      });
+      const response = await axios.get('/api/admin/jobs/dashboard');
       setData(prev => ({ ...prev, jobs: response.data }));
     } catch (error) {
       console.error('Failed to fetch jobs:', error);
@@ -80,9 +70,7 @@ const SystemMonitoringDashboard = () => {
   // Fetch frontend errors
   const fetchFrontendErrors = async () => {
     try {
-      const response = await axios.get(`${API_URL}/admin/frontend-errors/stats`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      });
+      const response = await axios.get('/api/admin/frontend-errors/stats');
       setData(prev => ({ ...prev, frontendErrors: response.data }));
     } catch (error) {
       console.error('Failed to fetch frontend errors:', error);

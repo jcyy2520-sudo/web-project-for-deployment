@@ -1,7 +1,59 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import axios from 'axios';
+import { useAuth } from '../context/AuthContext';
+
+const DEFAULT_GUEST_LIMIT_INFO = {
+  count: 0,
+  remaining: 5,
+  isLimited: false,
+  cooldownUntil: null,
+};
+
+const normalizeGuestLimit = (limitInfo = {}) => ({
+  count: Number.isFinite(limitInfo.count) ? limitInfo.count : 0,
+  remaining: Number.isFinite(limitInfo.remaining) ? limitInfo.remaining : 5,
+  isLimited: Boolean(limitInfo.isLimited),
+  cooldownUntil: limitInfo.cooldownUntil ?? null,
+});
+
+const readStoredGuestLimit = () => {
+  try {
+    const stored = localStorage.getItem('chatbot_guest_limit');
+    if (!stored) {
+      return DEFAULT_GUEST_LIMIT_INFO;
+    }
+
+    const parsed = normalizeGuestLimit(JSON.parse(stored));
+    if (parsed.cooldownUntil && new Date(parsed.cooldownUntil) <= new Date()) {
+      localStorage.removeItem('chatbot_guest_limit');
+      return DEFAULT_GUEST_LIMIT_INFO;
+    }
+
+    return parsed;
+  } catch {
+    localStorage.removeItem('chatbot_guest_limit');
+    return DEFAULT_GUEST_LIMIT_INFO;
+  }
+};
+
+const parseSseErrorPayload = (responseText) => {
+  if (!responseText) return null;
+
+  for (const line of responseText.split('\n')) {
+    if (!line.startsWith('data: ')) continue;
+
+    try {
+      return JSON.parse(line.slice(6));
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+};
 
 export const useChatbot = () => {
+  const { isAuthenticated } = useAuth();
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [conversationId, setConversationId] = useState(null);
@@ -38,6 +90,9 @@ export const useChatbot = () => {
   // Error recovery state — structured recovery guidance from backend
   const [errorRecovery, setErrorRecovery] = useState(null);
 
+  // Guest message limit state — only relevant for unauthenticated users, persisted in localStorage
+  const [guestLimitInfo, setGuestLimitInfo] = useState(() => readStoredGuestLimit());
+
   // Confirmation state — tracks pending destructive actions awaiting user confirmation
   const [pendingConfirmation, setPendingConfirmation] = useState(null);
 
@@ -49,6 +104,62 @@ export const useChatbot = () => {
     }, 5 * 60 * 1000);
     return () => clearTimeout(timer);
   }, [pendingConfirmation]);
+
+  const resetGuestLimitInfo = useCallback(() => {
+    setGuestLimitInfo(DEFAULT_GUEST_LIMIT_INFO);
+    localStorage.removeItem('chatbot_guest_limit');
+  }, []);
+
+  const updateGuestLimitInfo = useCallback((nextLimit) => {
+    const normalized = normalizeGuestLimit(nextLimit);
+    setGuestLimitInfo(normalized);
+
+    const isDefaultState =
+      normalized.count === 0 &&
+      normalized.remaining === 5 &&
+      normalized.isLimited === false &&
+      normalized.cooldownUntil === null;
+
+    if (isDefaultState) {
+      localStorage.removeItem('chatbot_guest_limit');
+      return normalized;
+    }
+
+    localStorage.setItem('chatbot_guest_limit', JSON.stringify(normalized));
+    return normalized;
+  }, []);
+
+  // Clear guest limit state immediately for authenticated users so guest cache never blocks roles.
+  useEffect(() => {
+    if (isAuthenticated || (roleContext?.role && roleContext.role !== 'guest')) {
+      resetGuestLimitInfo();
+    }
+  }, [isAuthenticated, roleContext?.role, resetGuestLimitInfo]);
+
+  // Auto-reset guest cooldown while the page remains open.
+  useEffect(() => {
+    if (isAuthenticated || !guestLimitInfo.cooldownUntil) {
+      return undefined;
+    }
+
+    const cooldownTime = new Date(guestLimitInfo.cooldownUntil).getTime();
+    if (!Number.isFinite(cooldownTime)) {
+      resetGuestLimitInfo();
+      return undefined;
+    }
+
+    const remainingMs = cooldownTime - Date.now();
+    if (remainingMs <= 0) {
+      resetGuestLimitInfo();
+      return undefined;
+    }
+
+    const timerId = setTimeout(() => {
+      resetGuestLimitInfo();
+    }, remainingMs + 1000);
+
+    return () => clearTimeout(timerId);
+  }, [isAuthenticated, guestLimitInfo.cooldownUntil, resetGuestLimitInfo]);
 
   // Streaming state — feature-flagged SSE streaming support
   const [streamingEnabled] = useState(() => {
@@ -208,6 +319,29 @@ export const useChatbot = () => {
     }, 100);
   };
 
+  // Load all conversations for the current user
+  const loadConversations = useCallback(async () => {
+    try {
+      setConversationsLoading(true);
+      const response = await axios.get('/api/chatbot/conversations', {
+        headers: {
+          'X-Session-ID': sessionIdRef.current
+        }
+      });
+      if (response.data.success) {
+        setConversations(response.data.data || []);
+      }
+    } catch (err) {
+      console.error('Failed to load conversations:', err);
+      // Silently fail - not critical for user experience
+      if (err?.response?.status === 401) {
+        setConversations([]);
+      }
+    } finally {
+      setConversationsLoading(false);
+    }
+  }, []);
+
   const loadChatHistory = useCallback(async ({ silent = false, ignoreErrors = false, targetConversationId = null } = {}) => {
     try {
       // Use provided conversation ID, or current one, or none
@@ -266,6 +400,15 @@ export const useChatbot = () => {
     // Check if rate limited before sending
     if (isRateLimited && rateLimitInfo.mustStartNew) {
       setError(rateLimitMessage || 'Message limit reached. Please start a new conversation.');
+      return;
+    }
+
+    // Check guest message limit (frontend-cached, server is source of truth)
+    if (!isAuthenticated && guestLimitInfo.isLimited) {
+      const guestBlockedMessage = guestLimitInfo.cooldownUntil
+        ? `You've reached the message limit for guest users. You can send messages again on ${new Date(guestLimitInfo.cooldownUntil).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })} at ${new Date(guestLimitInfo.cooldownUntil).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}. Register now to continue chatting without limits.`
+        : 'You\'ve reached the message limit for guest users. Register now to continue chatting without limits.';
+      setError(guestBlockedMessage);
       return;
     }
 
@@ -342,8 +485,19 @@ export const useChatbot = () => {
         return;
       }
 
-      // Update rate limit info from meta
+      // Update guest limit info from meta (only for guest users)
       const meta = response.data.meta || {};
+      if (meta.guest_limit) {
+        const gl = meta.guest_limit;
+        updateGuestLimitInfo({
+          count: gl.count ?? 0,
+          remaining: gl.remaining ?? 5,
+          isLimited: gl.is_limited ?? false,
+          cooldownUntil: gl.cooldown_until ?? null,
+        });
+      }
+
+      // Update rate limit info from meta
       if (meta.rate_limit_remaining !== undefined) {
         setRateLimitInfo(prev => ({
           ...prev,
@@ -446,6 +600,21 @@ export const useChatbot = () => {
       if (err.response?.status === 429) {
         const responseData = err.response?.data || {};
 
+        // Handle guest message limit exceeded
+        if (responseData.guest_limit_exceeded) {
+          const gl = responseData.guest_limit || {};
+          updateGuestLimitInfo({
+            count: gl.count ?? 5,
+            remaining: 0,
+            isLimited: true,
+            cooldownUntil: gl.cooldown_until ?? null,
+          });
+          setMessages((prev) => prev.filter((msg) => msg.id !== newUserMessage.id));
+          setLastMessageCount((prev) => Math.max(0, prev - 1));
+          setError(responseData.message || 'Guest message limit reached. Register to continue chatting without limits.');
+          return;
+        }
+
         // Handle concurrent request / dedup (not a real rate limit — just wait)
         if (responseData.retry_after || responseData.duplicate) {
           setError(responseData.message || 'Please wait for the current response to complete.');
@@ -454,7 +623,6 @@ export const useChatbot = () => {
           return;
         }
 
-        const limitInfo = responseData.rate_limit_info || {};
         const mustNew = responseData.must_start_new_conversation || false;
         setIsRateLimited(true);
         setRateLimitInfo({
@@ -513,7 +681,7 @@ export const useChatbot = () => {
       lastUserActionRef.current = Date.now() + 3000; // Extend cooldown after send attempt
       scrollToBottom();
     }
-  }, [conversationId, loading, isRateLimited, rateLimitInfo, rateLimitMessage]);
+  }, [conversationId, guestLimitInfo, isAuthenticated, loadConversations, loading, isRateLimited, rateLimitInfo, rateLimitMessage, updateGuestLimitInfo]);
 
   // =============================================
   // STREAMING SEND MESSAGE (SSE)
@@ -528,6 +696,14 @@ export const useChatbot = () => {
 
     if (isRateLimited && rateLimitInfo.mustStartNew) {
       setError(rateLimitMessage || 'Message limit reached. Please start a new conversation.');
+      return;
+    }
+
+    if (!isAuthenticated && guestLimitInfo.isLimited) {
+      const guestBlockedMessage = guestLimitInfo.cooldownUntil
+        ? `You've reached the message limit for guest users. You can send messages again on ${new Date(guestLimitInfo.cooldownUntil).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })} at ${new Date(guestLimitInfo.cooldownUntil).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}. Register now to continue chatting without limits.`
+        : 'You\'ve reached the message limit for guest users. Register now to continue chatting without limits.';
+      setError(guestBlockedMessage);
       return;
     }
 
@@ -572,14 +748,11 @@ export const useChatbot = () => {
 
       const response = await fetch(url, {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'text/event-stream',
           'X-Session-ID': sessionIdRef.current,
-          // Forward auth token if present
-          ...(axios.defaults.headers?.common?.Authorization
-            ? { Authorization: axios.defaults.headers.common.Authorization }
-            : {}),
           ...(document.querySelector('meta[name="csrf-token"]')
             ? { 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content }
             : {}),
@@ -593,8 +766,24 @@ export const useChatbot = () => {
 
       if (!response.ok) {
         if (response.status === 429) {
-          setIsRateLimited(true);
-          setRateLimitMessage('Rate limit reached. Please start a new conversation.');
+          const responseText = await response.text();
+          const responseData = parseSseErrorPayload(responseText);
+
+          if (responseData?.guest_limit_exceeded) {
+            const gl = responseData.guest_limit || {};
+            updateGuestLimitInfo({
+              count: gl.count ?? 5,
+              remaining: 0,
+              isLimited: true,
+              cooldownUntil: gl.cooldown_until ?? null,
+            });
+            setError(responseData.message || 'Guest message limit reached. Register to continue chatting without limits.');
+          } else {
+            setIsRateLimited(true);
+            setRateLimitMessage(responseData?.message || 'Rate limit reached. Please start a new conversation.');
+            setError(responseData?.message || 'Rate limit reached. Please start a new conversation.');
+          }
+
           setMessages((prev) => prev.filter((m) => m.id !== newUserMessage.id && m.id !== aiMessageId));
           return;
         }
@@ -605,8 +794,6 @@ export const useChatbot = () => {
       const decoder = new TextDecoder();
       let buffer = '';
       let fullText = '';
-      let streamConversationId = conversationId;
-
       const processLine = (line) => {
         if (line.startsWith('event: ')) {
           // Store event type for the next data line
@@ -658,7 +845,6 @@ export const useChatbot = () => {
             }
             case 'done': {
               if (data.conversation_id) {
-                streamConversationId = data.conversation_id;
                 setConversationId(data.conversation_id);
                 localStorage.setItem('chatbot_current_conversation_id', data.conversation_id);
               }
@@ -694,6 +880,16 @@ export const useChatbot = () => {
               } else {
                 setPendingConfirmation(null);
               }
+              // Update guest limit info from streaming done event
+              if (doneMeta.guest_limit) {
+                const gl = doneMeta.guest_limit;
+                updateGuestLimitInfo({
+                  count: gl.count ?? 0,
+                  remaining: gl.remaining ?? 5,
+                  isLimited: gl.is_limited ?? false,
+                  cooldownUntil: gl.cooldown_until ?? null,
+                });
+              }
               break;
             }
             case 'error': {
@@ -718,7 +914,6 @@ export const useChatbot = () => {
       };
 
       // Read the stream
-      // eslint-disable-next-line no-constant-condition
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -756,7 +951,7 @@ export const useChatbot = () => {
         // Remove streaming messages and fall back to non-streaming
         setMessages((prev) => prev.filter((m) => m.id !== newUserMessage.id && m.id !== aiMessageId));
         // Fallback to standard sendMessage
-        await sendMessageNonStreaming(userMessage);
+        await sendMessage(userMessage);
       }
     } finally {
       setLoading(false);
@@ -765,7 +960,7 @@ export const useChatbot = () => {
       lastUserActionRef.current = Date.now() + 3000;
       scrollToBottom();
     }
-  }, [conversationId, loading, isRateLimited, rateLimitInfo, rateLimitMessage]);
+  }, [conversationId, guestLimitInfo, isAuthenticated, loadConversations, loading, isRateLimited, rateLimitInfo, rateLimitMessage, sendMessage, updateGuestLimitInfo]);
 
   // Abort any in-flight stream
   const cancelStreaming = useCallback(() => {
@@ -774,9 +969,6 @@ export const useChatbot = () => {
       streamAbortRef.current = null;
     }
   }, []);
-
-  // Alias: the original non-streaming logic so streaming fallback can call it
-  const sendMessageNonStreaming = sendMessage;
 
   // Unified send: choose streaming vs standard based on feature flag
   const sendMessageUnified = useCallback(
@@ -821,30 +1013,7 @@ export const useChatbot = () => {
       console.error('Failed to clear all history:', err);
       setError('Failed to clear chat history');
     }
-  }, []);
-
-  // Load all conversations for the current user
-  const loadConversations = useCallback(async () => {
-    try {
-      setConversationsLoading(true);
-      const response = await axios.get('/api/chatbot/conversations', {
-        headers: {
-          'X-Session-ID': sessionIdRef.current
-        }
-      });
-      if (response.data.success) {
-        setConversations(response.data.data || []);
-      }
-    } catch (err) {
-      console.error('Failed to load conversations:', err);
-      // Silently fail - not critical for user experience
-      if (err?.response?.status === 401) {
-        setConversations([]);
-      }
-    } finally {
-      setConversationsLoading(false);
-    }
-  }, []);
+  }, [loadConversations]);
 
   // Start a new conversation
   const startNewConversation = useCallback(async () => {
@@ -1075,19 +1244,149 @@ export const useChatbot = () => {
     }
   }, [lastFailedMessage, sendMessage]);
 
+  const applyConfirmationResponse = useCallback((responseData) => {
+    const meta = responseData?.meta || {};
+
+    if (meta.detected_language) {
+      setDetectedLanguage(meta.detected_language);
+    }
+    if (meta.sentiment) {
+      setLastSentiment(meta.sentiment);
+    }
+
+    if (meta.role || meta.role_display) {
+      setRoleContext(prev => ({
+        role: meta.role || prev.role,
+        roleDisplay: meta.role_display || prev.roleDisplay,
+        pendingItems: Array.isArray(meta.pending_items) ? meta.pending_items : prev.pendingItems,
+        quickActions: Array.isArray(meta.quick_actions) ? meta.quick_actions : prev.quickActions,
+      }));
+    }
+
+    if (meta.requires_confirmation) {
+      setPendingConfirmation({
+        key: meta.confirmation_key,
+        tool: meta.pending_tool || null,
+        timestamp: Date.now(),
+      });
+    } else {
+      setPendingConfirmation(null);
+    }
+
+    const aiResponseText = typeof responseData?.ai_response === 'string' && responseData.ai_response.trim().length > 0
+      ? responseData.ai_response
+      : (typeof responseData?.message === 'string' && responseData.message.trim().length > 0 ? responseData.message : '');
+
+    const finalResponse = aiResponseText || (meta?.role === 'guest'
+      ? "Thanks for your question! To get personalized assistance and access all features, please register or log in."
+      : "I'm experiencing a temporary issue processing your request. Please try again.");
+
+    if (!finalResponse) {
+      throw new Error('Invalid confirmation response format from server');
+    }
+
+    const aiMessage = {
+      id: Date.now() * 1000 + Math.floor(Math.random() * 1000) + 1,
+      message: finalResponse,
+      role: 'assistant',
+      created_at: responseData.timestamp || new Date().toISOString(),
+      source: meta?.source || meta?.meta_source || 'ai_assistant',
+      suggestions: Array.isArray(meta?.suggestions) ? meta.suggestions : [],
+      meta: meta || {},
+      isPriority: meta?.is_priority || false,
+      sentiment: meta?.sentiment || 'neutral',
+      detectedLanguage: meta?.detected_language || 'en',
+    };
+
+    if (Array.isArray(aiMessage.suggestions) && aiMessage.suggestions.length > 0) {
+      setLastSuggestions(aiMessage.suggestions);
+    }
+
+    setMessages((prev) => [...prev, aiMessage]);
+    setLastMessageCount((prev) => prev + 1);
+
+    if (responseData.conversation_id) {
+      setConversationId(responseData.conversation_id);
+      localStorage.setItem('chatbot_current_conversation_id', responseData.conversation_id);
+    }
+
+    setTimeout(() => loadConversations(), 500);
+  }, [loadConversations]);
+
+  const submitPendingConfirmation = useCallback(async (decision) => {
+    if (!pendingConfirmation || loading) return;
+
+    const currentPending = pendingConfirmation;
+    const userMessage = decision === 'deny' ? 'No' : 'Yes';
+
+    setError(null);
+    setRateLimitMessage(null);
+    setErrorRecovery(null);
+    lastUserActionRef.current = Date.now();
+
+    const userMessageId = Date.now() * 1000 + Math.floor(Math.random() * 1000);
+    const optimisticUserMessage = {
+      id: userMessageId,
+      message: userMessage,
+      role: 'user',
+      created_at: new Date().toISOString(),
+      source: 'user',
+    };
+
+    setMessages((prev) => [...prev, optimisticUserMessage]);
+    setLastMessageCount((prev) => prev + 1);
+    setLoading(true);
+    setPendingConfirmation(null);
+
+    try {
+      const response = await axios.post('/api/chatbot/confirm-action', {
+        confirmation_key: currentPending.key,
+        decision,
+        conversation_id: conversationId,
+      }, {
+        headers: {
+          'X-Session-ID': sessionIdRef.current,
+        }
+      });
+
+      if (!response.data) {
+        throw new Error('Empty response from server');
+      }
+
+      if (response.data.success === false) {
+        setError(response.data?.message || 'Failed to process confirmation.');
+        setMessages((prev) => prev.filter((msg) => msg.id !== userMessageId));
+        setLastMessageCount((prev) => Math.max(0, prev - 1));
+        setPendingConfirmation(currentPending);
+        return;
+      }
+
+      applyConfirmationResponse(response.data);
+    } catch (err) {
+      console.error('Failed to process pending confirmation:', err);
+      setError(err.response?.data?.message || 'Failed to process confirmation.');
+      setMessages((prev) => prev.filter((msg) => msg.id !== userMessageId));
+      setLastMessageCount((prev) => Math.max(0, prev - 1));
+
+      if (err.response?.status !== 400 && err.response?.status !== 401) {
+        setPendingConfirmation(currentPending);
+      }
+    } finally {
+      setLoading(false);
+      lastUserActionRef.current = Date.now() + 3000;
+      scrollToBottom();
+    }
+  }, [applyConfirmationResponse, conversationId, loading, pendingConfirmation]);
+
   // Confirm a pending destructive action
   const confirmAction = useCallback(async () => {
-    if (!pendingConfirmation) return;
-    setPendingConfirmation(null);
-    await sendMessage('yes');
-  }, [pendingConfirmation, sendMessage]);
+    await submitPendingConfirmation('confirm');
+  }, [submitPendingConfirmation]);
 
   // Deny/cancel a pending destructive action
   const denyAction = useCallback(async () => {
-    if (!pendingConfirmation) return;
-    setPendingConfirmation(null);
-    await sendMessage('no');
-  }, [pendingConfirmation, sendMessage]);
+    await submitPendingConfirmation('deny');
+  }, [submitPendingConfirmation]);
 
   return {
     messages,
@@ -1130,6 +1429,8 @@ export const useChatbot = () => {
     roleContext,
     // Error recovery
     errorRecovery,
+    // Guest message limit
+    guestLimitInfo,
     // Streaming
     isStreaming,
     streamingEnabled,

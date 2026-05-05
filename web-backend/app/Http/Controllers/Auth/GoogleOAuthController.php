@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Laravel\Socialite\Facades\Socialite;
 use Exception;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\URL;
@@ -27,13 +28,13 @@ class GoogleOAuthController extends Controller
                 $mode = 'login';
             }
 
+            $request->session()->put('google_oauth_mode', $mode);
+
             \Log::info('Redirecting to Google OAuth', [
                 'mode' => $mode,
             ]);
 
             return Socialite::driver('google')
-                ->stateless()
-                ->with(['state' => $mode])
                 ->scopes(['profile', 'email'])
                 ->redirect();
         } catch (\Exception $e) {
@@ -54,13 +55,10 @@ class GoogleOAuthController extends Controller
      */
     public function handleGoogleCallback(Request $request)
     {
-        try {
-            $mode = $request->query('state', 'login');
-            if (!in_array($mode, ['login', 'register'], true)) {
-                $mode = 'login';
-            }
+        $mode = $this->pullOAuthMode($request);
 
-            $googleUser = Socialite::driver('google')->stateless()->user();
+        try {
+            $googleUser = Socialite::driver('google')->user();
             
             // SECURITY: Explicitly verify that the email is verified by Google
             $isEmailVerified = $googleUser->user['email_verified'] ?? false;
@@ -99,7 +97,7 @@ class GoogleOAuthController extends Controller
                         ]);
                     }
 
-                    return $this->redirectWithToken($userByGoogle, [
+                    return $this->redirectWithSession($request, $userByGoogle, [
                         'oauth' => 'success',
                         'message' => 'Logged in successfully with Google.',
                         'profile_completed' => $userByGoogle->profile_completed ? '1' : '0',
@@ -128,7 +126,7 @@ class GoogleOAuthController extends Controller
                     }
                     $userByEmail->save();
 
-                    return $this->redirectWithToken($userByEmail, [
+                    return $this->redirectWithSession($request, $userByEmail, [
                         'oauth' => 'success',
                         'message' => 'Logged in successfully with Google.',
                         'profile_completed' => $userByEmail->profile_completed ? '1' : '0',
@@ -232,7 +230,7 @@ class GoogleOAuthController extends Controller
             return $this->redirectToFrontend([
                 'oauth' => 'error',
                 'message' => 'Failed to authenticate with Google. Please try again.',
-                'tab' => $request->query('state', 'login') === 'register' ? 'register' : 'login',
+                'tab' => $mode,
             ]);
         }
     }
@@ -359,21 +357,18 @@ class GoogleOAuthController extends Controller
         return redirect()->away($url);
     }
 
-    private function redirectWithToken(User $user, array $params = []): \Illuminate\Http\RedirectResponse
+    private function redirectWithSession(Request $request, User $user, array $params = []): \Illuminate\Http\RedirectResponse
     {
-        $token = $user->createToken('google_oauth_token', ['*'], now()->addDays(7))->plainTextToken;
-        $params['token'] = $token;
-        
-        // Pass basic user info to the frontend
-        $params['user'] = json_encode([
-            'id' => $user->id,
-            'username' => $user->username,
-            'email' => $user->email,
-            'first_name' => $user->first_name,
-            'last_name' => $user->last_name,
-            'role' => $user->role,
-        ]);
-        
+        Auth::login($user);
+        $request->session()->regenerate();
+
         return $this->redirectToFrontend($params);
+    }
+
+    private function pullOAuthMode(Request $request): string
+    {
+        $mode = $request->session()->pull('google_oauth_mode', 'login');
+
+        return in_array($mode, ['login', 'register'], true) ? $mode : 'login';
     }
 }

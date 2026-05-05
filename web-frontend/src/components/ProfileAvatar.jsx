@@ -16,6 +16,7 @@ const ProfileAvatar = ({
   size = 'md',
   className = ''
 }) => {
+  const [imgError, setImgError] = React.useState(false);
   const sizeClasses = {
     sm: 'w-8 h-8 text-xs',
     md: 'w-12 h-12 text-sm',
@@ -39,11 +40,12 @@ const ProfileAvatar = ({
         ${className}
       `}
     >
-      {profilePicture ? (
+      {profilePicture && !imgError ? (
         <img
           src={profilePicture}
-          alt={`${firstName} ${lastName}`}
+          alt=""
           className="w-full h-full object-cover"
+          onError={() => setImgError(true)}
         />
       ) : (
         <span>{getInitials()}</span>

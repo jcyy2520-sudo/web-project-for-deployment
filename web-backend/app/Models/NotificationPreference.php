@@ -21,6 +21,8 @@ class NotificationPreference extends Model
         'in_app_appointment_updates',
         'in_app_messages',
         'in_app_reminders',
+        'push_notifications',
+        'push_appointment_updates',
         'quiet_hours'
     ];
 
@@ -35,6 +37,8 @@ class NotificationPreference extends Model
         'in_app_appointment_updates' => 'boolean',
         'in_app_messages' => 'boolean',
         'in_app_reminders' => 'boolean',
+        'push_notifications' => 'boolean',
+        'push_appointment_updates' => 'boolean',
         'quiet_hours' => 'array'
     ];
 

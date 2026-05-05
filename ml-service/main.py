@@ -13,8 +13,11 @@ sys.path.insert(0, os.path.dirname(__file__))
 from fastapi import FastAPI, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import TYPE_CHECKING, Literal, Optional, cast
 import logging
+
+if TYPE_CHECKING:
+    from groq.types.chat import ChatCompletionMessageParam
 
 from config import ML_CONFIG, SERVER_CONFIG
 from models.trainer import train as train_model, get_model_status
@@ -84,7 +87,7 @@ class FeedbackRequest(BaseModel):
     feedback_reason: Optional[str] = Field(None, max_length=1000)
 
 class ChatMessage(BaseModel):
-    role: str
+    role: Literal["system", "user", "assistant"]
     content: str
     
 class GroqFallbackRequest(BaseModel):
@@ -242,7 +245,10 @@ async def chat_fallback_groq(request: GroqFallbackRequest):
     try:
         client = groq.Groq(api_key=api_key)
         
-        formatted_messages = [{"role": msg.role, "content": msg.content} for msg in request.messages]
+        formatted_messages = [
+            cast("ChatCompletionMessageParam", {"role": msg.role, "content": msg.content})
+            for msg in request.messages
+        ]
         
         response = client.chat.completions.create(
             messages=formatted_messages,

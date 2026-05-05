@@ -4,9 +4,11 @@ FROM php:8.2-fpm
 RUN apt-get update && apt-get install -y \
     git \
     curl \
+    gettext-base \
     libpng-dev \
     libonig-dev \
     libxml2-dev \
+    nginx-light \
     zip \
     unzip \
     sqlite3 \
@@ -22,17 +24,33 @@ COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 # Set working directory
 WORKDIR /app
 
-# Copy application files
-COPY . /app
+# Copy dependency manifests first
+COPY composer.json composer.lock ./
+
+# Copy only the application files required at runtime.
+COPY app ./app
+COPY bootstrap ./bootstrap
+COPY config ./config
+COPY database ./database
+COPY docker ./docker
+COPY public ./public
+COPY resources ./resources
+COPY routes ./routes
+COPY scripts ./scripts
+COPY storage ./storage
+COPY artisan ./artisan
+
+RUN chmod +x /app/scripts/start-production.sh
 
 # Install dependencies
-RUN composer install --no-interaction --optimize-autoloader
+RUN composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader
 
 # Set permissions
 RUN chown -R www-data:www-data /app/storage /app/bootstrap/cache
 
 # Expose port
 EXPOSE 10000
+EXPOSE 8080
 
-# Start Laravel
-CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=10000"]
+# Start nginx, PHP-FPM, Reverb, and scheduler worker
+CMD ["/app/scripts/start-production.sh"]

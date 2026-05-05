@@ -10,7 +10,9 @@ return new class extends Migration
     public function up(): void
     {
         // Extend the status enum to include no_show
-        DB::statement("ALTER TABLE appointments MODIFY COLUMN status ENUM('pending','approved','completed','cancelled','declined','no_show') DEFAULT 'pending'");
+        if (DB::getDriverName() !== 'sqlite') {
+            DB::statement("ALTER TABLE appointments MODIFY COLUMN status ENUM('pending','approved','completed','cancelled','declined','no_show') DEFAULT 'pending'");
+        }
 
         // Add archived_at column (separate from soft-delete deleted_at)
         Schema::table('appointments', function (Blueprint $table) {
@@ -23,7 +25,9 @@ return new class extends Migration
     {
         // Revert no_show appointments to cancelled before removing the enum value
         DB::table('appointments')->where('status', 'no_show')->update(['status' => 'cancelled']);
-        DB::statement("ALTER TABLE appointments MODIFY COLUMN status ENUM('pending','approved','completed','cancelled','declined') DEFAULT 'pending'");
+        if (DB::getDriverName() !== 'sqlite') {
+            DB::statement("ALTER TABLE appointments MODIFY COLUMN status ENUM('pending','approved','completed','cancelled','declined') DEFAULT 'pending'");
+        }
 
         Schema::table('appointments', function (Blueprint $table) {
             $table->dropIndex(['archived_at']);

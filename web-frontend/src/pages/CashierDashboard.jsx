@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { useApi } from '../hooks/useApi';
@@ -47,6 +47,119 @@ import CalendarDetailPanel from '../components/calendar/CalendarDetailPanel';
 import NotificationBell from '../components/user/NotificationBell';
 import ThemeToggle from '../components/ui/ThemeToggle';
 import { formatServiceName, formatPrice, formatDateDisplay } from '../utils/format';
+
+const ACTION_LOG_METADATA_LABELS = {
+  receipt_id: 'Receipt ID',
+  client_email: 'Client Email',
+  service_price: 'Service Price',
+  amount_entered: 'Amount Entered',
+  discount_type: 'Discount Type',
+  discount_rate_from_db: 'Discount Rate',
+  discount_amount: 'Discount Amount',
+  payment_type: 'Payment Type',
+  total_paid: 'Total Paid',
+  total_paid_so_far: 'Total Paid So Far',
+  balance_remaining: 'Balance Remaining',
+  shortfall: 'Shortfall',
+  in_kind_description: 'In-Kind Description',
+  in_kind_estimated_value: 'In-Kind Estimated Value',
+  client_name: 'Client',
+  refund_amount: 'Refund Amount',
+  reason: 'Reason',
+  original_payment_amount: 'Original Payment Amount',
+  original_cashier_id: 'Original Cashier ID',
+  requesting_user_id: 'Requested By',
+};
+
+const ACTION_LOG_CURRENCY_KEYS = new Set([
+  'service_price',
+  'amount_entered',
+  'discount_amount',
+  'total_paid',
+  'total_paid_so_far',
+  'balance_remaining',
+  'shortfall',
+  'in_kind_estimated_value',
+  'refund_amount',
+  'original_payment_amount',
+]);
+
+const formatActionLogLabel = (key) => {
+  if (!key) return 'Detail';
+
+  return ACTION_LOG_METADATA_LABELS[key] || key
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+};
+
+const formatActionLogValue = (key, value) => {
+  if (value === null || value === undefined || value === '') {
+    return '—';
+  }
+
+  if (ACTION_LOG_CURRENCY_KEYS.has(key) && !Number.isNaN(Number(value))) {
+    return formatPrice(value);
+  }
+
+  if (typeof value === 'boolean') {
+    return value ? 'Yes' : 'No';
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item)).join(', ');
+  }
+
+  if (typeof value === 'object') {
+    return JSON.stringify(value);
+  }
+
+  return String(value).replace(/_/g, ' ');
+};
+
+const getActionLogMetadataEntries = (metadata) => {
+  if (!metadata || Array.isArray(metadata) || typeof metadata !== 'object') {
+    return [];
+  }
+
+  return Object.entries(metadata)
+    .filter(([, value]) => value !== null && value !== undefined && value !== '')
+    .map(([key, value]) => ({
+      key,
+      label: formatActionLogLabel(key),
+      value: formatActionLogValue(key, value),
+    }));
+};
+
+const formatActionLogStatus = (status) => String(status || 'success').replace(/_/g, ' ');
+
+const formatSentenceLabel = (value) => {
+  const normalized = String(value || '')
+    .replace(/_/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+
+  if (!normalized) {
+    return '—';
+  }
+
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+};
+
+const getActionLogStatusClasses = (status, isDarkMode = true) => {
+  const normalizedStatus = String(status || 'success').toLowerCase();
+
+  if (normalizedStatus === 'failed' || normalizedStatus === 'error') {
+    return isDarkMode ? 'bg-red-500/20 text-red-400' : 'bg-red-100 text-red-700';
+  }
+
+  if (normalizedStatus === 'warning') {
+    return isDarkMode ? 'bg-yellow-500/20 text-yellow-400' : 'bg-yellow-100 text-yellow-700';
+  }
+
+  return isDarkMode ? 'bg-emerald-500/20 text-emerald-400' : 'bg-emerald-100 text-emerald-700';
+};
 
 // Enhanced Chart Components
 const BarChart = ({ data, title, color = 'amber', height = 160, isDarkMode = true }) => {
@@ -323,6 +436,43 @@ const Sparkline = ({ data = [], width = 120, height = 28, stroke = '#f59e0b', ty
   );
 };
 
+const formatRelativeSync = (timestamp) => {
+  if (!timestamp) return 'Waiting for first sync';
+  const deltaMs = Math.max(0, Date.now() - new Date(timestamp).getTime());
+  const deltaSeconds = Math.floor(deltaMs / 1000);
+  if (deltaSeconds < 5) return 'Just now';
+  if (deltaSeconds < 60) return `${deltaSeconds}s ago`;
+  const deltaMinutes = Math.floor(deltaSeconds / 60);
+  if (deltaMinutes < 60) return `${deltaMinutes}m ago`;
+  const deltaHours = Math.floor(deltaMinutes / 60);
+  return `${deltaHours}h ago`;
+};
+
+const extractCollectionPayload = (payload) => {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+
+  if (Array.isArray(payload?.data)) {
+    return payload.data;
+  }
+
+  if (Array.isArray(payload?.data?.data)) {
+    return payload.data.data;
+  }
+
+  if (Array.isArray(payload?.appointments)) {
+    return payload.appointments;
+  }
+
+  return [];
+};
+
+const getDateOnly = (value) => String(value || '').match(/^(\d{4}-\d{2}-\d{2})/)?.[1] || '';
+
+const CASHIER_SILENT_RESYNC_MIN_GAP_MS = 1500;
+const CASHIER_SYNCABLE_SECTIONS = ['dashboard', 'appointments', 'calendar', 'action-logs', 'refunds', 'messages', 'notifications', 'transactions', 'reports'];
+
 // Using shared LineChart component from components/charts/LineChart
 
 // Logout Modal Component
@@ -524,6 +674,8 @@ const CompletionConfirmationModal = ({ isOpen, onClose, appointment, onConfirm, 
 const ActionLogModal = ({ isOpen, onClose, logData, isDarkMode = true }) => {
   if (!isOpen || !logData) return null;
 
+  const metadataEntries = getActionLogMetadataEntries(logData.metadata);
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4 animate-fadeIn">
       <div className={`w-full max-w-md ${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow-2xl overflow-hidden`}>
@@ -565,11 +717,18 @@ const ActionLogModal = ({ isOpen, onClose, logData, isDarkMode = true }) => {
             </span>
           </div>
 
+          <div>
+            <p className={`text-xs font-semibold ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} uppercase tracking-wide mb-1`}>Status</p>
+            <span className={`inline-block px-2 py-1 rounded-full text-xs font-semibold ${getActionLogStatusClasses(logData.status, isDarkMode)}`}>
+              {formatActionLogStatus(logData.status)}
+            </span>
+          </div>
+
           {/* Description */}
           <div>
             <p className={`text-xs font-semibold ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} uppercase tracking-wide mb-1`}>Description</p>
             <p className={`text-sm ${isDarkMode ? 'text-gray-300 bg-gray-800/50' : 'text-gray-600 bg-gray-100'} rounded p-3`}>
-              {logData.description}
+              {logData.description || 'No description provided.'}
             </p>
           </div>
 
@@ -588,6 +747,44 @@ const ActionLogModal = ({ isOpen, onClose, logData, isDarkMode = true }) => {
                   <div>
                     <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>ID</p>
                     <p className={`text-sm ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>#{logData.model_id}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {metadataEntries.length > 0 && (
+            <div className={`pt-4 border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+              <p className={`text-xs font-semibold ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} uppercase tracking-wide mb-2`}>Additional Details</p>
+              <div className="space-y-2">
+                {metadataEntries.map((entry) => (
+                  <div key={entry.key} className={`rounded-lg px-3 py-2 ${isDarkMode ? 'bg-gray-800/60' : 'bg-gray-100'}`}>
+                    <p className={`text-[11px] font-medium ${isDarkMode ? 'text-gray-500' : 'text-gray-500'} uppercase tracking-wide mb-1`}>
+                      {entry.label}
+                    </p>
+                    <p className={`text-sm break-words ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>
+                      {entry.value}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {(logData.ip_address || logData.user_agent) && (
+            <div className={`pt-4 border-t ${isDarkMode ? 'border-gray-700' : 'border-gray-200'}`}>
+              <p className={`text-xs font-semibold ${isDarkMode ? 'text-gray-500' : 'text-gray-400'} uppercase tracking-wide mb-2`}>Request Source</p>
+              <div className="space-y-2">
+                {logData.ip_address && (
+                  <div>
+                    <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>IP Address</p>
+                    <p className={`text-sm ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>{logData.ip_address}</p>
+                  </div>
+                )}
+                {logData.user_agent && (
+                  <div>
+                    <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>User Agent</p>
+                    <p className={`text-sm break-all ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>{logData.user_agent}</p>
                   </div>
                 )}
               </div>
@@ -697,7 +894,7 @@ const ReceiptModal = ({ isOpen, onClose, receiptData, isDarkMode = true }) => {
             </div>
             <div>
               <p className="text-gray-500 font-semibold">Date</p>
-              <p className="text-gray-900 text-sm">{new Date(receiptData.date).toLocaleDateString()}</p>
+              <p className="text-gray-900 text-sm">{formatDateDisplay(receiptData.date)}</p>
             </div>
             <div>
               <p className="text-gray-500 font-semibold">Time</p>
@@ -721,7 +918,7 @@ const ReceiptModal = ({ isOpen, onClose, receiptData, isDarkMode = true }) => {
             </div>
             <div className="flex justify-between text-sm mb-2">
               <span className="text-gray-700">Appointment Date:</span>
-              <span className="text-gray-900">{new Date(receiptData.appointmentDate).toLocaleDateString()}</span>
+              <span className="text-gray-900">{formatDateDisplay(receiptData.appointmentDate)}</span>
             </div>
             {receiptData.cashierName && receiptData.cashierName !== 'N/A' && (
               <div className="flex justify-between text-sm text-gray-700">
@@ -949,7 +1146,7 @@ const AppointmentModal = ({ isOpen, onClose, appointment, isViewOnly = false,
   paymentAmount, setPaymentAmount, paymentType, setPaymentType,
   inKindDescription, setInKindDescription, inKindEstimatedValue, setInKindEstimatedValue,
   selectedDiscounts, setSelectedDiscounts,
-  discountProof, setDiscountProof, discountRates,
+  discountRates,
   calculateDiscount, onComplete, onRequestRefund, onMarkNoShow, isDarkMode = true
 }) => {
   if (!isOpen || !appointment) return null;
@@ -1022,11 +1219,17 @@ const AppointmentModal = ({ isOpen, onClose, appointment, isViewOnly = false,
                     <input type="radio" name={`paytype-modal-${appointment.id}`} value="in-kind" checked={paymentType === 'in-kind'} onChange={() => setPaymentType('in-kind')} className="mr-1 accent-amber-500" />
                     <span>In-kind</span>
                   </label>
-                  <label className={`flex items-center gap-2 text-sm px-3 py-1 rounded-lg border transition-colors ${paymentType === 'online' ? (isDarkMode ? 'bg-amber-500/20 border-amber-500/40 text-amber-300 font-semibold' : 'bg-amber-50 border-amber-400 text-amber-700 font-semibold') : (isDarkMode ? 'text-gray-200 border-gray-700 hover:border-amber-500/30' : 'text-gray-700 border-gray-300 hover:border-amber-400')}`}>
-                    <input type="radio" name={`paytype-modal-${appointment.id}`} value="online" checked={paymentType === 'online'} onChange={() => setPaymentType('online')} className="mr-1 accent-amber-500" />
+                  <label className={`flex items-center gap-2 text-sm px-3 py-1 rounded-lg border transition-colors ${appointment.payment_status === 'partially_paid' || Number(appointment.payment_amount || 0) > 0 ? (isDarkMode ? 'text-gray-500 border-gray-800 cursor-not-allowed opacity-60' : 'text-gray-400 border-gray-200 cursor-not-allowed opacity-70') : paymentType === 'online' ? (isDarkMode ? 'bg-amber-500/20 border-amber-500/40 text-amber-300 font-semibold' : 'bg-amber-50 border-amber-400 text-amber-700 font-semibold') : (isDarkMode ? 'text-gray-200 border-gray-700 hover:border-amber-500/30' : 'text-gray-700 border-gray-300 hover:border-amber-400')}`}>
+                    <input type="radio" name={`paytype-modal-${appointment.id}`} value="online" checked={paymentType === 'online'} onChange={() => setPaymentType('online')} disabled={appointment.payment_status === 'partially_paid' || Number(appointment.payment_amount || 0) > 0} className="mr-1 accent-amber-500" />
                     <span>💳 Online</span>
                   </label>
                 </div>
+
+                {(appointment.payment_status === 'partially_paid' || Number(appointment.payment_amount || 0) > 0) && (
+                  <div className={`mb-2 text-xs px-3 py-2 rounded ${isDarkMode ? 'bg-gray-800 text-gray-400 border border-gray-700' : 'bg-gray-50 text-gray-600 border border-gray-200'}`}>
+                    Online checkout is disabled for appointments with recorded installments. Use the remaining manual payment flow instead.
+                  </div>
+                )}
 
                 {paymentType === 'online' && (
                   <div className={`mb-2 text-xs px-3 py-2 rounded ${isDarkMode ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>
@@ -1052,39 +1255,18 @@ const AppointmentModal = ({ isOpen, onClose, appointment, isViewOnly = false,
 
                 <div className="mt-3 grid grid-cols-3 gap-2">
                   <label className={`flex items-center gap-2 text-sm px-2 py-2 border rounded cursor-pointer transition-colors ${selectedDiscounts.includes('pwd') ? (isDarkMode ? 'bg-amber-500/20 border-amber-500/40 text-amber-300' : 'bg-amber-50 border-amber-300 text-amber-700') : (isDarkMode ? 'text-gray-200 bg-gray-800 border-gray-700 hover:border-gray-600' : 'text-gray-700 bg-white border-gray-300 hover:border-gray-400')}`}>
-                    <input type="checkbox" checked={selectedDiscounts.includes('pwd')} onChange={(e) => { setSelectedDiscounts(e.target.checked ? ['pwd'] : []); if (!e.target.checked) setDiscountProof(''); }} className="mr-1 accent-amber-500" />
+                    <input type="checkbox" checked={selectedDiscounts.includes('pwd')} onChange={(e) => { setSelectedDiscounts(e.target.checked ? ['pwd'] : []); }} className="mr-1 accent-amber-500" />
                     <div className="leading-tight"><div className="font-medium">PWD</div><div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>{discountRates.pwd ? `${discountRates.pwd.percentage}%` : '—'}</div></div>
                   </label>
                   <label className={`flex items-center gap-2 text-sm px-2 py-2 border rounded cursor-pointer transition-colors ${selectedDiscounts.includes('senior') ? (isDarkMode ? 'bg-amber-500/20 border-amber-500/40 text-amber-300' : 'bg-amber-50 border-amber-300 text-amber-700') : (isDarkMode ? 'text-gray-200 bg-gray-800 border-gray-700 hover:border-gray-600' : 'text-gray-700 bg-white border-gray-300 hover:border-gray-400')}`}>
-                    <input type="checkbox" checked={selectedDiscounts.includes('senior')} onChange={(e) => { setSelectedDiscounts(e.target.checked ? ['senior'] : []); if (!e.target.checked) setDiscountProof(''); }} className="mr-1 accent-amber-500" />
+                    <input type="checkbox" checked={selectedDiscounts.includes('senior')} onChange={(e) => { setSelectedDiscounts(e.target.checked ? ['senior'] : []); }} className="mr-1 accent-amber-500" />
                     <div className="leading-tight"><div className="font-medium">Senior</div><div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>{discountRates.senior ? `${discountRates.senior.percentage}%` : '—'}</div></div>
                   </label>
                   <label className={`flex items-center gap-2 text-sm px-2 py-2 border rounded cursor-pointer transition-colors ${selectedDiscounts.includes('student') ? (isDarkMode ? 'bg-amber-500/20 border-amber-500/40 text-amber-300' : 'bg-amber-50 border-amber-300 text-amber-700') : (isDarkMode ? 'text-gray-200 bg-gray-800 border-gray-700 hover:border-gray-600' : 'text-gray-700 bg-white border-gray-300 hover:border-gray-400')}`}>
-                    <input type="checkbox" checked={selectedDiscounts.includes('student')} onChange={(e) => { setSelectedDiscounts(e.target.checked ? ['student'] : []); if (!e.target.checked) setDiscountProof(''); }} className="mr-1 accent-amber-500" />
+                    <input type="checkbox" checked={selectedDiscounts.includes('student')} onChange={(e) => { setSelectedDiscounts(e.target.checked ? ['student'] : []); }} className="mr-1 accent-amber-500" />
                     <div className="leading-tight"><div className="font-medium">Student</div><div className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>{discountRates.student ? `${discountRates.student.percentage}%` : '—'}</div></div>
                   </label>
                 </div>
-
-                {/* Discount proof field — required when a discount is selected */}
-                {selectedDiscounts.length > 0 && (
-                  <div className="mt-2">
-                    <label className={`block text-xs font-medium mb-1 ${isDarkMode ? 'text-amber-300' : 'text-amber-700'}`}>
-                      ID / Proof Reference <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={discountProof}
-                      onChange={(e) => setDiscountProof(e.target.value)}
-                      placeholder="e.g. PWD Card #12345, Senior Citizen ID #6789"
-                      className={`w-full px-3 py-2 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 ${
-                        !discountProof ? 'border-red-500' : ''
-                      } ${isDarkMode ? 'bg-gray-900 border-gray-700 text-white placeholder-gray-500' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400'}`}
-                    />
-                    {!discountProof && (
-                      <p className="text-xs text-red-500 mt-1">Required: Enter ID or proof reference for this discount</p>
-                    )}
-                  </div>
-                )}
               </div>
 
               <div className={`${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-gray-50 border-gray-200'} border rounded-lg p-3`}>
@@ -1145,7 +1327,7 @@ const AppointmentModal = ({ isOpen, onClose, appointment, isViewOnly = false,
                   <div className={`flex justify-between text-sm ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}><span>Amount Paid</span><span className={`font-medium ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>₱{Number(appointment.payment_amount || 0).toFixed(2)}</span></div>
                   {appointment.discount_amount > 0 && <div className={`flex justify-between text-sm text-green-500`}><span>Discount ({appointment.discount_type || 'N/A'})</span><span>-₱{Number(appointment.discount_amount || 0).toFixed(2)}</span></div>}
                   {appointment.payment_type && <div className={`flex justify-between text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}><span>Payment Type</span><span className="capitalize">{appointment.payment_type}</span></div>}
-                  {appointment.payment_date && <div className={`flex justify-between text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}><span>Payment Date</span><span>{new Date(appointment.payment_date).toLocaleDateString()}</span></div>}
+                  {appointment.payment_date && <div className={`flex justify-between text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}><span>Payment Date</span><span>{formatDateDisplay(appointment.payment_date)}</span></div>}
                 </div>
               )}
 
@@ -1249,6 +1431,7 @@ const CashierDashboard = () => {
   const [isCollapsedDesktop, setIsCollapsedDesktop] = useState(false);
   const [openDropdowns, setOpenDropdowns] = useState({ 'Operations': true, 'Communication': true, 'Reports & Analytics': true });
   const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [currentReceipt, setCurrentReceipt] = useState(null);
   
@@ -1263,12 +1446,19 @@ const CashierDashboard = () => {
   const [salesByService, setSalesByService] = useState([]);
   const [showAllServices, setShowAllServices] = useState(false);
   const [timeframe, setTimeframe] = useState('monthly');
+  const [lastDashboardSync, setLastDashboardSync] = useState(null);
+  const [cashierSyncStatus, setCashierSyncStatus] = useState(
+    typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'syncing'
+  );
+  const [lastCashierSectionSync, setLastCashierSectionSync] = useState(null);
   
   // Appointments Data
   const [appointmentsTab, setAppointmentsTab] = useState('approved');
   const [appointmentSearch, setAppointmentSearch] = useState('');
   const [appointments, setAppointments] = useState([]);
+  const [dashboardApprovedAppointments, setDashboardApprovedAppointments] = useState([]);
   const [appointmentsLoading, setAppointmentsLoading] = useState(false);
+  const [dashboardAppointmentsLoading, setDashboardAppointmentsLoading] = useState(false);
   const [expandedAppointment, setExpandedAppointment] = useState(null);
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentType, setPaymentType] = useState('cash');
@@ -1276,7 +1466,6 @@ const CashierDashboard = () => {
   const [inKindEstimatedValue, setInKindEstimatedValue] = useState('');
   const [selectedDiscounts, setSelectedDiscounts] = useState([]);
   const [discountRates, setDiscountRates] = useState({});
-  const [discountProof, setDiscountProof] = useState('');
   const [viewModalAppointment, setViewModalAppointment] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [perPage, setPerPage] = useState(5);
@@ -1348,6 +1537,11 @@ const CashierDashboard = () => {
   const [refunds, setRefunds] = useState([]);
   const [refundsLoading, setRefundsLoading] = useState(false);
   const [refundReasons, setRefundReasons] = useState([]);
+  const [sidebarCounts, setSidebarCounts] = useState({
+    appointments: null,
+    transactions: null,
+    refunds: null,
+  });
 
   // Cashier Refund Request State
   const [showRefundRequestModal, setShowRefundRequestModal] = useState(false);
@@ -1362,6 +1556,12 @@ const CashierDashboard = () => {
   const [onlineCheckoutUrl, setOnlineCheckoutUrl] = useState('');
   const [onlinePaymentAppointment, setOnlinePaymentAppointment] = useState(null);
   const [onlinePaymentPolling, setOnlinePaymentPolling] = useState(null);
+  const shiftRangeRef = useRef(shiftRange);
+  const cashierSectionSyncInFlightRef = useRef(false);
+  const cashierSectionSyncQueuedRef = useRef(false);
+  const lastCashierSectionSyncAtRef = useRef(0);
+  const previousActiveSectionRef = useRef(activeSection);
+  const hasInitializedTimeframeRef = useRef(false);
 
   // Messages State
   const [messages, setMessages] = useState([]);
@@ -1454,7 +1654,7 @@ const CashierDashboard = () => {
           name: 'Appointments', 
           icon: CalendarIcon, 
           key: 'appointments',
-          badge: appointmentsLoading ? null : appointments.length
+          badge: appointmentsLoading && sidebarCounts.appointments === null ? null : sidebarCounts.appointments
         },
         { 
           name: 'Calendar', 
@@ -1465,13 +1665,13 @@ const CashierDashboard = () => {
           name: 'Transactions', 
           icon: DocumentTextIcon, 
           key: 'transactions',
-          badge: txTotal
+          badge: sidebarCounts.transactions
         },
         { 
           name: 'Refunds', 
           icon: ArrowUturnLeftIcon, 
           key: 'refunds',
-          badge: refunds.length || null
+          badge: sidebarCounts.refunds
         }
       ]
     },
@@ -1514,11 +1714,16 @@ const CashierDashboard = () => {
 
   // Load dashboard data
   const loadDashboardData = useCallback(async () => {
-    setLoading(true);
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setCashierSyncStatus('offline');
+    } else {
+      setCashierSyncStatus('syncing');
+    }
+
     try {
       const response = await callApi((signal) =>
         axios.get(`/api/cashier/dashboard-stats?timeframe=${timeframe}`, { signal })
-      );
+      , { abortPrevious: false });
       if (response && response.success) {
         // Handle both { success: true, stats, revenueTrend, salesByService }
         // and { data: { stats, revenueTrend, salesByService } } shapes
@@ -1539,13 +1744,52 @@ const CashierDashboard = () => {
 
         // Set sales by service from backend
         setSalesByService(payload.salesByService || []);
+        setLastDashboardSync(new Date().toISOString());
+        setCashierSyncStatus('live');
+        return true;
+      }
+
+      setCashierSyncStatus(typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'reconnecting');
+      return false;
+    } catch (error) {
+      console.error('Error loading dashboard data:', error);
+      setCashierSyncStatus(typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'reconnecting');
+      return false;
+    }
+  }, [callApi, timeframe]);
+
+  const loadDashboardApprovedAppointments = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) {
+      setDashboardAppointmentsLoading(true);
+    }
+
+    try {
+      const response = await callApi((signal) =>
+        axios.get('/api/cashier/appointments/approved', {
+          signal,
+          params: { page: 1, per_page: 100 },
+        })
+      , { abortPrevious: false });
+
+      if (response && response.success) {
+        const payload = response.data || {};
+        const list = extractCollectionPayload(payload);
+        const total = payload.total || payload.data?.total || list.length || 0;
+
+        setDashboardApprovedAppointments(list);
+        setSidebarCounts((prev) => ({
+          ...prev,
+          appointments: total || 0,
+        }));
       }
     } catch (error) {
-        console.error('Error loading dashboard data:', error);
-      } finally {
-        setLoading(false);
+      console.error('Error loading dashboard appointments preview:', error);
+    } finally {
+      if (!silent) {
+        setDashboardAppointmentsLoading(false);
       }
-    }, [callApi, timeframe]);
+    }
+  }, [callApi]);
 
   // Export revenue CSV
   const exportRevenueCSV = useCallback(() => {
@@ -1574,25 +1818,7 @@ const CashierDashboard = () => {
 
       if (response && response.success) {
         const payload = response.data || {};
-
-        // Backend may return several shapes:
-        // 1) { data: [...] } (array)
-        // 2) { data: { data: [...], total, last_page } } (paginator envelope)
-        // 3) { appointments: [...] }
-        // 4) direct array
-
-        let list = [];
-        if (Array.isArray(payload)) {
-          list = payload;
-        } else if (Array.isArray(payload.data)) {
-          // shape: { data: [...] }
-          list = payload.data;
-        } else if (payload.data && Array.isArray(payload.data.data)) {
-          // shape: { data: { data: [...], total, last_page } }
-          list = payload.data.data;
-        } else if (Array.isArray(payload.appointments)) {
-          list = payload.appointments;
-        }
+        const list = extractCollectionPayload(payload);
 
         setAppointments(list || []);
 
@@ -1601,6 +1827,10 @@ const CashierDashboard = () => {
         const lastPage = payload.last_page || (payload.data && payload.data.last_page) || Math.max(1, Math.ceil((total || 0) / perPage));
         setTotalAppointments(total || 0);
         setTotalPages(lastPage || 1);
+        setSidebarCounts((prev) => ({
+          ...prev,
+          appointments: total || 0,
+        }));
       }
     } catch (error) {
       console.error('Error loading appointments:', error);
@@ -1615,7 +1845,7 @@ const CashierDashboard = () => {
       setCalendarLoading(true);
       const m = month || (currentMonth.getMonth() + 1);
       const y = year || currentMonth.getFullYear();
-      const params = { month: m, year: y, status: 'approved' };
+      const params = { month: m, year: y, status: 'approved,pending' };
       const response = await callApi((signal) => axios.get('/api/cashier/calendar/appointments', { signal, params }));
       if (response && response.success) {
         const payload = response.data || {};
@@ -1633,19 +1863,21 @@ const CashierDashboard = () => {
             }
           });
         }
-        
-        setCalendarAppointments(flatAppts);
+
+        const normalizedAppts = flatAppts.map((apt) => ({
+          ...apt,
+          status: String(apt?.status || '').trim().toLowerCase(),
+        }));
+
+        const visibleAppts = normalizedAppts.filter((apt) => ['approved', 'pending'].includes(apt.status));
+        setCalendarAppointments(visibleAppts);
         
         // Calculate monthly summary
         const summary = {
-          totalApproved: flatAppts.filter(a => a.status === 'approved').length,
-          totalCompleted: flatAppts.filter(a => a.payment_status === 'paid' || a.status === 'completed').length,
-          expectedRevenue: flatAppts
-            .filter(a => a.status === 'approved')
-            .reduce((sum, a) => sum + (Number(a.service?.price) || 0), 0),
-          actualRevenue: flatAppts
-            .filter(a => a.payment_status === 'paid')
-            .reduce((sum, a) => sum + (Number(a.amount_paid) || Number(a.service?.price) || 0), 0),
+          totalPending: visibleAppts.filter(a => a.status === 'pending').length,
+          totalApproved: visibleAppts.filter(a => a.status === 'approved').length,
+          totalAppointments: visibleAppts.length,
+          expectedRevenue: visibleAppts.reduce((sum, a) => sum + (Number(a.payment_amount) || Number(a.service?.price) || 0), 0),
         };
         setMonthSummary(summary);
       }
@@ -1702,6 +1934,9 @@ const CashierDashboard = () => {
   const loadActionLogs = useCallback(async (silent = false) => {
     if (!silent) {
       setLoading(true);
+      setActionLogs([]);
+      setTotalLogs(0);
+      setTotalLogPages(1);
     }
     try {
       // Ensure we pass the correct type parameter with pagination
@@ -1722,9 +1957,18 @@ const CashierDashboard = () => {
         // Set pagination info
         setTotalLogs(payload.total || 0);
         setTotalLogPages(payload.last_page || 1);
+      } else if (!silent) {
+        setActionLogs([]);
+        setTotalLogs(0);
+        setTotalLogPages(1);
       }
     } catch (error) {
       console.error('Error loading action logs:', error);
+      if (!silent) {
+        setActionLogs([]);
+        setTotalLogs(0);
+        setTotalLogPages(1);
+      }
       if (!silent && window?.showToast) window.showToast('Action Logs', 'Failed to load logs', 'error');
     } finally {
       if (!silent) {
@@ -1746,7 +1990,10 @@ const CashierDashboard = () => {
   useEffect(() => {
     if (activeSection === 'dashboard') {
       if (!cashierDataLoaded.dashboard) {
-        loadDashboardData().then(() => {
+        Promise.all([
+          loadDashboardData(),
+          loadDashboardApprovedAppointments(),
+        ]).then(() => {
           setCashierDataLoaded(prev => ({ ...prev, dashboard: true }));
         });
       }
@@ -1775,7 +2022,7 @@ const CashierDashboard = () => {
     } else if (activeSection === 'action-logs') {
       loadActionLogs();
     }
-  }, [activeSection, currentMonth, logsTab, loadActionLogs, loadAppointments, loadCalendarAppointments, loadDashboardData, cashierDataLoaded]);
+  }, [activeSection, currentMonth, logsTab, loadActionLogs, loadAppointments, loadCalendarAppointments, loadDashboardApprovedAppointments, loadDashboardData, cashierDataLoaded]);
 
   // Reset pagination when logs tab changes
   useEffect(() => {
@@ -1817,99 +2064,6 @@ const CashierDashboard = () => {
       loadActionLogs();
     }
   }, [activeSection, logsPage, logsPerPage, loadActionLogs]);
-
-
-
-  // Polling fallback for cashier dashboard data (appointments + stats + action logs)
-  useEffect(() => {
-    const POLL_INTERVAL_MS = 30000; // 30s (reduced from 15s for performance)
-    const ACTION_LOGS_POLL_INTERVAL_MS = 15000; // 15s for action logs (reduced from 5s for performance)
-    
-    const id = setInterval(() => {
-      if (activeSection === 'dashboard') {
-        loadDashboardData();
-      }
-      if (activeSection === 'appointments') {
-        loadAppointments();
-      }
-      if (activeSection === 'calendar') {
-        // Refresh current month's calendar data
-        loadCalendarAppointments(currentMonth.getMonth() + 1, currentMonth.getFullYear());
-      }
-    }, POLL_INTERVAL_MS);
-
-    // Separate faster polling for action logs for real-time updates
-    const logsId = setInterval(() => {
-      if (activeSection === 'action-logs') {
-        loadActionLogs(true); // Silent refresh - no loading spinner
-      }
-    }, ACTION_LOGS_POLL_INTERVAL_MS);
-
-    const handleLogout = () => { clearInterval(id); clearInterval(logsId); };
-    window.addEventListener('auth:logout', handleLogout);
-    return () => {
-      clearInterval(id);
-      clearInterval(logsId);
-      window.removeEventListener('auth:logout', handleLogout);
-    };
-  }, [activeSection, currentMonth, loadDashboardData, loadAppointments, loadCalendarAppointments, loadActionLogs]); // Include all data loading functions
-
-  // Real-time subscription via Laravel Echo for cashier dashboard
-  useEffect(() => {
-    if (!window?.Echo || typeof window.Echo.channel !== 'function') return;
-
-    const channel = window.Echo.channel('appointments');
-
-    const handler = (payload) => {
-      try {
-        // If appointment data present, refresh relevant data
-        if (payload && (payload.appointment || payload.data || payload)) {
-          // If we're viewing dashboard, refresh stats too
-          if (activeSection === 'dashboard') loadDashboardData();
-          // Always refresh appointments if on appointments/calendar
-          if (activeSection === 'appointments' || activeSection === 'calendar') {
-            loadAppointments();
-            // refresh calendar grouped data when calendar view is active
-            if (activeSection === 'calendar') {
-              loadCalendarAppointments(currentMonth.getMonth() + 1, currentMonth.getFullYear());
-            }
-          }
-        }
-      } catch (e) {
-        console.debug('Realtime cashier handler error', e);
-      }
-    };
-
-    try {
-      channel.listen('AppointmentUpdated', handler);
-      channel.listen('AppointmentCreated', handler);
-      channel.listen('PaymentProcessed', handler);
-    } catch (e) {
-      try {
-        if (channel._pusher) {
-          channel._pusher.bind('AppointmentUpdated', handler);
-          channel._pusher.bind('AppointmentCreated', handler);
-          channel._pusher.bind('PaymentProcessed', handler);
-        }
-      } catch (err) {
-        console.debug('Failed to attach realtime cashier listeners', err);
-      }
-    }
-
-    return () => {
-      try { channel.stopListening('AppointmentUpdated'); } catch (e) {}
-      try { channel.stopListening('AppointmentCreated'); } catch (e) {}
-      try { channel.stopListening('PaymentProcessed'); } catch (e) {}
-      try { 
-        if (channel._pusher) { 
-          channel._pusher.unbind('AppointmentUpdated'); 
-          channel._pusher.unbind('AppointmentCreated'); 
-          channel._pusher.unbind('PaymentProcessed'); 
-        } 
-      } catch (e) {}
-    };
-  }, [activeSection, currentMonth, loadDashboardData, loadAppointments, loadCalendarAppointments]);
-
   // Reload action logs when tab changes
   useEffect(() => {
     if (activeSection === 'action-logs') {
@@ -1918,8 +2072,11 @@ const CashierDashboard = () => {
   }, [logsTab, activeSection, loadActionLogs]);
 
   // Load transactions (sales history)
-  const loadTransactions = useCallback(async (page = txPage) => {
-    setTxLoading(true);
+  const loadTransactions = useCallback(async (page = txPage, { silent = false } = {}) => {
+    if (!silent) {
+      setTxLoading(true);
+    }
+
     try {
       const params = {
         page,
@@ -1945,14 +2102,56 @@ const CashierDashboard = () => {
         setTxTotal(total || 0);
         setTxTotalPages(last || 1);
         setTxPage(page);
+        setSidebarCounts((prev) => ({
+          ...prev,
+          transactions: total || 0,
+        }));
       }
     } catch (err) {
       console.error('Error loading transactions:', err);
       if (window?.showToast) window.showToast('Transactions', 'Failed to load transactions', 'error');
     } finally {
-      setTxLoading(false);
+      if (!silent) {
+        setTxLoading(false);
+      }
     }
   }, [txFilters, txPerPage, txSearch, txPage]);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    const loadSidebarCounts = async () => {
+      try {
+        const [approvedRes, completedRes, refundsRes] = await Promise.all([
+          axios.get('/api/cashier/appointments/approved', { params: { page: 1, per_page: 1 } }).catch(() => ({ data: { total: 0, data: [] } })),
+          axios.get('/api/cashier/appointments/completed', { params: { page: 1, per_page: 1 } }).catch(() => ({ data: { total: 0, data: [] } })),
+          axios.get('/api/cashier/refunds').catch(() => ({ data: { data: [] } })),
+        ]);
+
+        if (isCancelled) {
+          return;
+        }
+
+        const approvedTotal = approvedRes.data?.total || approvedRes.data?.data?.total || approvedRes.data?.data?.length || 0;
+        const completedTotal = completedRes.data?.total || completedRes.data?.data?.total || completedRes.data?.data?.length || 0;
+        const refundsList = refundsRes.data?.data || refundsRes.data || [];
+
+        setSidebarCounts({
+          appointments: approvedTotal,
+          transactions: completedTotal,
+          refunds: Array.isArray(refundsList) ? refundsList.length : 0,
+        });
+      } catch (error) {
+        console.error('Error loading cashier sidebar counts:', error);
+      }
+    };
+
+    void loadSidebarCounts();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (activeSection === 'transactions') {
@@ -2092,19 +2291,29 @@ const CashierDashboard = () => {
   }, [passwordData, callApi]);
 
   // Load Refunds
-  const loadRefunds = useCallback(async () => {
-    setRefundsLoading(true);
+  const loadRefunds = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) {
+      setRefundsLoading(true);
+    }
+
     try {
-      const [pendingRes, reasonsRes] = await Promise.all([
-        axios.get('/api/cashier/refunds/pending').catch(() => ({ data: { data: [] } })),
+      const [refundsRes, reasonsRes] = await Promise.all([
+        axios.get('/api/cashier/refunds').catch(() => ({ data: { data: [] } })),
         axios.get('/api/cashier/refund-reasons/active').catch(() => ({ data: { data: [] } }))
       ]);
-      setRefunds(pendingRes.data?.data || pendingRes.data || []);
+      const refundsList = refundsRes.data?.data || refundsRes.data || [];
+      setRefunds(refundsList);
       setRefundReasons(reasonsRes.data?.data || reasonsRes.data || []);
+      setSidebarCounts((prev) => ({
+        ...prev,
+        refunds: Array.isArray(refundsList) ? refundsList.length : 0,
+      }));
     } catch (err) {
       console.error('Error loading refunds:', err);
     } finally {
-      setRefundsLoading(false);
+      if (!silent) {
+        setRefundsLoading(false);
+      }
     }
   }, []);
 
@@ -2173,8 +2382,11 @@ const CashierDashboard = () => {
   }, [refundTargetAppointment, refundFormData, loadRefunds, loadAppointments]);
 
   // Load Messages (conversation list)
-  const loadMessages = useCallback(async () => {
-    setMessagesLoading(true);
+  const loadMessages = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) {
+      setMessagesLoading(true);
+    }
+
     try {
       // Cashier should only communicate with admins, not regular users
       const response = await axios.get('/api/messages/admin-contacts');
@@ -2183,7 +2395,9 @@ const CashierDashboard = () => {
     } catch (err) {
       console.error('Error loading messages:', err);
     } finally {
-      setMessagesLoading(false);
+      if (!silent) {
+        setMessagesLoading(false);
+      }
     }
   }, []);
 
@@ -2220,8 +2434,11 @@ const CashierDashboard = () => {
   }, [newMessage, selectedConversation, loadConversation, loadMessages]);
 
   // Load Notifications for full view
-  const loadNotifications = useCallback(async () => {
-    setNotificationsLoading(true);
+  const loadNotifications = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) {
+      setNotificationsLoading(true);
+    }
+
     try {
       const url = notificationsTab === 'unread' ? '/api/notifications/unread' : '/api/notifications';
       const response = await axios.get(url);
@@ -2230,7 +2447,9 @@ const CashierDashboard = () => {
     } catch (err) {
       console.error('Error loading notifications:', err);
     } finally {
-      setNotificationsLoading(false);
+      if (!silent) {
+        setNotificationsLoading(false);
+      }
     }
   }, [notificationsTab]);
 
@@ -2247,11 +2466,21 @@ const CashierDashboard = () => {
     if (activeSection === 'notifications') loadNotifications();
   }, [activeSection, notificationsTab, loadNotifications]);
 
+  useEffect(() => {
+    shiftRangeRef.current = shiftRange;
+  }, [shiftRange]);
+
   // Shift reports / accounting exports
-  const loadShiftReport = useCallback(async (from, to) => {
-    setShiftLoading(true);
+  const loadShiftReport = useCallback(async (from, to, { silent = false } = {}) => {
+    if (!silent) {
+      setShiftLoading(true);
+    }
+
     try {
-      const params = { from: from || shiftRange.from, to: to || shiftRange.to };
+      const params = {
+        from: from || shiftRangeRef.current.from,
+        to: to || shiftRangeRef.current.to,
+      };
       const response = await callApi((signal) => axios.get('/api/cashier/shift-reports', { signal, params }));
       if (response && response.success) {
         // Backend returns data directly in response, not nested under data key
@@ -2261,18 +2490,307 @@ const CashierDashboard = () => {
       console.error('Error loading shift report:', err);
       if (window?.showToast) window.showToast('Shift Report', 'Failed to load shift report', 'error');
     } finally {
-      setShiftLoading(false);
+      if (!silent) {
+        setShiftLoading(false);
+      }
     }
-  }, [callApi, shiftRange]);
+  }, [callApi]);
+
+  const reconnectCashierRealtime = useCallback(() => {
+    const pusher = window?.Echo?.connector?.pusher;
+
+    if (!pusher || typeof pusher.connect !== 'function') {
+      return;
+    }
+
+    const connectionState = pusher.connection?.state;
+    if (connectionState === 'connected' || connectionState === 'connecting') {
+      return;
+    }
+
+    try {
+      pusher.connect();
+    } catch (error) {
+      console.debug('Cashier realtime reconnect failed:', error);
+    }
+  }, []);
+
+  const requestCashierSectionResync = useCallback(async ({ section = activeSection, force = false, reconnectRealtime = false } = {}) => {
+    if (!CASHIER_SYNCABLE_SECTIONS.includes(section)) {
+      return;
+    }
+
+    if (!force && typeof document !== 'undefined' && document.hidden) {
+      return;
+    }
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setCashierSyncStatus('offline');
+      return;
+    }
+
+    const now = Date.now();
+    if (!force && now - lastCashierSectionSyncAtRef.current < CASHIER_SILENT_RESYNC_MIN_GAP_MS) {
+      return;
+    }
+
+    if (reconnectRealtime) {
+      reconnectCashierRealtime();
+    }
+
+    if (cashierSectionSyncInFlightRef.current) {
+      cashierSectionSyncQueuedRef.current = true;
+      return;
+    }
+
+    cashierSectionSyncInFlightRef.current = true;
+    lastCashierSectionSyncAtRef.current = now;
+    setCashierSyncStatus('syncing');
+
+    try {
+      if (section === 'dashboard') {
+        await Promise.all([
+          loadDashboardData(),
+          loadDashboardApprovedAppointments({ silent: true }),
+        ]);
+      } else if (section === 'appointments') {
+        await loadAppointments();
+      } else if (section === 'calendar') {
+        await Promise.all([
+          loadAppointments(),
+          loadCalendarAppointments(currentMonth.getMonth() + 1, currentMonth.getFullYear())
+        ]);
+      } else if (section === 'action-logs') {
+        await loadActionLogs(true);
+      } else if (section === 'refunds') {
+        await loadRefunds({ silent: true });
+      } else if (section === 'messages') {
+        await loadMessages({ silent: true });
+        const conversationId = selectedConversation?.id || selectedConversation?.user_id;
+        if (conversationId) {
+          await loadConversation(conversationId);
+        }
+      } else if (section === 'notifications') {
+        await loadNotifications({ silent: true });
+      } else if (section === 'transactions') {
+        await loadTransactions(txPage, { silent: true });
+      } else if (section === 'reports') {
+        const today = new Date().toISOString().split('T')[0];
+        const from = shiftRange.from || today;
+        const to = shiftRange.to || from;
+        await loadShiftReport(from, to, { silent: true });
+      }
+
+      setLastCashierSectionSync(new Date().toISOString());
+      setCashierSyncStatus('live');
+    } catch (error) {
+      console.error('Cashier silent resync failed:', error);
+      setCashierSyncStatus(typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'reconnecting');
+    } finally {
+      cashierSectionSyncInFlightRef.current = false;
+
+      if (cashierSectionSyncQueuedRef.current) {
+        cashierSectionSyncQueuedRef.current = false;
+        window.setTimeout(() => {
+          void requestCashierSectionResync({ force: true });
+        }, 0);
+      }
+    }
+  }, [activeSection, currentMonth, loadActionLogs, loadAppointments, loadCalendarAppointments, loadConversation, loadDashboardApprovedAppointments, loadDashboardData, loadMessages, loadNotifications, loadRefunds, loadShiftReport, loadTransactions, reconnectCashierRealtime, selectedConversation, shiftRange.from, shiftRange.to, txPage]);
 
   useEffect(() => {
     if (activeSection === 'reports') {
       // default: load today's report when opening
       const today = new Date().toISOString().split('T')[0];
-      setShiftRange({ from: today, to: today });
+      setShiftRange((current) => (
+        current.from === today && current.to === today
+          ? current
+          : { from: today, to: today }
+      ));
       loadShiftReport(today, today);
     }
   }, [activeSection, loadShiftReport]);
+
+  useEffect(() => {
+    const previousSection = previousActiveSectionRef.current;
+    previousActiveSectionRef.current = activeSection;
+
+    if (previousSection !== activeSection && CASHIER_SYNCABLE_SECTIONS.includes(activeSection)) {
+      if (activeSection === 'reports') {
+        return;
+      }
+
+      void requestCashierSectionResync({ force: true, reconnectRealtime: true });
+    }
+  }, [activeSection, requestCashierSectionResync]);
+
+  useEffect(() => {
+    if (activeSection !== 'dashboard') {
+      return;
+    }
+
+    if (!hasInitializedTimeframeRef.current) {
+      hasInitializedTimeframeRef.current = true;
+      return;
+    }
+
+    void requestCashierSectionResync({ section: 'dashboard', force: true });
+  }, [timeframe, activeSection, requestCashierSectionResync]);
+
+  // Polling fallback for cashier dashboard data (appointments + stats + action logs)
+  useEffect(() => {
+    const connectionState = window?.Echo?.connector?.pusher?.connection?.state;
+    const POLL_INTERVAL_MS = connectionState === 'connected' ? 45000 : 20000;
+    const ACTION_LOGS_POLL_INTERVAL_MS = 30000;
+
+    const id = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) {
+        return;
+      }
+
+      if (activeSection !== 'action-logs') {
+        void requestCashierSectionResync();
+      }
+    }, POLL_INTERVAL_MS);
+
+    const logsId = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) {
+        return;
+      }
+
+      if (activeSection === 'action-logs') {
+        void requestCashierSectionResync({ section: 'action-logs' });
+      }
+    }, ACTION_LOGS_POLL_INTERVAL_MS);
+
+    const handleLogout = () => { clearInterval(id); clearInterval(logsId); };
+    window.addEventListener('auth:logout', handleLogout);
+
+    return () => {
+      clearInterval(id);
+      clearInterval(logsId);
+      window.removeEventListener('auth:logout', handleLogout);
+    };
+  }, [activeSection, requestCashierSectionResync]);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        void requestCashierSectionResync({ force: true, reconnectRealtime: true });
+      }
+    };
+
+    const handleFocus = () => {
+      if (typeof document === 'undefined' || !document.hidden) {
+        void requestCashierSectionResync({ reconnectRealtime: true });
+      }
+    };
+
+    const handlePageShow = () => {
+      void requestCashierSectionResync({ force: true, reconnectRealtime: true });
+    };
+
+    const handleOnline = () => {
+      setCashierSyncStatus('reconnecting');
+      void requestCashierSectionResync({ force: true, reconnectRealtime: true });
+    };
+
+    const handleOffline = () => {
+      setCashierSyncStatus('offline');
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('pageshow', handlePageShow);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    const connection = window?.Echo?.connector?.pusher?.connection;
+    const handleConnectionStateChange = (states) => {
+      if (states.current === 'connected') {
+        setCashierSyncStatus('live');
+        void requestCashierSectionResync({ force: true });
+        return;
+      }
+
+      if (states.current === 'connecting') {
+        setCashierSyncStatus('reconnecting');
+        return;
+      }
+
+      if (states.current === 'unavailable' || states.current === 'disconnected' || states.current === 'failed') {
+        setCashierSyncStatus(typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'reconnecting');
+      }
+    };
+
+    if (connection && typeof connection.bind === 'function') {
+      connection.bind('state_change', handleConnectionStateChange);
+    }
+
+    reconnectCashierRealtime();
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('pageshow', handlePageShow);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+
+      if (connection && typeof connection.unbind === 'function') {
+        connection.unbind('state_change', handleConnectionStateChange);
+      }
+    };
+  }, [reconnectCashierRealtime, requestCashierSectionResync]);
+
+  // Real-time subscription via Laravel Echo for cashier dashboard
+  useEffect(() => {
+    if (!window?.Echo || typeof window.Echo.channel !== 'function') return;
+
+    const channel = window.Echo.channel('appointments');
+
+    const handler = (payload) => {
+      try {
+        if (payload && (payload.appointment || payload.data || payload)) {
+          const realtimeSections = ['dashboard', 'appointments', 'calendar', 'transactions', 'reports', 'refunds', 'action-logs'];
+
+          if (realtimeSections.includes(activeSection)) {
+            void requestCashierSectionResync({ section: activeSection, force: true });
+          }
+        }
+      } catch (e) {
+        console.debug('Realtime cashier handler error', e);
+      }
+    };
+
+    try {
+      channel.listen('AppointmentUpdated', handler);
+      channel.listen('AppointmentCreated', handler);
+      channel.listen('PaymentProcessed', handler);
+    } catch (e) {
+      try {
+        if (channel._pusher) {
+          channel._pusher.bind('AppointmentUpdated', handler);
+          channel._pusher.bind('AppointmentCreated', handler);
+          channel._pusher.bind('PaymentProcessed', handler);
+        }
+      } catch (err) {
+        console.debug('Failed to attach realtime cashier listeners', err);
+      }
+    }
+
+    return () => {
+      try { channel.stopListening('AppointmentUpdated'); } catch (e) {}
+      try { channel.stopListening('AppointmentCreated'); } catch (e) {}
+      try { channel.stopListening('PaymentProcessed'); } catch (e) {}
+      try {
+        if (channel._pusher) {
+          channel._pusher.unbind('AppointmentUpdated');
+          channel._pusher.unbind('AppointmentCreated');
+          channel._pusher.unbind('PaymentProcessed');
+        }
+      } catch (e) {}
+    };
+  }, [activeSection, requestCashierSectionResync]);
 
   const exportShiftCSV = useCallback(() => {
     if (!shiftReportSummary) return;
@@ -2290,10 +2808,14 @@ const CashierDashboard = () => {
 
   // Handle logout
   const handleLogout = async () => {
+    setIsLoggingOut(true);
     try {
       await logout();
+      setShowLogoutModal(false);
     } catch (error) {
       console.error('Logout error:', error);
+    } finally {
+      setIsLoggingOut(false);
     }
   };
 
@@ -2327,18 +2849,17 @@ const CashierDashboard = () => {
   // Filter calendar appointments based on active filters
   const filteredCalendarAppts = useMemo(() => {
     if (!Array.isArray(calendarAppointments)) return [];
-    
-    // Default: show approved and completed appointments (both are relevant to cashier)
-    if (!calendarFilters || Object.keys(calendarFilters).length === 0) {
-      return calendarAppointments.filter(a => a.status === 'approved');
+
+    const hasActiveFilters = calendarFilters && Object.values(calendarFilters).some(Boolean);
+    if (!hasActiveFilters) {
+      return calendarAppointments.filter((appointment) => ['approved', 'pending'].includes(String(appointment?.status || '').trim().toLowerCase()));
     }
 
-    return calendarAppointments.filter(apt => {
-      if (calendarFilters.approved && apt.status === 'approved') return true;
-      if (calendarFilters.completed && (apt.payment_status === 'paid' || apt.status === 'completed')) return true;
-      if (calendarFilters.unpaid && (apt.payment_status === 'unpaid' || apt.payment_status === 0 || !apt.payment_status)) return true;
-      if (calendarFilters.partiallyPaid && (apt.payment_status === 'partially_paid' || apt.payment_status === 'partial')) return true;
-      if (calendarFilters.pending && apt.status === 'pending') return true;
+    return calendarAppointments.filter((appointment) => {
+      const status = String(appointment?.status || '').trim().toLowerCase();
+
+      if (calendarFilters.approved && status === 'approved') return true;
+      if (calendarFilters.pending && status === 'pending') return true;
       return false;
     });
   }, [calendarAppointments, calendarFilters]);
@@ -2348,10 +2869,27 @@ const CashierDashboard = () => {
     const _t = new Date();
     const today = `${_t.getFullYear()}-${String(_t.getMonth()+1).padStart(2,'0')}-${String(_t.getDate()).padStart(2,'0')}`;
     return filteredAppointments.filter(apt => {
-      const aptDate = (apt.appointment_date || '').match(/^(\d{4}-\d{2}-\d{2})/)?.[1] || '';
+      const aptDate = getDateOnly(apt.appointment_date);
       return aptDate === today && apt.status === 'approved';
     });
   }, [filteredAppointments]);
+
+  const dashboardPendingAppointments = useMemo(() => {
+    if (!Array.isArray(dashboardApprovedAppointments)) {
+      return [];
+    }
+
+    return dashboardApprovedAppointments.filter((appointment) => (
+      appointment?.status === 'approved' && appointment?.payment_status !== 'paid'
+    ));
+  }, [dashboardApprovedAppointments]);
+
+  const dashboardTodayAppointments = useMemo(() => {
+    const _t = new Date();
+    const today = `${_t.getFullYear()}-${String(_t.getMonth()+1).padStart(2,'0')}-${String(_t.getDate()).padStart(2,'0')}`;
+
+    return dashboardPendingAppointments.filter((appointment) => getDateOnly(appointment?.appointment_date) === today);
+  }, [dashboardPendingAppointments]);
 
   // Calculate discount using rates from database
   const calculateDiscount = useCallback((amount) => {
@@ -2371,6 +2909,21 @@ const CashierDashboard = () => {
     
     return { discount: Math.round(discount * 100) / 100, discountType };
   }, [selectedDiscounts, discountRates]);
+
+  const refreshCashierRealtimeData = useCallback(async () => {
+    const month = currentMonth.getMonth() + 1;
+    const year = currentMonth.getFullYear();
+
+    await Promise.allSettled([
+      loadAppointments(),
+      loadDashboardApprovedAppointments({ silent: true }),
+      loadDashboardData(),
+      loadCalendarAppointments(month, year),
+      loadRefunds({ silent: true }),
+      loadTransactions(1, { silent: true }),
+      loadActionLogs(true),
+    ]);
+  }, [currentMonth, loadActionLogs, loadAppointments, loadCalendarAppointments, loadDashboardApprovedAppointments, loadDashboardData, loadRefunds, loadTransactions]);
 
   // Start online payment polling
   const startOnlinePaymentPolling = useCallback((appointmentId) => {
@@ -2413,8 +2966,7 @@ const CashierDashboard = () => {
             setCurrentPage(1);
 
             // Refresh data
-            loadAppointments();
-            if (activeSection === 'dashboard') loadDashboardData();
+            refreshCashierRealtimeData();
             if (activeSection === 'reports') loadShiftReport(shiftRange.from, shiftRange.to);
 
             setTimeout(() => {
@@ -2433,7 +2985,7 @@ const CashierDashboard = () => {
     }, 5000); // Poll every 5 seconds
 
     setOnlinePaymentPolling(pollId);
-  }, [onlinePaymentPolling, activeSection, loadAppointments, loadDashboardData, loadShiftReport, shiftRange]);
+  }, [onlinePaymentPolling, activeSection, loadShiftReport, shiftRange, refreshCashierRealtimeData]);
 
   // Cancel online payment
   const handleCancelOnlinePayment = useCallback(async () => {
@@ -2481,12 +3033,6 @@ const CashierDashboard = () => {
       return;
     }
 
-    // Require discount proof when discount is selected
-    if (selectedDiscounts.length > 0 && !discountProof.trim()) {
-      if (window?.showToast) window.showToast('Payment', 'Please enter an ID/proof reference for the discount', 'warning');
-      return;
-    }
-
     // Phase 5 #5: In-kind guardrails — require description and estimated value
     if (paymentType === 'in-kind') {
       if (!inKindDescription.trim()) {
@@ -2503,6 +3049,11 @@ const CashierDashboard = () => {
     const { discount, discountType } = calculateDiscount(baseAmount);
     const totalPaid = amount - discount;
 
+    if (paymentType === 'online' && (appointment?.payment_status === 'partially_paid' || Number(appointment?.payment_amount || 0) > 0)) {
+      if (window?.showToast) window.showToast('Payment', 'Online checkout is currently available only for unpaid appointments with no prior installments.', 'warning');
+      return;
+    }
+
     // ===== ONLINE PAYMENT FLOW =====
     if (paymentType === 'online') {
       try {
@@ -2510,7 +3061,6 @@ const CashierDashboard = () => {
 
         const body = {
           payment_amount: amount,
-          discount_amount: discount,
           discount_type: discountType,
         };
 
@@ -2562,7 +3112,6 @@ const CashierDashboard = () => {
         payment_amount: amount,
         discount_amount: discount,
         discount_type: discountType,
-        discount_proof: discountProof || undefined,
         payment_notes: paymentType === 'in-kind' ? (inKindDescription || 'In-kind payment') : undefined,
         payment_type: paymentType,
         goods_description: paymentType === 'in-kind' ? inKindDescription : undefined,
@@ -2589,7 +3138,6 @@ const CashierDashboard = () => {
         setViewModalAppointment(null);
         setPaymentAmount('');
         setSelectedDiscounts([]);
-        setDiscountProof('');
         setPaymentType('cash');
         setInKindDescription('');
         setInKindEstimatedValue('');
@@ -2599,6 +3147,8 @@ const CashierDashboard = () => {
         
         // Close the completion modal
         setShowCompletionConfirmation(false);
+
+        await refreshCashierRealtimeData();
         
         // Refresh shift report if currently viewing it (for real-time updates)
         if (activeSection === 'reports') {
@@ -2623,7 +3173,7 @@ const CashierDashboard = () => {
     } finally {
       setLoading(false);
     }
-  }, [paymentAmount, selectedDiscounts, discountProof, calculateDiscount, callApi, paymentType, inKindDescription, inKindEstimatedValue, activeSection, loadShiftReport, shiftRange, startOnlinePaymentPolling]);
+  }, [paymentAmount, selectedDiscounts, calculateDiscount, callApi, paymentType, inKindDescription, inKindEstimatedValue, activeSection, loadShiftReport, shiftRange, startOnlinePaymentPolling, refreshCashierRealtimeData]);
 
   // Mark appointment as No Show
   const handleMarkNoShow = useCallback(async (appointment) => {
@@ -2634,15 +3184,21 @@ const CashierDashboard = () => {
         axios.put(`/api/appointments/${appointment.id}/no-show`, {}, { signal })
       );
       if (window?.showToast) window.showToast('No Show', `${appointment.user?.first_name || 'Client'} marked as no show`, 'info');
-      loadAppointments();
-      if (activeSection === 'dashboard') loadDashboardData();
+      if (activeSection === 'dashboard') {
+        await Promise.all([
+          loadDashboardData(),
+          loadDashboardApprovedAppointments({ silent: true }),
+        ]);
+      } else {
+        await loadAppointments();
+      }
     } catch (error) {
       console.error('Error marking no-show:', error);
       if (window?.showToast) window.showToast('No Show', error.response?.data?.message || 'Failed to mark as no show', 'error');
     } finally {
       setLoading(false);
     }
-  }, [callApi, loadAppointments, activeSection, loadDashboardData]);
+  }, [activeSection, callApi, loadAppointments, loadDashboardApprovedAppointments, loadDashboardData]);
 
   // Render Dashboard Section
   const renderDashboard = () => {
@@ -2663,14 +3219,14 @@ const CashierDashboard = () => {
                 {greeting}, {user?.first_name || 'Cashier'}
               </h2>
               <p className={`text-sm mt-1 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>{todayStr}</p>
-              {todayAppointments.length > 0 && (
+              {!dashboardAppointmentsLoading && dashboardTodayAppointments.length > 0 && (
                 <div className="mt-3 flex items-center gap-2">
                   <span className="relative flex h-2.5 w-2.5">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
                     <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
                   </span>
                   <span className={`text-sm font-medium ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
-                    {todayAppointments.length} appointment{todayAppointments.length !== 1 ? 's' : ''} scheduled today
+                    {dashboardTodayAppointments.length} appointment{dashboardTodayAppointments.length !== 1 ? 's' : ''} scheduled today
                   </span>
                 </div>
               )}
@@ -2678,9 +3234,6 @@ const CashierDashboard = () => {
             <div className="flex items-center gap-3">
               <button onClick={() => setActiveSection('appointments')} className="px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-medium transition-all shadow-lg shadow-amber-500/20 hover:shadow-amber-500/30 hover:-translate-y-0.5">
                 Process Payments
-              </button>
-              <button onClick={() => { loadDashboardData(); setCashierDataLoaded(prev => ({...prev, dashboard: false})); }} className={`p-2.5 rounded-xl transition-all ${isDarkMode ? 'bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-500 hover:text-gray-700'}`} title="Refresh data">
-                <ArrowPathIcon className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
               </button>
             </div>
           </div>
@@ -2789,14 +3342,18 @@ const CashierDashboard = () => {
               </button>
             </div>
             <div className="space-y-2 max-h-[280px] overflow-auto">
-              {todayAppointments.length === 0 ? (
+              {dashboardAppointmentsLoading ? (
+                <div className="flex justify-center py-8">
+                  <LoadingSpinner />
+                </div>
+              ) : dashboardTodayAppointments.length === 0 ? (
                 <div className={`text-center py-8 ${isDarkMode ? 'text-gray-600' : 'text-gray-400'}`}>
                   <CalendarIcon className="h-10 w-10 mx-auto mb-2 opacity-40" />
                   <p className="text-sm">No appointments today</p>
                   <p className={`text-xs mt-1 ${isDarkMode ? 'text-gray-700' : 'text-gray-300'}`}>Enjoy the quiet day!</p>
                 </div>
               ) : (
-                todayAppointments.map((apt) => (
+                dashboardTodayAppointments.map((apt) => (
                   <div key={apt.id} onClick={() => setViewModalAppointment(apt)} className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all ${isDarkMode ? 'bg-gray-800/50 hover:bg-gray-800 border border-gray-800 hover:border-gray-700' : 'bg-gray-50 hover:bg-gray-100 border border-gray-100 hover:border-gray-200'}`}>
                     <div className="flex-shrink-0 w-1 h-10 bg-amber-500 rounded-full" />
                     <div className="flex-1 min-w-0">
@@ -2829,15 +3386,22 @@ const CashierDashboard = () => {
             </div>
             <div className="space-y-2 max-h-[280px] overflow-auto">
               {(() => {
-                const pending = (Array.isArray(appointments) ? appointments : []).filter(a => a.status === 'approved' && a.payment_status !== 'paid');
-                if (pending.length === 0) return (
+                if (dashboardAppointmentsLoading) {
+                  return (
+                    <div className="flex justify-center py-8">
+                      <LoadingSpinner />
+                    </div>
+                  );
+                }
+
+                if (dashboardPendingAppointments.length === 0) return (
                   <div className={`text-center py-8 ${isDarkMode ? 'text-gray-600' : 'text-gray-400'}`}>
                     <CheckCircleIcon className="h-10 w-10 mx-auto mb-2 opacity-40" />
                     <p className="text-sm">All caught up!</p>
                     <p className={`text-xs mt-1 ${isDarkMode ? 'text-gray-700' : 'text-gray-300'}`}>No pending payments</p>
                   </div>
                 );
-                return pending.slice(0, 6).map(apt => (
+                return dashboardPendingAppointments.slice(0, 6).map(apt => (
                   <div key={apt.id} onClick={() => setViewModalAppointment(apt)} className={`flex items-center justify-between gap-3 p-3 rounded-xl cursor-pointer transition-all ${isDarkMode ? 'bg-gray-800/50 hover:bg-gray-800 border border-gray-800 hover:border-amber-500/30' : 'bg-gray-50 hover:bg-gray-100 border border-gray-100 hover:border-amber-200'}`}>
                     <div className="flex-1 min-w-0">
                       <p className={`text-sm font-medium truncate ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{apt.user?.first_name} {apt.user?.last_name}</p>
@@ -3109,9 +3673,8 @@ const CashierDashboard = () => {
       'July', 'August', 'September', 'October', 'November', 'December'];
 
     return (
-      <div className="space-y-6">
-        {/* Enhanced Interactive Calendar - constrained width */}
-        <div className="max-w-xl">
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,42rem)_minmax(0,1fr)] gap-6 items-start">
+        <div className="max-w-xl xl:max-w-none">
           <InteractiveCalendar
             appointments={filteredCalendarAppts}
             selectedDate={selectedDate}
@@ -3125,18 +3688,19 @@ const CashierDashboard = () => {
           />
         </div>
 
-        {/* Calendar Detail Panel */}
-        <CalendarDetailPanel
-          selectedDate={selectedDate}
-          appointments={filteredCalendarAppts}
-          currentMonth={currentMonth}
-          monthNames={monthNames}
-          onAppointmentClick={(apt) => {
-            setViewModalAppointment(apt);
-          }}
-          isLoading={calendarLoading}
-          isDarkMode={isDarkMode}
-        />
+        <div className="min-w-0">
+          <CalendarDetailPanel
+            selectedDate={selectedDate}
+            appointments={filteredCalendarAppts}
+            currentMonth={currentMonth}
+            monthNames={monthNames}
+            onAppointmentClick={(apt) => {
+              setViewModalAppointment(apt);
+            }}
+            isLoading={calendarLoading}
+            isDarkMode={isDarkMode}
+          />
+        </div>
       </div>
     );
   };
@@ -3270,25 +3834,49 @@ const CashierDashboard = () => {
                   </td>
                 </tr>
               ) : (
-                actionLogs.map((log) => (
+                actionLogs.map((log) => {
+                  const metadataPreview = getActionLogMetadataEntries(log.metadata).slice(0, 2);
+
+                  return (
                   <tr key={log.id} className={`border-b ${isDarkMode ? 'border-gray-800 hover:bg-gray-800/50' : 'border-gray-100 hover:bg-gray-50'} transition-colors`}>
-                    <td className={`px-4 py-3 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                    <td className={`px-4 py-3 align-top ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
                       {new Date(log.created_at).toLocaleString()}
                     </td>
-                    <td className={`px-4 py-3 ${isDarkMode ? 'text-amber-50' : 'text-gray-900'} font-medium`}>
+                    <td className={`px-4 py-3 align-top ${isDarkMode ? 'text-amber-50' : 'text-gray-900'} font-medium`}>
                       {log.user ? `${log.user.first_name || ''} ${log.user.last_name || ''}`.trim() : 'Unknown'}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3 align-top">
                       <span className={`px-2 py-1 rounded-full text-xs font-semibold ${isDarkMode ? 'bg-amber-500/20 text-amber-400' : 'bg-amber-100 text-amber-700'}`}>
                         {log.action}
                       </span>
                     </td>
-                    <td className={`px-4 py-3 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                      <div className="max-w-xs truncate" title={log.description}>
-                        {log.description}
+                    <td className={`px-4 py-3 align-top ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                      <div className="max-w-md space-y-2">
+                        <p className="text-xs leading-relaxed whitespace-normal break-words" title={log.description || ''}>
+                          {log.description || 'No description provided.'}
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          <span className={`px-2 py-1 rounded-full text-[10px] font-semibold ${getActionLogStatusClasses(log.status, isDarkMode)}`}>
+                            {formatActionLogStatus(log.status)}
+                          </span>
+                          {(log.model_type || log.model_id) && (
+                            <span className={`px-2 py-1 rounded-full text-[10px] font-medium ${isDarkMode ? 'bg-gray-800 text-gray-300' : 'bg-gray-100 text-gray-700'}`}>
+                              {log.model_type || 'Record'}{log.model_id ? ` #${log.model_id}` : ''}
+                            </span>
+                          )}
+                          {metadataPreview.map((entry) => (
+                            <span
+                              key={`${log.id}-${entry.key}`}
+                              className={`px-2 py-1 rounded-full text-[10px] font-medium ${isDarkMode ? 'bg-gray-800 text-gray-300' : 'bg-gray-100 text-gray-700'}`}
+                              title={`${entry.label}: ${entry.value}`}
+                            >
+                              {entry.label}: {entry.value}
+                            </span>
+                          ))}
+                        </div>
                       </div>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3 align-top">
                       <button
                         onClick={() => {
                           setSelectedActionLog(log);
@@ -3300,7 +3888,8 @@ const CashierDashboard = () => {
                       </button>
                     </td>
                   </tr>
-                ))
+                );
+                })
               )}
             </tbody>
           </table>
@@ -3542,7 +4131,7 @@ const CashierDashboard = () => {
               ) : (
                 transactions.map(tx => (
                   <tr key={tx.id} className={`border-b ${isDarkMode ? 'border-gray-800 hover:bg-gray-800/50' : 'border-gray-100 hover:bg-gray-50'} transition-colors`}>
-                    <td className={`px-4 py-3 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>{new Date(tx.payment_date || tx.created_at).toLocaleString()}</td>
+                    <td className={`px-4 py-3 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>{new Date(tx.payment_date || tx.created_at).toLocaleString('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</td>
                     <td className={`px-4 py-3 ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>#{tx.id}</td>
                     <td className={`px-4 py-3 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>{`${tx.user?.first_name || ''} ${tx.user?.last_name || ''}`.trim()}</td>
                     <td className={`px-4 py-3 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>{tx.service?.name || '—'}</td>
@@ -3874,11 +4463,8 @@ const CashierDashboard = () => {
       <div className="flex items-center justify-between">
         <div>
           <h2 className={`text-lg font-bold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>Refund Management</h2>
-          <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'} text-sm`}>View and manage pending refund requests</p>
+          <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'} text-sm`}>View refund requests across all statuses</p>
         </div>
-        <button onClick={loadRefunds} className="px-3 py-2 bg-amber-600 text-white rounded text-sm hover:bg-amber-700 transition-colors flex items-center gap-1">
-          <ArrowPathIcon className="h-4 w-4" /> Refresh
-        </button>
       </div>
 
       <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-gray-200'} border rounded-lg overflow-hidden`}>
@@ -3900,29 +4486,34 @@ const CashierDashboard = () => {
               ) : !Array.isArray(refunds) || refunds.length === 0 ? (
                 <tr><td colSpan="6" className={`px-4 py-8 text-center ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                   <ArrowUturnLeftIcon className="h-8 w-8 mx-auto mb-2 opacity-30" />
-                  No pending refund requests
+                  No refund requests found
                 </td></tr>
               ) : (
-                refunds.map(refund => (
-                  <tr key={refund.id} className={`border-b ${isDarkMode ? 'border-gray-800 hover:bg-gray-800/50' : 'border-gray-100 hover:bg-gray-50'} transition-colors`}>
-                    <td className={`px-4 py-3 ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>#{refund.id}</td>
-                    <td className={`px-4 py-3 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                      {refund.appointment?.user ? `${refund.appointment.user.first_name} ${refund.appointment.user.last_name}` : 'N/A'}
-                    </td>
-                    <td className={`px-4 py-3 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'} font-medium`}>{formatPrice(refund.refund_amount || 0)}</td>
-                    <td className={`px-4 py-3 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                      <div className="max-w-xs truncate" title={refund.reason || refund.refund_reason?.name || ''}>{refund.reason || refund.refund_reason?.name || '—'}</div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                        refund.status === 'approved' ? (isDarkMode ? 'bg-green-500/20 text-green-400' : 'bg-green-100 text-green-700') :
-                        refund.status === 'pending' ? (isDarkMode ? 'bg-yellow-500/20 text-yellow-400' : 'bg-yellow-100 text-yellow-700') :
-                        (isDarkMode ? 'bg-red-500/20 text-red-400' : 'bg-red-100 text-red-700')
-                      }`}>{refund.status}</span>
-                    </td>
-                    <td className={`px-4 py-3 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>{new Date(refund.created_at).toLocaleDateString()}</td>
-                  </tr>
-                ))
+                refunds.map((refund) => {
+                  const reasonLabel = formatSentenceLabel(refund.reason || refund.refund_reason?.name);
+
+                  return (
+                    <tr key={refund.id} className={`border-b ${isDarkMode ? 'border-gray-800 hover:bg-gray-800/50' : 'border-gray-100 hover:bg-gray-50'} transition-colors`}>
+                      <td className={`px-4 py-3 ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>#{refund.id}</td>
+                      <td className={`px-4 py-3 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                        {refund.appointment?.user ? `${refund.appointment.user.first_name} ${refund.appointment.user.last_name}` : 'N/A'}
+                      </td>
+                      <td className={`px-4 py-3 ${isDarkMode ? 'text-amber-400' : 'text-amber-600'} font-medium`}>{formatPrice(refund.refund_amount || 0)}</td>
+                      <td className={`px-4 py-3 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                        <div className="max-w-xs truncate" title={reasonLabel}>{reasonLabel}</div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                          refund.status === 'approved' ? (isDarkMode ? 'bg-green-500/20 text-green-400' : 'bg-green-100 text-green-700') :
+                          refund.status === 'completed' ? (isDarkMode ? 'bg-emerald-500/20 text-emerald-400' : 'bg-emerald-100 text-emerald-700') :
+                          refund.status === 'pending' ? (isDarkMode ? 'bg-yellow-500/20 text-yellow-400' : 'bg-yellow-100 text-yellow-700') :
+                          (isDarkMode ? 'bg-red-500/20 text-red-400' : 'bg-red-100 text-red-700')
+                        }`}>{refund.status}</span>
+                      </td>
+                      <td className={`px-4 py-3 ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>{formatDateDisplay(refund.created_at)}</td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -3939,18 +4530,15 @@ const CashierDashboard = () => {
           <h2 className={`text-lg font-bold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>Messages</h2>
           <p className={`${isDarkMode ? 'text-gray-400' : 'text-gray-500'} text-sm`}>Communicate with administrators</p>
         </div>
-        <button onClick={loadMessages} className="px-3 py-2 bg-amber-600 text-white rounded text-sm hover:bg-amber-700 transition-colors flex items-center gap-1">
-          <ArrowPathIcon className="h-4 w-4" /> Refresh
-        </button>
       </div>
 
-      <div className={`grid grid-cols-1 lg:grid-cols-3 gap-4 ${selectedConversation ? '' : ''}`}>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
         {/* Conversation List */}
         <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-gray-200'} border rounded-lg overflow-hidden ${selectedConversation ? 'hidden lg:block' : ''}`}>
           <div className={`px-4 py-3 border-b ${isDarkMode ? 'border-gray-800' : 'border-gray-200'}`}>
             <h3 className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>Conversations</h3>
           </div>
-          <div className="max-h-[60vh] overflow-y-auto">
+          <div className="max-h-[68vh] overflow-y-auto">
             {messagesLoading ? (
               <div className="py-8 text-center"><LoadingSpinner /></div>
             ) : messages.length === 0 ? (
@@ -3999,7 +4587,7 @@ const CashierDashboard = () => {
         </div>
 
         {/* Conversation Detail */}
-        <div className={`lg:col-span-2 ${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-gray-200'} border rounded-lg overflow-hidden flex flex-col`} style={{ minHeight: '400px' }}>
+        <div className={`lg:col-span-2 ${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-gray-200'} border rounded-lg overflow-hidden flex flex-col h-[68vh] min-h-[32rem]`}>
           {!selectedConversation ? (
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center">
@@ -4026,7 +4614,7 @@ const CashierDashboard = () => {
               </div>
 
               {/* Messages */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-3 max-h-[50vh]">
+              <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3">
                 {conversationMessages.length === 0 ? (
                   <p className={`text-xs text-center ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>No messages yet. Start the conversation!</p>
                 ) : (
@@ -4101,9 +4689,6 @@ const CashierDashboard = () => {
             className={`px-3 py-2 rounded text-xs font-medium transition-colors ${isDarkMode ? 'bg-gray-800 text-gray-300 hover:bg-gray-700' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
           >
             Mark All Read
-          </button>
-          <button onClick={loadNotifications} className="px-3 py-2 bg-amber-600 text-white rounded text-sm hover:bg-amber-700 transition-colors flex items-center gap-1">
-            <ArrowPathIcon className="h-4 w-4" /> Refresh
           </button>
         </div>
       </div>
@@ -4392,6 +4977,30 @@ const CashierDashboard = () => {
               </div>
             </div>
             <div className="flex-shrink-0 flex items-center gap-2">
+              <div className={`hidden md:inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-semibold ${
+                cashierSyncStatus === 'offline'
+                  ? (isDarkMode ? 'border-red-500/30 bg-red-500/10 text-red-200' : 'border-red-200 bg-red-50 text-red-700')
+                  : cashierSyncStatus === 'reconnecting' || cashierSyncStatus === 'syncing'
+                    ? (isDarkMode ? 'border-amber-500/30 bg-amber-500/10 text-amber-100' : 'border-amber-200 bg-amber-50 text-amber-700')
+                    : (isDarkMode ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-100' : 'border-emerald-200 bg-emerald-50 text-emerald-700')
+              }`}>
+                {cashierSyncStatus === 'offline' ? (
+                  <XCircleIcon className="h-3.5 w-3.5" />
+                ) : cashierSyncStatus === 'reconnecting' || cashierSyncStatus === 'syncing' ? (
+                  <ArrowPathIcon className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <CheckCircleIcon className="h-3.5 w-3.5" />
+                )}
+                <span>
+                  {cashierSyncStatus === 'offline'
+                    ? 'Offline'
+                    : cashierSyncStatus === 'reconnecting'
+                      ? 'Reconnecting'
+                      : cashierSyncStatus === 'syncing'
+                        ? 'Syncing'
+                        : `Live ${formatRelativeSync(lastCashierSectionSync || lastDashboardSync)}`}
+                </span>
+              </div>
               <ThemeToggle />
               <NotificationBell onViewAll={() => setActiveSection('notifications')} />
               <select
@@ -4417,9 +5026,9 @@ const CashierDashboard = () => {
       {/* Modals */}
       <LogoutModal
         isOpen={showLogoutModal}
-        onClose={() => setShowLogoutModal(false)}
+        onClose={() => !isLoggingOut && setShowLogoutModal(false)}
         onConfirm={handleLogout}
-        loading={loading}
+        loading={isLoggingOut}
         isDarkMode={isDarkMode}
       />
 
@@ -4522,8 +5131,6 @@ const CashierDashboard = () => {
               setInKindEstimatedValue={setInKindEstimatedValue}
               selectedDiscounts={selectedDiscounts}
               setSelectedDiscounts={setSelectedDiscounts}
-              discountProof={discountProof}
-              setDiscountProof={setDiscountProof}
               discountRates={discountRates}
               calculateDiscount={calculateDiscount}
               isDarkMode={isDarkMode}

@@ -24,6 +24,7 @@ try:
     from xgboost import XGBClassifier
     HAS_XGBOOST = True
 except ImportError:
+    XGBClassifier = None
     HAS_XGBOOST = False
 
 from config import ML_CONFIG
@@ -111,7 +112,7 @@ def train() -> dict:
     models['logistic_regression'] = {'model': lr, 'metrics': lr_metrics, 'needs_scaling': True}
 
     # XGBoost
-    if HAS_XGBOOST:
+    if HAS_XGBOOST and XGBClassifier is not None:
         neg_count = (y_train == 0).sum()
         pos_count = (y_train == 1).sum()
         scale_pos = neg_count / max(pos_count, 1)

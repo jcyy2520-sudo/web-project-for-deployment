@@ -9,6 +9,7 @@ use App\Models\Message;
 use App\Models\Payment;
 use App\Models\PaymentMethod;
 use App\Models\DiscountRate;
+use App\Models\Service;
 use App\Services\ReceiptService;
 use App\Mail\ReceiptMail;
 use Illuminate\Http\Request;
@@ -29,21 +30,24 @@ class CashierController extends Controller
         if (!in_array($timeframe, ['daily', 'weekly', 'monthly', 'yearly'], true)) {
             $timeframe = 'monthly';
         }
-        $cacheKey = "cashier_dashboard_stats_{$timeframe}";
+        $cashierId = $request->user()->id;
+        $cacheKey = "cashier_dashboard_stats_{$cashierId}_{$timeframe}";
         $ttl = 30; // Cache for 30 seconds
 
-        $data = Cache::remember($cacheKey, $ttl, function () use ($timeframe) {
+        $data = Cache::remember($cacheKey, $ttl, function () use ($timeframe, $cashierId) {
             $dateRange = $this->getDateRange($timeframe);
 
-            // Get revenue and sales statistics - combined queries for speed
+            // Cashier dashboard metrics must reflect only payments processed by the current cashier.
             $periodStats = DB::table('appointments')
                 ->where('payment_status', 'paid')
+                ->where('processed_by', $cashierId)
                 ->whereBetween('payment_date', $dateRange)
                 ->selectRaw('COUNT(*) as total_sales, COALESCE(SUM(payment_amount), 0) as total_revenue')
                 ->first();
 
             $todayStats = DB::table('appointments')
                 ->where('payment_status', 'paid')
+                ->where('processed_by', $cashierId)
                 ->whereDate('payment_date', now())
                 ->selectRaw('COUNT(*) as today_sales, COALESCE(SUM(payment_amount), 0) as today_revenue')
                 ->first();
@@ -56,10 +60,10 @@ class CashierController extends Controller
             ];
 
             // Get revenue trend data
-            $revenueTrend = $this->getRevenueTrend($timeframe);
+            $revenueTrend = $this->getRevenueTrend($timeframe, $cashierId);
             
             // Get sales by service
-            $salesByService = $this->getSalesByService($dateRange);
+            $salesByService = $this->getSalesByService($dateRange, $cashierId);
 
             return [
                 'stats' => $stats,
@@ -262,15 +266,6 @@ class CashierController extends Controller
                     $discountRateFromDb = (float) $discountRate->discount_percentage;
                     $discountAmount = round(($servicePrice * $discountRateFromDb) / 100, 2);
                     $discountType = ucfirst(str_replace('_', ' ', $dbKey)) . " ({$discountRateFromDb}%)";
-
-                    // Phase 2 #2: Require ID proof for discounts
-                    if (empty($request->discount_proof)) {
-                        DB::rollBack();
-                        return response()->json([
-                            'message' => 'ID/proof reference is required when applying a discount (e.g. PWD Card #12345)',
-                            'success' => false
-                        ], 422);
-                    }
                 } else {
                     // Unknown discount type — reject
                     DB::rollBack();
@@ -393,6 +388,7 @@ class CashierController extends Controller
                     'amount_paid' => $totalPaid,
                     'discount_amount' => $discountAmount,
                     'discount_proof' => $request->discount_proof,
+                    'payment_method_id' => $this->resolvePaymentMethodId($paymentType),
                     'in_kind_estimated_value' => $paymentType === 'in-kind' ? $request->in_kind_estimated_value : null,
                     'goods_description' => $paymentType === 'in-kind' ? $request->goods_description : null,
                     'payment_date' => now(),
@@ -492,7 +488,16 @@ class CashierController extends Controller
     {
         $month = $request->get('month', now()->month);
         $year = $request->get('year', now()->year);
-        $status = $request->get('status', null); // Optional: filter by status
+        $requestedStatuses = $request->input('status');
+
+        $statuses = collect(is_array($requestedStatuses) ? $requestedStatuses : explode(',', (string) $requestedStatuses))
+            ->map(fn ($status) => trim((string) $status))
+            ->filter(fn ($status) => in_array($status, ['pending', 'approved', 'completed', 'cancelled', 'declined', 'no_show'], true))
+            ->values();
+
+        if ($statuses->isEmpty()) {
+            $statuses = collect(['pending', 'approved']);
+        }
 
         $startDate = Carbon::create($year, $month, 1)->startOfMonth();
         $endDate = Carbon::create($year, $month, 1)->endOfMonth();
@@ -500,23 +505,50 @@ class CashierController extends Controller
         $query = Appointment::with([
             'user:id,first_name,last_name,email',
             'service:id,name,price',
+            'services:id,name,price',
             'activeRefund'
         ])
-        ->whereBetween('appointment_date', [$startDate, $endDate]);
-
-        // If no status filter provided, show both approved and completed appointments
-        // This gives cashier full visibility of appointments they can process or have processed
-        if ($status) {
-            $query->where('status', $status);
-        } else {
-            // Include approved (ready for payment) and completed (paid) appointments
-            $query->whereIn('status', ['approved', 'completed']);
-        }
+        ->whereBetween('appointment_date', [$startDate, $endDate])
+        ->whereIn('status', $statuses->all());
 
         $appointments = $query->orderBy('appointment_date', 'asc')
             ->orderBy('appointment_time', 'asc')
             ->get()
             ->map(function ($apt) {
+            $serviceItems = $apt->services
+                ->map(function ($service) {
+                    return [
+                        'id' => $service->id,
+                        'name' => $service->name,
+                        'price' => (float) ($service->pivot->price_at_booking ?? $service->price ?? 0),
+                    ];
+                })
+                ->values();
+
+            $primaryService = $serviceItems->first();
+            $serviceName = $serviceItems->pluck('name')->filter()->join(', ');
+            $servicePrice = $serviceItems->sum('price');
+
+            if (!$primaryService && $apt->service) {
+                $primaryService = [
+                    'id' => $apt->service->id,
+                    'name' => $apt->service->name,
+                    'price' => (float) ($apt->service->price ?? 0),
+                ];
+                $serviceName = $apt->service->name;
+                $servicePrice = (float) ($apt->service->price ?? 0);
+            }
+
+            if (!$primaryService) {
+                $serviceName = $serviceName ?: ($apt->service_type ?? 'Service');
+                $servicePrice = $servicePrice ?: (float) ($apt->payment_amount ?? 0);
+                $primaryService = [
+                    'id' => null,
+                    'name' => $serviceName,
+                    'price' => $servicePrice,
+                ];
+            }
+
             return [
                 'id' => $apt->id,
                 'user_id' => $apt->user_id,
@@ -543,15 +575,12 @@ class CashierController extends Controller
                     'last_name' => $apt->user->last_name,
                     'email' => $apt->user->email,
                 ] : null,
-                'service' => $apt->service ? [
-                    'id' => $apt->service->id,
-                    'name' => $apt->service->name,
-                    'price' => (float)($apt->service->price ?? 0),
-                ] : [
-                    'id' => null,
-                    'name' => $apt->service_type ?? 'Service',
-                    'price' => (float)($apt->payment_amount ?? 0),
+                'service' => [
+                    'id' => $primaryService['id'],
+                    'name' => $serviceName ?: $primaryService['name'],
+                    'price' => $servicePrice ?: (float) ($primaryService['price'] ?? 0),
                 ],
+                'services' => $serviceItems,
                 'completed_at' => $apt->completed_at,
                 'completed_by' => $apt->completed_by ?? null,
                 'payment_date' => $apt->payment_date,
@@ -581,7 +610,6 @@ class CashierController extends Controller
     {
         $type = $request->get('type', 'cashier'); // default to 'cashier' for cashier's own logs
         $currentUserId = $request->user()->id;
-        $currentUserRole = $request->user()->role;
         
         $query = ActionLog::with('user:id,first_name,last_name,role')
             ->orderBy('created_at', 'desc');
@@ -590,10 +618,14 @@ class CashierController extends Controller
             // Get only the current user's own logs (My Logs tab)
             $query->where('user_id', $currentUserId);
         } else {
-            // Get all logs from admin users only (Admin Logs tab)
-            // This shows what admins have done, regardless of who is viewing
-            $query->whereHas('user', function($q) {
-                $q->where('role', 'admin');
+            // Admin logs may come from the legacy role column or the Spatie admin role.
+            $query->whereHas('user', function ($q) {
+                $q->where(function ($roleQuery) {
+                    $roleQuery->where('role', 'admin')
+                        ->orWhereHas('roles', function ($spatieRoleQuery) {
+                            $spatieRoleQuery->where('name', 'admin');
+                        });
+                });
             });
         }
 
@@ -707,11 +739,12 @@ class CashierController extends Controller
     /**
      * Helper: Get revenue trend
      */
-    private function getRevenueTrend($timeframe)
+    private function getRevenueTrend($timeframe, int $cashierId)
     {
         $dateRange = $this->getDateRange($timeframe);
         
         $query = Appointment::where('payment_status', 'paid')
+            ->where('processed_by', $cashierId)
             ->whereBetween('payment_date', $dateRange)
             ->select(
                 DB::raw('DATE(payment_date) as date'),
@@ -732,17 +765,45 @@ class CashierController extends Controller
     /**
      * Helper: Get sales by service - optimized with raw query
      */
-    private function getSalesByService($dateRange)
+    private function getSalesByService($dateRange, int $cashierId)
     {
         $colors = ['#f59e0b', '#3b82f6', '#10b981', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6'];
-        
-        $services = DB::table('appointments')
-            ->join('services', 'appointments.service_id', '=', 'services.id')
+
+        $pivotSales = DB::table('appointment_service')
+            ->join('appointments', 'appointments.id', '=', 'appointment_service.appointment_id')
             ->where('appointments.payment_status', 'paid')
+            ->where('appointments.processed_by', $cashierId)
             ->whereBetween('appointments.payment_date', $dateRange)
-            ->select('services.name', DB::raw('COUNT(*) as count'))
-            ->groupBy('services.name')
-            ->orderBy('count', 'desc')
+            ->select('appointment_service.service_id', DB::raw('COUNT(DISTINCT appointment_service.appointment_id) as appointment_count'))
+            ->groupBy('appointment_service.service_id');
+
+        $legacySales = DB::table('appointments')
+            ->whereNotNull('service_id')
+            ->where('payment_status', 'paid')
+            ->where('processed_by', $cashierId)
+            ->whereBetween('payment_date', $dateRange)
+            ->whereNotExists(function ($query) {
+                $query->select(DB::raw(1))
+                    ->from('appointment_service')
+                    ->whereColumn('appointment_service.appointment_id', 'appointments.id');
+            })
+            ->select('service_id', DB::raw('COUNT(*) as appointment_count'))
+            ->groupBy('service_id');
+
+        $services = Service::query()
+            ->where('services.is_active', true)
+            ->leftJoinSub($pivotSales, 'pivot_sales', function ($join) {
+                $join->on('services.id', '=', 'pivot_sales.service_id');
+            })
+            ->leftJoinSub($legacySales, 'legacy_sales', function ($join) {
+                $join->on('services.id', '=', 'legacy_sales.service_id');
+            })
+            ->select(
+                'services.name',
+                DB::raw('COALESCE(pivot_sales.appointment_count, 0) + COALESCE(legacy_sales.appointment_count, 0) as count')
+            )
+            ->orderByDesc('count')
+            ->orderBy('services.name')
             ->get();
 
         return $services->map(function($item, $index) use ($colors) {
@@ -761,6 +822,24 @@ class CashierController extends Controller
     {
         $colors = ['#f59e0b', '#3b82f6', '#10b981', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6'];
         return $colors[array_rand($colors)];
+    }
+
+    private function resolvePaymentMethodId(string $paymentType): int
+    {
+        $definition = match ($paymentType) {
+            'card' => ['slug' => 'card', 'name' => 'Card', 'description' => 'Credit/Debit card payment'],
+            'in-kind' => ['slug' => 'goods_barter', 'name' => 'Goods/Barter', 'description' => 'Payment in goods or services'],
+            'online' => ['slug' => 'online_gateway', 'name' => 'Online Gateway', 'description' => 'Hosted online checkout payment'],
+            default => ['slug' => 'cash', 'name' => 'Cash', 'description' => 'Cash payment'],
+        };
+
+        return PaymentMethod::firstOrCreate(
+            ['slug' => $definition['slug']],
+            [
+                'name' => $definition['name'],
+                'description' => $definition['description'],
+            ]
+        )->id;
     }
 
     /**
@@ -1067,8 +1146,12 @@ class CashierController extends Controller
         } catch (\Exception $e) {
             // If tags not supported, clear known cashier cache keys by pattern
             \Log::debug('Cache tagging not supported, using key-based fallback: ' . $e->getMessage());
+            $cashierId = auth()->id();
             foreach (['daily', 'weekly', 'monthly', 'yearly'] as $timeframe) {
                 Cache::forget("cashier_dashboard_stats_{$timeframe}");
+                if ($cashierId) {
+                    Cache::forget("cashier_dashboard_stats_{$cashierId}_{$timeframe}");
+                }
             }
             // Clear approved appointments cache (pattern-based keys)
             // Since keys are hashed, we clear the most common patterns

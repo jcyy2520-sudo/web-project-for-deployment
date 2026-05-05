@@ -44,15 +44,23 @@ import './index.css'
 const isProduction = import.meta.env.PROD;
 const envApiUrl = import.meta.env.VITE_API_URL;
 
+const normalizeApiBaseUrl = (value) => {
+  if (!value) {
+    return value;
+  }
+
+  return value.replace(/\/$/, '').replace(/\/api$/, '');
+};
+
 // Determine API URL with proper fallback
 // NOTE: Do NOT include /api here - the routes already have /api prefix
 // IMPORTANT: Set VITE_API_URL in .env for production builds
 let API_URL;
 if (envApiUrl) {
-  API_URL = envApiUrl;
+  API_URL = normalizeApiBaseUrl(envApiUrl);
 } else if (isProduction) {
   // Production builds MUST set VITE_API_URL; this fallback ensures graceful degradation
-  API_URL = import.meta.env.VITE_PRODUCTION_API_URL || 'https://legaleaase.site';
+  API_URL = normalizeApiBaseUrl(import.meta.env.VITE_PRODUCTION_API_URL || 'https://legaleaase.site');
   console.warn('[config] VITE_API_URL not set for production build. Using fallback.');
 } else {
   // Development: Don't set baseURL - let Vite proxy handle /api routes
@@ -83,127 +91,112 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 //   `VITE_PUSHER_KEY`, `VITE_PUSHER_CLUSTER`, `VITE_PUSHER_HOST` as needed.
 // - If not available, this gracefully falls back to a no-op stub.
 ;(async function setupEchoClient() {
-  const key = import.meta.env.VITE_PUSHER_KEY || window?.PUSHER_KEY || null;
-  // Disable Echo entirely in dev when no key is provided to avoid noisy CORS/WS errors
-  if (!key) {
-    // No credentials provided — create a lightweight stub that exposes `window.Echo` to avoid breakage
+  const createEchoStub = () => {
     window.Echo = window.Echo || {
       connected: false,
       channel: () => ({ listen: () => {}, stopListening: () => {} }),
-      private: () => ({ listen: () => {} }),
+      private: () => ({ listen: () => {}, stopListening: () => {} }),
     };
-    console.debug('Echo not initialized: no PUSHER key found; running in stub mode');
+  };
+
+  const resolveRealtimeConfig = async () => {
+    const envConfig = {
+      enabled: Boolean(import.meta.env.VITE_REVERB_APP_KEY || import.meta.env.VITE_PUSHER_KEY || window?.PUSHER_KEY),
+      key: import.meta.env.VITE_REVERB_APP_KEY || import.meta.env.VITE_PUSHER_KEY || window?.PUSHER_KEY || null,
+      host: import.meta.env.VITE_REVERB_HOST || null,
+      port: import.meta.env.VITE_REVERB_PORT || null,
+      scheme: import.meta.env.VITE_REVERB_SCHEME || null,
+    };
+
+    try {
+      const response = await axios.get('/api/realtime/broadcast-config', { timeout: 5000 });
+      const serverConfig = response.data?.data;
+
+      if (serverConfig?.key) {
+        return {
+          enabled: Boolean(serverConfig.enabled),
+          key: serverConfig.key,
+          host: serverConfig.host,
+          port: serverConfig.port,
+          scheme: serverConfig.scheme,
+        };
+      }
+    } catch (error) {
+      console.debug('Realtime config endpoint unavailable, falling back to Vite env.', error);
+    }
+
+    return envConfig;
+  };
+
+  const realtimeConfig = await resolveRealtimeConfig();
+  const key = realtimeConfig.key;
+
+  if (!realtimeConfig.enabled || !key) {
+    createEchoStub();
+    console.debug('Echo not initialized: no realtime config found; running in stub mode');
     return;
   }
 
   try {
-    // Prefer local packages when available (installed via npm). Fall back to CDN otherwise.
-    let LocalPusher = null;
-    let LocalEcho = null;
-    try {
-      // Dynamic import - will succeed if packages installed (e.g., npm install pusher-js laravel-echo)
-      LocalPusher = (await import('pusher-js')).default || (await import('pusher-js'));
-      LocalEcho = (await import('laravel-echo')).default || (await import('laravel-echo'));
-    } catch (localErr) {
-      // Not installed or import failed; fall back to CDN
-      const loadScript = (src) => new Promise((resolve, reject) => {
-        const s = document.createElement('script');
-        s.src = src;
-        s.async = true;
-        s.onload = () => resolve();
-        s.onerror = (e) => reject(e);
-        document.head.appendChild(s);
-      });
+    const Pusher = (await import('pusher-js')).default || window.Pusher;
+    const Echo = (await import('laravel-echo')).default || window.Echo;
 
-      const pusherCdn = 'https://js.pusher.com/7.2/pusher.min.js';
-      const echoCdn = 'https://cdn.jsdelivr.net/npm/laravel-echo/dist/echo.iife.js';
+    window.Pusher = Pusher;
 
-      try { await loadScript(pusherCdn); } catch (e) { console.warn('Failed to load Pusher from CDN', e); }
-      try { await loadScript(echoCdn); } catch (e) { console.debug('Laravel Echo script not loaded from CDN', e); }
+    const normalizedHost = realtimeConfig.host && !['0.0.0.0', '127.0.0.1', 'localhost'].includes(realtimeConfig.host)
+      ? realtimeConfig.host
+      : window.location.hostname;
+    const scheme = realtimeConfig.scheme || (window.location.protocol === 'https:' ? 'https' : 'http');
+    const port = Number(realtimeConfig.port || (scheme === 'https' ? 443 : 8080));
 
-      LocalPusher = window.Pusher;
-      LocalEcho = window.Echo;
-    }
+    window.Echo = new Echo({
+        broadcaster: 'reverb',
+        key,
+        wsHost: normalizedHost,
+        wsPort: port,
+        wssPort: port,
+        forceTLS: scheme === 'https',
+        enabledTransports: ['ws', 'wss'],
+    });
 
-    const cluster = import.meta.env.VITE_PUSHER_CLUSTER || window?.PUSHER_CLUSTER || undefined;
-    const host = import.meta.env.VITE_PUSHER_HOST || window?.PUSHER_HOST || undefined;
+    window.__echoBridgeCleanup?.();
 
-    // If local imports are available, use them; else use UMD globals from CDN
-    if (LocalEcho && (typeof LocalEcho === 'function' || typeof LocalEcho === 'object')) {
-      // If LocalEcho is the module constructor
-      if (typeof LocalEcho === 'function') {
-        // If we imported the Pusher constructor, instantiate it so Echo receives a client instance
-        const pusherClient = LocalPusher ? new LocalPusher(key, {
-          cluster,
-          wsHost: host || undefined,
-          wsPort: host ? 6001 : undefined,
-          forceTLS: !!(import.meta.env.PROD),
-        }) : (window.Pusher || undefined);
+    const registerRealtimeBridge = (channelName, eventName, browserEventName) => {
+      const channel = window.Echo.channel(channelName);
 
-        window.Echo = new LocalEcho({
-          broadcaster: 'pusher',
-          key,
-          cluster,
-          wsHost: host || undefined,
-          wsPort: host ? 6001 : undefined,
-          forceTLS: !!(import.meta.env.PROD),
-          client: pusherClient,
-        });
-      } else {
-        // LocalEcho may be the UMD-like exposed object
-        window.Echo = new (LocalEcho || window.Echo)({
-          broadcaster: 'pusher',
-          key,
-          cluster,
-          wsHost: host || undefined,
-          wsPort: host ? 6001 : undefined,
-          forceTLS: !!(import.meta.env.PROD),
-        });
+      if (!channel || typeof channel.listen !== 'function') {
+        return null;
       }
-    } else if (window.Pusher) {
-      // Build a minimal wrapper around Pusher to mimic the channel/listen API used in app
-      const pusher = new window.Pusher(key, {
-        cluster,
-        wsHost: host || undefined,
-        wsPort: host ? 6001 : undefined,
-        forceTLS: !!(import.meta.env.PROD),
+
+      channel.listen(eventName, (event) => {
+        window.dispatchEvent(new CustomEvent(browserEventName, { detail: event }));
       });
 
-      window.Echo = {
-        _pusher: pusher,
-        connected: true,
-        channel: (name) => ({
-          listen: (event, cb) => {
-            try { pusher.subscribe(name).bind(event, cb); } catch (e) { console.debug(e); }
-          },
-          stopListening: () => { try { pusher.unsubscribe(name); } catch (e) {} }
-        }),
-        private: (name) => ({ listen: (event, cb) => { try { pusher.subscribe(name).bind(event, cb); } catch (e) {} } })
+      return () => {
+        try {
+          if (typeof channel.stopListening === 'function') {
+            channel.stopListening(eventName);
+          }
+        } catch (error) {
+          console.debug(`Echo cleanup failed for ${channelName}:${eventName}`, error);
+        }
       };
-    } else {
-      window.Echo = window.Echo || {
-        connected: false,
-        channel: () => ({ listen: () => {}, stopListening: () => {} }),
-        private: () => ({ listen: () => {} }),
-      };
-    }
+    };
 
-    // Listen for admin broadcast notifications for unavailable dates
-    try {
-      window.Echo.channel('unavailable-dates').listen('UnavailableDatesUpdated', (e) => {
-        window.dispatchEvent(new CustomEvent('unavailableDatesChanged', { detail: e }));
-      });
-    } catch (e) {
-      console.debug('Echo channel setup failed:', e);
-    }
+    const bridgeCleanups = [
+      registerRealtimeBridge('unavailable-dates', 'UnavailableDatesUpdated', 'unavailableDatesChanged'),
+      registerRealtimeBridge('slot-capacities', '.SlotCapacityChanged', 'slotCapacitiesChanged'),
+      registerRealtimeBridge('appointment-settings', '.AppointmentSettingsChanged', 'appointmentSettingsChanged'),
+    ].filter(Boolean);
 
-    console.debug('Laravel Echo initialization attempted (CDN/runtime)');
+    window.__echoBridgeCleanup = () => {
+      bridgeCleanups.forEach((cleanup) => cleanup());
+      delete window.__echoBridgeCleanup;
+    };
+
+    console.debug('Laravel Echo initialization attempted');
   } catch (err) {
     console.warn('Failed to initialize Echo at runtime. Using stub.', err);
-    window.Echo = window.Echo || {
-      connected: false,
-      channel: () => ({ listen: () => {}, stopListening: () => {} }),
-      private: () => ({ listen: () => {} }),
-    };
+    createEchoStub();
   }
 })();

@@ -53,7 +53,7 @@ class RefundApprovedMail extends Mailable
     public function content(): Content
     {
         return new Content(
-            view: 'emails.refund-approved',
+            markdown: 'emails.refund-approved',
             with: [
                 'refund' => $this->refund,
                 'appointmentDetails' => $this->appointmentDetails,

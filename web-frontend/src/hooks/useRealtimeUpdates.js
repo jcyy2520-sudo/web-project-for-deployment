@@ -15,6 +15,11 @@ export const useRealtimeUpdates = (onCapacityChange, onSettingsChange, onUnavail
   const consecutiveErrorsRef = useRef(0);
   const MAX_CONSECUTIVE_ERRORS = 5;
 
+  const resolvePollingInterval = () => {
+    const connectionState = window?.Echo?.connector?.pusher?.connection?.state;
+    return connectionState === 'connected' ? 30000 : 10000;
+  };
+
   /**
    * Start polling for updates
    */
@@ -120,7 +125,7 @@ export const useRealtimeUpdates = (onCapacityChange, onSettingsChange, onUnavail
     pollUpdates();
 
     // Poll every 30 seconds for changes (reduced from 10s for performance)
-    pollingIntervalRef.current = setInterval(pollUpdates, 30000);
+    pollingIntervalRef.current = setInterval(pollUpdates, resolvePollingInterval());
   }, [onCapacityChange, onSettingsChange, onUnavailableDatesChange, onAppointmentStatusChange]);
 
   /**

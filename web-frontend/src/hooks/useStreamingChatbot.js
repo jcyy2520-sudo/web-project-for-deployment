@@ -226,18 +226,19 @@ export const useStreamingChatbot = () => {
    */
   const sendStreamingMessage = async (userMessage, userMsgId) => {
     const convId = conversationId || `chat_${Date.now()}`;
+    const baseURL = axios.defaults.baseURL || '';
     
     // Create abort controller
     const abortController = new AbortController();
     streamAbortRef.current = abortController;
 
-    const response = await fetch('/api/chatbot/stream', {
+    const response = await fetch(`${baseURL}/api/chatbot/stream`, {
       method: 'POST',
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'text/event-stream',
         'X-Session-ID': sessionIdRef.current,
-        'Authorization': `Bearer ${localStorage.getItem('token')}`,
       },
       body: JSON.stringify({
         message: userMessage,

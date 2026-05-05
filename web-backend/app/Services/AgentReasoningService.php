@@ -31,6 +31,7 @@ class AgentReasoningService
     private ChatbotSecurityService $securityService;
 
     private const TOOL_CALL_PATTERN = '/```tool_call\s*\n?\s*(\{.*?\})\s*\n?\s*```/s';
+    private const XML_TOOL_CALL_PATTERN = '/<([a-z_]+)>\s*((?:<parameter=[a-z_]+>.*?<\/parameter>\s*)+)<\/\1>/is';
 
     public function __construct(
         LLMService $llmService,
@@ -51,6 +52,7 @@ class AgentReasoningService
      * @param int|null $userId        Authenticated user ID
      * @param string $role            User role
      * @param array $pendingConfirmation Any pending destructive action awaiting confirmation
+     * @param string|null $actorKey   Session-scoped actor key for guest confirmation isolation
      * @return array ['response' => string, 'tool_calls' => array, 'reasoning_steps' => int, ...]
      */
     public function reason(
@@ -59,11 +61,13 @@ class AgentReasoningService
         array $conversationHistory,
         ?int $userId,
         string $role,
-        array $pendingConfirmation = []
+        array $pendingConfirmation = [],
+        ?string $actorKey = null
     ): array {
         $toolCalls = [];
         $step = 0;
         $toolResultContext = '';
+        $pendingActorKey = $this->resolvePendingActorKey($userId, $actorKey);
 
         // Check for confirmation of a pending destructive action
         if (!empty($pendingConfirmation)) {
@@ -86,7 +90,7 @@ class AgentReasoningService
                 'user_id' => $userId,
                 'pending_tool' => $pendingConfirmation['tool'] ?? 'unknown',
             ]);
-            $this->storePendingToolCall($userId, $pendingConfirmation['tool'], $pendingConfirmation['arguments']);
+            $this->storePendingToolCall($userId, $pendingConfirmation['tool'], $pendingConfirmation['arguments'], $pendingActorKey);
         }
 
         // SECURITY: Neutralize any tool_call blocks injected in the user message
@@ -206,6 +210,15 @@ class AgentReasoningService
                     if ($toolName === 'book_appointment') {
                         $preValidation = $this->toolRegistry->validateBookingSlot($toolArgs, $userId ?? 0);
                         if (!$preValidation['valid']) {
+                            $bookingDecision = $this->analyzeBookingDecision(
+                                $userMessage,
+                                $toolArgs,
+                                $userId,
+                                $role,
+                                $preValidation['error'] ?? 'Validation failed.'
+                            );
+                            $this->logBookingDecision($userMessage, $toolArgs, $userId, $role, $bookingDecision);
+
                             Log::info('AgentReasoning: Booking pre-validation failed, feeding error back to LLM', [
                                 'user_id' => $userId,
                                 'error' => $preValidation['error'],
@@ -216,13 +229,28 @@ class AgentReasoningService
                             $rawMessages[] = ['role' => 'assistant', 'content' => $assistantText];
                             $rawMessages[] = [
                                 'role' => 'user',
-                                'content' => "Tool `book_appointment` validation failed: {$preValidation['error']}\nAsk the user for the missing or invalid information. If service was not recognized, call get_available_services first to find the correct service ID.",
+                                'content' => $this->buildBookingClarificationInstruction($preValidation['error']),
                             ];
                             continue; // Let LLM retry with corrected params
                         }
+
+                        $bookingDecision = $this->analyzeBookingDecision($userMessage, $toolArgs, $userId, $role);
+                        $this->logBookingDecision($userMessage, $toolArgs, $userId, $role, $bookingDecision);
+
+                        if ($bookingDecision['execute_immediately']) {
+                            return $this->executeToolImmediately(
+                                $toolName,
+                                $toolArgs,
+                                $userId,
+                                $role,
+                                $toolCalls,
+                                $step,
+                                $llmResult
+                            );
+                        }
                     }
 
-                    $confirmKey = $this->storePendingToolCall($userId, $toolName, $toolArgs);
+                    $confirmKey = $this->storePendingToolCall($userId, $toolName, $toolArgs, $pendingActorKey);
 
                     Log::info('AgentReasoning: Destructive tool requires confirmation', [
                         'user_id' => $userId,
@@ -343,7 +371,52 @@ class AgentReasoningService
             }
 
             if ($this->toolRegistry->isDestructiveTool($toolName)) {
-                $confirmKey = $this->storePendingToolCall($userId, $toolName, $toolArgs);
+                if ($toolName === 'book_appointment') {
+                    $preValidation = $this->toolRegistry->validateBookingSlot($toolArgs, $userId ?? 0);
+                    if (!$preValidation['valid']) {
+                        $bookingDecision = $this->analyzeBookingDecision(
+                            $userMessage,
+                            $toolArgs,
+                            $userId,
+                            $role,
+                            $preValidation['error'] ?? 'Validation failed.'
+                        );
+                        $this->logBookingDecision($userMessage, $toolArgs, $userId, $role, $bookingDecision);
+
+                        Log::info('AgentReasoning: Booking pre-validation failed on text-based path, feeding error back to LLM', [
+                            'user_id' => $userId,
+                            'error' => $preValidation['error'],
+                            'tool_args' => $toolArgs,
+                        ]);
+                        $assistantText = $this->extractPreToolText($llmResponse);
+                        $rawMessages[] = [
+                            'role' => 'assistant',
+                            'content' => !empty(trim($assistantText)) ? $assistantText : 'Attempting to book appointment...',
+                        ];
+                        $rawMessages[] = [
+                            'role' => 'user',
+                            'content' => $this->buildBookingClarificationInstruction($preValidation['error']),
+                        ];
+                        continue;
+                    }
+
+                    $bookingDecision = $this->analyzeBookingDecision($userMessage, $toolArgs, $userId, $role);
+                    $this->logBookingDecision($userMessage, $toolArgs, $userId, $role, $bookingDecision);
+
+                    if ($bookingDecision['execute_immediately']) {
+                        return $this->executeToolImmediately(
+                            $toolName,
+                            $toolArgs,
+                            $userId,
+                            $role,
+                            $toolCalls,
+                            $step,
+                            $llmResult
+                        );
+                    }
+                }
+
+                $confirmKey = $this->storePendingToolCall($userId, $toolName, $toolArgs, $pendingActorKey);
 
                 Log::info('AgentReasoning: Destructive tool detected (text-based path), requires confirmation', [
                     'user_id' => $userId,
@@ -466,6 +539,7 @@ class AgentReasoningService
      *   2. tool_call\n{"tool": "...", "arguments": {...}}           (fences stripped)
      *   3. _call\n{"name": "...", "parameters": {...}}              (LLM variant)
      *   4. Bare JSON {"tool"/"name": "...", "arguments"/"parameters": {...}}
+        *   5. <tool_name><parameter=key>value</parameter>...</tool_name>     (XML-like variant)
      * Returns null if no tool call is found.
      */
     private function parseToolCall(string $response): ?array
@@ -500,7 +574,55 @@ class AgentReasoningService
             if ($result) return $result;
         }
 
+        // Pattern 6: XML-like tool wrapper with parameter tags
+        $result = $this->parseXmlLikeToolCall($response);
+        if ($result) {
+            return $result;
+        }
+
         return null;
+    }
+
+    /**
+     * Parse XML-like tool call blocks such as:
+     * <get_available_slots>
+     *   <parameter=service_id>Document Review</parameter>
+     *   <parameter=date>2026-05-04</parameter>
+     * </get_available_slots>
+     */
+    private function parseXmlLikeToolCall(string $response): ?array
+    {
+        if (!preg_match(self::XML_TOOL_CALL_PATTERN, $response, $matches)) {
+            return null;
+        }
+
+        $toolName = $matches[1] ?? null;
+        $parameterBlock = $matches[2] ?? '';
+
+        if (!is_string($toolName) || $toolName === '') {
+            return null;
+        }
+
+        if (!$this->toolRegistry->toolExists($toolName)) {
+            Log::warning('AgentReasoning: LLM requested unknown XML-like tool', ['tool' => $toolName]);
+            return null;
+        }
+
+        $arguments = [];
+        if (preg_match_all('/<parameter=([a-z_]+)>(.*?)<\/parameter>/is', $parameterBlock, $parameterMatches, PREG_SET_ORDER)) {
+            foreach ($parameterMatches as $parameterMatch) {
+                $key = trim((string) ($parameterMatch[1] ?? ''));
+                $value = trim(html_entity_decode(strip_tags((string) ($parameterMatch[2] ?? '')), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+
+                if ($key === '') {
+                    continue;
+                }
+
+                $arguments[$key] = $value;
+            }
+        }
+
+        return ['tool' => $toolName, 'arguments' => $arguments];
     }
 
     /**
@@ -573,6 +695,13 @@ class AgentReasoningService
         if (count($parts) > 1 && !empty(trim($parts[0]))) {
             return trim($parts[0]);
         }
+
+        // Try XML-like tool wrapper
+        $parts = preg_split(self::XML_TOOL_CALL_PATTERN, $response, 2);
+        if (count($parts) > 1 && !empty(trim($parts[0]))) {
+            return trim($parts[0]);
+        }
+
         // Try _call and other variant patterns
         $parts = preg_split('/(?:_call|tool_call)\s*\n\s*\{/s', $response, 2);
         $text = trim($parts[0] ?? '');
@@ -708,6 +837,8 @@ class AgentReasoningService
     {
         // Remove any stray tool_call blocks that might have been partial
         $response = preg_replace('/```tool_call.*?```/s', '', $response);
+        // Remove XML-like tool call blocks that some providers emit
+        $response = preg_replace(self::XML_TOOL_CALL_PATTERN, '', $response);
         // Remove malformed tool call variants the LLM might generate
         // e.g., "_call { ... }", "```json\n{\"action\":...}\n```", "tool_call\n{...}", etc.
         $response = preg_replace('/\b_?(?:tool_?)?call\s*\n?\s*\{[^}]*"(?:action|tool|function|name)"[^}]*\}/si', '', $response);
@@ -727,12 +858,10 @@ class AgentReasoningService
      */
     private function handleConfirmation(string $userMessage, array $pending, ?int $userId, string $role): ?array
     {
-        $lower = mb_strtolower(trim($userMessage));
-        $affirmatives = ['yes', 'confirm', 'ok', 'proceed', 'go ahead', 'do it', 'sure', 'yep', 'yeah', 'yup', 'absolutely', 'please', 'correct', 'oo', 'sige', 'opo', 'oo po', 'g', 'y'];
-        $negatives = ['no', 'cancel', 'stop', 'never mind', 'nevermind', 'nope', 'nah', 'dont', 'don\'t', 'abort', 'wait', 'hindi', 'huwag', 'ayaw', 'wag', 'hindi po', 'ayoko'];
-
-        $isConfirm = in_array($lower, $affirmatives) || str_starts_with($lower, 'yes') || str_starts_with($lower, 'confirm') || str_starts_with($lower, 'go ahead') || str_starts_with($lower, 'proceed');
-        $isDeny = in_array($lower, $negatives) || str_starts_with($lower, 'no ') || str_starts_with($lower, 'cancel') || str_starts_with($lower, 'stop');
+        $intent = self::detectConfirmationIntent($userMessage);
+        $lower = $intent['normalized'];
+        $isConfirm = $intent['is_confirm'];
+        $isDeny = $intent['is_deny'];
 
         if (!$isConfirm && !$isDeny) {
             Log::debug('AgentReasoning: Confirmation not detected in message', [
@@ -787,6 +916,19 @@ class AgentReasoningService
             'action_buttons' => $actionButtons,
             'reasoning_steps' => 1,
             'confirmed_action' => true,
+        ];
+    }
+
+    public static function detectConfirmationIntent(string $userMessage): array
+    {
+        $lower = mb_strtolower(trim($userMessage));
+        $affirmatives = ['yes', 'confirm', 'ok', 'proceed', 'go ahead', 'do it', 'sure', 'yep', 'yeah', 'yup', 'absolutely', 'please', 'correct', 'oo', 'sige', 'opo', 'oo po', 'g', 'y'];
+        $negatives = ['no', 'cancel', 'stop', 'never mind', 'nevermind', 'nope', 'nah', 'dont', 'don\'t', 'abort', 'wait', 'hindi', 'huwag', 'ayaw', 'wag', 'hindi po', 'ayoko'];
+
+        return [
+            'normalized' => $lower,
+            'is_confirm' => in_array($lower, $affirmatives) || str_starts_with($lower, 'yes') || str_starts_with($lower, 'confirm') || str_starts_with($lower, 'go ahead') || str_starts_with($lower, 'proceed'),
+            'is_deny' => in_array($lower, $negatives) || str_starts_with($lower, 'no ') || str_starts_with($lower, 'cancel') || str_starts_with($lower, 'stop'),
         ];
     }
 
@@ -906,9 +1048,9 @@ class AgentReasoningService
     /**
      * Store a pending destructive tool call awaiting user confirmation.
      */
-    private function storePendingToolCall(?int $userId, string $toolName, array $args): string
+    private function storePendingToolCall(?int $userId, string $toolName, array $args, ?string $actorKey = null): string
     {
-        $key = 'agent_confirm_' . ($userId ?? 'guest') . '_pending';
+        $key = self::buildPendingConfirmationCacheKey($this->resolvePendingActorKey($userId, $actorKey));
         Cache::put($key, [
             'tool' => $toolName,
             'arguments' => $args,
@@ -916,6 +1058,237 @@ class AgentReasoningService
         ], 300); // 5-minute expiry
 
         return $key;
+    }
+
+    private function analyzeBookingDecision(
+        string $userMessage,
+        array $toolArgs,
+        ?int $userId,
+        string $role,
+        ?string $validationError = null
+    ): array
+    {
+        $missingFields = $this->getMissingBookingFields($toolArgs);
+        $ambiguityAnalysis = $this->detectBookingAmbiguity($userMessage);
+
+        if ($validationError !== null) {
+            return [
+                'decision' => 'clarify',
+                'reason_code' => $this->classifyBookingValidationError($validationError, $missingFields),
+                'execute_immediately' => false,
+                'ambiguous' => $ambiguityAnalysis['ambiguous'],
+                'ambiguity_rule' => $ambiguityAnalysis['reason_code'],
+                'missing_fields' => $missingFields,
+                'validation_error' => $validationError,
+            ];
+        }
+
+        if ($role !== 'client' || empty($userId)) {
+            return [
+                'decision' => 'confirm',
+                'reason_code' => 'non_client_or_missing_user',
+                'execute_immediately' => false,
+                'ambiguous' => $ambiguityAnalysis['ambiguous'],
+                'ambiguity_rule' => $ambiguityAnalysis['reason_code'],
+                'missing_fields' => $missingFields,
+                'validation_error' => null,
+            ];
+        }
+
+        if (!empty($missingFields)) {
+            return [
+                'decision' => 'clarify',
+                'reason_code' => 'missing_required_fields',
+                'execute_immediately' => false,
+                'ambiguous' => $ambiguityAnalysis['ambiguous'],
+                'ambiguity_rule' => $ambiguityAnalysis['reason_code'],
+                'missing_fields' => $missingFields,
+                'validation_error' => null,
+            ];
+        }
+
+        if ($ambiguityAnalysis['ambiguous']) {
+            return [
+                'decision' => 'confirm',
+                'reason_code' => $ambiguityAnalysis['reason_code'] ?? 'ambiguous_intent',
+                'execute_immediately' => false,
+                'ambiguous' => true,
+                'ambiguity_rule' => $ambiguityAnalysis['reason_code'],
+                'missing_fields' => [],
+                'validation_error' => null,
+            ];
+        }
+
+        return [
+            'decision' => 'confirm',
+            'reason_code' => 'complete_clear_request',
+            'execute_immediately' => false,
+            'ambiguous' => false,
+            'ambiguity_rule' => null,
+            'missing_fields' => [],
+            'validation_error' => null,
+        ];
+    }
+
+    private function detectBookingAmbiguity(string $userMessage): array
+    {
+        $patterns = [
+            'uncertain_intent' => '/\b(maybe|not sure|unsure|if possible|if available|availability|available slots?|either|any slot)\b/i',
+            'availability_lookup' => '/\b(check|show|list|tell me)\b.*\b(availability|available|slots?|services?)\b/i',
+            'question_about_field' => '/\b(which|what)\b.*\b(service|slot|time|date)\b/i',
+            'multiple_time_options' => '/\b(?:8|9|10|11|12|1|2|3|4|5)(?:am|pm)?\s+or\s+(?:8|9|10|11|12|1|2|3|4|5)(?:am|pm)?\b/i',
+        ];
+
+        foreach ($patterns as $reasonCode => $pattern) {
+            if (preg_match($pattern, $userMessage)) {
+                return [
+                    'ambiguous' => true,
+                    'reason_code' => $reasonCode,
+                ];
+            }
+        }
+
+        return [
+            'ambiguous' => false,
+            'reason_code' => null,
+        ];
+    }
+
+    private function getMissingBookingFields(array $toolArgs): array
+    {
+        $missingFields = [];
+
+        if (empty($toolArgs['service_id']) && empty($toolArgs['service_ids'])) {
+            $missingFields[] = 'service';
+        }
+        if (empty($toolArgs['date'])) {
+            $missingFields[] = 'date';
+        }
+        if (empty($toolArgs['time'])) {
+            $missingFields[] = 'time';
+        }
+
+        return $missingFields;
+    }
+
+    private function classifyBookingValidationError(string $validationError, array $missingFields): string
+    {
+        if (!empty($missingFields)) {
+            return 'missing_required_fields';
+        }
+
+        $lower = mb_strtolower($validationError);
+
+        if (str_contains($lower, 'no valid services')) {
+            return 'unresolved_service';
+        }
+        if (str_contains($lower, 'invalid date')) {
+            return 'invalid_date';
+        }
+        if (str_contains($lower, 'invalid time')) {
+            return 'invalid_time';
+        }
+        if (str_contains($lower, 'weekend')) {
+            return 'unavailable_weekend';
+        }
+        if (str_contains($lower, 'lunch break')) {
+            return 'unavailable_lunch_break';
+        }
+        if (str_contains($lower, 'daily booking limit')) {
+            return 'daily_limit_reached';
+        }
+        if (str_contains($lower, 'fully booked')) {
+            return 'slot_fully_booked';
+        }
+        if (str_contains($lower, 'already have a booking')) {
+            return 'duplicate_booking';
+        }
+
+        return 'validation_failed';
+    }
+
+    private function logBookingDecision(
+        string $userMessage,
+        array $toolArgs,
+        ?int $userId,
+        string $role,
+        array $decision
+    ): void {
+        Log::channel('chatbot_booking_decisions')->info('AgentReasoning: Booking decision analyzed', [
+            'user_id' => $userId,
+            'role' => $role,
+            'decision' => $decision['decision'] ?? 'unknown',
+            'reason_code' => $decision['reason_code'] ?? 'unknown',
+            'ambiguous' => $decision['ambiguous'] ?? false,
+            'ambiguity_rule' => $decision['ambiguity_rule'] ?? null,
+            'missing_fields' => $decision['missing_fields'] ?? [],
+            'validation_error' => $decision['validation_error'] ?? null,
+            'message_signature' => $this->buildBookingMessageSignature($userMessage),
+            'message_length' => mb_strlen(trim($userMessage)),
+            'normalized_booking_fields' => $this->extractBookingFieldsForLog($toolArgs),
+        ]);
+    }
+
+    private function buildBookingMessageSignature(string $userMessage): string
+    {
+        $normalizedMessage = preg_replace('/\s+/', ' ', mb_strtolower(trim($userMessage)));
+
+        return substr(hash('sha256', $normalizedMessage), 0, 16);
+    }
+
+    private function extractBookingFieldsForLog(array $toolArgs): array
+    {
+        $serviceInput = $toolArgs['service_ids'] ?? $toolArgs['service_id'] ?? null;
+
+        return [
+            'service' => $serviceInput,
+            'date' => $toolArgs['date'] ?? null,
+            'time' => $toolArgs['time'] ?? null,
+            'has_notes' => !empty($toolArgs['notes']),
+        ];
+    }
+
+    private function buildBookingClarificationInstruction(string $error): string
+    {
+        return "Tool `book_appointment` validation failed: {$error}\n"
+            . 'Ask the user for the missing, unclear, or invalid booking detail in one concise message. '
+            . 'If the service is unclear, call get_available_services first and present the exact returned service list instead of relying on memory or a partial summary. '
+            . 'If the date or time is unclear, ask only for that missing detail.';
+    }
+
+    private function executeToolImmediately(
+        string $toolName,
+        array $toolArgs,
+        ?int $userId,
+        string $role,
+        array $existingToolCalls,
+        int $step,
+        array $llmResult
+    ): array {
+        Log::info('AgentReasoning: Executing validated booking immediately', [
+            'user_id' => $userId,
+            'tool_name' => $toolName,
+            'tool_args_keys' => array_keys($toolArgs),
+            'step' => $step,
+        ]);
+
+        $toolResult = $this->toolRegistry->executeTool($toolName, $toolArgs, $userId ?? 0, $role);
+        $executedToolCalls = array_merge($existingToolCalls, [[
+            'tool' => $toolName,
+            'arguments' => $toolArgs,
+            'result' => $toolResult,
+        ]]);
+
+        return [
+            'response' => $this->formatToolResultDirectly($toolName, $toolResult, $toolArgs),
+            'tool_calls' => $executedToolCalls,
+            'action_buttons' => $this->extractActionButtonsFromToolCalls($executedToolCalls),
+            'reasoning_steps' => $step,
+            'llm_failed' => false,
+            'provider' => $llmResult['provider'] ?? 'unknown',
+            'model' => $llmResult['model'] ?? 'unknown',
+            'tokens_used' => $llmResult['tokens_used'] ?? 0,
+        ];
     }
 
     /**
@@ -955,9 +1328,6 @@ class AgentReasoningService
                 }
                 if (!empty($data['total_price_formatted'])) {
                     $lines[] = "**Total:** {$data['total_price_formatted']}";
-                }
-                if (!empty($data['appointment_id'])) {
-                    $lines[] = "**Appointment #:** {$data['appointment_id']}";
                 }
                 $lines[] = "**Status:** Pending approval";
                 if (isset($data['remaining_bookings_today']) && isset($data['daily_limit'])) {
@@ -999,14 +1369,39 @@ class AgentReasoningService
      * Retrieve a pending confirmation for a user.
      * Uses a single deterministic key instead of scanning 300 time-based keys.
      */
-    public static function getPendingConfirmation(?int $userId): ?array
+    public static function getPendingConfirmation($actorKey): ?array
     {
-        $key = 'agent_confirm_' . ($userId ?? 'guest') . '_pending';
+        $key = self::buildPendingConfirmationCacheKey($actorKey);
         $pending = Cache::get($key);
         if ($pending) {
             Cache::forget($key);
             return $pending;
         }
         return null;
+    }
+
+    public static function hasPendingConfirmation($actorKey): bool
+    {
+        return Cache::has(self::buildPendingConfirmationCacheKey($actorKey));
+    }
+
+    private function resolvePendingActorKey(?int $userId, ?string $actorKey = null): string
+    {
+        if ($actorKey !== null && $actorKey !== '') {
+            return $actorKey;
+        }
+
+        if ($userId !== null) {
+            return (string) $userId;
+        }
+
+        return 'guest';
+    }
+
+    private static function buildPendingConfirmationCacheKey($actorKey): string
+    {
+        $normalizedActorKey = preg_replace('/[^A-Za-z0-9:_-]/', '_', (string) ($actorKey ?? 'guest'));
+
+        return 'agent_confirm_' . $normalizedActorKey . '_pending';
     }
 }

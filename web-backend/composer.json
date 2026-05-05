@@ -12,9 +12,11 @@
         "php": "^8.2",
         "intervention/image": "^3.11",
         "laravel/framework": "^12.0",
+        "laravel/reverb": "^1.10",
         "laravel/sanctum": "^4.2",
         "laravel/socialite": "^5.25",
         "laravel/tinker": "^2.10.1",
+        "minishlink/web-push": "^10.0",
         "pragmarx/google2fa": "^9.0",
         "resend/resend-laravel": "^0.23.0",
         "spatie/laravel-permission": "^6.23"
@@ -58,7 +60,7 @@
         ],
         "dev": [
             "Composer\\Config::disableProcessTimeout",
-            "npx concurrently -c \"#93c5fd,#c4b5fd,#fdba74\" \"php artisan serve\" \"php artisan queue:listen --tries=1\" \"npm run dev\" --names='server,queue,vite'"
+            "npx concurrently -c \"#93c5fd,#c4b5fd,#fdba74,#86efac,#fca5a5\" \"php artisan serve\" \"php artisan queue:listen --tries=1\" \"php artisan reverb:start\" \"php artisan schedule:work\" \"npm run dev\" --names='server,queue,reverb,scheduler,vite'"
         ],
         "test": [
             "@php artisan config:clear --ansi",

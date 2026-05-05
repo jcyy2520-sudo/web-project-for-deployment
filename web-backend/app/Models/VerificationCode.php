@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Hash;
 
 class VerificationCode extends Model
 {
@@ -22,10 +23,32 @@ class VerificationCode extends Model
         'used' => 'boolean'
     ];
 
+    protected $hidden = [
+        'code',
+        'ip_address',
+    ];
+
+    public function setCodeAttribute(?string $value): void
+    {
+        if ($value === null) {
+            $this->attributes['code'] = null;
+            return;
+        }
+
+        $this->attributes['code'] = $this->isHashedCode($value)
+            ? $value
+            : Hash::make($value);
+    }
+
     // Check if code is valid (not used and not expired)
     public function isValid()
     {
         return !$this->used && $this->expires_at->isFuture();
+    }
+
+    public function matchesCode(string $plainCode): bool
+    {
+        return Hash::check($plainCode, $this->code);
     }
 
     // Mark as used
@@ -45,5 +68,20 @@ class VerificationCode extends Model
     public function scopeExpired($query)
     {
         return $query->where('expires_at', '<', now());
+    }
+
+    public static function findActiveMatchForEmail(string $email, string $plainCode): ?self
+    {
+        return static::query()
+            ->where('email', $email)
+            ->valid()
+            ->latest('id')
+            ->get()
+            ->first(fn (self $verificationCode) => $verificationCode->matchesCode($plainCode));
+    }
+
+    private function isHashedCode(string $value): bool
+    {
+        return ($value !== '') && (($info = password_get_info($value))['algoName'] ?? 'unknown') !== 'unknown';
     }
 }

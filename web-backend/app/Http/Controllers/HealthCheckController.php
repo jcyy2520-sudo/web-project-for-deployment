@@ -10,9 +10,39 @@ use Illuminate\Http\JsonResponse;
 class HealthCheckController extends Controller
 {
     /**
-     * Get comprehensive system health status
+     * Backward-compatible public health entrypoint.
      */
     public function check(): JsonResponse
+    {
+        return $this->publicCheck();
+    }
+
+    /**
+     * Get minimal public health status without sensitive runtime details.
+     */
+    public function publicCheck(): JsonResponse
+    {
+        $status = 'ok';
+        $statusCode = 200;
+
+        try {
+            DB::select('SELECT 1');
+            Cache::get('health_public_ping');
+        } catch (\Exception) {
+            $status = 'degraded';
+            $statusCode = 503;
+        }
+
+        return response()->json([
+            'status' => $status,
+            'timestamp' => now()->toIso8601String(),
+        ], $statusCode);
+    }
+
+    /**
+     * Get comprehensive system health status for authenticated admins.
+     */
+    public function detailedCheck(): JsonResponse
     {
         $health = [
             'status' => 'healthy',

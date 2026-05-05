@@ -28,6 +28,10 @@ class AuthController extends Controller
     // Rate limiting for registration attempts
     const MAX_REGISTRATION_ATTEMPTS = 5;
     const MAX_VERIFICATION_ATTEMPTS = 3;
+    const MAX_LOGIN_IP_ATTEMPTS = 5;
+    const LOGIN_IP_DECAY_SECONDS = 300;
+    const MAX_LOGIN_ACCOUNT_ATTEMPTS = 5;
+    const LOGIN_ACCOUNT_LOCKOUT_SECONDS = 900;
 
     public function registerStep1(Request $request)
     {
@@ -177,12 +181,7 @@ class AuthController extends Controller
         ], 422);
     }
 
-    // Find the verification code - FIXED: Check for exact match and validity
-    $verification = VerificationCode::where('email', $request->email)
-        ->where('code', $request->code)
-        ->where('used', false)
-        ->where('expires_at', '>', now())
-        ->first();
+    $verification = VerificationCode::findActiveMatchForEmail($request->email, $request->code);
 
     if (!$verification) {
         RateLimiter::hit($key, 300); // 5 minutes
@@ -487,9 +486,9 @@ class AuthController extends Controller
         Log::info('=== LOGIN ATTEMPT STARTED ===', ['email' => $request->email]);
 
         // Rate limiting for login attempts
-        $key = 'login:' . ($request->ip() ?? 'unknown');
-        if (RateLimiter::tooManyAttempts($key, 5)) {
-            $seconds = RateLimiter::availableIn($key);
+        $ipKey = $this->loginIpLimiterKey($request);
+        if (RateLimiter::tooManyAttempts($ipKey, self::MAX_LOGIN_IP_ATTEMPTS)) {
+            $seconds = RateLimiter::availableIn($ipKey);
             Log::warning('Login rate limit exceeded', ['ip' => $request->ip()]);
             return response()->json([
                 'message' => "Too many login attempts. Please try again in $seconds seconds."
@@ -500,6 +499,8 @@ class AuthController extends Controller
             'email' => 'required|email',
             'password' => 'required|string',
         ]);
+
+        $accountKey = $this->loginAccountLimiterKey($request->email);
 
         Log::info('Looking for user with email: ' . $request->email);
 
@@ -512,7 +513,7 @@ class AuthController extends Controller
             // Must use a valid bcrypt hash — Laravel's BcryptHasher rejects malformed hashes.
             Hash::check($request->password, '$2y$12$ttn2FOy3LM87u5IVyxnyyeZzEa.7hj6QcnsJc2mM5Skvn64OXN70.');
             
-            RateLimiter::hit($key, 300); // 5 minutes
+            RateLimiter::hit($ipKey, self::LOGIN_IP_DECAY_SECONDS);
             Log::warning('❌ USER NOT FOUND with email: ' . $request->email);
             
             // Log failed login attempt for security audit
@@ -522,6 +523,21 @@ class AuthController extends Controller
                 'message' => 'Invalid credentials',
                 'success' => false
             ], 401);
+        }
+
+        if (RateLimiter::tooManyAttempts($accountKey, self::MAX_LOGIN_ACCOUNT_ATTEMPTS)) {
+            $seconds = RateLimiter::availableIn($accountKey);
+            Log::warning('Login account lockout active', [
+                'user_id' => $user->id,
+                'email' => $user->email,
+                'ip' => $request->ip(),
+                'retry_after' => $seconds,
+            ]);
+
+            return response()->json([
+                'message' => "Too many login attempts for this account. Please try again in $seconds seconds.",
+                'success' => false,
+            ], 429)->header('Retry-After', $seconds);
         }
 
         Log::info('✅ USER FOUND:', [
@@ -558,12 +574,20 @@ class AuthController extends Controller
         // Password check result logged securely (no password data in logs)
 
         if (!$passwordMatches) {
-            RateLimiter::hit($key, 300); // 5 minutes
+            RateLimiter::hit($ipKey, self::LOGIN_IP_DECAY_SECONDS);
             Log::warning('❌ PASSWORD MISMATCH for user: ' . $user->email);
             
             // Log failed login attempt for security audit
             $this->logFailedLogin($request->email, $request->ip(), 'invalid_password', $user->id);
             
+            $lockoutSeconds = $this->recordAccountLoginFailure($accountKey, $user, $request);
+            if ($lockoutSeconds !== null) {
+                return response()->json([
+                    'message' => "Too many login attempts for this account. Please try again in $lockoutSeconds seconds.",
+                    'success' => false,
+                ], 429)->header('Retry-After', $lockoutSeconds);
+            }
+
             return response()->json([
                 'message' => 'Invalid credentials',
                 'success' => false
@@ -609,7 +633,8 @@ class AuthController extends Controller
 
         try {
             // Clear login rate limit on success
-            RateLimiter::clear($key);
+            RateLimiter::clear($ipKey);
+            RateLimiter::clear($accountKey);
 
             // Record last activity
             $user->last_activity_at = now();
@@ -779,6 +804,36 @@ class AuthController extends Controller
     private function generateSecureVerificationCode(): string
     {
         return sprintf("%06d", random_int(1, 999999));
+    }
+
+    private function loginIpLimiterKey(Request $request): string
+    {
+        return 'login:ip:' . ($request->ip() ?? 'unknown');
+    }
+
+    private function loginAccountLimiterKey(string $email): string
+    {
+        return 'login:account:' . hash('sha256', Str::lower(trim($email)));
+    }
+
+    private function recordAccountLoginFailure(string $accountKey, User $user, Request $request): ?int
+    {
+        RateLimiter::hit($accountKey, self::LOGIN_ACCOUNT_LOCKOUT_SECONDS);
+
+        if (!RateLimiter::tooManyAttempts($accountKey, self::MAX_LOGIN_ACCOUNT_ATTEMPTS)) {
+            return null;
+        }
+
+        $seconds = RateLimiter::availableIn($accountKey);
+
+        Log::warning('Login account locked after repeated failures', [
+            'user_id' => $user->id,
+            'email' => $user->email,
+            'ip' => $request->ip(),
+            'retry_after' => $seconds,
+        ]);
+
+        return $seconds;
     }
 
     /**

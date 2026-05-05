@@ -55,7 +55,7 @@ import AdminSettings from '../components/admin/AdminSettings';
 import ThemeToggle from '../components/ui/ThemeToggle';
 import UserStatusManagement from '../components/admin/UserStatusManagement';
 import LoadingSpinner from '../components/LoadingSpinner';
-import { formatServiceName, formatPrice } from '../utils/format';
+import { formatServiceName, formatPrice, formatTime12Hour, formatDateDisplay as sharedFormatDateDisplay } from '../utils/format';
 import AdminMessages from '../components/admin/AdminMessages';
 import AdminActionLogs from '../components/admin/AdminActionLogs';
 import AdminServices from '../components/admin/AdminServices';
@@ -94,6 +94,49 @@ const useAnimatedCount = (target, duration = 1200) => {
   }, [target, duration]);
   return count;
 };
+
+const formatRelativeSync = (timestamp) => {
+  if (!timestamp) return 'Waiting for first sync';
+  const deltaMs = Math.max(0, Date.now() - new Date(timestamp).getTime());
+  const deltaSeconds = Math.floor(deltaMs / 1000);
+  if (deltaSeconds < 5) return 'Just now';
+  if (deltaSeconds < 60) return `${deltaSeconds}s ago`;
+  const deltaMinutes = Math.floor(deltaSeconds / 60);
+  if (deltaMinutes < 60) return `${deltaMinutes}m ago`;
+  const deltaHours = Math.floor(deltaMinutes / 60);
+  return `${deltaHours}h ago`;
+};
+
+const DASHBOARD_SILENT_RESYNC_MIN_GAP_MS = 1500;
+const ADMIN_ACTIVE_RESYNC_TABS = new Set([
+  'dashboard',
+  'appointments',
+  'users',
+  'adminProfile',
+  'messages',
+  'reports',
+  'archive',
+  'user-status'
+]);
+const ADMIN_POLLING_RESYNC_TABS = new Set([
+  'dashboard',
+  'appointments',
+  'users',
+  'adminProfile',
+  'reports',
+  'archive',
+  'user-status'
+]);
+const ADMIN_APPOINTMENT_EVENT_SYNC_TABS = new Set([
+  'dashboard',
+  'appointments',
+  'reports',
+  'archive'
+]);
+const ADMIN_ANALYTICS_EVENT_SYNC_TABS = new Set([
+  'dashboard',
+  'reports'
+]);
 
 // Mini sparkline SVG (inline trend in stat cards)
 const Sparkline = ({ data, color = '#f59e0b', height = 28, width = 80 }) => {
@@ -1707,6 +1750,7 @@ const AdminDashboard = () => {
   const [isCollapsedDesktop, setIsCollapsedDesktop] = useState(false);
   const [openDropdowns, setOpenDropdowns] = useState({});
   const [stats, setStats] = useState({});
+  const [lastDashboardSync, setLastDashboardSync] = useState(null);
   const [timeframe, setTimeframe] = useState('monthly');
   const [users, setUsers] = useState([]);
   const [appointments, setAppointments] = useState([]);
@@ -1744,6 +1788,7 @@ const AdminDashboard = () => {
   const [reportStats, setReportStats] = useState(null);
   const [showMessageModal, setShowMessageModal] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [showDeclineModal, setShowDeclineModal] = useState(false);
   const [showCompletionModal, setShowCompletionModal] = useState(false);
   const [showCancelBulkModal, setShowCancelBulkModal] = useState(false);
@@ -1753,6 +1798,9 @@ const AdminDashboard = () => {
   const [itemToDelete, setItemToDelete] = useState(null);
   const [appointmentToDecline, setAppointmentToDecline] = useState(null);
   const [appointmentToComplete, setAppointmentToComplete] = useState(null);
+  const [selectedAppointmentIds, setSelectedAppointmentIds] = useState([]);
+  const [showBulkDeclineModal, setShowBulkDeclineModal] = useState(false);
+  const [bulkAppointmentActionLoading, setBulkAppointmentActionLoading] = useState(false);
   
   // Account action modal state (delete/block/deactivate with reason)
   const [showAccountActionModal, setShowAccountActionModal] = useState(false);
@@ -1800,6 +1848,14 @@ const AdminDashboard = () => {
   });
 
   const [dashboardLoading, setDashboardLoading] = useState(false);
+  const [dashboardSyncStatus, setDashboardSyncStatus] = useState(
+    typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'syncing'
+  );
+  const dashboardResyncInFlightRef = useRef(false);
+  const dashboardResyncQueuedRef = useRef(false);
+  const lastDashboardResyncAtRef = useRef(0);
+  const previousActiveTabRef = useRef(activeTab);
+  const hasInitializedDashboardTimeframeRef = useRef(false);
 
   // Prevent any native form submit causing full page reloads
   useEffect(() => {
@@ -1919,6 +1975,24 @@ const AdminDashboard = () => {
     localStorage.setItem('adminTheme', isDarkMode ? 'dark' : 'light');
   }, [isDarkMode]);
 
+  const activeAppointmentCount = appointments.length || 0;
+
+  const activeClientCount = useMemo(() => {
+    return (users || []).filter(user =>
+      user.role === 'client' &&
+      user.is_active !== false &&
+      user.account_status !== 'blocked' &&
+      user.account_status !== 'deactivated' &&
+      user.account_status !== 'deleted'
+    ).length;
+  }, [users]);
+
+  const flaggedAccountCount = useMemo(() => {
+    return [...(users || []), ...(admins || [])].filter(user =>
+      user.account_status === 'blocked' || user.account_status === 'deactivated'
+    ).length;
+  }, [users, admins]);
+
   // Navigation
   const navigation = useMemo(() => [
     { 
@@ -1930,7 +2004,7 @@ const AdminDashboard = () => {
       section: 'Appointments',
       items: [
         { 
-          name: `All Appointments (${stats.totalAppointments || 0})`, 
+          name: `All Appointments (${activeAppointmentCount})`, 
           icon: CalendarIcon, 
           key: 'appointments'
         },
@@ -1955,7 +2029,7 @@ const AdminDashboard = () => {
       section: 'User Management',
       items: [
         { 
-          name: `All Users (${users.filter(u => u.role === 'client').length || 0})`, 
+          name: `All Users (${activeClientCount})`, 
           icon: UserGroupIcon, 
           key: 'users'
         },
@@ -1965,7 +2039,7 @@ const AdminDashboard = () => {
           key: 'adminProfile'
         },
         { 
-          name: `Deactivated & Blocked (${deactivatedUsers.length + deactivatedAdmins.length || 0})`, 
+          name: `Deactivated & Blocked (${flaggedAccountCount})`, 
           icon: UserMinusIcon, 
           key: 'user-status'
         },
@@ -2027,7 +2101,7 @@ const AdminDashboard = () => {
       icon: CogIcon, 
       key: 'settings'
     }
-  ], [stats.totalAppointments, unavailableDates.length, users, admins.length, deactivatedUsers.length, deactivatedAdmins.length, services.length, unreadMessageCount]);
+  ], [activeAppointmentCount, activeClientCount, flaggedAccountCount, admins.length, services.length, unreadMessageCount]);
 
   // Debounced search optimization
   useEffect(() => {
@@ -2038,6 +2112,22 @@ const AdminDashboard = () => {
 
     return () => clearTimeout(timer);
   }, [searchTerm]);
+
+  useEffect(() => {
+    setSelectedAppointmentIds((prev) => prev.filter((id) =>
+      appointments.some((appointment) => appointment.id === id && appointment.status === 'pending')
+    ));
+  }, [appointments]);
+
+  const selectedPendingAppointments = useMemo(() => {
+    return appointments.filter((appointment) =>
+      selectedAppointmentIds.includes(appointment.id) && appointment.status === 'pending'
+    );
+  }, [appointments, selectedAppointmentIds]);
+
+  const selectedPendingAppointmentIds = useMemo(() => {
+    return selectedPendingAppointments.map((appointment) => appointment.id);
+  }, [selectedPendingAppointments]);
 
   // Clear error when changing tabs
   useEffect(() => {
@@ -2113,6 +2203,11 @@ const AdminDashboard = () => {
   // Fixed API calls with proper error handling
   const loadDashboardData = useCallback(async (tf, realtime = false) => {
     try {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        setDashboardSyncStatus('offline');
+      } else {
+        setDashboardSyncStatus('syncing');
+      }
       setDashboardLoading(true);
       const startTime = performance.now();
       const effectiveTimeframe = tf || timeframe || 'monthly';
@@ -2135,13 +2230,17 @@ const AdminDashboard = () => {
 
       if (result.success) {
         setStats(result.data.stats || {});
+        setLastDashboardSync(new Date().toISOString());
+        setDashboardSyncStatus('live');
       } else {
         console.error('Failed to load dashboard data:', result.error);
+        setDashboardSyncStatus(typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'reconnecting');
       }
       
       setDataLoaded(prev => ({ ...prev, dashboard: true }));
     } catch (error) {
       console.error('Dashboard data load failed:', error);
+      setDashboardSyncStatus(typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'reconnecting');
       setDataLoaded(prev => ({ ...prev, dashboard: true }));
     } finally {
       setDashboardLoading(false);
@@ -2256,9 +2355,11 @@ const AdminDashboard = () => {
       if (result.success) {
         setServices(result.data || []);
       }
+      setDataLoaded(prev => ({ ...prev, services: true }));
     } catch (error) {
       console.error('Services data load failed:', error);
       setServices([]);
+      setDataLoaded(prev => ({ ...prev, services: true }));
     }
   }, [callApi]);
 
@@ -2337,6 +2438,33 @@ const AdminDashboard = () => {
       setDataLoaded(prev => ({ ...prev, sales: true }));
     }
   }, [callApi, timeframe]);
+
+  const refreshDashboardOverview = useCallback(async (timeframeOverride = timeframeRef.current, realtime = false) => {
+    await Promise.all([
+      loadDashboardData(timeframeOverride, realtime),
+      loadAppointments(),
+      loadSales(timeframeOverride)
+    ]);
+  }, [loadDashboardData, loadAppointments, loadSales]);
+
+  const reconnectDashboardRealtime = useCallback(() => {
+    const pusher = window?.Echo?.connector?.pusher;
+
+    if (!pusher || typeof pusher.connect !== 'function') {
+      return;
+    }
+
+    const connectionState = pusher.connection?.state;
+    if (connectionState === 'connected' || connectionState === 'connecting') {
+      return;
+    }
+
+    try {
+      pusher.connect();
+    } catch (error) {
+      console.debug('Admin dashboard realtime reconnect failed:', error);
+    }
+  }, []);
 
   const loadUnavailableDates = useCallback(async () => {
     try {
@@ -2431,6 +2559,18 @@ const AdminDashboard = () => {
     }
   }, [callApi]);
 
+  const refreshArchiveData = useCallback(async () => {
+    await Promise.all([
+      loadArchivedUsers(),
+      loadArchivedAppointments({
+        status: archiveStatusFilter,
+        date_from: archiveDateFrom,
+        date_to: archiveDateTo,
+        search: archiveSearch
+      })
+    ]);
+  }, [loadArchivedUsers, loadArchivedAppointments, archiveStatusFilter, archiveDateFrom, archiveDateTo, archiveSearch]);
+
   const loadDeactivatedAccounts = useCallback(async () => {
     try {
       const result = await callApi(async () => {
@@ -2482,19 +2622,97 @@ const AdminDashboard = () => {
     }
   }, [callApi]);
 
+  const refreshUserStatusData = useCallback(async () => {
+    await Promise.all([
+      loadUsers(),
+      loadAdmins(),
+      loadDeactivatedAccounts()
+    ]);
+  }, [loadUsers, loadAdmins, loadDeactivatedAccounts]);
+
+  const refreshActiveAdminTab = useCallback(async (realtime = false) => {
+    switch (activeTab) {
+      case 'dashboard':
+        await refreshDashboardOverview(timeframeRef.current, realtime);
+        break;
+      case 'appointments':
+        await loadAppointments();
+        break;
+      case 'users':
+        await loadUsers();
+        break;
+      case 'adminProfile':
+        await loadAdmins();
+        break;
+      case 'messages':
+        await adminMessagesRef.current?.refreshConversations?.();
+        break;
+      case 'reports':
+        await loadReportStats();
+        break;
+      case 'archive':
+        await refreshArchiveData();
+        break;
+      case 'user-status':
+      case 'deactivated':
+        await refreshUserStatusData();
+        break;
+      default:
+        break;
+    }
+  }, [activeTab, refreshDashboardOverview, loadAppointments, loadUsers, loadAdmins, loadReportStats, refreshArchiveData, refreshUserStatusData]);
+
+  const requestAdminSectionResync = useCallback(async ({ force = false, reconnectRealtime = false } = {}) => {
+    if (!ADMIN_ACTIVE_RESYNC_TABS.has(activeTab)) {
+      return;
+    }
+
+    const now = Date.now();
+    if (!force && now - lastDashboardResyncAtRef.current < DASHBOARD_SILENT_RESYNC_MIN_GAP_MS) {
+      return;
+    }
+
+    if (reconnectRealtime) {
+      reconnectDashboardRealtime();
+    }
+
+    if (dashboardResyncInFlightRef.current) {
+      dashboardResyncQueuedRef.current = true;
+      return;
+    }
+
+    dashboardResyncInFlightRef.current = true;
+    lastDashboardResyncAtRef.current = now;
+
+    try {
+      await refreshActiveAdminTab(true);
+    } finally {
+      dashboardResyncInFlightRef.current = false;
+
+      if (dashboardResyncQueuedRef.current) {
+        dashboardResyncQueuedRef.current = false;
+        window.setTimeout(() => {
+          void requestAdminSectionResync({ force: true });
+        }, 0);
+      }
+    }
+  }, [activeTab, reconnectDashboardRealtime, refreshActiveAdminTab]);
+
   // Load data when component mounts - only load essential dashboard data initially
   // Other tab data loads lazily when the tab is visited for the first time
   useEffect(() => {
     const loadInitialData = async () => {
-      // Only load dashboard stats and services (needed for sidebar counts) initially
+      // Preload the sidebar count sources so counters do not stay at zero until a tab is opened.
       await Promise.all([
-        loadDashboardData(),
+        refreshDashboardOverview(),
         loadServices(),
+        loadUsers(),
+        loadAdmins(),
       ]);
     };
     
     loadInitialData();
-  }, [loadDashboardData, loadServices]);
+  }, [refreshDashboardOverview, loadServices, loadUsers, loadAdmins]);
 
   // Listen for services updates from AdminServices component
   useEffect(() => {
@@ -2513,7 +2731,7 @@ const AdminDashboard = () => {
       switch (activeTab) {
         case 'dashboard':
           if (!dataLoaded.dashboard) {
-            await loadDashboardData();
+            await refreshDashboardOverview();
           }
           break;
         case 'users':
@@ -2531,6 +2749,11 @@ const AdminDashboard = () => {
             await loadAppointments();
           }
           break;
+        case 'reports':
+          if (!reportStats) {
+            await loadReportStats();
+          }
+          break;
         case 'calendar':
           if (!dataLoaded.calendar) {
             await loadUnavailableDates();
@@ -2544,17 +2767,14 @@ const AdminDashboard = () => {
           break;
         case 'archive':
           if (!dataLoaded.archive) {
-            // Load archive data in parallel
-            await Promise.all([
-              loadArchivedUsers(),
-              loadArchivedAppointments()
-            ]);
+            await refreshArchiveData();
             setDataLoaded(prev => ({ ...prev, archive: true }));
           }
           break;
+        case 'user-status':
         case 'deactivated':
           if (!dataLoaded.deactivated) {
-            await loadDeactivatedAccounts();
+            await refreshUserStatusData();
           }
           break;
         default:
@@ -2566,34 +2786,18 @@ const AdminDashboard = () => {
   }, [
     activeTab, 
     dataLoaded,
-    loadDashboardData, 
+    refreshDashboardOverview,
     loadUsers, 
     loadAdmins,
     loadAppointments, 
+    loadReportStats,
     loadUnavailableDates,
-    loadArchivedUsers,
-    loadArchivedAppointments,
-    loadDeactivatedAccounts
+    refreshArchiveData,
+    refreshUserStatusData,
+    reportStats
   ]);
 
-  // Real-time polling: auto-refresh users/admins every 60 seconds when on those tabs
-  useEffect(() => {
-    if (activeTab !== 'users' && activeTab !== 'adminProfile') return;
-
-    const interval = setInterval(() => {
-      if (activeTab === 'users') {
-        loadUsers();
-      } else if (activeTab === 'adminProfile') {
-        loadAdmins();
-      }
-    }, 60000); // 60 seconds
-
-    const handleLogout = () => clearInterval(interval);
-    window.addEventListener('auth:logout', handleLogout);
-    return () => { clearInterval(interval); window.removeEventListener('auth:logout', handleLogout); };
-  }, [activeTab, loadUsers, loadAdmins]);
-
-  // Poll for unread message count every 30 seconds for sidebar badge
+  // Poll for unread message count every 60 seconds for sidebar badge
   useEffect(() => {
     const fetchUnreadCount = async () => {
       try {
@@ -2611,7 +2815,7 @@ const AdminDashboard = () => {
       }
     };
     fetchUnreadCount();
-    const interval = setInterval(fetchUnreadCount, 30000);
+    const interval = setInterval(fetchUnreadCount, 60000);
     const handleLogout = () => clearInterval(interval);
     window.addEventListener('auth:logout', handleLogout);
     return () => { clearInterval(interval); window.removeEventListener('auth:logout', handleLogout); };
@@ -3400,6 +3604,79 @@ const AdminDashboard = () => {
     }
   }, [callApi, loadAppointments, loadDashboardData, appointments]);
 
+  const handleBulkAppointmentAction = useCallback(async (action, data = null) => {
+    if (selectedPendingAppointmentIds.length === 0) {
+      window.showToast?.('Warning', 'Select at least one pending appointment first.', 'warning');
+      return { successCount: 0, failedCount: 0 };
+    }
+
+    setBulkAppointmentActionLoading(true);
+
+    try {
+      const payload = action === 'decline' && data ? { decline_reason: data } : {};
+      const responses = await Promise.allSettled(
+        selectedPendingAppointmentIds.map((appointmentId) =>
+          axios.put(`/api/appointments/${appointmentId}/${action}`, payload, { timeout: 15000 })
+        )
+      );
+
+      const successfulIds = [];
+      const failedIds = [];
+
+      responses.forEach((result, index) => {
+        const appointmentId = selectedPendingAppointmentIds[index];
+        if (result.status === 'fulfilled' && result.value?.data?.success !== false) {
+          successfulIds.push(appointmentId);
+          return;
+        }
+
+        failedIds.push(appointmentId);
+      });
+
+      clearApiCache();
+      setDataLoaded(prev => ({ ...prev, appointments: false, dashboard: false }));
+      await Promise.all([
+        loadAppointments(),
+        loadDashboardData(),
+      ]);
+
+      if (successfulIds.length > 0) {
+        setSelectedAppointmentIds((prev) => prev.filter((id) => !successfulIds.includes(id)));
+      }
+
+      if (successfulIds.length > 0 && failedIds.length === 0) {
+        window.showToast?.(
+          'Success',
+          `${successfulIds.length} appointment${successfulIds.length === 1 ? '' : 's'} ${action === 'approve' ? 'approved' : 'declined'} successfully.`,
+          'success'
+        );
+      } else if (successfulIds.length > 0) {
+        window.showToast?.(
+          'Warning',
+          `${successfulIds.length} appointment${successfulIds.length === 1 ? '' : 's'} ${action === 'approve' ? 'approved' : 'declined'}, ${failedIds.length} failed.`,
+          'warning'
+        );
+      } else {
+        window.showToast?.('Error', `Failed to ${action} selected appointments. Please try again.`, 'error');
+      }
+
+      return {
+        successCount: successfulIds.length,
+        failedCount: failedIds.length,
+      };
+    } catch (error) {
+      console.error(`Error running bulk ${action} action:`, error);
+      await loadAppointments();
+      window.showToast?.('Error', `Failed to ${action} selected appointments. Please try again.`, 'error');
+      return {
+        successCount: 0,
+        failedCount: selectedPendingAppointmentIds.length,
+      };
+    } finally {
+      setBulkAppointmentActionLoading(false);
+    }
+  }, [loadAppointments, loadDashboardData, selectedPendingAppointmentIds]);
+
   // Message sending functionality - Save to database and send email
   const handleSendMessage = useCallback(async (messageData) => {
     try {
@@ -3519,6 +3796,18 @@ const AdminDashboard = () => {
     setAppointmentPage(1);
   }, []);
 
+  const confirmLogout = async () => {
+    setIsLoggingOut(true);
+    try {
+      await logout();
+      setShowLogoutModal(false);
+    } catch (error) {
+      console.error('Logout error:', error);
+    } finally {
+      setIsLoggingOut(false);
+    }
+  };
+
   // Refresh function
   const handleRefresh = useCallback(async () => {
     // Clear all API cache to ensure truly fresh data
@@ -3536,7 +3825,7 @@ const AdminDashboard = () => {
     
     switch (activeTab) {
       case 'dashboard':
-        await loadDashboardData();
+        await refreshDashboardOverview(timeframeRef.current, true);
         break;
       case 'users':
         await loadUsers();
@@ -3547,38 +3836,205 @@ const AdminDashboard = () => {
       case 'appointments':
         await loadAppointments();
         break;
+      case 'reports':
+        await loadReportStats();
+        break;
+      case 'archive':
+        await refreshArchiveData();
+        break;
+      case 'user-status':
+      case 'deactivated':
+        await refreshUserStatusData();
+        break;
+      case 'messages':
+        await adminMessagesRef.current?.refreshConversations?.();
+        break;
       case 'calendar':
         await loadUnavailableDates();
         break;
       default:
         break;
     }
-  }, [activeTab, loadDashboardData, loadUsers, loadAdmins, loadAppointments, loadUnavailableDates]);
+  }, [activeTab, refreshDashboardOverview, loadUsers, loadAdmins, loadAppointments, loadReportStats, refreshArchiveData, refreshUserStatusData, loadUnavailableDates]);
 
-  // Load dashboard stats once when admin opens the dashboard.
-  // Removed automatic polling to prevent perceived "refreshing" behavior.
+  // Refresh the current admin surface whenever the admin returns to a page-owned tab.
   useEffect(() => {
-    if (activeTab === 'dashboard') {
-      loadDashboardData(timeframeRef.current);
-      loadSales(timeframeRef.current);
+    const previousTab = previousActiveTabRef.current;
+    previousActiveTabRef.current = activeTab;
+
+    if (ADMIN_ACTIVE_RESYNC_TABS.has(activeTab) && previousTab !== activeTab) {
+      void requestAdminSectionResync({ force: true, reconnectRealtime: true });
     }
-    if (activeTab === 'reports') {
-      loadReportStats();
-    }
-  }, [activeTab, loadDashboardData, loadSales, loadReportStats]);
+  }, [activeTab, requestAdminSectionResync]);
 
   // When timeframe changes, reload dashboard stats with new timeframe
   // This ensures charts and data reflect the selected period
   useEffect(() => {
     if (activeTab === 'dashboard') {
-      // Immediately reload stats when timeframe changes
-      loadDashboardData(timeframe);
-      loadSales(timeframe);
+      if (!hasInitializedDashboardTimeframeRef.current) {
+        hasInitializedDashboardTimeframeRef.current = true;
+        return;
+      }
+
+      void requestAdminSectionResync({ force: true });
       // Reset pagination for new data
       setCurrentPage(1);
       setAppointmentPage(1);
     }
-  }, [timeframe, activeTab, loadDashboardData, loadSales]);
+  }, [timeframe, activeTab, requestAdminSectionResync]);
+
+  // Adaptive live refresh: keep data reasonably fresh without hammering the backend during the demo.
+  useEffect(() => {
+    if (!ADMIN_POLLING_RESYNC_TABS.has(activeTab)) {
+      return undefined;
+    }
+
+    const connectionState = window?.Echo?.connector?.pusher?.connection?.state;
+    const intervalMs = activeTab === 'dashboard'
+      ? (stats.pendingAppointments || 0) > 0 || unreadMessageCount > 0
+        ? (connectionState === 'connected' ? 45000 : 20000)
+        : 90000
+      : activeTab === 'appointments'
+      ? (connectionState === 'connected' ? 30000 : 15000)
+      : 90000;
+    const intervalId = setInterval(() => {
+      void requestAdminSectionResync();
+    }, intervalMs);
+
+    return () => clearInterval(intervalId);
+  }, [activeTab, stats.pendingAppointments, unreadMessageCount, requestAdminSectionResync]);
+
+  useEffect(() => {
+    if (!ADMIN_ACTIVE_RESYNC_TABS.has(activeTab)) {
+      return undefined;
+    }
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        void requestAdminSectionResync({ force: true, reconnectRealtime: true });
+      }
+    };
+
+    const handleFocus = () => {
+      if (typeof document === 'undefined' || !document.hidden) {
+        void requestAdminSectionResync({ reconnectRealtime: true });
+      }
+    };
+
+    const handlePageShow = () => {
+      void requestAdminSectionResync({ force: true, reconnectRealtime: true });
+    };
+
+    const handleOnline = () => {
+      setDashboardSyncStatus('reconnecting');
+      void requestAdminSectionResync({ force: true, reconnectRealtime: true });
+    };
+
+    const handleOffline = () => {
+      setDashboardSyncStatus('offline');
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('pageshow', handlePageShow);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    const connection = window?.Echo?.connector?.pusher?.connection;
+    const handleConnectionStateChange = (states) => {
+      if (states.current === 'connected') {
+        setDashboardSyncStatus('live');
+        void requestAdminSectionResync({ force: true });
+        return;
+      }
+
+      if (states.current === 'connecting') {
+        setDashboardSyncStatus('reconnecting');
+        return;
+      }
+
+      if (states.current === 'unavailable' || states.current === 'disconnected' || states.current === 'failed') {
+        setDashboardSyncStatus(typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'reconnecting');
+      }
+    };
+
+    if (connection && typeof connection.bind === 'function') {
+      connection.bind('state_change', handleConnectionStateChange);
+    }
+
+    reconnectDashboardRealtime();
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('pageshow', handlePageShow);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+
+      if (connection && typeof connection.unbind === 'function') {
+        connection.unbind('state_change', handleConnectionStateChange);
+      }
+    };
+  }, [activeTab, reconnectDashboardRealtime, requestAdminSectionResync]);
+
+  useEffect(() => {
+    if (
+      (!ADMIN_APPOINTMENT_EVENT_SYNC_TABS.has(activeTab) && !ADMIN_ANALYTICS_EVENT_SYNC_TABS.has(activeTab)) ||
+      !window?.Echo ||
+      typeof window.Echo.channel !== 'function'
+    ) {
+      return undefined;
+    }
+
+    const syncAppointmentsFromRealtime = () => {
+      if (!ADMIN_APPOINTMENT_EVENT_SYNC_TABS.has(activeTab)) {
+        return;
+      }
+
+      void requestAdminSectionResync({ force: true });
+    };
+
+    const syncAnalyticsFromRealtime = () => {
+      if (!ADMIN_ANALYTICS_EVENT_SYNC_TABS.has(activeTab)) {
+        return;
+      }
+
+      void requestAdminSectionResync({ force: true });
+    };
+
+    const channels = [];
+
+    if (ADMIN_APPOINTMENT_EVENT_SYNC_TABS.has(activeTab)) {
+      try {
+        const appointmentsChannel = window.Echo.channel('appointments');
+        channels.push(appointmentsChannel);
+        appointmentsChannel.listen('AppointmentCreated', syncAppointmentsFromRealtime);
+        appointmentsChannel.listen('AppointmentUpdated', syncAppointmentsFromRealtime);
+        appointmentsChannel.listen('PaymentProcessed', syncAppointmentsFromRealtime);
+      } catch (error) {
+        console.debug('Admin dashboard appointment realtime setup failed:', error);
+      }
+    }
+
+    if (ADMIN_ANALYTICS_EVENT_SYNC_TABS.has(activeTab)) {
+      try {
+        const analyticsChannel = window.Echo.channel('analytics-updates');
+        channels.push(analyticsChannel);
+        analyticsChannel.listen('.analytics.updated', syncAnalyticsFromRealtime);
+      } catch (error) {
+        console.debug('Admin dashboard analytics realtime setup failed:', error);
+      }
+    }
+
+    return () => {
+      channels.forEach((channel) => {
+        try { channel.stopListening('AppointmentCreated'); } catch (error) {}
+        try { channel.stopListening('AppointmentUpdated'); } catch (error) {}
+        try { channel.stopListening('PaymentProcessed'); } catch (error) {}
+        try { channel.stopListening('.analytics.updated'); } catch (error) {}
+      });
+    };
+  }, [activeTab, requestAdminSectionResync]);
 
   // Chart data
   const appointmentStatusData = useMemo(() => [
@@ -3895,7 +4351,7 @@ const AdminDashboard = () => {
               <div key={apt.id} className="bg-gray-800/50 border border-gray-700 rounded-lg p-4 hover:border-green-500/30 transition-all">
                 <div className="mb-3">
                   <p className="text-sm font-semibold text-amber-50">{apt.user?.first_name} {apt.user?.last_name}</p>
-                  <p className="text-xs text-gray-400">{apt.appointment_date} {apt.appointment_time ? `at ${apt.appointment_time}` : ''}</p>
+                  <p className="text-xs text-gray-400">{sharedFormatDateDisplay(apt.appointment_date)} {apt.appointment_time ? `at ${formatTime12Hour(apt.appointment_time)}` : ''}</p>
                   <div className="flex items-center gap-2 mt-2">
                     <span className="text-xs px-2 py-0.5 rounded bg-green-900/50 text-green-300">{formatServiceName(apt)}</span>
                     <span className={`text-xs px-2 py-0.5 rounded ${statusColorMap[apt.status] || 'bg-gray-700/50 text-gray-300'}`}>
@@ -3903,7 +4359,7 @@ const AdminDashboard = () => {
                     </span>
                   </div>
                   <span className="text-xs text-gray-500 block mt-1">
-                    Archived {apt.archived_at ? new Date(apt.archived_at).toLocaleDateString() : (apt.deleted_at ? new Date(apt.deleted_at).toLocaleDateString() : '')}
+                    Archived {sharedFormatDateDisplay(apt.archived_at || apt.deleted_at)}
                   </span>
                 </div>
                 <div className="flex gap-2">
@@ -4678,8 +5134,7 @@ const AdminDashboard = () => {
     const formatDateDisplay = (dateVal) => {
       const d = normalizeDate(dateVal);
       if (!d) return '';
-      const [y, m, day] = d.split('-');
-      return new Date(+y, +m - 1, +day).toLocaleDateString();
+      return sharedFormatDateDisplay(d);
     };
 
     // Filter appointments by tab
@@ -4767,6 +5222,11 @@ const AdminDashboard = () => {
     const totalPages = Math.ceil(filtered.length / appointmentsPerPage);
     const startIdx = (appointmentPage - 1) * appointmentsPerPage;
     const paginatedAppointments = filtered.slice(startIdx, startIdx + appointmentsPerPage);
+    const currentPageSelectableIds = paginatedAppointments
+      .filter((appointment) => appointment.status === 'pending')
+      .map((appointment) => appointment.id);
+    const allPageSelectableSelected = currentPageSelectableIds.length > 0 && currentPageSelectableIds.every((id) => selectedPendingAppointmentIds.includes(id));
+    const somePageSelectableSelected = currentPageSelectableIds.some((id) => selectedPendingAppointmentIds.includes(id));
 
     return (
     <div className="space-y-4">
@@ -4838,6 +5298,48 @@ const AdminDashboard = () => {
         </div>
       </div>
 
+      {selectedPendingAppointmentIds.length > 0 && (
+        <div className={`${isDarkMode ? 'bg-amber-500/10 border-amber-500/30' : 'bg-amber-50 border-amber-200'} border rounded-lg p-3 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3`}>
+          <div className="flex items-start gap-2">
+            <CheckCircleIcon className={`h-4 w-4 mt-0.5 ${isDarkMode ? 'text-amber-300' : 'text-amber-700'}`} />
+            <div>
+              <p className={`text-sm font-semibold ${isDarkMode ? 'text-amber-50' : 'text-amber-900'}`}>
+                {selectedPendingAppointmentIds.length} pending appointment{selectedPendingAppointmentIds.length === 1 ? '' : 's'} selected
+              </p>
+              <p className={`text-xs ${isDarkMode ? 'text-amber-200/80' : 'text-amber-700'}`}>
+                Bulk review uses the same approve and decline rules as the existing single-appointment actions.
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => handleBulkAppointmentAction('approve')}
+              disabled={bulkAppointmentActionLoading}
+              className="px-3 py-1.5 rounded border border-green-500/40 text-green-300 hover:bg-green-500/10 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {bulkAppointmentActionLoading ? 'Processing...' : 'Approve Selected'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowBulkDeclineModal(true)}
+              disabled={bulkAppointmentActionLoading}
+              className="px-3 py-1.5 rounded border border-red-500/40 text-red-300 hover:bg-red-500/10 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Decline Selected
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedAppointmentIds([])}
+              disabled={bulkAppointmentActionLoading}
+              className={`px-3 py-1.5 rounded border text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed ${isDarkMode ? 'border-gray-600 text-gray-300 hover:bg-gray-800' : 'border-gray-300 text-gray-700 hover:bg-gray-100'}`}
+            >
+              Clear Selection
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Date filter indicator */}
       <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm ${
         isDarkMode
@@ -4870,7 +5372,7 @@ const AdminDashboard = () => {
       <div className={`${isDarkMode ? 'bg-gray-900 border-amber-500/20' : 'bg-white border-amber-300/40'} border rounded-lg shadow overflow-x-auto`}>
         <div className="flex space-x-0">
           {[
-            { key: 'all', label: 'All', count: stats.totalAppointments || appointments.length },
+            { key: 'all', label: 'All', count: activeAppointmentCount },
             { key: 'pending', label: 'New', count: pendingCount, color: 'amber' },
             { key: 'approved', label: 'Approved', count: approvedCount, color: 'green' },
             { key: 'declined', label: 'Declined', count: declinedCount, color: 'red' }
@@ -4950,6 +5452,28 @@ const AdminDashboard = () => {
           <table className="w-full min-w-full">
             <thead className="bg-gray-800">
               <tr>
+                <th className="px-3 py-2 text-left text-xs font-medium text-amber-400 uppercase tracking-wider w-12">
+                  <input
+                    type="checkbox"
+                    checked={allPageSelectableSelected}
+                    ref={(input) => {
+                      if (input) {
+                        input.indeterminate = !allPageSelectableSelected && somePageSelectableSelected;
+                      }
+                    }}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedAppointmentIds((prev) => Array.from(new Set([...prev, ...currentPageSelectableIds])));
+                        return;
+                      }
+
+                      setSelectedAppointmentIds((prev) => prev.filter((id) => !currentPageSelectableIds.includes(id)));
+                    }}
+                    disabled={currentPageSelectableIds.length === 0 || bulkAppointmentActionLoading}
+                    className="h-4 w-4 rounded border-gray-500 bg-gray-900 text-amber-500 focus:ring-amber-500 disabled:opacity-50"
+                    aria-label="Select all pending appointments on this page"
+                  />
+                </th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-amber-400 uppercase tracking-wider cursor-pointer hover:bg-gray-700 transition-colors" onClick={() => handleAppointmentSort('client_name')}>
                   <div className="flex items-center gap-1">
                     Client
@@ -4996,6 +5520,27 @@ const AdminDashboard = () => {
             <tbody className="divide-y divide-gray-700">
               {paginatedAppointments.map((appointment) => (
                 <tr key={appointment.id} className="hover:bg-gray-800 transition-colors duration-200 group">
+                  <td className="px-3 py-2 align-top">
+                    {appointment.status === 'pending' ? (
+                      <input
+                        type="checkbox"
+                        checked={selectedPendingAppointmentIds.includes(appointment.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedAppointmentIds((prev) => Array.from(new Set([...prev, appointment.id])));
+                            return;
+                          }
+
+                          setSelectedAppointmentIds((prev) => prev.filter((id) => id !== appointment.id));
+                        }}
+                        disabled={bulkAppointmentActionLoading}
+                        className="mt-1 h-4 w-4 rounded border-gray-500 bg-gray-900 text-amber-500 focus:ring-amber-500 disabled:opacity-50"
+                        aria-label={`Select appointment ${appointment.id}`}
+                      />
+                    ) : (
+                      <span className="text-xs text-gray-600">-</span>
+                    )}
+                  </td>
                   <td className="px-3 py-2">
                     <div className="flex items-center space-x-2">
                       <div className="w-8 h-8 bg-blue-500/20 rounded-full flex items-center justify-center">
@@ -5039,11 +5584,11 @@ const AdminDashboard = () => {
                     <div className="text-xs text-amber-50">
                       {formatDateDisplay(appointment.appointment_date)}
                     </div>
-                    <div className="text-xs text-gray-400 hidden sm:block">{appointment.appointment_time}</div>
+                    <div className="text-xs text-gray-400 hidden sm:block">{formatTime12Hour(appointment.appointment_time)}</div>
                   </td>
                   <td className="px-3 py-2 hidden md:table-cell">
                     <div className="text-xs text-amber-50">
-                      {new Date(appointment.created_at).toLocaleDateString()}
+                      {sharedFormatDateDisplay(appointment.created_at)}
                     </div>
                     <div className="text-xs text-gray-400">{new Date(appointment.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
                   </td>
@@ -6185,19 +6730,31 @@ const AdminDashboard = () => {
                 </div>
                 <ThemeToggle />
 
-                {/* Refresh button - always available on dashboard */}
                 {activeTab === 'dashboard' && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDataLoaded(prev => ({ ...prev, dashboard: false }));
-                      loadDashboardData(timeframeRef.current);
-                    }}
-                    className={`p-1.5 flex-shrink-0 ${isDarkMode ? 'text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 border-amber-500/30' : 'text-amber-700 hover:text-amber-600 hover:bg-amber-500/20 border-amber-300/30'} rounded border transition-colors duration-200`}
-                    title="Refresh dashboard"
-                  >
-                    <ArrowPathIcon className="h-3 w-3 lg:h-4 lg:w-4" />
-                  </button>
+                  <div className={`hidden md:inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-semibold ${
+                    dashboardSyncStatus === 'offline'
+                      ? (isDarkMode ? 'border-red-500/30 bg-red-500/10 text-red-200' : 'border-red-200 bg-red-50 text-red-700')
+                      : dashboardSyncStatus === 'reconnecting' || dashboardSyncStatus === 'syncing'
+                        ? (isDarkMode ? 'border-amber-500/30 bg-amber-500/10 text-amber-100' : 'border-amber-200 bg-amber-50 text-amber-700')
+                        : (isDarkMode ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-100' : 'border-emerald-200 bg-emerald-50 text-emerald-700')
+                  }`}>
+                    {dashboardSyncStatus === 'offline' ? (
+                      <ExclamationTriangleIcon className="h-3.5 w-3.5" />
+                    ) : dashboardSyncStatus === 'reconnecting' || dashboardSyncStatus === 'syncing' ? (
+                      <ArrowPathIcon className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <CheckCircleIcon className="h-3.5 w-3.5" />
+                    )}
+                    <span>
+                      {dashboardSyncStatus === 'offline'
+                        ? 'Offline - reconnecting when the network returns'
+                        : dashboardSyncStatus === 'reconnecting'
+                          ? 'Reconnecting live updates'
+                          : dashboardSyncStatus === 'syncing'
+                            ? 'Syncing dashboard in the background'
+                            : `Live - updated ${formatRelativeSync(lastDashboardSync)}`}
+                    </span>
+                  </div>
                 )}
 
                 <div className="ml-2 flex items-center">
@@ -6362,6 +6919,22 @@ const AdminDashboard = () => {
         loading={apiLoading}
       />
 
+      <DeclineModal
+        isOpen={showBulkDeclineModal}
+        onClose={() => setShowBulkDeclineModal(false)}
+        summary={{
+          count: selectedPendingAppointments.length,
+          appointments: selectedPendingAppointments.slice(0, 3),
+        }}
+        title="Decline Selected Appointments"
+        confirmLabel={`Decline ${selectedPendingAppointments.length} Appointment${selectedPendingAppointments.length === 1 ? '' : 's'}`}
+        onConfirm={async (reason) => {
+          await handleBulkAppointmentAction('decline', reason);
+          setShowBulkDeclineModal(false);
+        }}
+        loading={bulkAppointmentActionLoading}
+      />
+
       {/* Completion Modal */}
       <CompletionModal
         isOpen={showCompletionModal}
@@ -6391,9 +6964,9 @@ const AdminDashboard = () => {
       {/* Logout Confirmation Modal */}
       <LogoutConfirmationModal
         isOpen={showLogoutModal}
-        onClose={() => setShowLogoutModal(false)}
-        onConfirm={logout}
-        loading={apiLoading}
+        onClose={() => !isLoggingOut && setShowLogoutModal(false)}
+        onConfirm={confirmLogout}
+        loading={isLoggingOut}
         isDarkMode={isDarkMode}
       />
 

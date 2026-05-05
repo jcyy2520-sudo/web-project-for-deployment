@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use Illuminate\Console\Command;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
@@ -14,6 +15,10 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        $this->app->afterResolving(Command::class, function (Command $command, $app): void {
+            $command->setLaravel($app);
+        });
+
         // Register advanced chatbot services
         $this->app->singleton(\App\Services\WebSocketService::class, function ($app) {
             return new \App\Services\WebSocketService();
@@ -148,14 +153,27 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(20)->by($request->ip());
         });
 
-        // Rate limit for password reset attempts
-        RateLimiter::for('password-reset', function (Request $request) {
-            return Limit::perMinute(5)->by($request->email);
+        $forgotPasswordLimiterKey = static function (Request $request): string {
+            $email = strtolower(trim((string) $request->input('email', '')));
+            $identifier = $email !== '' ? $email : 'guest';
+
+            return $identifier . '|' . ($request->ip() ?? 'unknown');
+        };
+
+        RateLimiter::for('forgot-password-send-code', function (Request $request) use ($forgotPasswordLimiterKey) {
+            return Limit::perMinutes(5, 5)->by($forgotPasswordLimiterKey($request));
         });
 
-        // Rate limit for verification codes
-        RateLimiter::for('verification', function (Request $request) {
-            return Limit::perMinute(3)->by($request->ip());
+        RateLimiter::for('forgot-password-verify-code', function (Request $request) use ($forgotPasswordLimiterKey) {
+            return Limit::perMinutes(5, 5)->by($forgotPasswordLimiterKey($request));
+        });
+
+        RateLimiter::for('forgot-password-reset', function (Request $request) use ($forgotPasswordLimiterKey) {
+            return Limit::perMinutes(5, 5)->by($forgotPasswordLimiterKey($request));
+        });
+
+        RateLimiter::for('forgot-password-resend-code', function (Request $request) use ($forgotPasswordLimiterKey) {
+            return Limit::perMinutes(10, 3)->by($forgotPasswordLimiterKey($request));
         });
     }
 }

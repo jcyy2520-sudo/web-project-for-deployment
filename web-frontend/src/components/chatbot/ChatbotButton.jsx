@@ -31,6 +31,13 @@ const ChatbotButton = ({ className = '', isDarkMode }) => {
   const STORAGE_KEY = 'chatbot_position_v1';
 
   const isMobile = () => typeof window !== 'undefined' && window.innerWidth < 640;
+  const getLandingPageStyle = () => ({
+    position: 'fixed',
+    right: isMobile() ? '16px' : '24px',
+    bottom: isMobile() ? '20px' : '24px',
+    zIndex: 9999,
+    cursor: 'pointer',
+  });
 
   useEffect(() => {
     try {
@@ -196,10 +203,12 @@ const ChatbotButton = ({ className = '', isDarkMode }) => {
       {!showModal && (
         <div
           ref={buttonRef}
-          onPointerDown={handlePointerDown}
-          onTouchStart={handlePointerDown}
+          onPointerDown={isLandingPage ? undefined : handlePointerDown}
+          onTouchStart={isLandingPage ? undefined : handlePointerDown}
           style={
-            pos
+            isLandingPage
+              ? getLandingPageStyle()
+              : pos
               ? {
                   position: 'fixed',
                   left: `${pos.left}px`,

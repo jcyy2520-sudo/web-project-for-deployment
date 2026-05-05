@@ -8,6 +8,8 @@ use App\Models\RefundReason;
 use App\Models\ActionLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Carbon\Carbon;
 
@@ -396,15 +398,31 @@ class RefundController extends Controller
             $refund = Refund::with('appointment')->lockForUpdate()->findOrFail($refundId);
 
             if ($refund->status !== 'approved') {
+                DB::rollBack();
                 return response()->json([
                     'success' => false,
                     'message' => 'Only approved refunds can be completed'
                 ], 422);
             }
 
+            $transactionId = $request->transaction_id;
+            if ($refund->refund_method === 'original_method' && $refund->appointment?->payment_type === 'online') {
+                if (!$refund->appointment->paymongo_payment_id) {
+                    DB::rollBack();
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'This online payment does not have a PayMongo payment ID recorded and cannot be refunded automatically'
+                    ], 422);
+                }
+
+                $paymongoRefund = $this->createPayMongoRefund($refund);
+                $transactionId = $paymongoRefund['id'] ?? $transactionId;
+            }
+
             $refund->status = 'completed';
             $refund->completed_at = now();
-            $refund->transaction_id = $request->transaction_id;
+            $refund->transaction_id = $transactionId;
+            $refund->payment_method_reversed = $refund->appointment->payment_type ?? $refund->payment_method_reversed;
             $refund->save();
 
             // Update appointment payment status now that refund is actually completed
@@ -430,7 +448,7 @@ class RefundController extends Controller
                     'completed_by' => $request->user()->id,
                     'appointment_id' => $refund->appointment_id,
                     'is_partial' => $refund->is_partial,
-                    'transaction_id' => $request->transaction_id,
+                    'transaction_id' => $transactionId,
                 ]
             );
 
@@ -587,7 +605,11 @@ class RefundController extends Controller
                     return;
                 }
 
-                if ($status === 'completed') {
+                if ($status === 'approved') {
+                    \Log::info('Attempting to send refund approved email to: ' . $user->email . ' for refund #' . $refund->id);
+                    \Mail::to($user->email)->queue(new \App\Mail\RefundApprovedMail($refund));
+                    \Log::info('✅ Successfully sent refund approved email to: ' . $user->email);
+                } elseif ($status === 'completed') {
                     \Log::info('Attempting to send refund completed email to: ' . $user->email . ' for refund #' . $refund->id);
                     \Mail::to($user->email)->queue(new \App\Mail\RefundCompletedMail($refund));
                     \Log::info('✅ Successfully sent refund completed email to: ' . $user->email);
@@ -603,12 +625,14 @@ class RefundController extends Controller
             }
 
             $subject = match($status) {
+                'approved' => 'Your Refund Request Has Been Approved',
                 'completed' => 'Your Refund Has Been Processed Successfully',
                 'rejected' => 'Your Refund Request Has Been Reviewed',
                 default => 'Refund Status Update'
             };
 
             $body = match($status) {
+                'approved' => "Your refund request for ₱" . number_format($refund->refund_amount, 2) . " has been approved and is ready for cashier processing. Refund Method: " . ($refund->refund_method ?: 'To be confirmed') . ". Approval Notes: " . ($refund->approval_notes ?: 'None provided'),
                 'completed' => "Your refund of ₱" . number_format($refund->refund_amount, 2) . " has been successfully processed. Refund Method: {$refund->refund_method}. Approval Notes: {$refund->approval_notes}",
                 'rejected' => "Your refund request for ₱" . number_format($refund->refund_amount, 2) . " has been reviewed and cannot be approved at this time. Reason: {$refund->rejection_reason}",
                 default => "Your refund status has been updated."
@@ -631,6 +655,68 @@ class RefundController extends Controller
         } catch (\Exception $e) {
             \Log::error('Failed to send refund notification: ' . $e->getMessage() . ' - ' . $e->getTraceAsString());
         }
+    }
+
+    private function createPayMongoRefund(Refund $refund): array
+    {
+        $response = Http::withBasicAuth(config('paymongo.secret_key'), '')
+            ->timeout(30)
+            ->post(config('paymongo.api_base_url', 'https://api.paymongo.com/v1') . '/refunds', [
+                'data' => [
+                    'attributes' => [
+                        'amount' => (int) round(((float) $refund->refund_amount) * 100),
+                        'payment_id' => $refund->appointment->paymongo_payment_id,
+                        'reason' => $this->mapRefundReasonToPayMongo($refund->reason),
+                        'notes' => $this->buildPayMongoRefundNotes($refund),
+                        'metadata' => [
+                            'appointment_id' => (string) $refund->appointment_id,
+                            'refund_id' => (string) $refund->id,
+                            'reason' => (string) $refund->reason,
+                        ],
+                    ],
+                ],
+            ]);
+
+        if (!$response->successful()) {
+            $message = $response->json('errors.0.detail')
+                ?? $response->json('errors.0.code')
+                ?? 'Failed to create PayMongo refund';
+
+            Log::error('PayMongo refund creation failed', [
+                'refund_id' => $refund->id,
+                'appointment_id' => $refund->appointment_id,
+                'status' => $response->status(),
+                'body' => $response->json(),
+            ]);
+
+            throw new \RuntimeException($message);
+        }
+
+        return $response->json('data') ?? [];
+    }
+
+    private function mapRefundReasonToPayMongo(?string $reason): string
+    {
+        return match (strtolower((string) $reason)) {
+            'duplicate', 'duplicate_payment' => 'duplicate',
+            'fraud', 'fraudulent' => 'fraudulent',
+            default => 'requested_by_customer',
+        };
+    }
+
+    private function buildPayMongoRefundNotes(Refund $refund): string
+    {
+        $segments = [
+            'Appointment #' . $refund->appointment_id,
+            'Refund #' . $refund->id,
+            'Reason: ' . ($refund->reason ?: 'unspecified'),
+        ];
+
+        if (!empty($refund->description)) {
+            $segments[] = $refund->description;
+        }
+
+        return mb_substr(implode(' | ', $segments), 0, 255);
     }
 
     /**

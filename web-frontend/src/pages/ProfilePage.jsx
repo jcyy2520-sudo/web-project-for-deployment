@@ -1,11 +1,11 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+import NotificationPreferences from '../components/notifications/NotificationPreferences';
 import {
   Cog6ToothIcon,
-  ArrowRightOnRectangleIcon,
   ArrowRightIcon,
   UserIcon,
   ShieldCheckIcon,
@@ -16,7 +16,6 @@ import {
   CalendarIcon,
   QuestionMarkCircleIcon,
   ArrowLeftIcon,
-  CurrencyDollarIcon,
   ClockIcon,
   SunIcon,
   MoonIcon,
@@ -33,12 +32,13 @@ import {
   ArrowPathIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
-  ArrowsUpDownIcon
+  ArrowsUpDownIcon,
+  ArrowRightOnRectangleIcon
 } from '@heroicons/react/24/outline';
 
 
 const ProfilePage = ({ onBack, onTabChange, onLogout }) => {
-  const { user, logout, updateUser } = useAuth();
+  const { user, updateUser, logout } = useAuth();
   const { isDarkMode, setIsDarkMode } = useTheme(); // Use ThemeContext
   const initials = (user?.first_name?.[0] || '') + (user?.last_name?.[0] || '');
   
@@ -73,6 +73,25 @@ const ProfilePage = ({ onBack, onTabChange, onLogout }) => {
   const [actionLogsSearch, setActionLogsSearch] = useState('');
   const [actionLogsFilter, setActionLogsFilter] = useState('');
   const [actionLogsSort, setActionLogsSort] = useState('desc');
+
+  // Logout confirmation state
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  const handleLogoutClick = () => setShowLogoutConfirm(true);
+
+  const confirmLogout = async () => {
+    setIsLoggingOut(true);
+    try {
+      await logout();
+      setShowLogoutConfirm(false);
+    } catch (e) {
+      console.error('Logout error:', e);
+    } finally {
+      setIsLoggingOut(false);
+      setShowLogoutConfirm(false);
+    }
+  };
   
   // Delete account state
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -194,17 +213,6 @@ const ProfilePage = ({ onBack, onTabChange, onLogout }) => {
     setCurrentMenuSection('main');
   };
 
-  const handleLogout = () => {
-    if (onBack) {
-      onBack();
-    }
-    if (onLogout) {
-      onLogout();
-    } else {
-      logout();
-    }
-  };
-
   const handleDeleteAccount = async () => {
     if (deleteConfirmText !== 'confirm') return;
 
@@ -230,6 +238,7 @@ const ProfilePage = ({ onBack, onTabChange, onLogout }) => {
   const menuItems = [
     {
       section: 'Account',
+      description: 'Identity, security, and alerts',
       items: [
         {
           icon: UserIcon,
@@ -269,30 +278,9 @@ const ProfilePage = ({ onBack, onTabChange, onLogout }) => {
       ]
     },
     {
-      section: 'Support',
+      section: 'Support & Legal',
+      description: 'Help, company information, policies, and feedback',
       items: [
-        {
-          icon: StarIcon,
-          label: 'Feedback',
-          action: () => {
-            if (onTabChange) {
-              onTabChange('feedback');
-            }
-          },
-          color: 'text-yellow-500'
-        },
-        {
-          icon: CurrencyDollarIcon,
-          label: 'Refunds',
-          action: () => handleNavToSection('refunds'),
-          color: 'text-amber-500'
-        },
-        {
-          icon: ClockIcon,
-          label: 'Action Logs',
-          action: () => handleNavToSection('action-logs'),
-          color: 'text-blue-500'
-        },
         {
           icon: QuestionMarkCircleIcon,
           label: 'Help Center',
@@ -316,6 +304,16 @@ const ProfilePage = ({ onBack, onTabChange, onLogout }) => {
           label: 'Privacy Policy',
           action: () => handleNavToSection('privacy'),
           color: 'text-green-500'
+        },
+        {
+          icon: StarIcon,
+          label: 'Feedback',
+          action: () => {
+            if (onTabChange) {
+              onTabChange('feedback');
+            }
+          },
+          color: 'text-yellow-500'
         }
       ]
     }
@@ -361,7 +359,7 @@ const ProfilePage = ({ onBack, onTabChange, onLogout }) => {
                 {/* Profile Avatar (display only) */}
                 <div className="relative w-24 h-24 rounded-full overflow-hidden border-4 border-amber-400 bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center flex-shrink-0">
                   {profilePicture ? (
-                    <img src={profilePicture} alt="Profile" className="w-full h-full object-cover" />
+                    <img src={profilePicture} alt="" className="w-full h-full object-cover" onError={() => setProfilePicture(null)} />
                   ) : (
                     <span className="text-white text-4xl font-bold">{initials.toUpperCase() || 'U'}</span>
                   )}
@@ -380,16 +378,24 @@ const ProfilePage = ({ onBack, onTabChange, onLogout }) => {
             </div>
 
             {/* Menu Sections */}
-            <div className="px-2">
+            <div className="px-3 py-4 space-y-4">
           {menuItems.map((section, sectionIdx) => (
-            <div key={sectionIdx} className="mb-6">
-              {/* Section Title */}
-              <h3 className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                {section.section}
-              </h3>
+            <section
+              key={sectionIdx}
+              className="overflow-hidden rounded-2xl border border-gray-200 bg-white/90 shadow-sm dark:border-gray-800 dark:bg-gray-900/80"
+            >
+              <div className="px-4 pt-4 pb-3 border-b border-gray-100 dark:border-gray-800">
+                <h3 className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-[0.18em]">
+                  {section.section}
+                </h3>
+                {section.description && (
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-500">
+                    {section.description}
+                  </p>
+                )}
+              </div>
 
-              {/* Section Items */}
-              <div className="space-y-1">
+              <div className="divide-y divide-gray-100 dark:divide-gray-800">
                 {section.items.map((item, itemIdx) => {
                   const IconComponent = item.icon;
                   return (
@@ -402,7 +408,7 @@ const ProfilePage = ({ onBack, onTabChange, onLogout }) => {
                             item.action?.();
                           }
                         }}
-                        className="w-full flex items-center justify-between px-3 py-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
+                        className="w-full flex items-center justify-between px-4 py-3.5 hover:bg-gray-50 dark:hover:bg-gray-800/80 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-inset"
                       >
                         <div className="flex items-center gap-3 flex-1 min-w-0">
                           <IconComponent className={`w-5 h-5 flex-shrink-0 ${item.color}`} />
@@ -425,7 +431,7 @@ const ProfilePage = ({ onBack, onTabChange, onLogout }) => {
                       
                       {/* Expandable Content - Theme */}
                       {item.isExpandable && item.label === 'Theme' && item.expanded && (
-                        <div className="px-3 py-3 ml-8 space-y-2 bg-gray-50 dark:bg-gray-800/50 rounded-lg mb-1">
+                        <div className="px-4 py-3 ml-8 mr-3 mb-3 space-y-2 bg-gray-50 dark:bg-gray-800/50 rounded-xl">
                           <div className="space-y-2">
                             <label className="flex items-center gap-3 cursor-pointer p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
                               <input
@@ -456,65 +462,73 @@ const ProfilePage = ({ onBack, onTabChange, onLogout }) => {
                       
                       {/* Expandable Content - Notifications */}
                       {item.isExpandable && item.label === 'Notifications' && item.expanded && (
-                        <div className="px-3 py-3 ml-8 space-y-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg mb-1">
-                          <label className="flex items-center justify-between p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors cursor-pointer">
-                            <div className="flex items-center gap-3">
-                              <EnvelopeIcon className="w-4 h-4 text-amber-500" />
-                              <span className="text-sm text-gray-700 dark:text-gray-300">Email Notifications</span>
-                            </div>
-                            <div className="relative">
-                              <input
-                                type="checkbox"
-                                checked={notificationPreferences.email_notifications}
-                                onChange={(e) => handleNotificationChange('email_notifications', e.target.checked)}
-                                className="sr-only peer"
-                              />
-                              <div className="w-9 h-5 bg-gray-300 dark:bg-gray-600 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-amber-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-600"></div>
-                            </div>
-                          </label>
-                          
-                          <label className="flex items-center justify-between p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors cursor-pointer">
-                            <div className="flex items-center gap-3">
-                              <BellIcon className="w-4 h-4 text-blue-500" />
-                              <span className="text-sm text-gray-700 dark:text-gray-300">SMS Notifications</span>
-                            </div>
-                            <div className="relative">
-                              <input
-                                type="checkbox"
-                                checked={notificationPreferences.sms_notifications}
-                                onChange={(e) => handleNotificationChange('sms_notifications', e.target.checked)}
-                                className="sr-only peer"
-                              />
-                              <div className="w-9 h-5 bg-gray-300 dark:bg-gray-600 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-amber-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-600"></div>
-                            </div>
-                          </label>
+                        <div className="px-4 py-3 ml-8 mr-3 mb-3 bg-gray-50 dark:bg-gray-800/50 rounded-xl">
+                          <NotificationPreferences isDarkMode={isDarkMode} />
                         </div>
                       )}
                     </div>
                   );
                 })}
               </div>
-            </div>
+            </section>
           ))}
 
-          {/* Logout Button */}
-          <div className="mb-6">
-            <h3 className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-              Session
-            </h3>
-            <button
-              onClick={handleLogout}
-              className="w-full flex items-center gap-3 px-3 py-3 rounded-lg hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
-            >
-              <ArrowRightOnRectangleIcon className="w-5 h-5 text-red-500 flex-shrink-0" />
-              <span className="font-medium text-red-600 dark:text-red-400">
+            {/* Log Out */}
+            <div className="px-3 pb-6">
+              <button
+                onClick={handleLogoutClick}
+                className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-2xl text-sm font-semibold border transition-colors ${
+                  isDarkMode
+                    ? 'border-red-500/30 text-red-400 hover:bg-red-500/10 hover:border-red-500/50'
+                    : 'border-red-200 text-red-600 bg-red-50 hover:bg-red-100 hover:border-red-300'
+                }`}
+              >
+                <ArrowRightOnRectangleIcon className="h-4 w-4 flex-shrink-0" />
                 Log Out
-              </span>
-            </button>
+              </button>
             </div>
 
-            {/* Bottom Padding */}
-            <div className="h-4"></div>
+            {/* Logout Confirmation Sheet */}
+            {showLogoutConfirm && (
+              <div className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center">
+                <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => !isLoggingOut && setShowLogoutConfirm(false)} />
+                <div className={`relative w-full sm:max-w-sm mx-auto rounded-t-[24px] sm:rounded-[20px] p-6 shadow-2xl ${
+                  isDarkMode ? 'bg-gray-900 border border-gray-700' : 'bg-white border border-gray-200'
+                }`}>
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center mx-auto mb-4 ${
+                    isDarkMode ? 'bg-red-500/20' : 'bg-red-100'
+                  }`}>
+                    <ArrowRightOnRectangleIcon className="h-5 w-5 text-red-500" />
+                  </div>
+                  <h3 className={`text-lg font-semibold text-center mb-1 ${
+                    isDarkMode ? 'text-white' : 'text-gray-900'
+                  }`}>Confirm Logout</h3>
+                  <p className={`text-sm text-center mb-6 ${
+                    isDarkMode ? 'text-gray-400' : 'text-gray-500'
+                  }`}>Are you sure you want to log out? You'll need to sign in again to access your account.</p>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => !isLoggingOut && setShowLogoutConfirm(false)}
+                      disabled={isLoggingOut}
+                      className={`flex-1 py-2.5 rounded-xl text-sm font-semibold border transition-colors ${
+                        isDarkMode ? 'border-gray-600 text-gray-300 hover:bg-gray-800' : 'border-gray-200 text-gray-700 hover:bg-gray-50'
+                      }`}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={confirmLogout}
+                      disabled={isLoggingOut}
+                      className="flex-1 py-2.5 rounded-xl text-sm font-semibold bg-red-600 hover:bg-red-700 text-white transition-colors flex items-center justify-center gap-2 disabled:opacity-60"
+                    >
+                      {isLoggingOut ? (
+                        <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Logging out...</>
+                      ) : 'Yes, Log Out'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
           </>
         ) : (

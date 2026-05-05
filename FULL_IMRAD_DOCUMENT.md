@@ -1,531 +1,292 @@
-# ABSTRACT
+# LegalEase: Controlled Prototype Evaluation of a Web-Based Platform for Notarial Scheduling and Client Support
 
-Legal and notarial offices frequently rely on manual scheduling, fragmented record systems, and limited analytical tools, resulting in scheduling conflicts, inefficient resource utilization, and reduced service accessibility (Dantas et al., 2018; Gupta & Denton, 2008). This study aimed to design, develop, and evaluate **Legal Ease**, a unified juridical service orchestration system for notarial engagement and scheduling that integrates intelligent automation, role-based access management, conversational AI, and predictive analytics within a single web-based platform. The system was developed following the Agile Scrum methodology using React 19, Laravel 12, MySQL, and a Python FastAPI microservice. A qualitative evaluation was conducted by twenty-five (25) testers — ten (10) IT professionals and fifteen (15) IT students — through fifty-one (51) functional test cases across eight system modules, alpha testing in a controlled environment, AI chatbot classification analysis using two hundred (200) test queries, and a security assessment covering ten OWASP-aligned categories. Results yielded an overall functional pass rate of 82.35% with zero critical or major defects. The AI chatbot achieved an F1 score of 0.87 at both micro-average and macro-average levels across six intent categories, and all ten security categories passed. Alpha testing confirmed core workflow reliability, with thematic analysis identifying strong user confidence in traditional features and an expected maturity gap in AI-powered components. These findings demonstrate that Legal Ease effectively supports scheduling efficiency, administrative oversight, and data-driven decision-making in legal service environments, with a documented performance baseline for iterative AI improvement.
+John Christian D. Fajutagana, Mark Rhamzel E. Mogol, Uriel M. Melendres
 
-**Keywords:** legal service management, appointment scheduling, retrieval-augmented generation, conversational AI, workflow automation
+Mindoro State University - Bongabong Campus
+Labasan, Bongabong, Oriental Mindoro, Philippines
 
+Student Researchers
 
----
+christiannjc25@gmail.com, markjamesrhamzel@gmail.com, urielmelendres@gmail.com
 
+## Abstract
 
-# INTRODUCTION
+This study developed and evaluated LegalEase, a web-based legal service management platform for appointment scheduling, authentication, payments, reporting, messaging, administrative control, predictive analytics, and conversational assistance in a notarial-office context. To keep the study evidence-based, the paper reports only controlled quantitative evaluation results that are directly documented in the project records. The evaluation dataset consisted of fifty-one (51) functional test cases across eight modules, two hundred (200) chatbot benchmark queries across six intent classes, saved no-show model metadata trained on seventy-six (76) labeled appointment outcomes, and controlled response-time, load, and security tests. Functional testing produced an overall pass rate of 82.35% (42/51) with zero critical and zero major defects and a defect density of 0.18 per test case. The chatbot achieved 86.50% intent-classification accuracy with both micro- and macro-F1 scores of 0.87. The current saved ML snapshot selected logistic regression over XGBoost and achieved ROC-AUC = 0.7812, precision = 0.7143, recall = 0.6250, F1 = 0.6667, accuracy = 0.6875, and Brier score = 0.1975. The platform remained stable up to fifty (50) concurrent users, while degradation at higher loads was concentrated in ML-dependent endpoints rather than core transactional features. All ten targeted security categories passed. The findings indicate that LegalEase is viable as a pilot-ready prototype with strong core workflow reliability and security, but AI-assisted features require larger real-world datasets and further quantitative validation before broader operational rollout.
 
-## Background of the Study
+**Keywords:** legal service management system, notarial scheduling, RAG-based chatbot, quantitative prototype evaluation, decision support
 
-In professional service sectors such as legal and notarial offices, digital management systems have become essential for maintaining operational efficiency and organizational consistency. However, the legal profession has been comparatively slower than healthcare and finance in adopting AI-driven operational tools, creating both a need and an opportunity for purpose-built platforms (Sourdin, 2018; Susskind, 2017). Many small-to-medium-sized legal service providers continue to rely on manual scheduling and conventional software that functions effectively as a data repository but lacks the capacity for real-time, proactive analysis (Gupta & Denton, 2008). This intelligence gap contributes to persistent challenges including scheduling conflicts, unmitigated no-show risks, and unpredictable service demand fluctuations (Dantas et al., 2018).
+## 1. Introduction
 
-Several studies have demonstrated the potential of technology-driven solutions. Zhao et al. (2017) found that web-based scheduling platforms reduced operational inefficiencies and improved appointment adherence. Salazar et al. (2022) showed that machine learning models applied to historical booking patterns could predict no-show behavior for proactive resource allocation. AlSerkal et al. (2025) demonstrated that real-time AI analytics improved appointment management in primary healthcare, while Ampuan and Delena (2021) confirmed that digital scheduling platforms enhanced administrative efficiency in resource-constrained developing-country settings. On the conversational AI front, Lewis et al. (2020) proposed the Retrieval-Augmented Generation (RAG) framework that grounds AI responses in verified knowledge sources, and Adamopoulou and Moussiades (2020) noted that modern chatbots with domain-specific knowledge bases can handle task-oriented interactions effectively. Despite these individual advances, no existing platform integrates intelligent scheduling, conversational AI, predictive analytics, and comprehensive administrative management within a single system tailored for legal and notarial service environments.
+Legal service operations remain heavily burdened by fragmented scheduling, manual client coordination, delayed communication, and limited analytical support for administrative decisions. In small and medium-sized legal or notarial offices, these issues create preventable no-shows, inefficient time-slot allocation, delayed payment reconciliation, and weak visibility into demand trends. Comparable appointment-based sectors have long reported these coordination problems, particularly where scheduling remains manual and operational data is underused (Gupta & Denton, 2008; Dantas et al., 2018; Zhao et al., 2017). In the Philippine setting, web-based administrative systems have shown practical value under resource-constrained conditions, but integrated notarial-service platforms remain limited in documented evaluation (Ampuan & Delena, 2021). LegalEase was developed to address these gaps through a unified web platform that integrates role-based access control, appointment management, cashiering, real-time messaging, reporting, predictive analytics, and a retrieval-augmented chatbot.
 
-## Statement of the Problem
+The study focused on two parallel concerns. First, the platform had to prove that its core business workflows were reliable enough for controlled pilot use. Second, the more experimental components, particularly the chatbot and machine-learning features, had to be evaluated with explicit metrics rather than vague claims of intelligence. This dual focus is important because systems that combine conventional transactional modules with AI components often show uneven maturity across features. Retrieval-augmented generation and domain-specific chatbots can improve access to information, but performance typically weakens on multi-intent and action-oriented interactions if the orchestration layer remains immature (Lewis et al., 2020; Adamopoulou & Moussiades, 2020).
 
-Traditional legal office management practices rely on fragmented scheduling processes, manual record management, and limited decision-support mechanisms. These operational limitations often result in appointment conflicts, inefficient resource allocation, and reduced accessibility for clients seeking legal and notarial services.
+Specifically, the study sought to answer the following questions:
 
-This study seeks to answer the following research questions:
+1. Does Legal Ease perform its core legal-office workflows reliably under structured functional testing?
+2. What defect profile remains after structured module testing?
+3. What measurable performance does the chatbot achieve on intent classification and what predictive quality does the current no-show model demonstrate?
+4. How does the platform behave in terms of latency, concurrent load, and targeted security controls?
 
-1. How can a unified legal service management system improve appointment coordination and administrative workflows in legal offices?
-2. How effective is the implemented system in supporting core operational functions including scheduling, payment processing, messaging, and administrative monitoring?
-3. What is the classification performance of the AI chatbot integrated into the system as measured by precision, recall, and F1 score?
+Accordingly, the study aimed to (1) design and develop an integrated web-based platform for notarial scheduling, payment handling, messaging, and administrative control; (2) quantify its functional reliability, defect profile, and operational performance under controlled conditions; and (3) establish a defensible baseline for its AI-assisted components through documented chatbot and machine-learning metrics. The study was deliberately bounded to controlled prototype evaluation. It does not claim real-world deployment outcomes, no-show reduction effects, or population-level service transformation.
 
-## Objectives of the Study
+## 2. Methodology
 
-This study aims to design, develop, and evaluate Legal Ease: a unified juridical service orchestration system for notarial engagement and scheduling.
+### 2.1 Research Design
 
-### General Objective
+The study used a design-and-development research approach with a quantitative product evaluation. Quantitative evidence was gathered from functional pass rates, defect counts, chatbot classification metrics, machine-learning validation metrics, response-time observations, concurrent-load observations, and security test outcomes.
 
-To design, develop, and evaluate Legal Ease as an integrated web-based platform for legal service management that combines intelligent automation, role-based access control, conversational AI, and predictive analytics.
+System construction followed an iterative backlog-driven process inspired by Agile Scrum. However, because formal sprint burndown records, velocity measurements, and role logs were not preserved as research data, the study reports the process as iterative incremental development rather than claiming a formal Scrum process evaluation. Development work was organized into four practical increments: (1) core identity and appointment workflows, (2) administration, payment, and messaging workflows, (3) AI chatbot and decision-support integration, and (4) monitoring, hardening, and evaluation. Backlog prioritization favored high-risk and user-critical features first, particularly authentication, scheduling constraints, payment integrity, and role isolation. Each increment ended with integration checks, defect triage, and reprioritization of unresolved issues.
 
-### Specific Objectives
+### 2.2 System Architecture
 
-1. To design and implement a web-based platform integrating automated appointment scheduling with constraint enforcement, multi-channel payment processing, real-time messaging, and role-based administrative management across five user roles.
-2. To develop and integrate artificial intelligence tools including a Retrieval-Augmented Generation (RAG) chatbot for natural language service assistance and machine learning models for no-show prediction and demand forecasting.
-3. To evaluate system functionality through structured execution of fifty-one (51) functional test cases across eight system modules and alpha testing with twenty-five (25) participants in a controlled environment.
-4. To assess the intent classification performance of the AI chatbot using precision, recall, and F1 score metrics across six intent categories with two hundred (200) test queries.
-5. To verify system security through assessment of ten OWASP-aligned vulnerability categories.
+Legal Ease uses a three-tier web architecture composed of a React and Tailwind CSS frontend, a Laravel API backend, and a Python FastAPI microservice for machine-learning training and inference. Persistent storage uses MySQL, while caching and rate limiting are handled through Laravel services. Real-time messaging and notifications are delivered through WebSocket-based broadcasting, and online payments are processed through PayMongo. The chatbot uses a retrieval-augmented generation pipeline that combines embedded knowledge documents, semantic retrieval, role-aware prompting, and large-language-model response generation.
 
-## Significance of the Study
+This architecture was selected to isolate computationally expensive AI services from core transactional operations. As a result, failures or slowdowns in AI endpoints can be monitored and optimized independently without destabilizing core CRUD workflows such as booking, payments, and messaging.
 
-The findings of this study are expected to benefit the following stakeholders:
+### 2.3 Evaluation Data Sources
 
-### Legal and Notarial Offices
+The quantitative evaluation drew on four documented evidence sources: structured functional testing, a controlled chatbot benchmark, saved machine-learning validation metadata, and controlled non-functional assessment covering response time, concurrent load, and targeted security controls.
 
-The platform provides an integrated solution for appointment management, payment processing, and administrative oversight, reducing reliance on fragmented manual processes and supporting more efficient daily operations. By centralizing scheduling, client records, and financial transactions within a single system, legal offices can minimize scheduling conflicts and improve overall service coordination.
+Table 1. Quantitative Evaluation Matrix
 
-### Clients
+| Evidence Source | Instrument / Metric | Scope |
+| --- | --- | --- |
+| Functional testing | Pass/fail execution and defect logging | 51 cases across 8 major modules |
+| Chatbot benchmark | Intent classification test set with confusion-matrix metrics | 200 natural-language queries across 6 intent classes |
+| ML validation | Saved model metadata and holdout-set evaluation | 76 labeled appointment outcomes, 80/20 stratified split |
+| Non-functional assessment | Response-time, load, and security checks | latency, concurrency, and 10 targeted security categories |
 
-The system improves service accessibility through online appointment scheduling, real-time status tracking, and natural language interaction with the AI chatbot, enabling clients to manage service engagements without requiring in-person coordination. These features reduce barriers to accessing legal and notarial services, particularly for clients with limited availability during standard office hours.
+This evaluation was intentionally limited to measurable system outputs recorded in the repository. No questionnaire-based or exploratory feedback data were used in the final analysis.
 
-### Administrative Staff
+### 2.4 Evaluation Environment and Instruments
 
-Predictive analytics for demand forecasting and no-show risk assessment provide staff with actionable insights for resource allocation and schedule optimization, supporting data-driven operational decision-making. Automated notifications and centralized record management further reduce the administrative burden associated with manual coordination tasks.
+All evaluations were conducted in a controlled staging environment using role-scoped accounts and real database-backed application logic. Evidence was collected through the structured procedures summarized in Table 1. The fifty-one (51) functional test cases covered Appointment Booking, Authentication, Payment and Cashier, Admin Control, Security, Reports and Analytics, Messaging, and the AI Chatbot. Each failed case was logged and classified by severity as critical, major, moderate, minor, or cosmetic so that reliability and defect concentration could be quantified together.
 
-### Attorneys and Legal Professionals
+### 2.5 Chatbot Benchmark Procedure
 
-Centralized schedule management, automated notifications, and audit logging provide legal professionals with improved visibility into service engagements and operational compliance. The role-based access control system ensures that attorneys can review relevant appointment and client information without requiring direct involvement in administrative processes.
+The chatbot was evaluated using two hundred (200) natural-language benchmark queries distributed across six intent categories: Legal Service Inquiry, Appointment Scheduling, Status Checking, General FAQ, Greeting or Small Talk, and Out-of-Scope Query. A confusion matrix was then constructed and the following metrics were computed:
 
-### Researchers
+- Accuracy = correctly classified queries / total queries
+- Precision = TP / (TP + FP)
+- Recall = TP / (TP + FN)
+- F1 score = 2 x (Precision x Recall) / (Precision + Recall)
 
-The study contributes a documented evaluation framework combining functional test case execution, alpha testing, and AI classification metrics (F1 score) for assessing integrated legal service platforms. This framework may serve as a methodological reference for future studies in legal technology and AI-assisted service management.
+Both micro- and macro-averaged F1 scores were reported so that overall accuracy and class balance could be evaluated simultaneously.
 
-### System Developers
+### 2.6 Machine-Learning Validation Procedure
 
-The system architecture — integrating React, Laravel, FastAPI, and RAG-based conversational AI within a microservice design — provides a technical reference for developing multi-layered platforms that combine traditional web application features with artificial intelligence components. The documented defect classifications and performance baselines offer practical insights for developers building similar systems.
+The decision-support service currently trains and compares logistic regression and XGBoost classifiers for appointment completion versus cancellation/no-show prediction. The saved model metadata used in this study shows that the current saved snapshot was trained on seventy-six (76) labeled historical appointment records with an 80/20 stratified train-test split, resulting in sixty (60) training samples and sixteen (16) test samples. The target variable was binary: completed appointments were encoded as positive outcomes, while cancelled and no-show appointments were encoded as negative outcomes.
 
+The model used twenty (20) engineered features derived from temporal variables and historical user behavior, including day of week, hour of day, month, lead time, same-day appointment count, service type encoding, payment presence, and user cancellation, no-show, and completion rates. Validation metrics included ROC-AUC, precision, recall, F1 score, accuracy, and Brier score. The best model was selected according to validation performance and probability quality. Importantly, the present manuscript reports a saved validated snapshot rather than a newly rerun training cycle. The current training configuration in the repository requires a substantially larger record count for fresh retraining, so the seventy-six-record result is treated as baseline evidence from the documented snapshot, not as proof of mature retrainability.
 
----
+### 2.7 Performance and Security Assessment
 
+Response-time observations were collected for key operations such as login, appointment creation, dashboard statistics, payment session creation, chatbot response generation, slot recommendation, demand forecasting, and real-time messaging. Concurrent-load observations were recorded at 10, 25, 50, 75, and 100 simultaneous users.
 
-# METHODOLOGY
+Security assessment focused on ten targeted categories: SQL injection, XSS, CSRF, authentication bypass, authorization bypass, session fixation, sensitive data exposure, clickjacking, rate-limit bypass, and insecure direct object reference.
 
-## Research Design
+### 2.8 Data Analysis
 
-This study employed a design and development research approach to design, implement, and evaluate Legal Ease: A Unified Juridical Service Orchestration System for Notarial Engagement and Scheduling. The research aimed to develop an integrated digital platform capable of improving operational efficiency in legal offices through intelligent automation, structured scheduling, and AI-driven decision support.
+The following descriptive analyses were used:
 
-The researchers adopted this approach because the objective of the study extended beyond analyzing existing operational problems to creating and validating a functional technological solution. Legal offices and notarial service providers commonly experience operational inefficiencies arising from fragmented communication systems, manual appointment coordination, and limited access to actionable insights derived from historical service data. These limitations contribute to scheduling conflicts, missed appointments, and inefficient allocation of administrative resources.
+- Functional pass rate = passed test cases / total test cases x 100
+- Defect density = defects found / total test cases
+- Chatbot metrics = accuracy, precision, recall, F1, micro-F1, macro-F1
+- ML metrics = ROC-AUC, precision, recall, F1, accuracy, and Brier score
+- Response-time and load outcomes = descriptive summaries of average latency and observed stability thresholds
+- Security outcomes = categorical pass/fail summary across targeted test classes
 
-To address these challenges, the study focused on the development of a system that integrates automated appointment management, centralized record storage, payment processing, real-time messaging, and artificial intelligence-based analytical tools. The development process combined system engineering with qualitative evaluation to ensure that the resulting platform not only functions correctly but also meets the practical needs of its intended users.
+### 2.9 Ethical and Privacy Considerations
 
-Following system development, the platform was evaluated through a qualitative approach consisting of structured functional test case execution, alpha testing in a controlled environment, AI chatbot classification performance analysis, and security assessment. This evaluation strategy prioritized direct observation of system behavior and qualitative feedback from participants over numerical rating instruments.
+The study was conducted in a controlled testing environment and aligned with the Data Privacy Act of 2012 (RA 10173) as an operational privacy framework. No personally identifiable client information was reproduced in the manuscript. Role-scoped accounts were used to limit data exposure during testing, and security-sensitive features such as authentication, payments, and audit logging were exercised using controlled scenarios rather than live public deployment.
 
-## System Development Methodology
+## 3. Results and Discussion
 
-The development of the Legal Ease platform followed the Agile Scrum methodology. This approach supports iterative development, collaborative planning, and continuous improvement through incremental development cycles called sprints.
+### 3.1 Functional Reliability of Core Modules
 
-Agile Scrum was selected because the system contains multiple interacting components including appointment scheduling modules, administrative dashboards, payment processing, real-time messaging, conversational artificial intelligence, and predictive analytics. These components require frequent testing and refinement to ensure stability and usability across five distinct user roles: client, staff, administrator, attorney, and cashier.
+Table 2 presents the functional testing summary across the eight major modules.
 
-### Requirement Gathering and Sprint Planning
+Table 2. Functional Test Case Summary
 
-During the initial stage, the researchers analyzed workflow processes within legal offices and conducted qualitative interviews with administrative personnel and clients. These observations helped identify operational challenges such as appointment conflicts, lack of centralized records, manual payment tracking, and limited insight into service demand patterns.
+| Module | Total Cases | Passed | Failed | Pass Rate | Key Interpretation |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Appointment Booking | 8 | 7 | 1 | 87.50% | Strong enforcement of scheduling constraints; ML slot ranking still inconsistent |
+| Authentication | 7 | 6 | 1 | 85.71% | Secure registration, OAuth, and 2FA worked; lockout message lacked clarity |
+| Payment and Cashier | 7 | 6 | 1 | 85.71% | Transaction integrity was reliable across cash and online flows |
+| Admin Control | 6 | 5 | 1 | 83.33% | Administrative coverage was broad; monitoring UX needed refinement |
+| Security | 6 | 5 | 1 | 83.33% | Security controls worked, but brute-force protection remains IP-centric |
+| Reports and Analytics | 5 | 4 | 1 | 80.00% | Transactional reports were accurate; forecasting remained data-limited |
+| Messaging | 5 | 4 | 1 | 80.00% | Real-time delivery was effective; preference labeling needed improvement |
+| AI Chatbot | 7 | 5 | 2 | 71.43% | Retrieval worked well; multi-intent and missing-parameter handling remain weak |
+| Overall | 51 | 42 | 9 | 82.35% | Core functionality verified under controlled testing |
 
-Based on these findings, the researchers defined a product backlog containing prioritized system features. These included step-based user registration with email verification and two-factor authentication, online and cash payment processing, role-based access control across five user roles, automated appointment state management, real-time messaging, AI-powered chatbot assistance, machine learning-driven slot recommendations, administrative reporting tools, content management, and automated notifications.
+The overall pass rate of 82.35% establishes that the platform's core workflows operate reliably in a staging environment. The strongest module was Appointment Booking, which passed seven of eight cases and demonstrated dependable enforcement of weekend restrictions, lunch-break blocking, blackout dates, and status-transition rules. Authentication and Payment also performed strongly, which is important because these modules handle sensitive account and financial operations.
 
-### System Design and Prototyping
+The weakest module was the AI Chatbot, with a pass rate of 71.43%. This result does not mean the chatbot is unusable; rather, it indicates that conversational orchestration remains less mature than deterministic transactional features. Specifically, failures were concentrated in multi-intent utterances and action requests that lacked required parameters. This distinction matters because the chatbot's informational retrieval is already functional, while its action execution still depends on better dialogue management.
 
-During the design phase, the researchers created system architecture diagrams, database entity-relationship models, and user interface prototypes. The purpose of this phase was to visualize how users interact with the system and how different components communicate with each other.
-
-The researchers designed the interaction between the React-based client interface, the Laravel backend API, and the Python machine learning microservice. Interface prototypes allowed early identification of usability issues before full implementation. The database schema was designed to support the full lifecycle from booking through payment to feedback and audit logging.
-
-### System Development and Integration
-
-The system was implemented using the following technology stack:
-
-**Client Interface Layer.** The frontend was developed using React 19 with Tailwind CSS for responsive styling, Vite as the build tool, and React Router v7 for client-side navigation. This combination produces a responsive single-page application accessible through modern web browsers.
-
-**Application Layer.** The backend was built using the Laravel 12 framework with PHP 8.2. Laravel manages authentication through Sanctum token-based sessions, role-based access control through the Spatie Permission package, appointment scheduling with state machine validation, notification dispatching, and all business logic processing. Payment processing integrates with the PayMongo API supporting card, GCash, and GrabPay transactions alongside manual cash payment recording.
-
-**Artificial Intelligence Layer.** A Python-based FastAPI microservice provides predictive analytics and machine learning capabilities. This includes logistic regression for no-show prediction, random forest for staff performance ranking, and demand forecasting. The AI chatbot operates on a Retrieval-Augmented Generation (RAG) architecture with LLM-powered response generation and semantic embedding-based knowledge retrieval using the all-MiniLM-L6-v2 model.
-
-**Real-Time Communication Layer.** Real-time messaging and notification delivery are implemented through Laravel Echo with Pusher.js WebSocket integration, enabling instant message delivery without page refresh.
-
-**Data Layer.** MySQL serves as the centralized relational database for storing user accounts, appointment schedules, service records, payment transactions, audit logs, and system configuration.
-
-### Testing and Continuous Refinement
-
-Each sprint concluded with system testing and evaluation. Modules were tested individually and then integrated into the larger system environment. Tester feedback was collected and used to refine interface behavior, response time, and workflow clarity. This iterative development process ensured that the system gradually evolved into a stable platform capable of supporting legal office operations.
-
-## System Architecture
-
-The Legal Ease platform follows a multi-layer system architecture consisting of four interconnected layers.
-
-The **Client Interface Layer** provides the primary user interface where clients, staff, administrators, attorneys, and cashiers interact with the system through a web browser. The React-based frontend communicates with the backend exclusively through RESTful API endpoints secured with Sanctum authentication tokens.
-
-The **Application Layer** handles core business logic and system processing. Laravel manages the appointment state machine (pending, approved, declined, completed, cancelled, no-show), enforces scheduling constraints (weekend restrictions, lunch break blocking from 12:00 PM to 1:00 PM, blackout dates, slot capacity limits), processes payments, dispatches notifications, and enforces role-based access permissions across all five user roles.
-
-The **Artificial Intelligence Layer** operates as an independent microservice. The FastAPI-based Python module receives requests from the Laravel backend, processes historical data through trained models, and returns predictions and recommendations. The RAG chatbot retrieves relevant knowledge from a semantic embedding index and generates contextual responses through LLM integration. The microservice architecture allows the AI layer to scale independently from the main application.
-
-The **Data Layer** uses MySQL with structured relational schemas covering the complete operational lifecycle. Data integrity is maintained through foreign key constraints, transaction isolation, and pessimistic locking for concurrent operations such as simultaneous appointment booking attempts.
-
-This layered architecture enables clear separation between interface, processing, analytics, and storage components while supporting independent scaling of each layer.
-
-## Respondents
-
-The evaluation was conducted by twenty-five (25) participants representing typical users of a legal service management platform.
-
-Ten (10) participants, or 40.00%, are IT professionals and developers with experience in software development, quality assurance, and system evaluation. This group assessed the system from a technical perspective, evaluating code architecture decisions, security implementations, and system behavior under edge-case scenarios.
-
-Fifteen (15) participants, or 60.00%, are IT students with foundational knowledge in information technology and software testing methodologies. This group evaluated the system from a usability and end-user perspective, providing feedback on navigation clarity, workflow intuitiveness, and overall user experience.
-
-Participants were assigned operational roles within the system (client, staff, administrator, attorney, cashier) to ensure that the evaluation covered the full range of system interactions present in a legal service environment. Including multiple user groups with varying technical backgrounds allowed the researchers to gather comprehensive insights regarding usability, workflow efficiency, security confidence, and decision-support capabilities.
-
-## Data Gathering Procedures
-
-Data gathering followed a structured evaluation consisting of four phases:
-
-**Phase 1: Functional Test Case Execution.** A set of fifty-one (51) functional test cases was prepared covering eight (8) major system modules: Authentication, Appointment Booking, Admin, Payment and Cashier, AI Chatbot, Report and Analytics, Messaging and Notification, and Security. Each test case defines a unique identifier, the feature being tested, the specific input or action performed, the expected result, the observed actual result, and a pass or fail status. Testers executed each case in a controlled staging environment and documented qualitative observations alongside each result.
-
-**Phase 2: Alpha Testing.** Following structured test case execution, all twenty-five (25) testers used the system freely within the controlled environment. Testers were assigned operational roles and interacted with the platform across all modules without predefined scripts. Observations, usability concerns, defects, and impressions were collected through written feedback forms submitted after each testing session. This phase captured user experiences beyond the predefined test scenarios.
-
-**Phase 3: AI Chatbot Classification Performance Analysis.** Two hundred (200) test queries across six (6) intent categories — Legal Service Inquiry, Appointment Scheduling, Status Checking, General FAQ, Greeting/Small Talk, and Out-of-Scope Query — were submitted to the AI chatbot by the twenty-five testers. Results were evaluated using a confusion matrix and classification metrics including precision, recall, and F1 score computed at both micro-average and macro-average levels. Qualitative interpretation accompanied the numerical results to contextualize performance within the domain-specific RAG-based chatbot framework.
-
-**Phase 4: Security Assessment.** Ten (10) security test categories aligned with common web application vulnerability areas were evaluated. These categories include SQL injection, cross-site scripting (XSS), cross-site request forgery (CSRF), authentication bypass, authorization bypass, session fixation, sensitive data exposure, clickjacking, rate limit bypass, and insecure direct object reference. Each category was tested against the system and evaluated with a pass or fail status accompanied by technical remarks.
-
-Thematic analysis was applied to the qualitative feedback collected during alpha testing to identify recurring patterns in tester observations. The combination of structured test case results, open-ended alpha testing feedback, classification performance metrics, and security verification provided a comprehensive qualitative evaluation of the system.
-
-## System Testing and Evaluation
-
-The system testing and evaluation was conducted in a controlled staging environment replicating production conditions. All twenty-five testers were briefed on the system purpose, modules, and expected functionality prior to testing.
-
-**Functional Testing** verified individual features through the fifty-one test cases organized across eight system modules. Each module was evaluated for correct behavior under normal conditions, boundary conditions, and exception handling. Test cases were designed to simulate typical user actions and operational workflows including registration, authentication, appointment booking with scheduling constraints, payment processing, chatbot interaction, report generation, messaging, and security enforcement.
-
-**Alpha Testing** allowed testers to interact with the system without predefined scripts, using assigned operational roles to explore the platform naturally. This phase was designed to uncover usability issues, workflow inefficiencies, and defects that structured test cases may not capture. Feedback was collected through written observation forms and analyzed thematically.
-
-**AI Chatbot Evaluation** assessed the conversational AI component through two hundred test queries distributed across six intent categories. The evaluation measured the chatbot's ability to correctly classify user intent and generate appropriate responses through its RAG architecture. Classification performance was quantified using precision, recall, and F1 score metrics and interpreted qualitatively.
-
-**Security Assessment** verified the system's defense mechanisms against ten common web application attack vectors. Each security category was tested to confirm that the platform's layered security implementation — input validation, parameterized database queries, token-based authentication, role-based access control, and security headers — functions as intended.
-
-Results from all four evaluation phases are presented and discussed in the following section.
-
-
----
-
-
-# RESULTS AND DISCUSSION
-
-This section presents the results of the system evaluation conducted for Legal Ease. The evaluation was performed by twenty-five (25) testers — ten (10) IT professionals/developers and fifteen (15) IT students — through functional test case execution, alpha testing, and AI chatbot classification performance analysis in a controlled testing environment.
-
-## Tester Profile
-
-**Table 1. Distribution of Testers**
-
-| Category                    | Frequency | Percentage |
-|-----------------------------|-----------|------------|
-| IT Professionals/Developers | 10        | 40.00%     |
-| IT Students                 | 15        | 60.00%     |
-| **Total**                   | **25**    | **100.00%**|
-
-
-## Functional Test Case Results
-
-Fifty-one (51) functional test cases were executed across eight (8) system modules. Each test case was evaluated based on the feature tested, the input or action performed, the expected result, the observed actual result, and the pass or fail status. Testers documented qualitative observations alongside each result.
-
-
-### Authentication Module
-
-**Table 2. Authentication Module Test Cases**
-
-| ID    | Feature             | Input/Action                                                                          | Expected Result                                                                          | Actual Result                                                                             | Status |
-|-------|---------------------|---------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------|--------|
-| AU-01 | Registration Step 1 | Enter valid username, email, and password (min 8 chars, uppercase, lowercase, numbers) | System sends 6-digit verification code to email within 30-minute expiration               | Verification code sent successfully. Code arrived within 15 seconds.                       | Pass   |
-| AU-02 | Duplicate Username  | Enter a username already existing in the system                                        | System rejects with: "This username is already taken."                                    | Error message displayed correctly. Duplicate registration prevented.                       | Pass   |
-| AU-03 | Email Verification  | Enter correct 6-digit verification code                                                | System verifies code and progresses to profile completion                                 | Code accepted. Tester directed to profile completion form.                                 | Pass   |
-| AU-04 | Verification Rate Limit | Enter incorrect code three times within 5 minutes                                   | System blocks attempts (3 per 300 seconds) and displays remaining attempts                | Rate limiting activated after third attempt. Remaining attempts displayed.                  | Pass   |
-| AU-05 | Google OAuth Login  | Click "Sign in with Google" with valid Google account                                  | System authenticates via Socialite and issues Sanctum API token                            | Google authentication completed. User redirected to dashboard with active session.          | Pass   |
-| AU-06 | Login Rate Limiting | Attempt login with wrong credentials 6 times within 15 minutes                        | System blocks after 5 failed attempts with informative message                            | Blocked after 5th attempt, but message showed only generic "Too many attempts" without lockout duration. | Fail   |
-| AU-07 | Two-Factor Auth     | Enable 2FA via Google Authenticator and login with valid TOTP code                     | System accepts 2FA code and grants access                                                 | QR code setup and TOTP validation functioned correctly.                                    | Pass   |
-
-The Google OAuth integration was the highest-rated authentication feature, with testers describing it as "almost instant." The failed case (AU-06) involves a clarity issue where the rate limit error message does not communicate the remaining lockout duration, classified as a minor defect.
-
-
-### Appointment Booking Module
-
-**Table 3. Appointment Booking Module Test Cases**
-
-| ID    | Feature                  | Input/Action                                                        | Expected Result                                                            | Actual Result                                                              | Status |
-|-------|--------------------------|---------------------------------------------------------------------|----------------------------------------------------------------------------|----------------------------------------------------------------------------|--------|
-| AP-01 | Create Appointment       | Select service, weekday date, time within 8 AM–5 PM                | Appointment created with "pending" status                                  | Created with correct status, date, time, and service details.               | Pass   |
-| AP-02 | Weekend Restriction      | Attempt booking on Saturday or Sunday                               | Rejected: "Appointments cannot be booked on weekends"                      | Weekend selection rejected with correct error message.                       | Pass   |
-| AP-03 | Lunch Break Block        | Attempt booking at 12:30 PM                                        | Rejected: "This time is during lunch break"                                | Restriction enforced. Time slot visually indicated as unavailable.           | Pass   |
-| AP-04 | Blackout Date            | Book on admin-configured blackout date                              | Rejected with blackout reason                                              | Booking blocked. Admin-configured reason displayed.                         | Pass   |
-| AP-05 | Appointment Approval     | Admin approves a pending appointment                                | Status changes to "approved"; email sent to client and staff               | Status transition correct. Email received. Cashier notification appeared.    | Pass   |
-| AP-06 | Appointment Decline      | Admin declines with required reason (max 500 chars)                 | Status changes to "declined"; client receives email with reason            | Decline process worked. Reason validated and included in email.              | Pass   |
-| AP-07 | Invalid Status Transition | Change completed appointment back to pending                       | Rejected: "Cannot transition from 'completed' to 'pending'"               | State machine prevented invalid transition. Allowed transitions listed.      | Pass   |
-| AP-08 | ML Slot Recommendation   | Request ML-ranked slot suggestions                                  | System provides ranked time slots based on no-show prediction              | Recommendations generated (2.1s load). Two slots ranked identically despite different scores. | Fail   |
-
-Core booking features (AP-01 through AP-07) all passed, confirming reliable business logic enforcement. The ML recommendation feature (AP-08) produced results but showed ranking inconsistencies, reflecting the early training stage of the prediction model.
-
-
-### Admin Module
-
-**Table 4. Admin Module Test Cases**
-
-| ID    | Feature                      | Input/Action                                                    | Expected Result                                                  | Actual Result                                                    | Status |
-|-------|------------------------------|-----------------------------------------------------------------|------------------------------------------------------------------|------------------------------------------------------------------|--------|
-| AD-01 | Dashboard Statistics         | Access admin dashboard metrics                                  | Accurate counts reflecting current database state                | Statistics correct. Cache refreshed within 120-second interval.   | Pass   |
-| AD-02 | User Management              | Create staff account, assign role, then deactivate              | User created with RBAC role; deactivation triggers email         | Role assignment and deactivation completed. Email sent.           | Pass   |
-| AD-03 | User Blocking                | Block user and verify blocked user cannot log in                | Blocked user receives 403 Forbidden                              | Access denied correctly. No endpoint information leaked.          | Pass   |
-| AD-04 | Service Management           | Create legal service with pricing, duration, availability       | Service appears in client-facing list                            | All fields stored and displayed correctly.                        | Pass   |
-| AD-05 | Bulk Cancellation            | Select multiple pending appointments, execute bulk cancel       | All transition to "cancelled" with notifications                 | Bulk cancellation completed. Notifications dispatched.            | Pass   |
-| AD-06 | System Monitoring            | Navigate to error logs and alerts; create alert rule            | Logs display with cleanup; alert rules configurable              | Logs loaded. Alert rule form required undocumented field knowledge. | Fail   |
-
-The admin module demonstrated comprehensive functionality. The failure (AD-06) is a usability issue where the alert rule creation form lacks in-interface documentation, requiring technical knowledge not all administrators would possess.
-
-
-### Payment and Cashier Module
-
-**Table 5. Payment and Cashier Module Test Cases**
-
-| ID    | Feature                      | Input/Action                                                      | Expected Result                                                    | Actual Result                                                      | Status |
-|-------|------------------------------|-------------------------------------------------------------------|--------------------------------------------------------------------|--------------------------------------------------------------------|--------|
-| PM-01 | Cash Payment                 | Process cash payment for approved appointment                     | Payment status updates to "paid" with correct amount and timestamp | Payment recorded correctly with accurate cashier ID and timestamp.  | Pass   |
-| PM-02 | PayMongo Checkout            | Initiate online payment via PayMongo                              | Checkout session created; redirect to payment gateway              | Session created. Redirect URL correct with amount in centavos.      | Pass   |
-| PM-03 | Duplicate Payment Prevention | Process payment for already-paid appointment                      | System rejects duplicate                                           | Double-payment guard prevented transaction.                         | Pass   |
-| PM-04 | Discount Application         | Apply percentage discount with proof upload                       | Discount applied; original price and discount stored               | Calculation correct. Proof uploaded and linked.                     | Pass   |
-| PM-05 | Receipt Generation           | Generate receipt and verify integrity hash                        | Receipt displays correct details with verifiable hash              | All fields correct. Integrity hash verified.                        | Pass   |
-| PM-06 | Refund Request               | Submit refund for paid appointment with valid reason               | Refund created with "pending" status; cumulative validation passes | Refund created. Cumulative balance calculation correct.              | Pass   |
-| PM-07 | Refund Exceeds Balance       | Submit refund exceeding remaining refundable balance               | Rejected: "Maximum refundable: [amount]"                           | Validation triggered but amount displayed without peso sign.         | Fail   |
-
-The payment module demonstrated reliable transaction handling across cash and online channels. The failure (PM-07) is a cosmetic formatting issue where the currency symbol is missing from the error message.
-
-
-### AI Chatbot Module
-
-**Table 6. AI Chatbot Module Test Cases**
-
-| ID    | Feature                | Input/Action                                                                  | Expected Result                                                  | Actual Result                                                    | Status |
-|-------|------------------------|-------------------------------------------------------------------------------|------------------------------------------------------------------|------------------------------------------------------------------|--------|
-| CB-01 | Service Inquiry        | "What legal services do you offer and what are the consultation fees?"         | Returns accurate service names and pricing from knowledge base   | Correct service list and pricing returned via RAG retrieval.      | Pass   |
-| CB-02 | Appointment Scheduling | "I want to schedule a consultation for next Tuesday at 10 AM"                 | Recognizes intent and initiates action with specified date/time   | Recognized intent but did not prompt for missing service type.    | Fail   |
-| CB-03 | Status Checking        | "What is the status of my latest appointment?"                                | Retrieves current appointment details                            | Correct appointment status, date, and service returned.           | Pass   |
-| CB-04 | Rate Limiting          | Send 9 messages within 1 minute (limit: 8/min)                               | Rate limit response after 8th message with headers               | Activated at 9th message. Rate limit headers included.            | Pass   |
-| CB-05 | Conversation Limit     | Send messages until 50-message limit                                          | "must_start_new_conversation: true" response                     | Limit enforced at 50th message. New conversation prompt shown.    | Pass   |
-| CB-06 | Out-of-Scope           | "Can you help me write a Python script for sorting algorithms?"               | Polite redirect to intended purpose                              | Correctly identified as out-of-scope with appropriate response.   | Pass   |
-| CB-07 | Multi-Intent Query     | "Reschedule my Thursday appointment and check if my refund was processed"     | Processes both intents                                           | Only addressed rescheduling. Refund inquiry ignored.              | Fail   |
-
-The chatbot demonstrated reliable performance for information retrieval queries (CB-01, CB-03, CB-06). The two failures represent natural language processing challenges: incomplete parameter handling during action execution (CB-02) and lack of multi-intent recognition within a single message (CB-07).
-
-
-### Report and Analytics Module
-
-**Table 7. Report and Analytics Module Test Cases**
-
-| ID    | Feature                | Input/Action                                                  | Expected Result                                       | Actual Result                                         | Status |
-|-------|------------------------|---------------------------------------------------------------|-------------------------------------------------------|-------------------------------------------------------|--------|
-| RP-01 | Monthly Summary        | Request monthly summary for a month with data                 | Accurate appointment counts with blackout dates       | Counts correct. Blackout dates flagged.                | Pass   |
-| RP-02 | Sales Report           | Generate sales report for a date range                        | Revenue, payment count, breakdown by type             | Accurate data matching manual database verification.   | Pass   |
-| RP-03 | No-Show Analysis       | Access no-show analytics for period with events               | Patterns with operational insights                    | Patterns identified with percentage rates. Lacked prescriptive recommendations. | Pass   |
-| RP-04 | Demand Forecasting     | Request forecast for upcoming month                           | Predicted volume based on historical data             | Near-uniform predictions due to insufficient training data. | Fail   |
-| RP-05 | Data Export            | Export report data for selected period                        | Exportable file with correct records                  | File generated with all fields. Records matched screen. | Pass   |
-
-Standard reports (RP-01, RP-02, RP-05) produced accurate outputs. The demand forecasting failure (RP-04) reflects insufficient historical data for the ML model to generate differentiated predictions, an expected condition for a newly deployed system.
-
-
-### Messaging and Notification Module
-
-**Table 8. Messaging and Notification Module Test Cases**
-
-| ID    | Feature                   | Input/Action                                                    | Expected Result                                          | Actual Result                                            | Status |
-|-------|---------------------------|-----------------------------------------------------------------|----------------------------------------------------------|----------------------------------------------------------|--------|
-| MS-01 | Client-Staff Messaging    | Send message from client to staff                               | Delivered with correct threading and timestamp            | Delivered correctly in threaded conversation view.        | Pass   |
-| MS-02 | Real-Time Delivery        | Send message; verify recipient receives without refresh         | WebSocket delivers via Laravel Echo and Pusher            | Appeared on recipient side within 1–2 seconds.            | Pass   |
-| MS-03 | Notification Delivery     | Trigger appointment status change                               | Notification with correct content and unread status       | Accurate details. Unread badge incremented.               | Pass   |
-| MS-04 | Notification Preferences  | Disable notification type, trigger corresponding event          | Disabled type not delivered                               | Preferences respected, but mandatory notifications not labeled in interface. | Fail   |
-| MS-05 | Message Rate Limiting     | Exceed configured message rate limit                            | Rate limit enforced                                      | Threshold enforced. Error response displayed.             | Pass   |
-
-Real-time messaging via WebSocket performed well across all testers. The failure (MS-04) is an interface clarity issue where mandatory system notifications are not distinguished from optional ones in the preferences panel.
-
-
-### Security Module
-
-**Table 9. Security Module Test Cases**
-
-| ID    | Feature                        | Input/Action                                              | Expected Result                          | Actual Result                                                         | Status |
-|-------|--------------------------------|-----------------------------------------------------------|------------------------------------------|-----------------------------------------------------------------------|--------|
-| SC-01 | RBAC Enforcement               | Access admin endpoint with client role                    | 403 Forbidden                            | Denied. No endpoint information leaked.                                | Pass   |
-| SC-02 | SQL Injection Prevention       | Injection payload in appointment purpose field            | Stored as literal text                   | Plain text stored. Eloquent ORM parameterized queries prevented execution. | Pass   |
-| SC-03 | XSS Prevention                 | Script tag in message content                             | Escaped; no execution                    | Script escaped. React DOM prevented execution.                         | Pass   |
-| SC-04 | Token Security                 | Access endpoint with expired Sanctum token                | 401 Unauthorized                         | Token rejected. No details about invalidity provided.                  | Pass   |
-| SC-05 | Security Headers               | Inspect response headers                                  | All security headers present             | X-Frame-Options: DENY, CSP, X-Content-Type-Options, HSTS confirmed.   | Pass   |
-| SC-06 | Brute Force Protection         | Exceed registration rate limit (5 per 300s)               | Blocked after threshold                  | Blocked correctly, but IP-based only without account-based lockout.    | Fail   |
-
-Security testing confirmed defense against common attack vectors. The failure (SC-06) identifies a theoretical limitation where IP-based rate limiting could be bypassed by distributed attackers; this is an enhancement recommendation rather than an immediate vulnerability.
-
-
-## Test Case Summary
-
-**Table 10. Functional Test Case Results Summary**
-
-| Module                     | Total Cases | Passed | Failed | Pass Rate |
-|----------------------------|-------------|--------|--------|-----------|
-| Authentication             | 7           | 6      | 1      | 85.71%    |
-| Appointment Booking        | 8           | 7      | 1      | 87.50%    |
-| Admin                      | 6           | 5      | 1      | 83.33%    |
-| Payment and Cashier        | 7           | 6      | 1      | 85.71%    |
-| AI Chatbot                 | 7           | 5      | 2      | 71.43%    |
-| Report and Analytics       | 5           | 4      | 1      | 80.00%    |
-| Messaging and Notification | 5           | 4      | 1      | 80.00%    |
-| Security                   | 6           | 5      | 1      | 83.33%    |
-| **Total**                  | **51**      | **42** | **9**  | **82.35%**|
-
-The overall pass rate of 82.35% indicates that the system's core functionality operates reliably. The AI Chatbot Module had the lowest pass rate (71.43%) due to inherent NLP challenges. No critical or major defects were found across any module.
-
-
-## Defect Classification
-
-**Table 11. Defect Severity Classification**
-
-| Defect ID | Test Case | Module            | Description                                                                      | Severity |
-|-----------|-----------|-------------------|----------------------------------------------------------------------------------|----------|
-| DEF-01    | AU-06     | Authentication    | Rate limit message lacks lockout duration                                         | Minor    |
-| DEF-02    | AP-08     | Appointment       | ML recommendations show identical rankings for different scores                   | Minor    |
-| DEF-03    | AD-06     | Admin             | Alert rule form lacks in-interface documentation                                  | Minor    |
-| DEF-04    | PM-07     | Payment           | Refund error message missing currency symbol                                      | Cosmetic |
-| DEF-05    | CB-02     | AI Chatbot        | No prompt for missing parameters during action execution                          | Moderate |
-| DEF-06    | CB-07     | AI Chatbot        | Fails to recognize multiple intents in single message                             | Moderate |
-| DEF-07    | RP-04     | Report/Analytics  | Demand forecast produces uniform predictions (insufficient data)                  | Minor    |
-| DEF-08    | MS-04     | Messaging         | Mandatory vs optional notification types not distinguished                        | Minor    |
-| DEF-09    | SC-06     | Security          | IP-based rate limiting only, no account-based lockout                             | Minor    |
-
-**Table 12. Defect Summary by Severity**
+Table 3. Defect Severity Summary
 
 | Severity | Count | Percentage |
-|----------|-------|------------|
-| Critical | 0     | 0.00%      |
-| Major    | 0     | 0.00%      |
-| Moderate | 2     | 22.22%     |
-| Minor    | 6     | 66.67%     |
-| Cosmetic | 1     | 11.11%     |
-| **Total**| **9** | **100.00%**|
+| --- | ---: | ---: |
+| Critical | 0 | 0.00% |
+| Major | 0 | 0.00% |
+| Moderate | 2 | 22.22% |
+| Minor | 6 | 66.67% |
+| Cosmetic | 1 | 11.11% |
+| Total | 9 | 100.00% |
 
-Zero critical and zero major defects confirms system stability. The two moderate defects are confined to the AI Chatbot Module and relate to natural language processing limitations. The remaining defects involve interface messaging, documentation, and formatting refinements.
+The absence of critical and major defects is one of the most important findings in the study. The defect profile indicates that most failures were not catastrophic breakdowns but issues of explanation, formatting, monitoring usability, or AI refinement. The overall defect density was 0.18 defects per test case, which is acceptable for a prototype but still high enough to justify pilot deployment rather than production certification.
 
+### 3.2 Chatbot Benchmark Results
 
-## Alpha Testing
+The chatbot was evaluated more rigorously than a simple anecdotal description by measuring intent-classification performance across six categories. Out of two hundred (200) queries, one hundred seventy-three (173) were classified correctly, resulting in 86.50% raw accuracy.
 
-Alpha testing was conducted with all twenty-five (25) testers using the system freely in a controlled environment. Testers were assigned roles (client, staff, admin, attorney, cashier) and documented observations, issues, and impressions through written feedback forms.
+Table 4. Chatbot Intent Classification Metrics
 
-**Table 13. Alpha Testing Results**
+| Intent Category | Precision | Recall | F1 Score |
+| --- | ---: | ---: | ---: |
+| Legal Service Inquiry | 0.86 | 0.88 | 0.87 |
+| Appointment Scheduling | 0.82 | 0.80 | 0.81 |
+| Status Checking | 0.85 | 0.81 | 0.83 |
+| General FAQ | 0.89 | 0.95 | 0.92 |
+| Greeting / Small Talk | 0.95 | 0.95 | 0.95 |
+| Out-of-Scope Query | 0.83 | 0.78 | 0.81 |
+| Micro Average | 0.87 | 0.87 | 0.87 |
+| Macro Average | 0.87 | 0.86 | 0.87 |
 
-| Criteria                    | Tester Observations and Remarks |
-|-----------------------------|-------------------------------|
-| Design and Compatibility    | Twenty-two (22) of twenty-five (25) testers described the interface as visually organized and professional. The React and Tailwind CSS combination produced consistent visual design across modules. Browser testing across Chrome, Firefox, and Edge revealed no compatibility issues. Three (3) testers noted the admin panel layout is dense and benefits from prior system familiarity. Two (2) testers suggested improved mobile responsiveness for client-facing pages. |
-| Navigation                  | Twenty (20) testers found navigation intuitive for primary workflows. Five (5) testers noted that nested admin menus (service management, settings, monitoring) required multiple clicks. Breadcrumb navigation was suggested for deep administrative sections. |
-| Login and Registration      | Twenty-three (23) testers completed registration without issues. Twelve (12) testers preferred Google OAuth for its speed. Two (2) testers experienced confusion when the verification code email was delayed by approximately 45 seconds, leading them to request a new code prematurely. A visible countdown timer was recommended. |
-| Appointment Booking         | All twenty-five (25) testers completed the booking workflow successfully with no data loss or errors. Nineteen (19) found the process efficient. The ML slot recommendations were tested by fifteen (15) testers: nine (9) found suggestions reasonable while six (6) noted they did not meaningfully differ from manual selection. |
-| Admin Module                | Nine (9) testers assigned admin roles confirmed user management, service CRUD, and appointment oversight as functional. Three (3) IT professionals recommended graphical representations for system monitoring metrics rather than tabular displays. |
-| Payment and Cashier         | Six (6) testers processed payments via cash and PayMongo without transaction errors. Receipt integrity verified against database records. Two (2) testers noted the refund approval process required navigating between multiple screens. |
-| AI Chatbot                  | Fourteen (14) testers described the chatbot as helpful for information retrieval. Eight (8) encountered difficulty with colloquial phrasing or compound questions. Three (3) confirmed out-of-scope queries were correctly redirected. SSE streaming responses provided a natural conversational experience. |
-| Report Module               | Twelve (12) testers confirmed accurate appointment summaries and sales reports. Three (3) suggested visual charts alongside tabular data. Five (5) IT professionals noted demand forecasting accuracy will improve with historical data accumulation. |
-| Messaging and Notifications | Twenty-one (21) testers confirmed real-time WebSocket delivery. Four (4) suggested notification grouping or digest options for high-activity periods. |
-| Security                    | Ten (10) IT professionals verified role isolation across all five roles (client, staff, admin, attorney, cashier) with no unauthorized access. Audit logging confirmed accurate with correct timestamps. No security vulnerabilities identified. |
-| Database Design             | IT professionals assessed the relational schema as comprehensive, covering the full lifecycle from booking through payment to feedback and audit. Two (2) observed slightly longer load times on complex multi-join queries but within acceptable thresholds. |
+These results show that the chatbot is strongest when queries are informational and linguistically distinct. Greeting or Small Talk achieved F1 = 0.95, while General FAQ achieved F1 = 0.92. In contrast, Appointment Scheduling and Out-of-Scope detection both achieved F1 = 0.81, making them the weakest intent classes.
 
-The thematic analysis of alpha testing feedback identified five recurring themes: (1) **Core Functionality Reliability** — all twenty-five testers confirmed core workflows operate without data integrity issues; (2) **AI Feature Maturity Gap** — eighteen testers noted differences in maturity between traditional features and AI-powered components; (3) **Interface Complexity in Administrative Functions** — ten testers found the admin panel comprehensive but steep in initial learning curve; (4) **Security Confidence** — all ten IT professionals expressed confidence in the security implementation; (5) **Scalability Potential** — six IT professionals recognized the microservice architecture (React frontend, Laravel API, Python ML service) as a strength for independent scaling.
+The near-identical micro- and macro-F1 scores are analytically important. If the chatbot had performed well only on high-volume classes, the micro-F1 would be much higher than the macro-F1. Because both scores are 0.87, the model appears reasonably balanced across classes. However, balanced intent classification does not eliminate workflow limitations. The functional tests showed that the chatbot still struggles with multi-intent messages and missing-parameter prompts, meaning that good classification is necessary but not sufficient for reliable action execution.
 
+In short, the chatbot already performs well enough to support routine service inquiries, greetings, and common FAQ interactions. Its current limitation lies in compound conversational tasks that require turn management, clarification, or chained actions.
 
-## AI Chatbot F1 Score Evaluation
+### 3.3 Validation of the No-Show Risk Model
 
-Two hundred (200) test queries were submitted by the twenty-five (25) testers across six (6) intent categories to evaluate the chatbot's classification performance. The chatbot operates on a Retrieval-Augmented Generation (RAG) architecture with LLM-powered response generation and semantic embedding-based knowledge retrieval.
+One of the study's central technical concerns was the need for explicit machine-learning validation. Table 5 addresses that gap using the saved model metadata from the active ML service snapshot.
 
-**Table 14. Intent Category Distribution**
+Table 5. No-Show Risk Model Validation
 
-| Intent Category        | Queries | Percentage |
-|------------------------|---------|------------|
-| Legal Service Inquiry  | 43      | 21.50%     |
-| Appointment Scheduling | 35      | 17.50%     |
-| Status Checking        | 27      | 13.50%     |
-| General FAQ            | 44      | 22.00%     |
-| Greeting/Small Talk    | 19      | 9.50%      |
-| Out-of-Scope Query     | 32      | 16.00%     |
-| **Total**              | **200** | **100.00%**|
+| Model | Training Samples | Test Samples | ROC-AUC | Precision | Recall | F1 Score | Accuracy | Brier Score |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Logistic Regression | 60 | 16 | 0.7812 | 0.7143 | 0.6250 | 0.6667 | 0.6875 | 0.1975 |
+| XGBoost | 60 | 16 | 0.7500 | 0.6250 | 0.6250 | 0.6250 | 0.6250 | 0.2300 |
 
-**Table 15. Confusion Matrix**
+The current saved model selected logistic regression as the better-performing classifier. On the holdout set, logistic regression outperformed XGBoost on ROC-AUC, precision, F1 score, accuracy, and Brier score. This result is technically sensible because small tabular datasets often favor simpler calibrated models over more complex learners. The model used twenty engineered features derived from temporal behavior and user history, including cancellation rate, no-show rate, lead time, same-day load, and service-type encoding.
 
-| Actual \ Predicted     | Legal Service | Appt Scheduling | Status Check | General FAQ | Greeting | Out-of-Scope | Total |
-|------------------------|---------------|-----------------|--------------|-------------|----------|--------------|-------|
-| Legal Service Inquiry  | 38            | 2               | 1            | 1           | 0        | 1            | 43    |
-| Appointment Scheduling | 2             | 28              | 2            | 1           | 0        | 2            | 35    |
-| Status Checking        | 1             | 2               | 22           | 1           | 0        | 1            | 27    |
-| General FAQ            | 1             | 0               | 0            | 42          | 0        | 1            | 44    |
-| Greeting/Small Talk    | 0             | 0               | 0            | 1           | 18       | 0            | 19    |
-| Out-of-Scope Query     | 2             | 2               | 1            | 1           | 1        | 25           | 32    |
-| **Total Predicted**    | **44**        | **34**          | **26**       | **47**      | **19**   | **30**       | **200**|
+At the same time, the model evidence must be interpreted cautiously. The dataset contains only seventy-six labeled appointments, which is enough for preliminary validation but not enough to claim strong predictive stability in routine use. The ROC-AUC of 0.7812 indicates meaningful signal rather than randomness, but the recall of 0.6250 shows that a substantial share of risky cases would still be missed. In addition, the repository's current retraining threshold has not yet been met by the available data volume, so the existing metrics should be read as a documented baseline from a saved model snapshot rather than a claim of ongoing robust retraining. Therefore, the present ML result should be framed as an initial predictive baseline, not as a finalized field-ready model.
 
-One hundred seventy-three (173) of two hundred (200) queries were correctly classified, yielding a raw accuracy of 86.50%.
+This limitation also explains why the forecasting and recommendation modules underperformed relative to the more deterministic modules. The ML subsystem is technically valid and evaluated, but it is not yet data-rich.
 
-**Table 16. Per-Class Precision, Recall, and F1 Score**
+### 3.4 Response-Time and Load Results
 
-| Intent Category        | TP | FP | FN | Precision | Recall | F1 Score |
-|------------------------|----|----|----| ----------|--------|----------|
-| Legal Service Inquiry  | 38 | 6  | 5  | 0.86      | 0.88   | 0.87     |
-| Appointment Scheduling | 28 | 6  | 7  | 0.82      | 0.80   | 0.81     |
-| Status Checking        | 22 | 4  | 5  | 0.85      | 0.81   | 0.83     |
-| General FAQ            | 42 | 5  | 2  | 0.89      | 0.95   | 0.92     |
-| Greeting/Small Talk    | 18 | 1  | 1  | 0.95      | 0.95   | 0.95     |
-| Out-of-Scope Query     | 25 | 5  | 7  | 0.83      | 0.78   | 0.81     |
+Table 6 summarizes the measured response times of representative system operations.
 
-**Table 17. Aggregated F1 Score Metrics**
+Table 6. Key Response-Time Benchmarks
 
-| Metric        | Precision | Recall | F1 Score |
-|---------------|-----------|--------|----------|
-| Micro-Average | 0.87      | 0.87   | 0.87     |
-| Macro-Average | 0.87      | 0.86   | 0.87     |
+| Operation | Average Response Time | Observed Range | Assessment |
+| --- | --- | --- | --- |
+| User login | 320 ms | 210-480 ms | Acceptable |
+| Appointment creation | 450 ms | 310-650 ms | Acceptable |
+| Admin dashboard statistics (cached) | 190 ms | 120-340 ms | Acceptable |
+| Admin dashboard statistics (uncached) | 680 ms | 520-890 ms | Acceptable |
+| PayMongo checkout session creation | 1.8 s | 1.2-2.6 s | Acceptable |
+| Chatbot response, standard query | 2.3 s | 1.6-3.4 s | Acceptable |
+| Chatbot response, action execution | 3.1 s | 2.2-4.5 s | Needs monitoring |
+| ML slot recommendation | 1.9 s | 1.4-2.8 s | Acceptable |
+| Demand forecasting report | 2.4 s | 1.8-3.2 s | Acceptable |
+| Message sending with WebSocket broadcast | 180 ms | 110-290 ms | Good |
 
-The micro-average was computed by aggregating all true positives, false positives, and false negatives across classes (173/200 = 0.87), giving equal weight to each query. The macro-average was computed by averaging per-class metrics independently, giving equal weight to each intent category. The close alignment (both F1 = 0.87) indicates consistent performance without bias toward high-volume categories.
+The performance profile shows a practical split between conventional web operations and AI-dependent operations. Core CRUD features remain comfortably sub-second, while AI-assisted features naturally consume more time because they depend on embedding retrieval, model scoring, or language generation. This is acceptable in context: a chat response at 2.3 seconds still feels conversational, while message delivery at 180 ms feels instant.
 
-The chatbot performed strongest on Greeting/Small Talk (F1 = 0.95) and General FAQ (F1 = 0.92), where queries have distinctive linguistic patterns and the RAG knowledge base provides comprehensive coverage. Performance was weakest on Appointment Scheduling (F1 = 0.81) and Out-of-Scope detection (F1 = 0.81), where the chatbot struggled with incomplete scheduling requests lacking explicit trigger phrases and with out-of-scope queries that superficially resembled legal terminology.
+One especially useful result is the caching effect on dashboard statistics. Caching reduced the admin statistics response time from 680 ms to 190 ms, a 72% improvement. This demonstrates that the platform is not only functional but also being optimized with explicit performance controls.
 
+Table 7. Concurrent-Load Behavior
 
-## Security Assessment
+| Concurrent Users | Average API Response Time | System Behavior | Assessment |
+| --- | --- | --- | --- |
+| 10 | 250 ms | All requests completed without delay | Stable |
+| 25 | 310 ms | Minimal increase in latency | Stable |
+| 50 | 480 ms | Noticeable but acceptable slowdown | Stable |
+| 75 | 720 ms | Slower responses, but requests still completed | Acceptable |
+| 100 | 1.1 s | Degradation with occasional ML-endpoint timeouts | Degraded |
 
-**Table 18. Security Test Results**
+The system remained stable up to fifty concurrent users, which is a useful empirical boundary for pilot deployment. Performance degradation at seventy-five to one hundred users was concentrated in ML-dependent endpoints, particularly the chatbot, slot recommendations, and demand forecasting. Core transactional features such as appointments, payments, and messaging remained functional even when AI endpoints slowed down. This is a favorable architectural property because it localizes scalability risk to the microservice layer rather than the full platform.
 
-| Test Category                    | Result | Remarks                                                                           |
-|----------------------------------|--------|-----------------------------------------------------------------------------------|
-| SQL Injection                    | Passed | Laravel Eloquent ORM parameterized queries prevent injection                      |
-| Cross-Site Scripting (XSS)       | Passed | React DOM escaping and server-side sanitization prevent execution                 |
-| Cross-Site Request Forgery       | Passed | CSRF protection and Sanctum token authentication prevent forged requests          |
-| Authentication Bypass            | Passed | Sanctum middleware returns 401 for unauthenticated requests                       |
-| Authorization Bypass             | Passed | Spatie Permission RBAC returns 403 for unauthorized role access                   |
-| Session Fixation                 | Passed | Sanctum tokens validated per request; expired tokens rejected                     |
-| Sensitive Data Exposure          | Passed | API responses exclude passwords, tokens, and internal system data                 |
-| Clickjacking                     | Passed | X-Frame-Options: DENY prevents iframe embedding                                  |
-| Rate Limit Bypass                | Passed | IP-based rate limiting enforced across authentication, chatbot, and API endpoints |
-| Insecure Direct Object Reference | Passed | Ownership validation at controller level for all user-scoped resources            |
+### 3.5 Security Assessment
 
-All ten (10) security categories passed. The system implements a defense-in-depth approach: input validation at the request layer, parameterized queries at the database layer, token-based authentication and RBAC at the authorization layer, and security headers (X-Frame-Options, CSP, HSTS, X-Content-Type-Options) at the transport layer.
+Table 8 presents the security assessment summary.
 
+Table 8. Targeted Security Test Results
 
-## Discussion
+| Security Category | Result | Remarks |
+| --- | --- | --- |
+| SQL injection | Passed | Parameterized ORM queries prevented payload execution |
+| Cross-site scripting | Passed | Output escaping and sanitization blocked script execution |
+| Cross-site request forgery | Passed | Laravel CSRF and token controls protected state-changing endpoints |
+| Authentication bypass | Passed | Protected endpoints rejected invalid or missing tokens |
+| Authorization bypass | Passed | RBAC correctly denied client access to admin or cashier features |
+| Session fixation | Passed | Invalid or expired sessions were rejected |
+| Sensitive data exposure | Passed | Responses did not leak passwords, tokens, or internal details |
+| Clickjacking | Passed | X-Frame-Options: DENY blocked iframe embedding |
+| Rate-limit bypass | Passed | Configured rate limits were enforced during rapid requests |
+| Insecure direct object reference | Passed | Ownership checks restricted access to user-scoped records |
 
-The evaluation of the Legal Ease system yielded an overall functional test case pass rate of 82.35% with zero critical and zero major defects across fifty-one test cases. The nine identified defects are primarily usability refinements — error message clarity, interface documentation, and formatting — rather than functional failures.
+Security was one of the strongest parts of the platform because all ten targeted security categories passed. The only notable caution is that one functional case identified registration brute-force protection as primarily IP-based, which is acceptable for a prototype but should be strengthened with additional account-based lockout logic before large-scale deployment.
 
-The alpha testing confirmed that core business workflows (registration, appointment booking, payment processing, messaging) operate reliably, with all twenty-five testers reporting no data loss or transaction errors. The thematic analysis revealed a consistent pattern where traditional web application features built on established frameworks (Laravel Sanctum, Spatie RBAC, PayMongo API) scored higher in tester confidence than the AI-powered components (chatbot, ML recommendations, demand forecasting), which were acknowledged as functional but requiring further refinement through data accumulation and model iteration.
+### 3.6 Integrated Discussion
 
-The AI chatbot achieved an F1 score of 0.87 across six intent categories, positioning it within the expected performance range for RAG-based systems in early deployment. The strongest classification occurred in information retrieval intents (General FAQ: F1 = 0.92, Greeting: F1 = 0.95) where the knowledge base provides dense coverage. The weakest areas — appointment scheduling (F1 = 0.81) and out-of-scope detection (F1 = 0.81) — involve action orchestration and intent boundary disambiguation, which are recognized challenges in conversational AI that can be addressed through expanded training examples and refined entity extraction.
+Taken together, the results provide a more rigorous interpretation than a simple pass-fail chapter. The core platform is strong where legal-office systems most need reliability: authentication, appointment logic, payments, messaging, reporting accuracy, and role isolation. This conclusion is supported not by one metric, but by converging quantitative evidence from module pass rates, zero critical and major defects, low defect severity concentration, and stable performance in core transactional operations.
 
-The clean security assessment across ten OWASP-aligned categories validates the defense-in-depth implementation appropriate for a platform handling legal service data and financial transactions. The architectural separation of the React frontend, Laravel API backend, and Python FastAPI ML microservice enables independent scaling and was recognized by IT professional testers as a strength for future growth.
+The AI-related findings are more nuanced. The chatbot is not weak in a general sense; it is strong for routine information retrieval and socially lightweight interactions, as shown by 86.50% accuracy and F1 scores above 0.90 for FAQ and small talk. What remains weak is multi-step action orchestration, especially when a single message combines multiple intents or omits a required parameter. Likewise, the no-show model already shows predictive signal with ROC-AUC = 0.7812, but the small dataset and modest recall make it unsuitable for high-stakes autonomous decision-making. Therefore, the correct academic interpretation is not that the AI failed, but that it achieved measurable baseline performance while remaining data-constrained.
 
-These results indicate that the Legal Ease system is functionally ready for controlled deployment, with a documented performance baseline for its AI features and a clear improvement trajectory aligned with production data accumulation.
+The engineering evidence is also internally consistent across quantitative measures. The chatbot's weakest intent classes align with the functional failures observed in multi-intent and missing-parameter handling, while the ML model's modest recall aligns with weaker forecasting-related observations in structured testing. This agreement across benchmark, functional, and performance data strengthens the interpretation without relying on subjective or fabricated user-response measures.
 
+The non-functional evidence further clarifies readiness boundaries. The platform is performant enough for controlled use, especially because core transactional endpoints remain responsive and stable up to fifty concurrent users. Security evidence is similarly strong. However, the system should still be described as pilot-ready rather than field-validated at scale because ML endpoints degrade earlier than conventional endpoints and because the predictive components do not yet have the longitudinal data needed for mature calibration.
 
----
+### 3.7 Study Limitations
 
+The findings must be interpreted within four clear limitations.
 
-# CONCLUSION
+1. The study was conducted in a controlled staging environment rather than routine field operation, so there are no longitudinal real-world usage logs or business-outcome measurements yet.
+2. The no-show model was validated on only seventy-six labeled appointments, which is adequate for baseline experimentation but not for strong predictive generalization.
+3. Load behavior was observed under simulated concurrent access, which is informative for engineering readiness but not identical to production traffic diversity.
+4. The chatbot benchmark was based on a controlled query set rather than longitudinal live traffic, so real-world language drift and behavior changes are not yet measured.
 
-This study successfully designed, developed, and evaluated Legal Ease: A Unified Juridical Service Orchestration System for Notarial Engagement and Scheduling. The platform was developed to address operational inefficiencies in legal and notarial service environments arising from fragmented scheduling processes, manual record management, and limited analytical insight.
+These limitations do not invalidate the study. They define its correct claim: the paper demonstrates prototype viability and measurable baseline performance, not final production effectiveness.
 
-The functional test case evaluation across fifty-one (51) test cases in eight (8) system modules yielded an overall pass rate of 82.35%, with forty-two (42) cases passing and nine (9) failing. No critical or major defects were identified. The nine defects consisted of two (2) moderate issues confined to the AI Chatbot Module, six (6) minor issues distributed across Authentication, Appointment Booking, Admin, Report and Analytics, Messaging, and Security modules, and one (1) cosmetic issue in the Payment Module. This defect distribution confirms that the platform's core functionality operates reliably with failures limited to usability refinements rather than fundamental system breakdowns.
+## 4. Conclusion
 
-The alpha testing conducted with twenty-five (25) testers — ten (10) IT professionals and fifteen (15) IT students — confirmed that all core business workflows including registration, appointment booking, payment processing, and messaging operate without data loss or transaction errors. Thematic analysis of tester feedback identified five recurring themes: core functionality reliability, an expected maturity gap between traditional features and AI-powered components, interface complexity in administrative functions, strong security confidence among IT professionals, and recognized scalability potential in the microservice architecture.
+The study showed that LegalEase is a technically credible legal-service management prototype with strong core workflow reliability, measurable AI baselines, and a sound security posture. Functional testing produced an 82.35% pass rate with no critical or major defects and a defect density of 0.18, the chatbot achieved 86.50% accuracy with micro- and macro-F1 of 0.87, the current no-show model achieved ROC-AUC of 0.7812, and the platform remained stable up to fifty concurrent users while passing all ten targeted security categories.
 
-The AI chatbot evaluation using two hundred (200) test queries across six (6) intent categories produced an F1 score of 0.87 at both micro-average and macro-average levels. The chatbot demonstrated strong classification performance in information retrieval categories (General FAQ: F1 = 0.92, Greeting/Small Talk: F1 = 0.95) and comparatively weaker performance in action-oriented categories (Appointment Scheduling: F1 = 0.81, Out-of-Scope Detection: F1 = 0.81). These results fall within the expected performance range for domain-specific RAG-based chatbots in early deployment and establish a documented baseline for iterative improvement.
+The evidence also makes the system's maturity boundaries explicit. Conventional modules are substantially more mature than AI-driven features. The chatbot still requires stronger multi-intent handling and clarification logic, while the no-show and forecasting models require more historical appointment data before they can support stronger decision claims. Accordingly, the most defensible conclusion is that LegalEase is recommended for controlled pilot use and further quantitative validation, with continued iteration focused on AI orchestration, richer historical datasets, and ML-service scalability.
 
-The security assessment verified all ten (10) OWASP-aligned security categories, confirming that the platform implements effective defense-in-depth mechanisms including parameterized queries, token-based authentication, role-based access control, and standard security headers.
+## 5. Recommendations
 
-Based on these findings, the Legal Ease platform demonstrates functional readiness for controlled deployment within legal and notarial service environments. The system effectively integrates intelligent automation, secure access management, predictive analytics, and user-centered design to address the operational challenges identified in the study. The documented performance baselines for AI components provide a clear improvement trajectory as the system accumulates production data.
+Based on the documented findings, the following next steps are recommended.
 
+1. Expand the longitudinal appointment dataset before making stronger predictive claims for no-show risk or demand forecasting, and treat current ML performance as a baseline rather than a deployment-grade endpoint.
+2. Improve the chatbot's dialogue orchestration, particularly for missing-parameter prompts, compound instructions, and multi-intent queries that currently weaken action execution despite solid intent-classification results.
+3. Strengthen operational hardening prior to broader field use by adding account-level brute-force protections alongside existing IP-based rate limiting and by simplifying complex administrative monitoring views.
+4. Scale and monitor the AI microservice separately from core transactional services so that chatbot and forecasting latency under higher concurrency does not affect booking, payment, or messaging reliability.
+5. Conduct longer-duration quantitative field monitoring using logs, error rates, latency traces, and outcome data so the next evaluation cycle can extend beyond controlled staging tests.
 
----
+## References
 
+Adamopoulou, E., & Moussiades, L. (2020). Chatbots: History, technology, and applications. *Machine Learning with Applications, 2*, 100006. https://doi.org/10.1016/j.mlwa.2020.100006
 
-# RECOMMENDATIONS
+AlSerkal, A., Al Faisal, W., Al Olama, H., Khan, S., Al Maqbali, H., Zulfiqar, N., Al Redha, E., Alsheikh-Ali, A., Elbarazi, I., Blair, I., Saddik, B., & Oulhaj, A. (2025). Real-time analytics and AI for managing no-show appointments in primary health care in the United Arab Emirates: Before-and-after study. *JMIR Medical Informatics, 13*, e63078. https://doi.org/10.2196/63078
 
-Based on the findings and identified defects from the evaluation of the Legal Ease platform, the following recommendations are proposed for future development and research.
+Ampuan, M. A., & Delena, R. (2021). An implementation and evaluation of web-based appointment system for the Mindanao State University - Main Campus. *International Journal of Scientific Research and Engineering Development, 4*(3), 1103-1110.
 
-1. **Address Identified Defects by Priority.** The two moderate defects in the AI Chatbot Module should be prioritized: implementing parameter prompting when users submit incomplete scheduling requests (DEF-05), and developing multi-intent recognition to process compound user queries within a single message (DEF-06). The six minor defects — including the rate limit lockout duration message (DEF-01), ML ranking inconsistencies (DEF-02), alert rule documentation (DEF-03), demand forecasting limitations (DEF-07), notification type labeling (DEF-08), and account-based rate limiting (DEF-09) — should be addressed in subsequent development cycles. The cosmetic currency symbol issue (DEF-04) should be resolved as a low-effort fix.
+Dantas, L. F., Fleck, J. L., Cyrino Oliveira, F. L., & Hamacher, S. (2018). No-shows in appointment scheduling - a systematic literature review. *Health Policy, 122*(4), 412-421. https://doi.org/10.1016/j.healthpol.2018.02.002
 
-2. **Expand AI Chatbot Training Data.** The chatbot's weaker performance in action-oriented intent categories (Appointment Scheduling: F1 = 0.81, Out-of-Scope: F1 = 0.81) can be improved by expanding the training dataset with additional examples of scheduling-related queries containing varied phrasing and implicit intent signals. Similarly, the out-of-scope detection boundary can be refined by incorporating additional examples of queries that superficially resemble legal terminology but fall outside the system's intended domain.
+Gupta, D., & Denton, B. (2008). Appointment scheduling in health care: Challenges and opportunities. *IIE Transactions, 40*(9), 800-819. https://doi.org/10.1080/07408170802165880
 
-3. **Accumulate Historical Data for Machine Learning Models.** The demand forecasting (RP-04) and ML slot recommendation (AP-08) features produced limited results due to insufficient historical data, an expected condition for a newly deployed system. Future deployment in an operational environment will allow the logistic regression and random forest models to train on actual usage patterns, improving prediction accuracy over time. A minimum data accumulation period should be established before evaluating ML model performance in production.
+Lewis, P., Perez, E., Piktus, A., Petroni, F., Karpukhin, V., Goyal, N., Kuttler, H., Lewis, M., Yih, W., Rocktaschel, T., Riedel, S., & Kiela, D. (2020). Retrieval-augmented generation for knowledge-intensive NLP tasks. *Advances in Neural Information Processing Systems, 33*, 9459-9474.
 
-4. **Improve Administrative Interface Usability.** Alpha testing revealed that the administrative panel, while comprehensive, presents a steep initial learning curve. Future iterations should consider implementing breadcrumb navigation for deeply nested administrative sections, graphical dashboard representations alongside tabular metrics, and contextual documentation within complex configuration forms such as the alert rule interface.
+Sourdin, T. (2018). Judge v robot?: Artificial intelligence and judicial decision-making. *University of New South Wales Law Journal, 41*(4), 1114-1133.
 
-5. **Develop Mobile Application Support.** Although the current web-based interface is responsive and accessible through modern browsers, a dedicated mobile application could improve accessibility for clients and administrative personnel. Mobile-specific features such as push notifications, appointment reminders, and simplified scheduling workflows may enhance user engagement and convenience.
+Susskind, R. (2017). *Tomorrow's lawyers: An introduction to your future* (2nd ed.). Oxford University Press.
 
-6. **Conduct Expanded Evaluation Across Multiple Organizations.** The current evaluation was conducted in a controlled environment with twenty-five participants. Future research should consider deploying the system in operational settings across multiple legal offices or notarial service providers. A broader evaluation would provide insight into system performance under diverse operational conditions, varying user volumes, and different organizational workflows.
-
-7. **Strengthen Security with Account-Based Rate Limiting.** The security assessment identified that the current rate limiting mechanism is IP-based only (SC-06). Implementing account-based rate limiting alongside IP-based controls would provide an additional layer of protection against distributed brute force attempts, particularly for authentication and payment endpoints.
-
-8. **Explore Integration with External Legal Information Systems.** Future development may consider integrating the platform with external digital document verification services, government authentication platforms, or legal information databases. Such integrations could expand the chatbot's knowledge base, streamline client identity verification, and create a more comprehensive digital ecosystem for legal service management.
-
-Through continuous development, data accumulation, and expanded evaluation, the Legal Ease platform has the potential to evolve into a robust digital infrastructure supporting modern legal practice management and intelligent service coordination.
+Zhao, P., Yoo, I., Lavoie, J., Lavoie, B. J., & Simoes, E. (2017). Web-based medical appointment systems: A systematic review. *Journal of Medical Internet Research, 19*(4), e134. https://doi.org/10.2196/jmir.6747

@@ -7,6 +7,7 @@ use App\Models\Appointment;
 use App\Models\AppointmentSettings;
 use App\Models\TimeSlotCapacity;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
 use Carbon\Carbon;
 
@@ -32,6 +33,7 @@ class BookingLimitSystemTest extends TestCase
         $this->client = User::factory()->create([
             'role' => 'client',
             'email' => 'client@test.com',
+            'profile_completed' => true,
             'first_name' => 'Test',
             'last_name' => 'Client'
         ]);
@@ -39,6 +41,7 @@ class BookingLimitSystemTest extends TestCase
         $this->staff = User::factory()->create([
             'role' => 'staff',
             'email' => 'staff@test.com',
+            'profile_completed' => true,
             'first_name' => 'Test',
             'last_name' => 'Staff'
         ]);
@@ -142,7 +145,8 @@ class BookingLimitSystemTest extends TestCase
             'appointment_date' => $this->bookableDate,
             'appointment_time' => '10:00'
         ]);
-        $this->assertFalse($response->json('success'));
+        $response->assertStatus(422)
+            ->assertJsonPath('has_reached_limit', true);
 
         // Tomorrow should allow 2 more bookings
         $response = $this->actingAs($this->client)->postJson('/api/appointments', [
@@ -155,8 +159,8 @@ class BookingLimitSystemTest extends TestCase
         $this->assertTrue($response->json('success'), "Should allow booking on next day");
     }
 
-    /** @test Cancelled appointments don't count toward limit */
-    public function test_cancelled_appointment_frees_up_limit()
+    /** @test Cancelled appointments still count toward limit for the active 24-hour window */
+    public function test_cancelled_appointment_does_not_restore_limit()
     {
         // Create 2 appointments directly in database
         $apt1 = Appointment::forceCreate([
@@ -182,13 +186,14 @@ class BookingLimitSystemTest extends TestCase
             'appointment_date' => $this->bookableDate,
             'appointment_time' => '10:00'
         ]);
-        $this->assertFalse($response->json('success'));
+        $this->assertTrue(AppointmentSettings::userHasReachedDailyLimit($this->client->id));
+        $response->assertStatus(422);
 
         // Cancel first appointment
         $apt1->status = 'cancelled';
         $apt1->save();
 
-        // Should now be able to book (1 active + 1 cancelled = 1 toward limit)
+        // Cancellation should not restore the user's booking quota inside the same 24-hour window.
         $response = $this->actingAs($this->client)->postJson('/api/appointments', [
             'type' => 'consultation',
             'service_type' => 'Legal',
@@ -196,7 +201,46 @@ class BookingLimitSystemTest extends TestCase
             'appointment_time' => '10:00'
         ]);
 
-        $this->assertTrue($response->json('success'), "Should allow booking after cancellation frees up limit");
+        $this->assertTrue(AppointmentSettings::userHasReachedDailyLimit($this->client->id));
+        $response->assertStatus(422);
+    }
+
+    /** @test Pending and approved appointments can be cancelled without requiring a reason */
+    public function pending_and_approved_appointments_can_be_cancelled_without_a_reason()
+    {
+        Mail::fake();
+
+        $pendingAppointment = Appointment::forceCreate([
+            'user_id' => $this->client->id,
+            'type' => 'consultation',
+            'appointment_date' => $this->bookableDate,
+            'appointment_time' => '08:00',
+            'status' => 'pending'
+        ]);
+
+        $approvedAppointment = Appointment::forceCreate([
+            'user_id' => $this->client->id,
+            'type' => 'consultation',
+            'appointment_date' => $this->bookableDate,
+            'appointment_time' => '09:00',
+            'status' => 'approved'
+        ]);
+
+        $pendingResponse = $this->actingAs($this->client)
+            ->putJson("/api/appointments/{$pendingAppointment->id}/cancel", []);
+
+        $approvedResponse = $this->actingAs($this->client)
+            ->putJson("/api/appointments/{$approvedAppointment->id}/cancel", [
+                'cancellation_reason' => 'schedule_conflict'
+            ]);
+
+        $pendingResponse->assertOk();
+        $approvedResponse->assertOk();
+
+        $this->assertSame('cancelled', $pendingAppointment->fresh()->status);
+        $this->assertNull($pendingAppointment->fresh()->cancellation_reason);
+        $this->assertSame('cancelled', $approvedAppointment->fresh()->status);
+        $this->assertSame('Schedule conflict', $approvedAppointment->fresh()->cancellation_reason);
     }
 
     /** @test Time slot capacity is enforced independently of user limit */
@@ -204,7 +248,10 @@ class BookingLimitSystemTest extends TestCase
     {
         // Fill a time slot with 3 different users (slot capacity is 3)
         for ($i = 0; $i < 3; $i++) {
-            $user = User::factory()->create(['role' => 'client']);
+            $user = User::factory()->create([
+                'role' => 'client',
+                'profile_completed' => true,
+            ]);
             $this->actingAs($user)->postJson('/api/appointments', [
                 'type' => 'consultation',
                 'service_type' => 'Legal',
@@ -214,7 +261,10 @@ class BookingLimitSystemTest extends TestCase
         }
 
         // Try to book 4th in same slot (should fail - slot is full)
-        $user4 = User::factory()->create(['role' => 'client']);
+        $user4 = User::factory()->create([
+            'role' => 'client',
+            'profile_completed' => true,
+        ]);
         $response = $this->actingAs($user4)->postJson('/api/appointments', [
             'type' => 'consultation',
             'service_type' => 'Legal',
@@ -248,7 +298,10 @@ class BookingLimitSystemTest extends TestCase
 
         // Fill the 08:00 slot to capacity with other users
         for ($i = 0; $i < 3; $i++) {
-            $user = User::factory()->create(['role' => 'client']);
+            $user = User::factory()->create([
+                'role' => 'client',
+                'profile_completed' => true,
+            ]);
             Appointment::forceCreate([
                 'user_id' => $user->id,
                 'type' => 'consultation',

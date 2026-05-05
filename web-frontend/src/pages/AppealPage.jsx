@@ -181,11 +181,11 @@ const AppealPage = () => {
           <div className="px-6 py-4 space-y-3">
             <div>
               <span className="text-xs font-medium text-gray-500 uppercase">Account</span>
-              <p className="text-sm text-gray-900">{appealData?.user_name} ({appealData?.user_email})</p>
+              <p className="text-sm text-gray-900">{appealData?.user_name}</p>
             </div>
             <div>
-              <span className="text-xs font-medium text-gray-500 uppercase">Reason</span>
-              <p className="text-sm text-gray-700 bg-gray-50 rounded-lg p-3 mt-1">{appealData?.action_reason}</p>
+              <span className="text-xs font-medium text-gray-500 uppercase">Next Step</span>
+              <p className="text-sm text-gray-700 bg-gray-50 rounded-lg p-3 mt-1">{appealData?.notice}</p>
             </div>
           </div>
         </div>

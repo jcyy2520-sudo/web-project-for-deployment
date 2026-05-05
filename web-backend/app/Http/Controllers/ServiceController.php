@@ -23,6 +23,9 @@ class ServiceController extends Controller
             Cache::forget('services_all_active');
             Cache::forget('services_admin_all');
             Cache::forget('services_stats');
+            foreach (['daily', 'weekly', 'monthly', 'yearly'] as $timeframe) {
+                Cache::forget("cashier_dashboard_stats_{$timeframe}");
+            }
         } catch (\Exception $e) {
             \Log::warning('Failed to clear services cache: ' . $e->getMessage());
             // Fallback: flush all cache to ensure stale data is never served

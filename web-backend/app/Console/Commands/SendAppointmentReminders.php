@@ -23,7 +23,7 @@ class SendAppointmentReminders extends Command
      *
      * @var string
      */
-    protected $description = 'Send email reminders to users at 2 hours, 1 hour, and 30 minutes before their appointment';
+    protected $description = 'Send email reminders for approved appointments at 2 hours, 1 hour, and 30 minutes before the appointment';
 
     /**
      * Reminder levels configuration.
@@ -68,9 +68,9 @@ class SendAppointmentReminders extends Command
         $sentCount = 0;
         $failedCount = 0;
 
-        // Fetch all eligible appointments once (approved/pending, today or tomorrow, not fully reminded)
+        // Fetch all eligible approved appointments once (today or tomorrow, not fully reminded)
         $appointments = Appointment::with(['user', 'staff', 'service'])
-            ->whereIn('status', ['approved', 'pending'])
+            ->where('status', 'approved')
             ->where(function ($q) {
                 $q->whereNull('reminder_level')->orWhere('reminder_level', '<', 3);
             })

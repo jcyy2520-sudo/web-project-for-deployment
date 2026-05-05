@@ -83,6 +83,12 @@ export const formatTime12Hour = (militaryTime) => {
   return `${hour}:${min} ${period}`;
 };
 
+const DATE_DISPLAY_OPTIONS = {
+  month: 'long',
+  day: 'numeric',
+  year: 'numeric'
+};
+
 /**
  * Display an appointment date without timezone shift issues.
  * Extracts the YYYY-MM-DD portion and creates a local Date for display,
@@ -90,9 +96,18 @@ export const formatTime12Hour = (militaryTime) => {
  */
 export const formatDateDisplay = (dateVal) => {
   if (!dateVal) return '';
+
+  if (dateVal instanceof Date) {
+    return Number.isNaN(dateVal.getTime()) ? '' : dateVal.toLocaleDateString('en-US', DATE_DISPLAY_OPTIONS);
+  }
+
   const match = String(dateVal).match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (!match) return '';
-  return new Date(+match[1], +match[2] - 1, +match[3]).toLocaleDateString();
+  if (match) {
+    return new Date(+match[1], +match[2] - 1, +match[3]).toLocaleDateString('en-US', DATE_DISPLAY_OPTIONS);
+  }
+
+  const parsedDate = new Date(dateVal);
+  return Number.isNaN(parsedDate.getTime()) ? '' : parsedDate.toLocaleDateString('en-US', DATE_DISPLAY_OPTIONS);
 };
 
 export default {

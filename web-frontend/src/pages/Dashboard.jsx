@@ -47,6 +47,7 @@ import {
   MoonIcon,
   XMarkIcon,
   ChevronDownIcon,
+  ChevronUpIcon,
   MagnifyingGlassIcon,
   CalendarDaysIcon,
   KeyIcon,
@@ -55,7 +56,8 @@ import {
   ArrowLeftIcon,
   StarIcon,
   BellIcon,
-  ChevronRightIcon
+  ChevronRightIcon,
+  ArrowRightOnRectangleIcon
 } from '@heroicons/react/24/outline';
 
 // Enhanced Status Badge Component
@@ -64,27 +66,22 @@ const StatusBadge = ({ status }) => {
     pending: {
       color: 'bg-amber-100 text-amber-800 border border-amber-200 dark:bg-amber-500/20 dark:text-amber-300 dark:border-amber-500/30',
       icon: ClockIcon,
-      glow: 'shadow-amber-100'
     },
     approved: {
       color: 'bg-blue-100 text-blue-800 border border-blue-200 dark:bg-blue-500/20 dark:text-blue-300 dark:border-blue-500/30',
       icon: CheckCircleIcon,
-      glow: 'shadow-blue-100'
     },
     completed: {
       color: 'bg-green-100 text-green-800 border border-green-200 dark:bg-green-500/20 dark:text-green-300 dark:border-green-500/30',
       icon: CheckCircleIcon,
-      glow: 'shadow-green-100'
     },
     cancelled: {
       color: 'bg-red-100 text-red-800 border border-red-200 dark:bg-red-500/20 dark:text-red-300 dark:border-red-500/30',
       icon: XCircleIcon,
-      glow: 'shadow-red-100'
     },
     declined: {
       color: 'bg-red-100 text-red-800 border border-red-200 dark:bg-red-500/20 dark:text-red-300 dark:border-red-500/30',
       icon: XCircleIcon,
-      glow: 'shadow-red-100'
     }
   };
   
@@ -92,13 +89,38 @@ const StatusBadge = ({ status }) => {
   const IconComponent = config.icon;
   
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${config.color} ${config.glow} shadow hover:scale-105 transition-transform duration-200`}>
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${config.color}`}>
       <IconComponent className="w-3 h-3 mr-1" />
       {status && status.length > 0
         ? status.charAt(0).toUpperCase() + status.slice(1)
         : 'Unknown'}
     </span>
   );
+};
+
+const formatTimelineTimestamp = (timestamp) => {
+  if (!timestamp) return null;
+
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return null;
+
+  return date.toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+};
+
+const formatTimelineSchedule = (dateValue, timeValue) => {
+  if (!dateValue) return null;
+
+  const formattedDate = formatDateDisplay(dateValue);
+  const formattedTime = formatTime12Hour(timeValue || '00:00');
+
+  if (formattedDate && formattedTime) return `${formattedDate} · ${formattedTime}`;
+  return formattedDate || formattedTime || null;
 };
 
 // Booking Preview Modal Component
@@ -189,7 +211,7 @@ const BookingPreviewModal = ({
                 <div className="flex items-center gap-2">
                   <CalendarDaysIcon className={`h-4 w-4 ${isDarkMode ? 'text-amber-500' : 'text-amber-600'}`} />
                   <span className={`text-sm font-semibold ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>
-                    {new Date(appointmentData.appointment_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    {formatDateDisplay(appointmentData.appointment_date)}
                   </span>
                 </div>
               </div>
@@ -1073,7 +1095,7 @@ const AppointmentDetailModal = ({ isOpen, onClose, appointment, isDarkMode = tru
 
   const createdAtDate = appointment.created_at ? new Date(appointment.created_at) : null;
   const bookedOnText = createdAtDate
-    ? `${createdAtDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} at ${createdAtDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`
+    ? `${formatDateDisplay(createdAtDate)} at ${createdAtDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`
     : null;
 
   const statusConfig = {
@@ -1303,6 +1325,152 @@ const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, confirm
                 </div>
               ) : (
                 confirmText
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const cancellationReasonOptions = [
+  { value: 'schedule_conflict', label: 'Schedule conflict' },
+  { value: 'no_longer_needed', label: 'No longer needed' },
+  { value: 'found_alternative', label: 'Found an alternative' },
+  { value: 'financial_reasons', label: 'Financial reasons' },
+  { value: 'emergency', label: 'Emergency' },
+  { value: 'other', label: 'Other' },
+];
+
+const AppointmentCancellationModal = ({
+  isOpen,
+  onClose,
+  onConfirm,
+  appointment,
+  loading = false,
+  isDarkMode = true,
+  cancelReason,
+  customCancelReason,
+  onCancelReasonChange,
+  onCustomCancelReasonChange,
+}) => {
+  if (!isOpen || !appointment) return null;
+
+  return (
+    <div className={`fixed inset-0 flex items-center justify-center z-50 p-4 animate-fadeIn ${
+      isDarkMode ? 'bg-black/70' : 'bg-gray-900/40 backdrop-blur-sm'
+    } overflow-y-auto items-end sm:items-center pt-6`} style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 1rem)' }}>
+      <div className={`rounded-2xl shadow-2xl w-full max-w-md transform animate-scaleIn max-h-[calc(100vh-2rem)] sm:max-h-[90vh] overflow-hidden flex flex-col ${
+        isDarkMode
+          ? 'bg-gray-900 border border-red-500/30'
+          : 'bg-white border border-gray-200 shadow-gray-200/50'
+      }`}>
+        <div className="p-6 space-y-4 overflow-y-auto">
+          <div className="flex items-center gap-3">
+            <div className={`p-2.5 rounded-xl ${isDarkMode ? 'bg-red-500/20' : 'bg-red-100'}`}>
+              <ExclamationTriangleIcon className={`h-5 w-5 ${isDarkMode ? 'text-red-400' : 'text-red-600'}`} />
+            </div>
+            <div>
+              <h3 className={`text-base font-bold ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>Cancel Appointment</h3>
+              <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>This action cannot be undone.</p>
+            </div>
+          </div>
+
+          <div className={`rounded-lg p-4 ${isDarkMode ? 'bg-red-500/10 border border-red-500/20' : 'bg-red-50 border border-red-200'}`}>
+            <p className={`text-sm font-medium ${isDarkMode ? 'text-red-400' : 'text-red-800'}`}>
+              Are you sure you want to cancel this appointment?
+            </p>
+          </div>
+
+          <div className={`rounded-lg p-4 space-y-1.5 ${isDarkMode ? 'bg-gray-800/70' : 'bg-gray-50'}`}>
+            <div className={`text-sm ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>
+              <span className="font-medium">Service:</span> {formatServiceName(appointment)}
+            </div>
+            <div className={`text-sm ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>
+              <span className="font-medium">Date:</span> {formatDateDisplay(appointment.appointment_date)} at {formatTime12Hour(appointment.appointment_time)}
+            </div>
+            <div className={`text-sm ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>
+              <span className="font-medium">Status:</span> <span className="capitalize">{appointment.status}</span>
+            </div>
+          </div>
+
+          <div>
+            <label className={`block text-sm font-medium mb-2 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+              Reason for cancellation <span className={`font-normal ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>(optional)</span>
+            </label>
+            <div className="space-y-2">
+              {cancellationReasonOptions.map((option) => (
+                <label
+                  key={option.value}
+                  className={`flex items-center gap-3 p-2.5 rounded-lg border cursor-pointer transition-colors ${
+                    cancelReason === option.value
+                      ? isDarkMode
+                        ? 'border-amber-500/50 bg-amber-500/10'
+                        : 'border-amber-500 bg-amber-50'
+                      : isDarkMode
+                        ? 'border-gray-700 hover:border-gray-600'
+                        : 'border-gray-200 hover:border-gray-300'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="cancelReason"
+                    value={option.value}
+                    checked={cancelReason === option.value}
+                    onChange={(event) => onCancelReasonChange(event.target.value)}
+                    className="accent-amber-500"
+                  />
+                  <span className={`text-sm ${isDarkMode ? 'text-gray-200' : 'text-gray-700'}`}>{option.label}</span>
+                </label>
+              ))}
+            </div>
+
+            {cancelReason === 'other' && (
+              <textarea
+                value={customCancelReason}
+                onChange={(event) => onCustomCancelReasonChange(event.target.value)}
+                placeholder="Please specify your reason..."
+                rows={3}
+                className={`w-full mt-2 px-3 py-2 text-sm rounded-lg border focus:outline-none focus:ring-1 focus:ring-amber-500 resize-none ${
+                  isDarkMode
+                    ? 'bg-gray-800 border-gray-700 text-white placeholder-gray-500'
+                    : 'bg-white border-gray-200 text-gray-900 placeholder-gray-400'
+                }`}
+              />
+            )}
+          </div>
+
+          <p className={`text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+            You can confirm without selecting a reason. If you choose one, it will be saved with the cancellation.
+          </p>
+
+          <div className="flex flex-col-reverse sm:flex-row gap-3 justify-end">
+            <button
+              onClick={onClose}
+              disabled={loading}
+              className={`px-4 py-2.5 font-semibold text-sm rounded-xl transition-all duration-200 focus:outline-none focus:ring-2 disabled:opacity-50 disabled:cursor-not-allowed ${
+                isDarkMode
+                  ? 'border-2 border-amber-500/50 text-amber-400 hover:bg-amber-500/10 hover:border-amber-400 focus:ring-amber-500 focus:ring-offset-2 focus:ring-offset-gray-900'
+                  : 'border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 hover:border-gray-400 focus:ring-gray-400 focus:ring-offset-2'
+              }`}
+            >
+              Keep Appointment
+            </button>
+            <button
+              onClick={onConfirm}
+              disabled={loading}
+              className={`px-4 py-2.5 text-white font-semibold text-sm rounded-xl transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${
+                isDarkMode ? 'focus:ring-offset-gray-900' : 'focus:ring-offset-white'
+              } bg-red-600 hover:bg-red-700 focus:ring-red-500`}
+            >
+              {loading ? (
+                <div className="flex items-center justify-center">
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                  <span>Processing...</span>
+                </div>
+              ) : (
+                'Confirm Cancellation'
               )}
             </button>
           </div>
@@ -1800,6 +1968,7 @@ const Dashboard = () => {
   // Filter state for appointments
   const [appointmentsStatusFilter, setAppointmentsStatusFilter] = useState('all');
   const [appointmentsSearchQuery, setAppointmentsSearchQuery] = useState('');
+  const [expandedAppointmentId, setExpandedAppointmentId] = useState(null);
   
   // Refund form state
   const [refundData, setRefundData] = useState({
@@ -1815,8 +1984,12 @@ const Dashboard = () => {
     remaining: null,
     hasReachedLimit: false,
     message: null,
-    bookingsToday: []
+    bookingsToday: [],
+    date: null,
+    next_available_time: null
   });
+  const latestDailyLimitRequestRef = useRef(0);
+  const latestAppointmentsRequestRef = useRef(0);
   
   // Modal states
   const [showAppointmentDetail, setShowAppointmentDetail] = useState(false);
@@ -1824,6 +1997,8 @@ const Dashboard = () => {
   const [showRefundModal, setShowRefundModal] = useState(false);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState(null);
+  const [cancelReason, setCancelReason] = useState('');
+  const [customCancelReason, setCustomCancelReason] = useState('');
 
   // Settings state
   const [settings, setSettings] = useState({
@@ -1833,6 +2008,15 @@ const Dashboard = () => {
     showProfile: true,
     language: 'en'
   });
+
+  const navigateBackOrTo = useCallback((fallback) => {
+    if (window.history.length > 1) {
+      navigate(-1);
+      return;
+    }
+
+    navigate(fallback);
+  }, [navigate]);
 
   // Profile form state - based on your User model
   const [profileData, setProfileData] = useState({
@@ -2060,7 +2244,7 @@ const Dashboard = () => {
 
   // Define checkDailyLimit FIRST before useEffect hooks that use it
   // Always checks today's date - counts how many appointments booked today regardless of appointment date
-  const checkDailyLimit = useCallback(async () => {
+  const checkDailyLimit = useCallback(async ({ silent = false } = {}) => {
     try {
       // Guard: user must be loaded
       if (!user?.id) {
@@ -2071,22 +2255,51 @@ const Dashboard = () => {
       // Always use today's date (use local time, not UTC)
       const now = new Date();
       const checkDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      const requestId = ++latestDailyLimitRequestRef.current;
       
       const result = await callApi((signal) =>
         axios.get(`/api/appointment-settings/user-limit/${user.id}/${checkDate}`, { signal })
-      , { abortPrevious: false }); // Don't abort - this may run in parallel with other requests
+      , {
+        abortPrevious: false,
+        showLoading: !silent,
+        clearError: !silent,
+      });
+
+      if (requestId !== latestDailyLimitRequestRef.current) {
+        return;
+      }
 
       if (result.success && result.data && result.data.data) {
         const data = result.data.data;
         console.log('Daily limit info loaded:', data);
-        setDailyLimitInfo({
+        const nextState = {
           limit: data.limit,
           used: data.used || 0,
           remaining: data.remaining,
           hasReachedLimit: data.has_reached_limit || false,
-          message: data.message,
+          message: data.message || null,
           bookingsToday: data.bookings_today || [],
-          date: checkDate
+          date: checkDate,
+          next_available_time: data.next_available_time || null,
+        };
+
+        setDailyLimitInfo((prev) => {
+          const sameBookings = JSON.stringify(prev.bookingsToday || []) === JSON.stringify(nextState.bookingsToday || []);
+
+          if (
+            prev.limit === nextState.limit &&
+            prev.used === nextState.used &&
+            prev.remaining === nextState.remaining &&
+            prev.hasReachedLimit === nextState.hasReachedLimit &&
+            prev.message === nextState.message &&
+            prev.date === nextState.date &&
+            prev.next_available_time === nextState.next_available_time &&
+            sameBookings
+          ) {
+            return prev;
+          }
+
+          return nextState;
         });
       }
     } catch (error) {
@@ -2226,16 +2439,26 @@ const Dashboard = () => {
   }, [callApi]);
 
   // Define loadAppointments before it's used
-  const loadAppointments = useCallback(async () => {
+  const loadAppointments = useCallback(async ({ silent = false, resetPagination = true } = {}) => {
     console.log('[Dashboard] Loading user appointments...');
     // Debug: Check if auth header is set
     console.log('[Dashboard] Auth header:', axios.defaults.headers.common['Authorization'] ? 'SET' : 'NOT SET');
+    const requestId = ++latestAppointmentsRequestRef.current;
     
     const result = await callApi((signal) => 
       axios.get('/api/appointments/my/appointments', { signal })
-    , { skipCache: true, abortPrevious: false }); // Don't abort - this runs in parallel with other requests
+    , {
+      skipCache: true,
+      abortPrevious: false,
+      showLoading: !silent,
+      clearError: !silent,
+    });
     
     console.log('[Dashboard] Appointments API result:', result);
+
+    if (requestId !== latestAppointmentsRequestRef.current) {
+      return;
+    }
     
     // Check for auth errors specifically
     if (result.isAuthError) {
@@ -2255,11 +2478,12 @@ const Dashboard = () => {
       );
       console.log('[Dashboard] Sorted appointments:', sortedAppointments.length, 'items');
       setAppointments(sortedAppointments);
-      // Reset pagination to first page
-      setAppointmentsPagination(prev => ({
-        ...prev,
-        currentPage: 1
-      }));
+      if (resetPagination) {
+        setAppointmentsPagination(prev => ({
+          ...prev,
+          currentPage: 1
+        }));
+      }
     } else if (!result.isAuthError) {
       // Only clear appointments on non-auth errors
       // Auth errors are handled by AuthContext and will redirect to login if needed
@@ -2374,7 +2598,7 @@ const Dashboard = () => {
   useEffect(() => {
     const handleAppointmentSettingsChanged = () => {
       console.log('Appointment settings changed, checking daily limit...');
-      checkDailyLimit();
+      checkDailyLimit({ silent: true });
     };
 
     window.addEventListener('appointmentSettingsChanged', handleAppointmentSettingsChanged);
@@ -2397,8 +2621,8 @@ const Dashboard = () => {
           // Keep initial load focused on immediately visible data.
           await Promise.all([
             loadAppointmentTypes(),
-            loadAppointments(),
-            checkDailyLimit()
+            loadAppointments({ silent: true }),
+            checkDailyLimit({ silent: true })
           ]);
           setUserDataLoaded(prev => ({ ...prev, home: true, appointments: true }));
         }
@@ -2407,9 +2631,9 @@ const Dashboard = () => {
         if (!userDataLoaded.appointments) {
           // Load in parallel
           await Promise.all([
-            loadAppointments(),
+            loadAppointments({ silent: true }),
             loadRefunds(),
-            checkDailyLimit()
+            checkDailyLimit({ silent: true })
           ]);
           setUserDataLoaded(prev => ({ ...prev, appointments: true, refunds: true }));
         }
@@ -2444,7 +2668,7 @@ const Dashboard = () => {
     // onSettingsChange callback
     (settingsData) => {
       console.log('[Dashboard] Settings data received from polling, checking daily limit');
-      checkDailyLimit();
+      checkDailyLimit({ silent: true });
     },
     // onUnavailableDatesChange callback
     () => {
@@ -2454,7 +2678,8 @@ const Dashboard = () => {
     // onAppointmentStatusChange callback - admin approved/declined/cancelled user's appointment
     () => {
       console.log('[Dashboard] Appointment status changed from polling, reloading appointments');
-      loadAppointments();
+      loadAppointments({ silent: true, resetPagination: false });
+      checkDailyLimit({ silent: true });
     }
   );
 
@@ -2470,15 +2695,22 @@ const Dashboard = () => {
   useEffect(() => {
     const handleSettingsUpdate = (event) => {
       // Refresh daily limit when settings are updated by admin
-      checkDailyLimit();
+      checkDailyLimit({ silent: true });
+    };
+    
+    const handleAppointmentUpdate = (event) => {
+      // Real-time update for appointments
+      loadAppointments({ silent: true, resetPagination: false });
+      checkDailyLimit({ silent: true });
     };
 
-    let channel = null;
+    let appointmentsChannel = null;
     try {
       if (window.Echo && typeof window.Echo.channel === 'function') {
-        channel = window.Echo.channel('appointment-settings');
-        if (channel && typeof channel.listen === 'function') {
-          channel.listen('AppointmentSettingsUpdated', handleSettingsUpdate);
+        appointmentsChannel = window.Echo.channel('appointments');
+        if (appointmentsChannel && typeof appointmentsChannel.listen === 'function') {
+          appointmentsChannel.listen('AppointmentUpdated', handleAppointmentUpdate);
+          appointmentsChannel.listen('AppointmentCreated', handleAppointmentUpdate);
         }
       }
     } catch (error) {
@@ -2487,14 +2719,15 @@ const Dashboard = () => {
 
     return () => {
       try {
-        if (channel && typeof channel.stopListening === 'function') {
-          channel.stopListening('AppointmentSettingsUpdated');
+        if (appointmentsChannel && typeof appointmentsChannel.stopListening === 'function') {
+          appointmentsChannel.stopListening('AppointmentUpdated');
+          appointmentsChannel.stopListening('AppointmentCreated');
         }
       } catch (error) {
         // Silently fail if Echo cleanup doesn't work
       }
     };
-  }, [user?.id, checkDailyLimit]);
+  }, [user?.id, checkDailyLimit, loadAppointments]);
 
   const handleNavClick = (tabName) => {
     setActiveTab(tabName);
@@ -2554,7 +2787,7 @@ const Dashboard = () => {
     // Load available slots and check limit when date changes
     if (name === 'appointment_date') {
       loadAvailableSlots(value);
-      checkDailyLimit();
+      checkDailyLimit({ silent: true });
     }
 
     // Clear errors when user starts typing
@@ -2737,9 +2970,11 @@ const Dashboard = () => {
       setSlotDetails([]);
       setFormErrors({});
       
-      // Reload appointments and check daily limit
-      await loadAppointments();
-      await checkDailyLimit();
+      // Reload appointments and check daily limit without re-triggering the page spinner
+      await Promise.all([
+        loadAppointments({ silent: true }),
+        checkDailyLimit({ silent: true })
+      ]);
       setShowPreviewModal(false);
     } else {
       setShowPreviewModal(false);
@@ -2773,14 +3008,28 @@ const Dashboard = () => {
   const handleCancelAppointment = async () => {
     if (!selectedAppointment) return;
 
+    const reason = cancelReason === 'other'
+      ? customCancelReason.trim()
+      : cancellationReasonOptions.find((option) => option.value === cancelReason)?.label || '';
+
     const result = await callApi((signal) => 
-      axios.put(`/api/appointments/${selectedAppointment.id}/cancel`, {}, { signal })
+      axios.put(`/api/appointments/${selectedAppointment.id}/cancel`, {
+        cancellation_reason: reason
+      }, { signal })
     );
 
     if (result.success) {
       setShowCancelModal(false);
+      // Optimistic update — no full reload, just flip the status locally
+      setAppointments(prev => prev.map(apt =>
+        apt.id === selectedAppointment.id
+          ? { ...apt, status: 'cancelled', cancellation_reason: reason || null }
+          : apt
+      ));
+      setCancelReason('');
+      setCustomCancelReason('');
       setSelectedAppointment(null);
-      await loadAppointments();
+      window.showToast?.('Success', 'Appointment cancelled successfully!', 'success');
     }
   };
 
@@ -2791,6 +3040,8 @@ const Dashboard = () => {
 
   const handleRequestCancellation = (appointment) => {
     setSelectedAppointment(appointment);
+    setCancelReason('');
+    setCustomCancelReason('');
     setShowCancelModal(true);
   };
 
@@ -2829,7 +3080,7 @@ const Dashboard = () => {
         setSelectedAppointment(null);
         setRefundData({ reason: 'customer_request', description: '' });
         // Refresh appointments and refunds
-        loadAppointments();
+        loadAppointments({ silent: true, resetPagination: false });
         loadRefunds();
       }
     } catch (error) {
@@ -2873,6 +3124,7 @@ const Dashboard = () => {
       setShowLogoutModal(false);
     } catch (error) {
       console.error('Logout error:', error);
+    } finally {
       setIsLoggingOut(false);
       setShowLogoutModal(false);
     }
@@ -3266,7 +3518,7 @@ const Dashboard = () => {
                       <p className="text-sm text-amber-50 font-medium">
                         {new Date(appointmentData.appointment_date + 'T00:00:00').toLocaleDateString('en-US', {
                           weekday: 'short',
-                          month: 'short',
+                          month: 'long',
                           day: 'numeric',
                           year: 'numeric',
                         })}
@@ -3435,36 +3687,47 @@ const Dashboard = () => {
           </button>
         </div>
 
-        {/* Search + Filter */}
-        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-          <div className="relative flex-1 max-w-xs">
-            <MagnifyingGlassIcon className={`absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`} />
-            <input
-              type="text"
-              placeholder="Search appointments..."
-              value={appointmentsSearchQuery}
-              onChange={(e) => {
-                setAppointmentsSearchQuery(e.target.value);
-                setAppointmentsPagination(prev => ({ ...prev, currentPage: 1 }));
-              }}
-              className={`w-full pl-9 pr-3 py-2 rounded-lg border text-sm focus:outline-none focus:ring-1 focus:ring-amber-500 ${isDarkMode ? 'bg-gray-800 border-gray-700 text-amber-50 placeholder-gray-500' : 'bg-white border-gray-200 text-gray-900 placeholder-gray-400'}`}
-            />
-          </div>
-          <select
-            value={appointmentsStatusFilter}
-            onChange={(e) => handleFilterChange(e.target.value)}
-            className={`px-3 py-2 rounded-lg border text-sm focus:outline-none focus:ring-1 focus:ring-amber-500 ${isDarkMode ? 'bg-gray-800 border-gray-700 text-amber-50' : 'bg-white border-gray-200 text-gray-900'}`}
-          >
-            {statusTabs.map(tab => (
-              <option key={tab.key} value={tab.key}>{tab.label}</option>
-            ))}
-          </select>
+        {/* Search */}
+        <div className="relative">
+          <MagnifyingGlassIcon className={`absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`} />
+          <input
+            type="text"
+            placeholder="Search appointments..."
+            value={appointmentsSearchQuery}
+            onChange={(e) => {
+              setAppointmentsSearchQuery(e.target.value);
+              setAppointmentsPagination(prev => ({ ...prev, currentPage: 1 }));
+            }}
+            className={`w-full pl-9 pr-3 py-2 rounded-lg border text-sm focus:outline-none focus:ring-1 focus:ring-amber-500 ${isDarkMode ? 'bg-gray-800 border-gray-700 text-amber-50 placeholder-gray-500' : 'bg-white border-gray-200 text-gray-900 placeholder-gray-400'}`}
+          />
+        </div>
+
+        {/* Status filter pills */}
+        <div className="flex gap-1.5 overflow-x-auto pb-0.5 sm:flex-wrap sm:overflow-visible" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+          {statusTabs.map(tab => {
+            const count = tab.key === 'all' ? appointments.length : appointments.filter(a => a.status === tab.key).length;
+            const isActive = appointmentsStatusFilter === tab.key;
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => handleFilterChange(tab.key)}
+                className={`shrink-0 px-3 py-1 rounded-full text-xs font-semibold border transition-colors ${
+                  isActive
+                    ? isDarkMode ? 'bg-amber-500 border-amber-500 text-gray-900' : 'bg-amber-500 border-amber-500 text-white'
+                    : isDarkMode ? 'bg-transparent border-gray-700 text-gray-400 hover:text-gray-200 hover:border-gray-500' : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
+                }`}
+              >
+                {tab.label}{count > 0 ? ` ${count}` : ''}
+              </button>
+            );
+          })}
         </div>
 
         {/* Appointments List */}
-        <div className={`${isDarkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'} border rounded-lg overflow-hidden`}>
+        <div>
           {appointments.length === 0 ? (
-            <div className="text-center py-12">
+            <div className={`text-center py-12 rounded-lg border ${isDarkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'}`}>
               <CalendarIcon className={`mx-auto h-12 w-12 ${isDarkMode ? 'text-gray-600' : 'text-gray-400'}`} />
               <h3 className={`mt-4 text-sm font-medium ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>No appointments yet</h3>
               <p className={`mt-2 text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>Schedule your first notarization appointment to get started</p>
@@ -3476,82 +3739,272 @@ const Dashboard = () => {
               </button>
             </div>
           ) : paginatedAppointments.length === 0 ? (
-            <div className="text-center py-12">
+            <div className={`text-center py-12 rounded-lg border ${isDarkMode ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200'}`}>
               <CalendarIcon className={`mx-auto h-12 w-12 ${isDarkMode ? 'text-gray-600' : 'text-gray-400'}`} />
               <h3 className={`mt-4 text-sm font-medium ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>No {appointmentsStatusFilter === 'all' ? '' : appointmentsStatusFilter} appointments</h3>
               <p className={`mt-2 text-xs ${isDarkMode ? 'text-gray-500' : 'text-gray-500'}`}>Try a different filter or search term</p>
             </div>
           ) : (
             <>
-              <div className="space-y-2 p-3">
+              <div className="space-y-2">
                 {paginatedAppointments.map((appointment) => {
+                  const isExpanded = expandedAppointmentId === appointment.id;
                   const services = appointment.services && appointment.services.length > 0 ? appointment.services : (appointment.service ? [appointment.service] : []);
                   const serviceCount = services.length;
-                  const firstName = services[0]?.name || formatServiceName(appointment);
-                  const mobileServiceLabel = serviceCount > 1 ? `${services[0]?.name} & ${serviceCount - 1} more` : firstName;
+                  const firstServiceName = services[0]?.name || formatServiceName(appointment);
+                  const serviceLabel = serviceCount > 1 ? `${firstServiceName} & ${serviceCount - 1} more` : firstServiceName;
+                  const canCancel = appointment.status === 'pending' || appointment.status === 'approved';
+                  const canRefund = appointment.status === 'completed' && appointment.payment_status === 'paid' && appointment.payment_amount > 0 && !appointment.refunds?.some(r => ['pending', 'approved'].includes(r.status));
+
+                  // Build status timeline
+                  const buildTimeline = () => {
+                    const submittedDesc = formatTimelineTimestamp(appointment.created_at);
+                    const scheduledDesc = formatTimelineSchedule(appointment.appointment_date, appointment.appointment_time);
+                    const completedDesc = formatTimelineTimestamp(appointment.completed_at);
+                    if (appointment.status === 'cancelled') {
+                      return [
+                        { key: 'booked', label: 'Submitted', desc: submittedDesc, state: 'done' },
+                        { key: 'cancelled', label: 'Cancelled', desc: null, state: 'active', variant: 'red' },
+                      ];
+                    }
+                    if (appointment.status === 'declined') {
+                      return [
+                        { key: 'booked', label: 'Submitted', desc: submittedDesc, state: 'done' },
+                        { key: 'review', label: 'Reviewed', desc: null, state: 'done' },
+                        { key: 'declined', label: 'Declined', desc: null, state: 'active', variant: 'red' },
+                      ];
+                    }
+                    const steps = [
+                      { key: 'booked', label: 'Submitted', desc: submittedDesc },
+                      { key: 'review', label: 'Under Review', desc: null },
+                      { key: 'approved', label: 'Approved', desc: null },
+                      { key: 'scheduled', label: 'Scheduled', desc: scheduledDesc },
+                      { key: 'completed', label: 'Completed', desc: completedDesc },
+                    ];
+                    const currentIdx = { pending: 1, approved: 2, scheduled: 3, completed: 4 }[appointment.status] ?? 1;
+                    return steps.map((s, i) => ({
+                      ...s,
+                      state: i < currentIdx ? 'done' : i === currentIdx ? 'active' : 'upcoming',
+                    }));
+                  };
+                  const timeline = buildTimeline();
 
                   return (
                     <div
                       key={appointment.id}
-                      className={`rounded-lg border ${isDarkMode ? 'bg-gray-800/50 border-gray-700/50' : 'bg-gray-50 border-gray-200'} p-4`}
+                      className={`rounded-xl border overflow-hidden ${
+                        isDarkMode ? 'bg-gray-800/60 border-gray-700/60' : 'bg-white border-gray-200'
+                      }`}
                     >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-2">
-                            <h3 className={`text-sm font-semibold truncate ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>
-                              <span className="sm:hidden">{mobileServiceLabel}</span>
-                              <span className="hidden sm:inline">{formatServiceName(appointment)}</span>
-                            </h3>
-                            <StatusBadge status={appointment.status} />
+                      {/* Tap header */}
+                      <button
+                        type="button"
+                        onClick={() => setExpandedAppointmentId(isExpanded ? null : appointment.id)}
+                        className={`w-full text-left flex items-center gap-3 px-4 py-3 transition-colors ${
+                          isExpanded
+                            ? isDarkMode ? 'bg-gray-700/30' : 'bg-gray-50'
+                            : isDarkMode ? 'hover:bg-gray-700/20' : 'hover:bg-gray-50/70'
+                        }`}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-sm font-semibold truncate ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>
+                            {serviceLabel}
+                          </p>
+                          <p className={`text-xs mt-0.5 flex items-center gap-2 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                            <span className="flex items-center gap-1"><CalendarIcon className="h-3 w-3" />{formatDateDisplay(appointment.appointment_date)}</span>
+                            <span className="flex items-center gap-1"><ClockIcon className="h-3 w-3" />{formatTime12Hour(appointment.appointment_time)}</span>
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <StatusBadge status={appointment.status} />
+                          {isExpanded
+                            ? <ChevronUpIcon className={`h-4 w-4 flex-shrink-0 ${isDarkMode ? 'text-gray-400' : 'text-gray-400'}`} />
+                            : <ChevronDownIcon className={`h-4 w-4 flex-shrink-0 ${isDarkMode ? 'text-gray-400' : 'text-gray-400'}`} />
+                          }
+                        </div>
+                      </button>
+
+                      {/* Expanded panel */}
+                      {isExpanded && (
+                        <div className={`border-t ${isDarkMode ? 'border-gray-700/60' : 'border-gray-100'}`}>
+
+                          {/* Status Timeline */}
+                          <div className={`px-4 pt-4 pb-3 ${isDarkMode ? 'bg-gray-800/40' : 'bg-gray-50/70'}`}>
+                            <p className={`text-[10px] font-semibold uppercase tracking-wider mb-3 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>Progress</p>
+                            <div className="flex flex-col">
+                              {timeline.map((step, idx) => (
+                                <div key={step.key} className="flex items-start">
+                                  {/* Dot + line */}
+                                  <div className="flex flex-col items-center flex-shrink-0 mr-3" style={{width:'18px'}}>
+                                    <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-0.5 ${
+                                      step.state === 'done'
+                                        ? 'bg-amber-500 border-amber-500'
+                                        : step.state === 'active'
+                                          ? step.variant === 'red'
+                                            ? 'bg-red-500 border-red-500 ring-4 ring-red-500/20'
+                                            : 'bg-amber-500 border-amber-500 ring-4 ring-amber-500/20'
+                                          : isDarkMode ? 'bg-transparent border-gray-600' : 'bg-transparent border-gray-300'
+                                    }`}>
+                                      {step.state === 'done' && (
+                                        <svg className="w-2.5 h-2.5 text-white" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                                      )}
+                                      {step.state === 'active' && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                                    </div>
+                                    {idx < timeline.length - 1 && (
+                                      <div className={`w-px flex-1 min-h-[28px] my-0.5 ${
+                                        step.state === 'done' ? 'bg-amber-500/70' : isDarkMode ? 'bg-gray-700' : 'bg-gray-200'
+                                      }`} />
+                                    )}
+                                  </div>
+                                  {/* Label + date row */}
+                                  <div className={`flex-1 min-w-0 flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between ${idx < timeline.length - 1 ? 'pb-4' : 'pb-0'}`}>
+                                    <p className={`text-sm font-semibold leading-tight ${
+                                      step.state === 'done'
+                                        ? isDarkMode ? 'text-amber-400' : 'text-amber-600'
+                                        : step.state === 'active'
+                                          ? step.variant === 'red' ? 'text-red-400' : isDarkMode ? 'text-white' : 'text-gray-900'
+                                          : isDarkMode ? 'text-gray-500' : 'text-gray-400'
+                                    }`}>{step.label}</p>
+                                    {step.desc && (
+                                      <p className={`text-xs font-medium tabular-nums leading-4 sm:ml-3 sm:text-right ${
+                                        step.state === 'done'
+                                          ? isDarkMode ? 'text-amber-500/80' : 'text-amber-500/80'
+                                          : step.state === 'active'
+                                            ? isDarkMode ? 'text-gray-300' : 'text-gray-600'
+                                            : isDarkMode ? 'text-gray-600' : 'text-gray-400'
+                                      }`}>{step.desc}</p>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
                           </div>
-                          <div className={`flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                            <span className="flex items-center gap-1">
-                              <CalendarIcon className="h-3.5 w-3.5" />
-                              {formatDateDisplay(appointment.appointment_date)}
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <ClockIcon className="h-3.5 w-3.5" />
-                              {formatTime12Hour(appointment.appointment_time)}
-                            </span>
-                            {appointment.staff && (
-                              <span className="flex items-center gap-1">
-                                <UserIcon className="h-3.5 w-3.5" />
-                                {appointment.staff.first_name} {appointment.staff.last_name}
-                              </span>
+
+                          {/* Details */}
+                          <div className={`px-4 py-4 border-t ${isDarkMode ? 'border-gray-700/60' : 'border-gray-100'}`}>
+                            <p className={`text-[10px] font-semibold uppercase tracking-wider mb-3 ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>Details</p>
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-3">
+                              <div>
+                                <p className={`text-[10px] font-medium uppercase tracking-wide ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>Service</p>
+                                <p className={`text-sm font-medium mt-0.5 ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>{serviceLabel}</p>
+                              </div>
+                              <div>
+                                <p className={`text-[10px] font-medium uppercase tracking-wide ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>Date</p>
+                                <p className={`text-sm font-medium mt-0.5 ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>{formatDateDisplay(appointment.appointment_date)}</p>
+                              </div>
+                              <div>
+                                <p className={`text-[10px] font-medium uppercase tracking-wide ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>Time</p>
+                                <p className={`text-sm font-medium mt-0.5 ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>{formatTime12Hour(appointment.appointment_time)}</p>
+                              </div>
+                              {appointment.staff && (
+                                <div>
+                                  <p className={`text-[10px] font-medium uppercase tracking-wide ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>Staff</p>
+                                  <p className={`text-sm font-medium mt-0.5 ${isDarkMode ? 'text-gray-200' : 'text-gray-800'}`}>{appointment.staff.first_name} {appointment.staff.last_name}</p>
+                                </div>
+                              )}
+                              {appointment.payment_status === 'paid' && (
+                                <div>
+                                  <p className={`text-[10px] font-medium uppercase tracking-wide ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>Amount Paid</p>
+                                  <p className={`text-sm font-medium mt-0.5 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>₱{parseFloat(appointment.payment_amount || 0).toFixed(2)}</p>
+                                </div>
+                              )}
+                            </div>
+                            {appointment.notes && (
+                              <div className="mt-3">
+                                <p className={`text-[10px] font-medium uppercase tracking-wide ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>Your Notes</p>
+                                <p className={`text-sm mt-0.5 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>{appointment.notes}</p>
+                              </div>
+                            )}
+                            {appointment.staff_notes && (
+                              <div className="mt-3">
+                                <p className={`text-[10px] font-medium uppercase tracking-wide ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>Staff Notes</p>
+                                <p className={`text-sm mt-0.5 ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>{appointment.staff_notes}</p>
+                              </div>
+                            )}
+                            {appointment.status === 'completed' && appointment.completed_at && (
+                              <div className="mt-3">
+                                <p className={`text-[10px] font-medium uppercase tracking-wide ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>Completed On</p>
+                                <p className={`text-sm mt-0.5 ${isDarkMode ? 'text-green-400' : 'text-green-600'}`}>
+                                  {formatDateDisplay(appointment.completed_at)} at {new Date(appointment.completed_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                                </p>
+                              </div>
+                            )}
+                            {appointment.status === 'cancelled' && appointment.cancellation_reason && (
+                              <div className="mt-3">
+                                <p className={`text-[10px] font-medium uppercase tracking-wide ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>Cancellation Reason</p>
+                                <p className={`text-sm mt-0.5 ${isDarkMode ? 'text-red-400' : 'text-red-600'}`}>{appointment.cancellation_reason}</p>
+                              </div>
+                            )}
+                            {appointment.status === 'declined' && appointment.decline_reason && (
+                              <div className="mt-3">
+                                <p className={`text-[10px] font-medium uppercase tracking-wide ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>Decline Reason</p>
+                                <p className={`text-sm mt-0.5 ${isDarkMode ? 'text-red-400' : 'text-red-600'}`}>{appointment.decline_reason}</p>
+                              </div>
                             )}
                           </div>
-                        </div>
-                        <div className="flex items-center gap-1.5 flex-shrink-0">
-                          <button
-                            onClick={() => handleViewAppointmentDetails(appointment)}
-                            className={`p-1.5 rounded-lg border ${isDarkMode ? 'text-amber-400 hover:text-amber-300 border-amber-500/30 hover:bg-amber-500/10' : 'text-amber-600 hover:text-amber-700 border-amber-300 hover:bg-amber-50'}`}
-                            title="View details"
-                          >
-                            <EyeIcon className="h-4 w-4" />
-                          </button>
-                          {appointment.status === 'pending' && (
-                            <button
-                              onClick={() => handleRequestCancellation(appointment)}
-                              className={`p-1.5 rounded-lg border ${isDarkMode ? 'text-red-400 hover:text-red-300 border-red-500/30 hover:bg-red-500/10' : 'text-red-500 hover:text-red-600 border-red-300 hover:bg-red-50'}`}
-                              title="Cancel appointment"
-                            >
-                              <TrashIcon className="h-4 w-4" />
-                            </button>
+
+                          {/* Price / Total */}
+                          {(() => {
+                            const aptServices = appointment.services && appointment.services.length > 0
+                              ? appointment.services
+                              : (appointment.service ? [appointment.service] : []);
+                            const hasPrice = aptServices.some(s => parseFloat(s.price || 0) > 0) || parseFloat(appointment.payment_amount || 0) > 0;
+                            if (!hasPrice) return null;
+                            const total = parseFloat(appointment.payment_amount || 0) ||
+                              aptServices.reduce((sum, s) => sum + parseFloat(s.price || 0), 0);
+                            return (
+                              <div className={`mx-4 mb-4 rounded-xl px-4 py-3 border ${
+                                isDarkMode ? 'bg-amber-500/5 border-amber-500/20' : 'bg-amber-50 border-amber-200/60'
+                              }`}>
+                                <p className={`text-[10px] font-semibold uppercase tracking-wider mb-2 ${
+                                  isDarkMode ? 'text-amber-500/70' : 'text-amber-600/70'
+                                }`}>Fare Summary</p>
+                                {aptServices.filter(s => parseFloat(s.price || 0) > 0).map((s, i) => (
+                                  <div key={i} className="flex items-center justify-between mb-1">
+                                    <p className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>{s.name}</p>
+                                    <p className={`text-xs font-medium tabular-nums ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>₱{parseFloat(s.price).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                                  </div>
+                                ))}
+                                <div className={`flex items-center justify-between pt-2 mt-1 border-t ${
+                                  isDarkMode ? 'border-amber-500/20' : 'border-amber-200/60'
+                                }`}>
+                                  <p className={`text-sm font-semibold ${isDarkMode ? 'text-amber-400' : 'text-amber-700'}`}>Total</p>
+                                  <p className={`text-sm font-bold tabular-nums ${isDarkMode ? 'text-amber-400' : 'text-amber-700'}`}>₱{total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                                </div>
+                                {appointment.payment_status === 'paid' && (
+                                  <p className={`text-[10px] mt-1 text-center ${isDarkMode ? 'text-green-400/70' : 'text-green-600/70'}`}>Paid</p>
+                                )}
+                              </div>
+                            );
+                          })()}
+
+                          {/* Actions */}
+                          {(canCancel || canRefund) && (
+                            <div className={`px-4 py-3 border-t flex flex-col sm:flex-row gap-2 ${isDarkMode ? 'border-gray-700/60 bg-gray-900/20' : 'border-gray-100 bg-gray-50/80'}`}>
+                              {canRefund && (
+                                <button
+                                  onClick={() => { setSelectedAppointment(appointment); setShowRefundModal(true); }}
+                                  className={`flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-semibold border transition-colors ${
+                                    isDarkMode ? 'text-amber-400 border-amber-500/40 hover:bg-amber-500/10' : 'text-amber-700 border-amber-300 hover:bg-amber-50'
+                                  }`}
+                                >
+                                  Request Refund
+                                </button>
+                              )}
+                              {canCancel && (
+                                <button
+                                  onClick={() => handleRequestCancellation(appointment)}
+                                  className={`flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-semibold border transition-colors ${
+                                    isDarkMode ? 'text-red-400 border-red-500/40 hover:bg-red-500/10' : 'text-red-600 border-red-200 hover:bg-red-50'
+                                  }`}
+                                >
+                                  Cancel Appointment
+                                </button>
+                              )}
+                            </div>
                           )}
-                          {appointment.status === 'completed' && appointment.payment_status === 'paid' && appointment.payment_amount > 0 && (
-                            <button
-                              onClick={() => {
-                                setSelectedAppointment(appointment);
-                                setShowRefundModal(true);
-                              }}
-                              className={`p-1.5 rounded-lg border ${isDarkMode ? 'text-green-400 hover:text-green-300 border-green-500/30 hover:bg-green-500/10' : 'text-green-500 hover:text-green-600 border-green-300 hover:bg-green-50'}`}
-                              title="Request refund"
-                            >
-                              <CurrencyDollarIcon className="h-4 w-4" />
-                            </button>
-                          )}
                         </div>
-                      </div>
+                      )}
                     </div>
                   );
                 })}
@@ -3649,7 +4102,7 @@ const Dashboard = () => {
         {/* Mobile Header with Back Button */}
         <div className="flex lg:hidden items-center gap-3 -mx-3 -mt-3 px-3 py-3 border-b border-gray-700">
           <button
-            onClick={() => navigate('/dashboard?tab=profile')}
+            onClick={() => navigateBackOrTo('/dashboard?tab=profile')}
             className="p-2 rounded-lg hover:bg-gray-800 transition-colors"
           >
             <ArrowLeftIcon className="w-5 h-5 text-gray-300" />
@@ -3790,7 +4243,7 @@ const Dashboard = () => {
       {/* Mobile Back Button */}
       <div className="lg:hidden flex items-center gap-2 mb-4">
         <button
-          onClick={() => navigate('/dashboard?tab=home')}
+          onClick={() => navigateBackOrTo('/dashboard?tab=home')}
           className="p-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors"
           title="Back"
         >
@@ -4307,6 +4760,7 @@ const Dashboard = () => {
           </div>
         </div>
       )}
+
     </div>
   );
 
@@ -4642,19 +5096,22 @@ const Dashboard = () => {
         isDarkMode={isDarkMode}
       />
 
-      <ConfirmationModal
+      <AppointmentCancellationModal
         isOpen={showCancelModal}
         onClose={() => {
           setShowCancelModal(false);
+          setCancelReason('');
+          setCustomCancelReason('');
           setSelectedAppointment(null);
         }}
         onConfirm={handleCancelAppointment}
-        title="Cancel Appointment"
-        message={`Are you sure you want to cancel your ${formatServiceName(selectedAppointment)} appointment on ${selectedAppointment ? formatDateDisplay(selectedAppointment.appointment_date) : ''}? This action cannot be undone.`}
-        confirmText="Cancel Appointment"
-        type="danger"
+        appointment={selectedAppointment}
         loading={loading}
         isDarkMode={isDarkMode}
+        cancelReason={cancelReason}
+        customCancelReason={customCancelReason}
+        onCancelReasonChange={setCancelReason}
+        onCustomCancelReasonChange={setCustomCancelReason}
       />
 
       <ConfirmationModal

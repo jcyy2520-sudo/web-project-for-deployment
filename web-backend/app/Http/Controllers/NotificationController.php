@@ -164,7 +164,9 @@ class NotificationController extends Controller
                 'in_app_notifications' => true,
                 'in_app_appointment_updates' => true,
                 'in_app_messages' => true,
-                'in_app_reminders' => true
+                'in_app_reminders' => true,
+                'push_notifications' => true,
+                'push_appointment_updates' => true,
             ]
         );
 
@@ -190,6 +192,8 @@ class NotificationController extends Controller
             'in_app_appointment_updates' => 'nullable|boolean',
             'in_app_messages' => 'nullable|boolean',
             'in_app_reminders' => 'nullable|boolean',
+            'push_notifications' => 'nullable|boolean',
+            'push_appointment_updates' => 'nullable|boolean',
             'quiet_hours' => 'nullable|array',
             'quiet_hours.enabled' => 'nullable|boolean',
             'quiet_hours.start' => 'nullable|date_format:H:i',

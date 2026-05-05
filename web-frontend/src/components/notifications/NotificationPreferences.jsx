@@ -1,10 +1,16 @@
 import { useState, useEffect } from 'react';
-import { useApi } from '../hooks/useApi';
+import { useApi } from '../../hooks/useApi';
 import axios from 'axios';
+import {
+  getDevicePushStatus,
+  subscribeDeviceToPush,
+  unsubscribeDeviceFromPush,
+} from '../../utils/pushNotifications';
 import {
   BellIcon,
   EnvelopeIcon,
-  ClockIcon
+  ClockIcon,
+  DevicePhoneMobileIcon
 } from '@heroicons/react/24/outline';
 
 const NotificationPreferences = ({ isDarkMode = true }) => {
@@ -12,10 +18,21 @@ const NotificationPreferences = ({ isDarkMode = true }) => {
   const [preferences, setPreferences] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [deviceStatus, setDeviceStatus] = useState({ supported: false, permission: 'default', subscribed: false });
+  const [deviceBusy, setDeviceBusy] = useState(false);
 
   useEffect(() => {
     loadPreferences();
+    refreshDeviceStatus();
   }, []);
+
+  const refreshDeviceStatus = async () => {
+    try {
+      setDeviceStatus(await getDevicePushStatus());
+    } catch (error) {
+      console.error('Failed to read device push status:', error);
+    }
+  };
 
   const loadPreferences = async () => {
     setLoading(true);
@@ -61,6 +78,37 @@ const NotificationPreferences = ({ isDarkMode = true }) => {
       setPreferences(result.data.data);
     }
     setSaving(false);
+  };
+
+  const handleEnableDevice = async () => {
+    try {
+      setDeviceBusy(true);
+      const result = await subscribeDeviceToPush({ requestPermission: true });
+
+      if (result.success) {
+        window.showToast?.('Push Notifications', result.message, 'success');
+      } else {
+        window.showToast?.('Push Notifications', result.message || 'Unable to enable push notifications.', 'warning');
+      }
+    } catch (error) {
+      window.showToast?.('Push Notifications', error.response?.data?.message || 'Failed to enable push notifications.', 'error');
+    } finally {
+      await refreshDeviceStatus();
+      setDeviceBusy(false);
+    }
+  };
+
+  const handleDisableDevice = async () => {
+    try {
+      setDeviceBusy(true);
+      const result = await unsubscribeDeviceFromPush({ unsubscribeBrowser: true });
+      window.showToast?.('Push Notifications', result.message, 'success');
+    } catch (error) {
+      window.showToast?.('Push Notifications', error.response?.data?.message || 'Failed to disable push notifications.', 'error');
+    } finally {
+      await refreshDeviceStatus();
+      setDeviceBusy(false);
+    }
   };
 
   if (loading || !preferences) {
@@ -204,6 +252,84 @@ const NotificationPreferences = ({ isDarkMode = true }) => {
         </div>
 
         {/* Quiet Hours */}
+        <div className={`space-y-3 p-4 rounded-lg border ${
+          isDarkMode ? 'bg-gray-800/50 border-gray-700' : 'bg-white border-gray-200'
+        }`}>
+          <h4 className={`text-xs font-semibold flex items-center ${isDarkMode ? 'text-amber-400' : 'text-amber-600'}`}>
+            <DevicePhoneMobileIcon className="h-3.5 w-3.5 mr-2" />
+            Web Push Notifications
+          </h4>
+
+          <label className="flex items-center justify-between cursor-pointer">
+            <span className={`text-xs ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
+              Allow Push Notifications
+            </span>
+            <input
+              type="checkbox"
+              checked={preferences.push_notifications}
+              onChange={(e) => updatePreference('push_notifications', e.target.checked)}
+              disabled={saving}
+              className="rounded"
+            />
+          </label>
+
+          <div className={`pl-4 space-y-2 border-l-2 ${isDarkMode ? 'border-gray-600' : 'border-gray-300'}`}>
+            <label className="flex items-center justify-between cursor-pointer">
+              <span className={`text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+                Appointment Updates
+              </span>
+              <input
+                type="checkbox"
+                checked={preferences.push_appointment_updates}
+                onChange={(e) => updatePreference('push_appointment_updates', e.target.checked)}
+                disabled={saving || !preferences.push_notifications}
+                className="rounded"
+              />
+            </label>
+          </div>
+
+          <div className={`rounded-lg border px-3 py-3 ${
+            isDarkMode ? 'border-gray-700 bg-gray-900/50' : 'border-gray-200 bg-gray-50'
+          }`}>
+            <p className={`text-xs font-medium ${isDarkMode ? 'text-amber-50' : 'text-gray-900'}`}>
+              This Device
+            </p>
+            <p className={`mt-1 text-xs ${isDarkMode ? 'text-gray-400' : 'text-gray-600'}`}>
+              {deviceStatus.supported
+                ? `Permission: ${deviceStatus.permission}. ${deviceStatus.subscribed ? 'This device is subscribed.' : 'This device is not subscribed yet.'}`
+                : 'This browser does not support push notifications.'}
+            </p>
+
+            <div className="mt-3 flex gap-2">
+              <button
+                type="button"
+                onClick={handleEnableDevice}
+                disabled={deviceBusy || !deviceStatus.supported || !preferences.push_notifications}
+                className={`px-3 py-2 text-xs font-medium rounded transition-colors ${
+                  isDarkMode
+                    ? 'bg-amber-500 text-gray-950 hover:bg-amber-400 disabled:bg-gray-700 disabled:text-gray-400'
+                    : 'bg-amber-600 text-white hover:bg-amber-700 disabled:bg-gray-200 disabled:text-gray-500'
+                }`}
+              >
+                {deviceBusy ? 'Working...' : (deviceStatus.subscribed ? 'Reconnect Device' : 'Enable on This Device')}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleDisableDevice}
+                disabled={deviceBusy || !deviceStatus.supported || !deviceStatus.subscribed}
+                className={`px-3 py-2 text-xs font-medium rounded transition-colors ${
+                  isDarkMode
+                    ? 'bg-gray-700 text-amber-50 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-500'
+                    : 'bg-gray-200 text-gray-800 hover:bg-gray-300 disabled:bg-gray-100 disabled:text-gray-400'
+                }`}
+              >
+                Disable Device
+              </button>
+            </div>
+          </div>
+        </div>
+
         <div className={`space-y-3 p-4 rounded-lg border ${
           isDarkMode ? 'bg-gray-800/50 border-gray-700' : 'bg-white border-gray-200'
         }`}>

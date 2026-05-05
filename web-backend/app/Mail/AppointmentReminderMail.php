@@ -46,7 +46,7 @@ class AppointmentReminderMail extends Mailable
         $subjectPrefix = $this->urgencyLevel === 'high' ? '⚠️' : '🔔';
 
         return $this->subject("{$subjectPrefix} Appointment in {$this->timeLabel} - Legal Ease")
-                    ->view('emails.appointment-reminder')
+                    ->markdown('emails.appointment-reminder')
                     ->with([
                         'appointment' => $this->appointment,
                         'timeUntilAppointment' => $this->timeUntilAppointment,

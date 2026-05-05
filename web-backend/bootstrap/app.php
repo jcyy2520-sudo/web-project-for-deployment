@@ -9,6 +9,7 @@ return Application::configure(basePath: dirname(__DIR__))
         web: __DIR__.'/../routes/web.php',
         api: __DIR__.'/../routes/api.php',
         commands: __DIR__.'/../routes/console.php',
+        channels: __DIR__.'/../routes/channels.php',
         health: '/up',
     )
     ->withSchedule(function ($schedule) {
@@ -28,6 +29,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->statefulApi();
 
         $middleware->alias([
+            'action.log' => \App\Http\Middleware\AutomaticActionLogMiddleware::class,
             'role' => \App\Http\Middleware\RoleMiddleware::class,
             // 'admin' alias resolves Phase 3 routes that use middleware('admin')
             // It maps to RoleMiddleware which will receive 'admin' as the role parameter

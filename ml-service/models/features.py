@@ -7,6 +7,7 @@ staff ranking, and slot ranking.
 import pandas as pd
 import numpy as np
 import pymysql
+from typing import Any
 from config import DB_CONFIG, ML_CONFIG
 
 
@@ -22,6 +23,12 @@ def get_db_connection():
     )
 
 
+def _fetchone_dict(cur) -> dict[str, Any]:
+    """Return a dict row from fetchone() or an empty dict for Pylance/runtime safety."""
+    row = cur.fetchone()
+    return row if isinstance(row, dict) else {}
+
+
 def get_completed_appointments_count() -> int:
     """Count appointments with final status (completed, cancelled, no_show)."""
     conn = get_db_connection()
@@ -32,7 +39,7 @@ def get_completed_appointments_count() -> int:
                 "WHERE status IN ('completed', 'cancelled', 'no_show') "
                 "AND deleted_at IS NULL"
             )
-            return cur.fetchone()['cnt']
+            return int(_fetchone_dict(cur).get('cnt', 0) or 0)
     except Exception:
         return 0
     finally:
@@ -64,11 +71,11 @@ def get_data_quality_report() -> dict:
                 "FROM appointments WHERE status IN ('completed', 'cancelled', 'no_show') "
                 "AND deleted_at IS NULL"
             )
-            nulls = cur.fetchone()
+            nulls = _fetchone_dict(cur)
 
             # Staff count
             cur.execute("SELECT COUNT(*) as cnt FROM users WHERE role = 'staff'")
-            staff_count = cur.fetchone()['cnt']
+            staff_count = int(_fetchone_dict(cur).get('cnt', 0) or 0)
 
             # Date range
             cur.execute(
@@ -76,7 +83,7 @@ def get_data_quality_report() -> dict:
                 "FROM appointments WHERE status IN ('completed', 'cancelled', 'no_show') "
                 "AND deleted_at IS NULL"
             )
-            date_range = cur.fetchone()
+            date_range = _fetchone_dict(cur)
 
             completed = status_counts.get('completed', 0)
             cancelled = status_counts.get('cancelled', 0)
@@ -99,15 +106,15 @@ def get_data_quality_report() -> dict:
                     'is_balanced': 0.1 <= (negative / total) <= 0.9 if total > 0 else False,
                 },
                 'feature_completeness': {
-                    'appointment_date': round(float((1 - (nulls['null_date'] or 0) / max(nulls['total'], 1)) * 100), 1),
-                    'appointment_time': round(float((1 - (nulls['null_time'] or 0) / max(nulls['total'], 1)) * 100), 1),
-                    'user_id': round(float((1 - (nulls['null_user'] or 0) / max(nulls['total'], 1)) * 100), 1),
-                    'service_type': round(float((1 - (nulls['null_service'] or 0) / max(nulls['total'], 1)) * 100), 1),
+                    'appointment_date': round(float((1 - (nulls.get('null_date', 0) or 0) / max(nulls.get('total', 0) or 0, 1)) * 100), 1),
+                    'appointment_time': round(float((1 - (nulls.get('null_time', 0) or 0) / max(nulls.get('total', 0) or 0, 1)) * 100), 1),
+                    'user_id': round(float((1 - (nulls.get('null_user', 0) or 0) / max(nulls.get('total', 0) or 0, 1)) * 100), 1),
+                    'service_type': round(float((1 - (nulls.get('null_service', 0) or 0) / max(nulls.get('total', 0) or 0, 1)) * 100), 1),
                 },
                 'staff_count': staff_count,
                 'date_range': {
-                    'earliest': str(date_range['earliest']) if date_range['earliest'] else None,
-                    'latest': str(date_range['latest']) if date_range['latest'] else None,
+                    'earliest': str(date_range.get('earliest')) if date_range.get('earliest') else None,
+                    'latest': str(date_range.get('latest')) if date_range.get('latest') else None,
                 },
             }
     except Exception:
@@ -150,7 +157,12 @@ def extract_training_data() -> tuple:
 
             # --- Temporal features ---
             df['appointment_date'] = pd.to_datetime(df['appointment_date'])
-            df['appointment_time_parsed'] = df['appointment_time'].apply(_parse_time)
+            appointment_time_parsed = pd.Series(
+                [_parse_time(time_val) for time_val in df['appointment_time']],
+                index=df.index,
+                dtype='object',
+            )
+            df['appointment_time_parsed'] = appointment_time_parsed
             df['day_of_week'] = df['appointment_date'].dt.dayofweek
             df['hour_of_day'] = df['appointment_time_parsed'].apply(lambda t: t.hour if t else 12)
             df['month'] = df['appointment_date'].dt.month
@@ -261,7 +273,7 @@ def extract_single_appointment_features(appointment_id: int) -> dict:
                 WHERE appointment_date = %s AND deleted_at IS NULL
                 AND status NOT IN ('cancelled')
             """, (row['appointment_date'],))
-            same_day = cur.fetchone()['cnt']
+            same_day = int(_fetchone_dict(cur).get('cnt', 0) or 0)
 
             # Service type encoding (global average completion for this service_type)
             service_type = row['service_type'] or ''
@@ -337,7 +349,7 @@ def get_staff_features(date: str, time: str, service_type: str | None = None) ->
                     WHERE staff_id = %s AND appointment_date = %s
                     AND status NOT IN ('cancelled') AND deleted_at IS NULL
                 """, (sid, date))
-                workload = cur.fetchone()['cnt']
+                workload = int(_fetchone_dict(cur).get('cnt', 0) or 0)
 
                 # Staff historical completion rate
                 cur.execute("""
@@ -348,9 +360,9 @@ def get_staff_features(date: str, time: str, service_type: str | None = None) ->
                     WHERE staff_id = %s AND status IN ('completed', 'cancelled', 'no_show')
                     AND deleted_at IS NULL
                 """, (sid,))
-                stats = cur.fetchone()
-                total = stats['total'] or 0
-                completed = stats['completed'] or 0
+                stats = _fetchone_dict(cur)
+                total = int(stats.get('total', 0) or 0)
+                completed = int(stats.get('completed', 0) or 0)
                 completion_rate = completed / max(total, 1)
 
                 # Service specialization
@@ -361,14 +373,14 @@ def get_staff_features(date: str, time: str, service_type: str | None = None) ->
                         WHERE staff_id = %s AND service_type = %s AND status = 'completed'
                         AND deleted_at IS NULL
                     """, (sid, service_type))
-                    specialization = cur.fetchone()['cnt']
+                    specialization = int(_fetchone_dict(cur).get('cnt', 0) or 0)
 
                 # Check availability (not on unavailable_dates, no time conflict)
                 cur.execute("""
                     SELECT COUNT(*) as cnt FROM unavailable_dates
                     WHERE date = %s
                 """, (date,))
-                unavailable = cur.fetchone()['cnt'] > 0
+                unavailable = int(_fetchone_dict(cur).get('cnt', 0) or 0) > 0
 
                 has_conflict = False
                 if time:
@@ -377,7 +389,7 @@ def get_staff_features(date: str, time: str, service_type: str | None = None) ->
                         WHERE staff_id = %s AND appointment_date = %s AND appointment_time = %s
                         AND status NOT IN ('cancelled') AND deleted_at IS NULL
                     """, (sid, date, time))
-                    has_conflict = cur.fetchone()['cnt'] > 0
+                    has_conflict = int(_fetchone_dict(cur).get('cnt', 0) or 0) > 0
 
                 results.append({
                     'staff_id': sid,
@@ -414,7 +426,7 @@ def get_slot_features(date: str) -> list:
                         WHERE appointment_date = %s AND appointment_time = %s
                         AND status NOT IN ('cancelled') AND deleted_at IS NULL
                     """, (date, time_str))
-                    booked = cur.fetchone()['cnt']
+                    booked = int(_fetchone_dict(cur).get('cnt', 0) or 0)
 
                     # Historical completion rate at this time
                     cur.execute("""
@@ -426,9 +438,9 @@ def get_slot_features(date: str) -> list:
                         AND status IN ('completed', 'cancelled', 'no_show')
                         AND deleted_at IS NULL
                     """, (time_str,))
-                    hist = cur.fetchone()
-                    hist_total = hist['total'] or 0
-                    hist_completed = hist['completed'] or 0
+                    hist = _fetchone_dict(cur)
+                    hist_total = int(hist.get('total', 0) or 0)
+                    hist_completed = int(hist.get('completed', 0) or 0)
                     hist_rate = hist_completed / max(hist_total, 1)
 
                     appt_date = pd.to_datetime(date)

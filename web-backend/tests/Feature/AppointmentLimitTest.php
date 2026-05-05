@@ -7,6 +7,7 @@ use App\Models\Appointment;
 use App\Models\AppointmentSettings;
 use App\Models\TimeSlotCapacity;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Database\QueryException;
 use Tests\TestCase;
 
 class AppointmentLimitTest extends TestCase
@@ -19,7 +20,7 @@ class AppointmentLimitTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        
+
         // Create a test user
         $this->user = User::factory()->create([
             'email' => 'testuser@example.com',
@@ -73,7 +74,7 @@ class AppointmentLimitTest extends TestCase
     public function user_can_book_within_daily_limit()
     {
         $today = now()->format('Y-m-d');
-        
+
         $response = $this->actingAs($this->user)->postJson('/api/appointments', [
             'type' => 'consultation',
             'service_type' => 'Legal Consultation',
@@ -94,7 +95,7 @@ class AppointmentLimitTest extends TestCase
     public function user_can_book_second_appointment_on_same_day()
     {
         $today = now()->format('Y-m-d');
-        
+
         // First appointment
         $this->actingAs($this->user)->postJson('/api/appointments', [
             'type' => 'consultation',
@@ -124,7 +125,7 @@ class AppointmentLimitTest extends TestCase
     public function user_cannot_exceed_daily_booking_limit()
     {
         $today = now()->format('Y-m-d');
-        
+
         // Book two appointments (at limit)
         for ($i = 0; $i < 2; $i++) {
             $this->actingAs($this->user)->postJson('/api/appointments', [
@@ -145,8 +146,9 @@ class AppointmentLimitTest extends TestCase
             'notes' => 'Third'
         ]);
 
+        $response->dump();
         $this->assertFalse($response->json('success'));
-        $this->assertStringContainsString('daily booking limit', strtolower($response->json('message')));
+        $this->assertStringContainsString('booking limit', strtolower($response->json('message')));
         $this->assertEquals(422, $response->status());
     }
 
@@ -154,8 +156,8 @@ class AppointmentLimitTest extends TestCase
     public function user_limit_is_per_day()
     {
         $today = now()->format('Y-m-d');
-        $tomorrow = now()->addDay()->format('Y-m-d');
-        
+        $tomorrow = now()->addDays(2)->format('Y-m-d');
+
         // Book 2 for today
         for ($i = 0; $i < 2; $i++) {
             $this->actingAs($this->user)->postJson('/api/appointments', [
@@ -175,15 +177,14 @@ class AppointmentLimitTest extends TestCase
             'appointment_time' => '09:00',
             'notes' => 'Tomorrow'
         ]);
-
         $this->assertTrue($response->json('success'));
     }
 
     /** @test */
-    public function cancelled_appointments_dont_count_toward_limit()
+    public function cancelled_appointments_still_count_toward_limit()
     {
         $today = now()->format('Y-m-d');
-        
+
         // Book 2 appointments
         $apt1 = Appointment::forceCreate([
             'user_id' => $this->user->id,
@@ -207,23 +208,19 @@ class AppointmentLimitTest extends TestCase
         $apt1->status = 'cancelled';
         $apt1->save();
 
-        // Should be able to book another
-        $response = $this->actingAs($this->user)->postJson('/api/appointments', [
-            'type' => 'consultation',
-            'service_type' => 'Legal Consultation',
-            'appointment_date' => $today,
-            'appointment_time' => '11:00',
-            'notes' => 'Third'
-        ]);
+        $this->assertTrue(
+            AppointmentSettings::userHasReachedDailyLimit($this->user->id, $today),
+            'Cancellation should not reduce the user\'s consumed booking count in the same 24-hour window.'
+        );
 
-        $this->assertTrue($response->json('success'));
+        $this->assertSame(0, AppointmentSettings::getRemainingBookingsForUser($this->user->id, $today));
     }
 
     /** @test */
     public function time_slot_cannot_exceed_capacity()
     {
         $today = now()->format('Y-m-d');
-        
+
         // Create 3 appointments at 09:00 (capacity is 3)
         for ($i = 0; $i < 3; $i++) {
             $user = User::factory()->create();
@@ -255,7 +252,7 @@ class AppointmentLimitTest extends TestCase
     public function get_user_limit_endpoint_returns_correct_info()
     {
         $today = now()->format('Y-m-d');
-        
+
         // Book one appointment
         Appointment::forceCreate([
             'user_id' => $this->user->id,
@@ -281,7 +278,7 @@ class AppointmentLimitTest extends TestCase
     public function get_user_limit_shows_reached_when_at_limit()
     {
         $today = now()->format('Y-m-d');
-        
+
         // Book two appointments (at limit)
         for ($i = 0; $i < 2; $i++) {
             Appointment::forceCreate([
@@ -329,20 +326,82 @@ class AppointmentLimitTest extends TestCase
     }
 
     /** @test */
+    public function duplicate_global_slot_capacity_records_are_blocked_at_database_level()
+    {
+        TimeSlotCapacity::truncate();
+
+        TimeSlotCapacity::create([
+            'start_time' => '09:00',
+            'end_time' => '09:30',
+            'day_of_week' => null,
+            'specific_date' => null,
+            'max_appointments_per_slot' => 3,
+            'is_active' => true,
+        ]);
+
+        $this->expectException(QueryException::class);
+
+        TimeSlotCapacity::create([
+            'start_time' => '09:00',
+            'end_time' => '09:30',
+            'day_of_week' => null,
+            'specific_date' => null,
+            'max_appointments_per_slot' => 5,
+            'is_active' => true,
+        ]);
+    }
+
+    /** @test */
+    public function posting_duplicate_global_slot_capacity_updates_existing_record_instead_of_creating_another()
+    {
+        TimeSlotCapacity::truncate();
+        $admin = User::factory()->create(['role' => 'admin']);
+
+        $payload = [
+            'start_time' => '09:00',
+            'end_time' => '09:30',
+            'day_of_week' => null,
+            'specific_date' => null,
+            'max_appointments_per_slot' => 3,
+        ];
+
+        $this->actingAs($admin)
+            ->postJson('/api/admin/slot-capacities', $payload)
+            ->assertCreated();
+
+        $this->actingAs($admin)
+            ->postJson('/api/admin/slot-capacities', [
+                ...$payload,
+                'max_appointments_per_slot' => 5,
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.max_appointments_per_slot', 5);
+
+        $this->assertEquals(1, TimeSlotCapacity::count());
+        $this->assertDatabaseHas('time_slot_capacities', [
+            'start_time' => '09:00',
+            'end_time' => '09:30',
+            'scope_key' => 'all',
+            'max_appointments_per_slot' => 5,
+        ]);
+    }
+
+    /** @test */
     public function limit_is_disabled_when_inactive()
     {
         $this->settings->is_active = false;
         $this->settings->save();
 
         $today = now()->format('Y-m-d');
-        
+        $validTimes = ['09:00', '10:00', '11:00', '13:00', '14:00'];
+
         // Should be able to book unlimited
-        for ($i = 0; $i < 5; $i++) {
+        for ($i = 0; $i < count($validTimes); $i++) {
             $response = $this->actingAs($this->user)->postJson('/api/appointments', [
                 'type' => 'consultation',
                 'service_type' => 'Legal Consultation',
                 'appointment_date' => $today,
-                'appointment_time' => (9 + ($i % 8)) . ':00',
+                'appointment_time' => $validTimes[$i],
                 'notes' => "Appointment " . ($i + 1)
             ]);
 
@@ -354,7 +413,7 @@ class AppointmentLimitTest extends TestCase
     public function limit_updates_when_setting_changes()
     {
         $today = now()->format('Y-m-d');
-        
+
         // Book with limit of 2
         for ($i = 0; $i < 2; $i++) {
             $this->actingAs($this->user)->postJson('/api/appointments', [

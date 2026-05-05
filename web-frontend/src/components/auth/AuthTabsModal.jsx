@@ -340,6 +340,23 @@ const AuthTabsModal = ({ isOpen, onClose, isDarkMode = true }) => {
     }
   };
 
+  const getApiErrorMessage = (err, fallbackMessage) => {
+    const responseData = err.response?.data;
+    const validationErrors = responseData?.errors;
+
+    if (validationErrors && typeof validationErrors === 'object') {
+      const firstValidationMessage = Object.values(validationErrors)
+        .flat()
+        .find(message => typeof message === 'string' && message.trim() !== '');
+
+      if (firstValidationMessage) {
+        return firstValidationMessage;
+      }
+    }
+
+    return responseData?.message || fallbackMessage;
+  };
+
   const handleForgotResetPassword = async (e) => {
     e.preventDefault();
     if (forgotPassword.length < 8) {
@@ -348,6 +365,10 @@ const AuthTabsModal = ({ isOpen, onClose, isDarkMode = true }) => {
     }
     if (forgotPassword !== forgotPasswordConfirm) {
       setForgotError('Passwords do not match.');
+      return;
+    }
+    if (!/[a-z]/.test(forgotPassword) || !/[A-Z]/.test(forgotPassword) || !/[0-9]/.test(forgotPassword)) {
+      setForgotError('Password must contain at least one uppercase letter, one lowercase letter, and one number.');
       return;
     }
     setForgotLoading(true);
@@ -361,7 +382,7 @@ const AuthTabsModal = ({ isOpen, onClose, isDarkMode = true }) => {
       setForgotStep(4);
       setForgotSuccess('Password reset successfully! You can now sign in with your new password.');
     } catch (err) {
-      setForgotError(err.response?.data?.message || 'Failed to reset password.');
+      setForgotError(getApiErrorMessage(err, 'Failed to reset password.'));
     } finally {
       setForgotLoading(false);
     }
@@ -948,6 +969,9 @@ const AuthTabsModal = ({ isOpen, onClose, isDarkMode = true }) => {
                       {showForgotPassword ? <EyeSlashIcon className="h-4 w-4" /> : <EyeIcon className="h-4 w-4" />}
                     </button>
                   </div>
+                  <p className={`mt-2 text-xs ${isDarkMode ? 'text-amber-100/70' : 'text-gray-500'}`}>
+                    Use at least 8 characters with uppercase, lowercase, and a number.
+                  </p>
                 </div>
                 <div>
                   <label className={`block text-xs font-medium mb-1 ${isDarkMode ? 'text-amber-50' : 'text-gray-800'}`}>

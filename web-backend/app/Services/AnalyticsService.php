@@ -349,16 +349,20 @@ class AnalyticsService
         $forecastStart = now();
         $forecastEnd = now()->addDays($daysAhead);
 
-        // Analyze historical data
+        // Analyze historical data — EXCLUDE weekends (Saturday=6, Sunday=0 in Carbon)
+        // The office is closed on Saturday and Sunday, so weekend data is noise.
         $historicalAppointments = Appointment::whereBetween('appointment_date', [$historicalStart, $endDate])
             ->where('status', '!=', 'cancelled')
             ->get();
 
-        // Group by day of week
+        // Group by day of week — ONLY weekdays (Monday–Friday)
+        // Weekend appointments are excluded because the office is closed on Sat/Sun.
         $dayOfWeekStats = [];
-        foreach (range(1, 7) as $dayOfWeek) {
-            $dayName = ['', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][$dayOfWeek];
-            $dayAppointments = $historicalAppointments->filter(fn($a) => Carbon::parse($a->appointment_date)->dayOfWeek === $dayOfWeek - 1);
+        foreach (range(1, 5) as $dayOfWeek) { // 1=Monday … 5=Friday
+            $dayName = ['', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'][$dayOfWeek];
+            // Carbon dayOfWeek: 0=Sunday, 1=Monday … 5=Friday, 6=Saturday
+            $carbonDayOfWeek = $dayOfWeek; // 1=Monday matches Carbon 1=Monday
+            $dayAppointments = $historicalAppointments->filter(fn($a) => Carbon::parse($a->appointment_date)->dayOfWeek === $carbonDayOfWeek);
             
             $dayOfWeekStats[] = [
                 'day' => $dayName,
@@ -386,20 +390,34 @@ class AnalyticsService
                 ];
             });
 
-        // Forecast for upcoming days
+        // Forecast for upcoming days — mark weekends as CLOSED
         $forecast = [];
         $currentDate = $forecastStart->copy();
         while ($currentDate <= $forecastEnd) {
-            $dayOfWeek = $currentDate->dayOfWeek + 1; // Convert to 1-7 range
-            $dayStats = collect($dayOfWeekStats)->firstWhere('day_of_week', $dayOfWeek);
-            
-            $forecast[] = [
-                'date' => $currentDate->format('Y-m-d'),
-                'day_name' => $currentDate->format('l'),
-                'predicted_appointments' => $dayStats ? ceil($dayStats['avg_appointments']) : 2,
-                'expected_utilization' => $dayStats ? round(($dayStats['avg_appointments'] / 10) * 100, 2) : 20,
-                'forecast_level' => $dayStats ? ($dayStats['avg_appointments'] >= 6 ? 'busy' : ($dayStats['avg_appointments'] >= 3 ? 'moderate' : 'slow')) : 'uncertain',
-            ];
+            $carbonDow = $currentDate->dayOfWeek; // 0=Sun, 6=Sat
+            $isWeekend = ($carbonDow === 0 || $carbonDow === 6);
+
+            if ($isWeekend) {
+                $forecast[] = [
+                    'date' => $currentDate->format('Y-m-d'),
+                    'day_name' => $currentDate->format('l'),
+                    'predicted_appointments' => 0,
+                    'expected_utilization' => 0,
+                    'forecast_level' => 'closed',
+                    'is_closed' => true,
+                    'closed_reason' => 'Office is closed on weekends (Saturday & Sunday)',
+                ];
+            } else {
+                $dayStats = collect($dayOfWeekStats)->firstWhere('day_of_week', $carbonDow); // Carbon 1=Mon matches our 1=Mon
+                $forecast[] = [
+                    'date' => $currentDate->format('Y-m-d'),
+                    'day_name' => $currentDate->format('l'),
+                    'predicted_appointments' => $dayStats ? ceil($dayStats['avg_appointments']) : 2,
+                    'expected_utilization' => $dayStats ? round(($dayStats['avg_appointments'] / 10) * 100, 2) : 20,
+                    'forecast_level' => $dayStats ? ($dayStats['avg_appointments'] >= 6 ? 'busy' : ($dayStats['avg_appointments'] >= 3 ? 'moderate' : 'slow')) : 'uncertain',
+                    'is_closed' => false,
+                ];
+            }
 
             $currentDate->addDay();
         }
@@ -415,6 +433,7 @@ class AnalyticsService
                 'days' => $daysAhead,
             ],
             'day_of_week_stats' => $dayOfWeekStats,
+            'operating_days' => 'Monday to Friday (closed Saturday & Sunday)',
             'service_demand' => $serviceStats,
             'forecast' => $forecast,
             'insights' => $this->generateForecastInsights($dayOfWeekStats, $serviceStats),

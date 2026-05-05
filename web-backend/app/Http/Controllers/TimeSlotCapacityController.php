@@ -7,6 +7,7 @@ use App\Events\SlotCapacityChanged;
 use App\Models\ActionLog;
 use App\Traits\SafeExperimentalFeature;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class TimeSlotCapacityController extends Controller
 {
@@ -60,35 +61,24 @@ class TimeSlotCapacityController extends Controller
             ]);
 
             try {
-                // Upsert: update if exists, create if not
-                $existing = TimeSlotCapacity::where('start_time', $request->start_time)
-                    ->where('end_time', $request->end_time)
-                    ->where(function ($q) use ($request) {
-                        if ($request->specific_date) {
-                            $q->where('specific_date', $request->specific_date);
-                        } else {
-                            $q->whereNull('specific_date');
-                            if ($request->day_of_week) {
-                                $q->where('day_of_week', $request->day_of_week);
-                            } else {
-                                $q->whereNull('day_of_week');
-                            }
-                        }
-                    })
-                    ->first();
+                $payload = $this->buildSlotCapacityPayload($request);
+                $scopeKey = TimeSlotCapacity::makeScopeKey($payload['day_of_week'], $payload['specific_date']);
 
-                if ($existing) {
-                    $existing->update([
-                        'max_appointments_per_slot' => $request->max_appointments_per_slot,
-                        'description' => $request->description,
-                        'is_active' => true,
-                    ]);
-                    $capacity = $existing;
-                    $action = 'updated';
-                } else {
-                    $capacity = TimeSlotCapacity::create($request->all());
-                    $action = 'created';
-                }
+                [$capacity, $action] = DB::transaction(function () use ($payload, $scopeKey) {
+                    $existing = TimeSlotCapacity::where('scope_key', $scopeKey)
+                        ->where('start_time', $payload['start_time'])
+                        ->where('end_time', $payload['end_time'])
+                        ->lockForUpdate()
+                        ->first();
+
+                    if ($existing) {
+                        $existing->update($payload + ['is_active' => true]);
+
+                        return [$existing, 'updated'];
+                    }
+
+                    return [TimeSlotCapacity::create($payload), 'created'];
+                });
                 
                 // Broadcast the change to all connected clients
                 try {
@@ -121,6 +111,7 @@ class TimeSlotCapacityController extends Controller
         return $this->wrapExperimental(function () use ($request, $timeSlotCapacity) {
             $request->validate([
                 'day_of_week' => 'nullable|in:monday,tuesday,wednesday,thursday,friday,saturday,sunday',
+                'specific_date' => 'nullable|date|after_or_equal:today',
                 'start_time' => 'required|date_format:H:i',
                 'end_time' => 'required|date_format:H:i|after:start_time',
                 'max_appointments_per_slot' => 'required|integer|min:1|max:20',
@@ -129,10 +120,30 @@ class TimeSlotCapacityController extends Controller
             ]);
 
             try {
-                $timeSlotCapacity->update($request->all());
+                $payload = $this->buildSlotCapacityPayload($request, $timeSlotCapacity);
+                $scopeKey = TimeSlotCapacity::makeScopeKey($payload['day_of_week'], $payload['specific_date']);
+
+                $conflictExists = TimeSlotCapacity::where('scope_key', $scopeKey)
+                    ->where('start_time', $payload['start_time'])
+                    ->where('end_time', $payload['end_time'])
+                    ->whereKeyNot($timeSlotCapacity->id)
+                    ->exists();
+
+                if ($conflictExists) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'A slot capacity configuration already exists for this scope and time range.'
+                    ], 422);
+                }
+
+                $timeSlotCapacity->update($payload);
                 
                 // Broadcast the change to all connected clients
-                broadcast(new SlotCapacityChanged($timeSlotCapacity, 'updated', [$timeSlotCapacity->start_time]));
+                try {
+                    broadcast(new SlotCapacityChanged($timeSlotCapacity, 'updated', [$timeSlotCapacity->start_time]));
+                } catch (\Exception $e) {
+                    \Log::warning('Failed to broadcast slot capacity update: ' . $e->getMessage());
+                }
 
                 ActionLog::log('update', "Updated slot capacity: {$timeSlotCapacity->start_time}-{$timeSlotCapacity->end_time} (max: {$timeSlotCapacity->max_appointments_per_slot})", 'TimeSlotCapacity', $timeSlotCapacity->id);
 
@@ -161,7 +172,11 @@ class TimeSlotCapacityController extends Controller
                 $timeSlotCapacity->delete();
                 
                 // Broadcast the change to all connected clients
-                broadcast(new SlotCapacityChanged($timeSlotCapacity, 'deleted', [$affectedTime]));
+                try {
+                    broadcast(new SlotCapacityChanged($timeSlotCapacity, 'deleted', [$affectedTime]));
+                } catch (\Exception $e) {
+                    \Log::warning('Failed to broadcast slot capacity deletion: ' . $e->getMessage());
+                }
 
                 ActionLog::log('delete', "Deleted slot capacity for {$affectedTime}", 'TimeSlotCapacity', $timeSlotCapacity->id);
 
@@ -247,37 +262,40 @@ class TimeSlotCapacityController extends Controller
                 $capacity = $request->max_appointments_per_slot;
                 $created = 0;
                 $updated = 0;
+                $scopeKey = TimeSlotCapacity::makeScopeKey(null, null);
 
                 foreach ($timeSlots as [$startTime, $endTime]) {
-                    $existingCapacity = TimeSlotCapacity::where('start_time', $startTime)
-                        ->where('end_time', $endTime)
-                        ->whereNull('day_of_week')
-                        ->whereNull('specific_date')
-                        ->first();
-
-                    if ($existingCapacity) {
-                        $existingCapacity->update([
-                            'max_appointments_per_slot' => $capacity
-                        ]);
-                        $updated++;
-                    } else {
-                        TimeSlotCapacity::create([
+                    $slot = TimeSlotCapacity::updateOrCreate(
+                        [
+                            'scope_key' => $scopeKey,
                             'start_time' => $startTime,
                             'end_time' => $endTime,
+                        ],
+                        [
                             'day_of_week' => null,
+                            'specific_date' => null,
                             'max_appointments_per_slot' => $capacity,
-                            'is_active' => true
-                        ]);
+                            'is_active' => true,
+                        ]
+                    );
+
+                    if ($slot->wasRecentlyCreated) {
                         $created++;
+                    } else {
+                        $updated++;
                     }
                 }
 
                 // Broadcast the change to all connected clients with all affected hours
-                broadcast(new SlotCapacityChanged(
-                    (object)['max_appointments_per_slot' => $capacity],
-                    'apply_all',
-                    array_column($timeSlots, 0) // All start times
-                ));
+                try {
+                    broadcast(new SlotCapacityChanged(
+                        (object)['max_appointments_per_slot' => $capacity],
+                        'apply_all',
+                        array_column($timeSlots, 0) // All start times
+                    ));
+                } catch (\Exception $e) {
+                    \Log::warning('Failed to broadcast bulk slot capacity change: ' . $e->getMessage());
+                }
 
                 ActionLog::log('update', "Applied capacity {$capacity} to all time slots (Created: {$created}, Updated: {$updated})", 'TimeSlotCapacity', null);
 
@@ -297,5 +315,30 @@ class TimeSlotCapacityController extends Controller
                 ], 500);
             }
         }, 'slot_capacity.apply_all');
+    }
+
+    private function buildSlotCapacityPayload(Request $request, ?TimeSlotCapacity $existing = null): array
+    {
+        $specificDate = $request->has('specific_date')
+            ? ($request->filled('specific_date') ? $request->specific_date : null)
+            : ($existing?->specific_date?->format('Y-m-d'));
+
+        $dayOfWeek = $request->has('day_of_week')
+            ? ($request->filled('day_of_week') ? strtolower($request->day_of_week) : null)
+            : $existing?->day_of_week;
+
+        if ($specificDate) {
+            $dayOfWeek = null;
+        }
+
+        return [
+            'day_of_week' => $dayOfWeek,
+            'specific_date' => $specificDate,
+            'start_time' => $request->start_time,
+            'end_time' => $request->end_time,
+            'max_appointments_per_slot' => $request->max_appointments_per_slot,
+            'is_active' => $request->has('is_active') ? $request->boolean('is_active') : ($existing?->is_active ?? true),
+            'description' => $request->input('description', $existing?->description),
+        ];
     }
 }

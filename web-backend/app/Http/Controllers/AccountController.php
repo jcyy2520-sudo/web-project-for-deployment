@@ -119,17 +119,18 @@ class AccountController extends Controller
             $userName = $user->first_name . ' ' . $user->last_name;
             $userEmail = $user->email;
 
-            // Create appeal record with unique token
-            $appeal = AccountAppeal::create([
+            // Create appeal record while keeping admin-only fields out of mass assignment.
+            $appeal = new AccountAppeal([
                 'token' => AccountAppeal::generateToken(),
                 'user_id' => $user->id,
                 'user_email' => $userEmail,
                 'user_name' => $userName,
                 'action_type' => $actionType,
                 'action_reason' => $reason,
-                'acted_by' => $admin->id,
-                'status' => 'pending',
             ]);
+            $appeal->acted_by = $admin->id;
+            $appeal->status = 'pending';
+            $appeal->save();
 
             // Perform the action (set fields explicitly — not mass-assigned for security)
             switch ($actionType) {

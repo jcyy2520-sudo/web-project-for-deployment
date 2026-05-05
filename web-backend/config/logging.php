@@ -163,6 +163,23 @@ return [
             'replace_placeholders' => true,
         ],
 
+        /*
+        |--------------------------------------------------------------------------
+        | Chatbot Booking Decision Log Channel
+        |--------------------------------------------------------------------------
+        |
+        | Dedicated channel for structured chatbot booking decision diagnostics.
+        | Keeps clarification vs immediate-booking traces out of the general log.
+        |
+        */
+        'chatbot_booking_decisions' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/chatbot-booking-decisions.log'),
+            'level' => env('CHATBOT_BOOKING_DECISION_LOG_LEVEL', 'info'),
+            'days' => env('CHATBOT_BOOKING_DECISION_LOG_DAYS', 30),
+            'replace_placeholders' => true,
+        ],
+
     ],
 
 ];

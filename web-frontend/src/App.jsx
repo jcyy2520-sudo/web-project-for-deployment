@@ -8,6 +8,7 @@ import ToastContainer from './components/notifications/ToastContainer';
 import ChatbotButton from './components/chatbot/ChatbotButton';
 import InstallPrompt from './components/InstallPrompt';
 import ConnectionTest from './components/ConnectionTest';
+import PushNotificationsBootstrap from './components/PushNotificationsBootstrap';
 import './css/animations.css';
 import errorLogger from './utils/errorLogger';
 import {
@@ -373,6 +374,7 @@ function AppWrapper() {
       style={!isDarkMode ? { backgroundColor: 'var(--background, #F8FAFC)' } : {}}
     >
       <ToastContainer isDarkMode={isDarkMode} />
+      <PushNotificationsBootstrap />
       <AppContent />
       {/* Chatbot enabled after fixes to nullable userId and endpoint routing */}
       <ChatbotButton isDarkMode={isDarkMode} />

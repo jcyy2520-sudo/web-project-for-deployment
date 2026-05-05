@@ -30,7 +30,7 @@ class GoogleRegistrationVerificationMail extends Mailable
         $verificationLink = route('google.verify', ['verificationCode' => $this->verificationCode]);
 
         return new Content(
-            view: 'emails.google-registration-verification',
+            markdown: 'emails.google-registration-verification',
             with: [
                 'user' => $this->user,
                 'verificationLink' => $verificationLink,

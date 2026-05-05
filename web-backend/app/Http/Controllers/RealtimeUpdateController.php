@@ -12,6 +12,36 @@ use Illuminate\Support\Facades\Cache;
 
 class RealtimeUpdateController extends Controller
 {
+    public function getBroadcastConfig(Request $request)
+    {
+        $configuredHost = (string) config('reverb.servers.reverb.hostname');
+        $fallbackHost = $request->getHost() ?: parse_url(config('app.url'), PHP_URL_HOST);
+        $loopbackHosts = ['127.0.0.1', 'localhost'];
+
+        if (in_array($fallbackHost, $loopbackHosts, true)) {
+            $publicHost = $fallbackHost;
+        } else {
+            $publicHost = in_array($configuredHost, ['', '0.0.0.0', '127.0.0.1', 'localhost'], true)
+                ? $fallbackHost
+                : $configuredHost;
+        }
+
+        $scheme = env('REVERB_SCHEME') ?: ($request->isSecure() ? 'https' : 'http');
+        $port = (int) env('REVERB_PORT', $scheme === 'https' ? 443 : 8080);
+        $key = env('REVERB_APP_KEY');
+
+        return response()->json([
+            'success' => filled($key),
+            'data' => [
+                'enabled' => filled($key),
+                'key' => $key,
+                'host' => $publicHost,
+                'port' => $port,
+                'scheme' => $scheme,
+            ],
+        ]);
+    }
+
     /**
      * Get latest updates for slot capacities and appointment settings
      * Used for polling when WebSocket is not available

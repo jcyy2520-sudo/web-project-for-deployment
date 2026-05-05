@@ -46,9 +46,8 @@ class AppealController extends Controller
             'data' => [
                 'already_submitted' => false,
                 'user_name' => $appeal->user_name,
-                'user_email' => $appeal->user_email,
                 'action_type' => $appeal->action_type,
-                'action_reason' => $appeal->action_reason,
+                'notice' => 'Use this form to explain why this account action should be reconsidered. The review outcome will be sent to the email address associated with the account.',
                 'categories' => AccountAppeal::appealCategories(),
             ],
             'success' => true

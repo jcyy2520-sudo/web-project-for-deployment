@@ -34,6 +34,19 @@ class MessageController extends Controller
             $otherUsers = User::whereIn('id', $userIds)
                 ->get(['id', 'first_name', 'last_name', 'email', 'role', 'profile_picture'])
                 ->keyBy('id');
+
+            $userIds = $userIds->filter(function ($otherUserId) use ($otherUsers, $user) {
+                $otherUser = $otherUsers->get($otherUserId);
+
+                return $otherUser && $this->canUsersExchangeMessages($user, $otherUser);
+            })->values();
+
+            if ($userIds->isEmpty()) {
+                return response()->json([
+                    'data' => [],
+                    'success' => true
+                ]);
+            }
             
             // Step 3: Get last message for each conversation using a single optimized query
             // Use a raw query with GROUP BY to get max message IDs in one query
@@ -94,6 +107,13 @@ class MessageController extends Controller
     {
         try {
             $user = $request->user();
+
+            if (!$this->canUsersExchangeMessages($user, $otherUser)) {
+                return response()->json([
+                    'message' => $this->getMessagingRestrictionMessage($user, $otherUser),
+                    'success' => false
+                ], 403);
+            }
 
             // Fetch messages between current user and the other user
             // Limit to latest 100 messages for performance, load more on demand
@@ -165,6 +185,13 @@ class MessageController extends Controller
             $user = $request->user();
             $receiver = User::findOrFail($request->receiver_id);
 
+            if (!$this->canUsersExchangeMessages($user, $receiver)) {
+                return response()->json([
+                    'message' => $this->getMessagingRestrictionMessage($user, $receiver),
+                    'success' => false
+                ], 403);
+            }
+
             // If user is a client, they can only message admin/staff
             // Note: Admin/staff can always message anyone
             if ($user->isClient()) {
@@ -198,7 +225,7 @@ class MessageController extends Controller
                 'receiver_id' => $request->receiver_id,
                 'message' => $request->message,
                 'subject' => $request->subject ?? null,
-                'type' => $request->type ?? null,
+                'type' => $request->type ?? 'general',
                 'reply_to_message_id' => $request->reply_to_message_id ?? null
             ]);
 
@@ -296,6 +323,13 @@ class MessageController extends Controller
             $user = $request->user();
             $otherUser = User::findOrFail($userId);
 
+            if (!$this->canUsersExchangeMessages($user, $otherUser)) {
+                return response()->json([
+                    'message' => $this->getMessagingRestrictionMessage($user, $otherUser),
+                    'success' => false
+                ], 403);
+            }
+
             // Fetch messages with pagination for performance
             $limit = $request->get('limit', 100);
             $before = $request->get('before');
@@ -356,6 +390,15 @@ class MessageController extends Controller
         $user = $request->user();
         $otherUser = User::findOrFail($userId);
 
+        if (!$this->canUsersExchangeMessages($user, $otherUser)) {
+            return response()->json([
+                'can_message' => false,
+                'remaining_messages' => 0,
+                'message_limit' => null,
+                'reason' => $this->getMessagingRestrictionMessage($user, $otherUser)
+            ]);
+        }
+
         // If user is not a client, they can always message
         if (!$user->isClient()) {
             return response()->json([
@@ -385,18 +428,20 @@ class MessageController extends Controller
     {
         try {
             $user = $request->user();
+            $allowedRoles = $this->isCashierMessagingRole($user) ? ['admin'] : ['admin', 'staff'];
 
             // Return only one admin contact for users to message
             // Prefer the admin who has most recently messaged this user, otherwise the first admin
             $lastAdminWhoMessaged = Message::where('receiver_id', $user->id)
-                ->whereHas('sender', function($q) {
-                    $q->whereIn('role', ['admin', 'staff']);
+                ->whereHas('sender', function($q) use ($allowedRoles) {
+                    $q->whereIn('role', $allowedRoles);
                 })
                 ->orderBy('created_at', 'desc')
                 ->first();
 
             if ($lastAdminWhoMessaged) {
                 $admin = User::where('id', $lastAdminWhoMessaged->sender_id)
+                    ->whereIn('role', $allowedRoles)
                     ->where('id', '!=', $user->id)
                     ->first(['id', 'first_name', 'last_name', 'email', 'role', 'profile_picture']);
                 
@@ -409,7 +454,7 @@ class MessageController extends Controller
             }
 
             // Fallback: get the first active admin account
-            $admin = User::where('role', 'admin')
+            $admin = User::whereIn('role', $allowedRoles)
                 ->where('id', '!=', $user->id)
                 ->where('is_active', true)
                 ->orderBy('id', 'asc')
@@ -496,6 +541,46 @@ class MessageController extends Controller
         }
 
         return $count;
+    }
+
+    private function canUsersExchangeMessages(User $sender, User $receiver): bool
+    {
+        if ($sender->id === $receiver->id) {
+            return false;
+        }
+
+        if ($this->isCashierMessagingRole($sender) || $this->isCashierMessagingRole($receiver)) {
+            return ($this->isCashierMessagingRole($sender) && $receiver->isAdmin())
+                || ($sender->isAdmin() && $this->isCashierMessagingRole($receiver));
+        }
+
+        if ($sender->isClient()) {
+            return $receiver->isAdmin() || $receiver->isStaff();
+        }
+
+        if ($receiver->isClient()) {
+            return $sender->isAdmin() || $sender->isStaff();
+        }
+
+        return true;
+    }
+
+    private function getMessagingRestrictionMessage(User $sender, User $receiver): string
+    {
+        if ($this->isCashierMessagingRole($sender) || $this->isCashierMessagingRole($receiver)) {
+            return 'Cashiers can only message admins, and clients cannot message cashiers.';
+        }
+
+        if ($sender->isClient()) {
+            return 'You can only message admins or staff.';
+        }
+
+        return 'You are not allowed to message this user.';
+    }
+
+    private function isCashierMessagingRole(User $user): bool
+    {
+        return $user->isCashier() || $user->isStaff();
     }
 
     // NEW: Get all messages for dashboard (flat list, not grouped)

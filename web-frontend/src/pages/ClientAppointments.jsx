@@ -5,7 +5,6 @@ import { useApi } from '../hooks/useApi';
 import Modal from '../components/Modal';
 import LoadingSpinner from '../components/LoadingSpinner';
 import TimeSlotRecommendations from '../components/TimeSlotRecommendations';
-import AppointmentRiskAssessment from '../components/AppointmentRiskAssessment';
 import UnavailableDatesViewer from '../components/UnavailableDatesViewer';
 import BookingDecisionSupport from '../components/BookingDecisionSupport';
 import CancellationRiskNotice from '../components/CancellationRiskNotice';
@@ -24,6 +23,8 @@ import {
   FunnelIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
   InformationCircleIcon,
   SparklesIcon,
   MagnifyingGlassIcon
@@ -95,6 +96,9 @@ const ClientAppointments = () => {
   // Refund Details Modal State
   const [showRefundDetailsModal, setShowRefundDetailsModal] = useState(false);
   const [selectedAppointmentForDetails, setSelectedAppointmentForDetails] = useState(null);
+
+  // Accordion expanded card
+  const [expandedCardId, setExpandedCardId] = useState(null);
 
   // Define callback functions BEFORE they're used in useEffect
   const loadAppointments = useCallback(async () => {
@@ -408,14 +412,14 @@ const ClientAppointments = () => {
     }
   }, [isBookModalOpen, checkDailyLimit]);
 
-  // Poll slot availability every 20s while modal is open and a date is selected
+  // Poll slot availability every 45s while modal is open and a date is selected
   useEffect(() => {
     if (!isBookModalOpen || !selectedDate) return;
     const interval = setInterval(() => {
       if (!isSubmittingBooking) {
         loadAvailableSlots(selectedDate);
       }
-    }, 20000);
+    }, 45000);
     return () => clearInterval(interval);
   }, [isBookModalOpen, selectedDate, isSubmittingBooking]);
 
@@ -522,7 +526,12 @@ const ClientAppointments = () => {
       setSelectedAppointmentToCancel(null);
       setCancelReason('');
       setCustomCancelReason('');
-      await loadAppointments();
+      // Optimistic update — no full reload, just flip status locally
+      setAppointments(prev => prev.map(apt =>
+        apt.id === selectedAppointmentToCancel.id
+          ? { ...apt, status: 'cancelled', cancellation_reason: reason || '' }
+          : apt
+      ));
       window.showToast?.('Success', 'Appointment cancelled successfully!', 'success');
     }
   };
@@ -646,19 +655,19 @@ const ClientAppointments = () => {
   const getStatusColor = (status) => {
     if (isDarkMode) {
       switch (status) {
-        case 'completed': return 'bg-green-500/20 text-green-400 border border-green-500/30';
-        case 'approved': return 'bg-blue-500/20 text-blue-400 border border-blue-500/30';
-        case 'declined': return 'bg-red-500/20 text-red-400 border border-red-500/30';
-        case 'cancelled': return 'bg-gray-500/20 text-gray-400 border border-gray-500/30';
-        default: return 'bg-amber-500/20 text-amber-400 border border-amber-500/30';
+        case 'completed': return 'bg-green-500/20 text-green-400 border border-green-500/30 shadow-none';
+        case 'approved': return 'bg-blue-500/20 text-blue-400 border border-blue-500/30 shadow-none';
+        case 'declined': return 'bg-red-500/20 text-red-400 border border-red-500/30 shadow-none';
+        case 'cancelled': return 'bg-gray-500/20 text-gray-400 border border-gray-500/30 shadow-none';
+        default: return 'bg-amber-500/20 text-amber-400 border border-amber-500/30 shadow-none';
       }
     }
     switch (status) {
-      case 'completed': return 'bg-green-50 text-green-700 border border-green-200';
-      case 'approved': return 'bg-blue-50 text-blue-700 border border-blue-200';
-      case 'declined': return 'bg-red-50 text-red-700 border border-red-200';
-      case 'cancelled': return 'bg-gray-100 text-gray-600 border border-gray-200';
-      default: return 'bg-amber-50 text-amber-700 border border-amber-200';
+      case 'completed': return 'bg-green-50 text-green-700 border border-green-200 shadow-none';
+      case 'approved': return 'bg-blue-50 text-blue-700 border border-blue-200 shadow-none';
+      case 'declined': return 'bg-red-50 text-red-700 border border-red-200 shadow-none';
+      case 'cancelled': return 'bg-gray-100 text-gray-600 border border-gray-200 shadow-none';
+      default: return 'bg-amber-50 text-amber-700 border border-amber-200 shadow-none';
     }
   };
 
@@ -674,13 +683,30 @@ const ClientAppointments = () => {
 
   const formatAppointmentDateTime = (dateStr, timeStr) => {
     try {
-      const date = new Date(dateStr + 'T00:00:00');
-      const formatted = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      const formatted = formatDateDisplay(dateStr);
+      if (!formatted) {
+        throw new Error('Invalid appointment date');
+      }
       const time = formatTime12Hour((timeStr || '').substring(0, 5));
       return `${formatted} · ${time}`;
     } catch {
       return `${dateStr} ${timeStr || ''}`;
     }
+  };
+
+  const formatTimelineTimestamp = (dateTimeValue) => {
+    if (!dateTimeValue) return null;
+
+    const parsedDate = new Date(dateTimeValue);
+    if (Number.isNaN(parsedDate.getTime())) return null;
+
+    return parsedDate.toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
   };
 
   const STATUS_TABS = [
@@ -747,7 +773,7 @@ const ClientAppointments = () => {
         {activeTab === 'appointments' && (
           <div className="space-y-4">
             {/* Status filter pills */}
-            <div className="flex flex-wrap gap-2">
+            <div className="flex gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:overflow-visible [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
               {STATUS_TABS.map(tab => {
                 const count = tab.value === 'all'
                   ? appointments.length
@@ -757,7 +783,7 @@ const ClientAppointments = () => {
                   <button
                     key={tab.value}
                     onClick={() => { setStatusFilter(tab.value); setCurrentPage(1); }}
-                    className={`px-3 py-1 rounded-full text-xs font-semibold border ${
+                    className={`shrink-0 px-3 py-1 rounded-full text-xs font-semibold border ${
                       isActive
                         ? dm ? 'bg-amber-500 border-amber-500 text-gray-900' : 'bg-amber-500 border-amber-500 text-white'
                         : dm ? 'bg-transparent border-gray-700 text-gray-400 hover:text-gray-200 hover:border-gray-500' : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
@@ -770,8 +796,8 @@ const ClientAppointments = () => {
             </div>
 
             {/* Search + Sort */}
-            <div className="flex flex-col sm:flex-row gap-3">
-              <div className="relative flex-1 max-w-sm">
+            <div className="flex flex-col gap-2">
+              <div className="relative">
                 <MagnifyingGlassIcon className={`absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 ${dm ? 'text-gray-500' : 'text-gray-400'}`} />
                 <input
                   type="text"
@@ -785,20 +811,32 @@ const ClientAppointments = () => {
                   }`}
                 />
               </div>
-              <select
-                value={sortBy}
-                onChange={e => { setSortBy(e.target.value); setCurrentPage(1); }}
-                className={`px-3 py-2 text-sm rounded-lg border focus:outline-none focus:ring-1 focus:ring-amber-500 ${
-                  dm
-                    ? 'bg-gray-800 border-gray-700 text-white focus:border-amber-500'
-                    : 'bg-white border-gray-200 text-gray-900 focus:border-amber-500'
-                }`}
-              >
-                <option value="newest">Newest First</option>
-                <option value="date">Date Asc</option>
-                <option value="date-desc">Date Desc</option>
-                <option value="status">By Status</option>
-              </select>
+              {/* Sort segmented control */}
+              <div className={`flex items-center gap-1 p-1 rounded-lg w-full ${dm ? 'bg-gray-800/80' : 'bg-gray-100'}`}>
+                {[
+                  { value: 'newest', label: 'Newest' },
+                  { value: 'date', label: 'Date ↑' },
+                  { value: 'date-desc', label: 'Date ↓' },
+                  { value: 'status', label: 'Status' },
+                ].map(opt => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => { setSortBy(opt.value); setCurrentPage(1); }}
+                    className={`flex-1 py-1.5 text-xs font-semibold rounded-md transition-all duration-150 ${
+                      sortBy === opt.value
+                        ? dm
+                          ? 'bg-amber-500 text-gray-900 shadow-sm'
+                          : 'bg-white text-amber-700 shadow-sm border border-amber-200'
+                        : dm
+                          ? 'text-gray-400 hover:text-gray-200'
+                          : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* Results count */}
@@ -821,99 +859,302 @@ const ClientAppointments = () => {
               <>
                 {/* Appointment cards */}
                 <div className="space-y-2">
-                  {paginatedAppointments.map(appointment => (
-                    <div
-                      key={appointment.id}
-                      className={`rounded-xl border-l-4 border ${getStatusBorderColor(appointment.status)} ${
-                        dm ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
-                      }`}
-                    >
-                      {/* Main row */}
-                      <div className="flex flex-col sm:flex-row sm:items-center gap-3 px-4 py-3 sm:px-5 sm:py-4">
-                        {/* Info */}
-                        <div className="flex-1 min-w-0">
-                          <p className={`font-semibold text-sm truncate ${dm ? 'text-white' : 'text-gray-900'}`}>
-                            {appointment.type || 'Appointment'}
-                          </p>
-                          <p className={`text-xs mt-0.5 ${dm ? 'text-gray-400' : 'text-gray-500'}`}>
-                            {formatAppointmentDateTime(appointment.appointment_date, appointment.appointment_time)}
-                          </p>
-                          {appointment.staff_notes && (
-                            <p className={`text-xs mt-1 truncate ${dm ? 'text-gray-500' : 'text-gray-400'}`}>
-                              {appointment.staff_notes}
+                  {paginatedAppointments.map(appointment => {
+                    const isExpanded = expandedCardId === appointment.id;
+                    const canCancel = appointment.status === 'pending' || appointment.status === 'approved';
+                    const canRefund = appointment.status === 'completed' &&
+                      appointment.payment_status === 'paid' &&
+                      appointment.payment_amount > 0 &&
+                      !appointment.refunds?.some(r => ['pending', 'approved'].includes(r.status));
+
+                    // Build status timeline
+                    const buildTimeline = () => {
+                      const submittedDesc = formatTimelineTimestamp(appointment.created_at);
+                      const scheduledDesc = formatAppointmentDateTime(appointment.appointment_date, appointment.appointment_time);
+                      const completedDesc = formatTimelineTimestamp(appointment.completed_at);
+
+                      if (appointment.status === 'cancelled') {
+                        return [
+                          { key: 'booked', label: 'Submitted', desc: submittedDesc, state: 'done' },
+                          { key: 'cancelled', label: 'Cancelled', desc: null, state: 'active', variant: 'red' },
+                        ];
+                      }
+                      if (appointment.status === 'declined') {
+                        return [
+                          { key: 'booked', label: 'Submitted', desc: submittedDesc, state: 'done' },
+                          { key: 'review', label: 'Reviewed', desc: null, state: 'done' },
+                          { key: 'declined', label: 'Declined', desc: null, state: 'active', variant: 'red' },
+                        ];
+                      }
+                      const steps = [
+                        { key: 'booked', label: 'Submitted', desc: submittedDesc },
+                        { key: 'review', label: 'Under Review', desc: null },
+                        { key: 'approved', label: 'Approved', desc: null },
+                        { key: 'scheduled', label: 'Scheduled', desc: scheduledDesc },
+                        { key: 'completed', label: 'Completed', desc: completedDesc },
+                      ];
+                      const currentIdx = { pending: 1, approved: 2, scheduled: 3, completed: 4 }[appointment.status] ?? 1;
+                      return steps.map((s, i) => ({
+                        ...s,
+                        state: i < currentIdx ? 'done' : i === currentIdx ? 'active' : 'upcoming',
+                      }));
+                    };
+
+                    const timeline = buildTimeline();
+
+                    return (
+                      <div
+                        key={appointment.id}
+                        className={`rounded-xl border overflow-hidden transition-shadow ${
+                          dm ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'
+                        }`}
+                      >
+                        {/* Clickable header row */}
+                        <button
+                          type="button"
+                          onClick={() => setExpandedCardId(isExpanded ? null : appointment.id)}
+                          className={`w-full text-left flex items-center gap-3 px-4 py-3 sm:px-5 sm:py-4 transition-colors ${
+                            isExpanded
+                              ? dm ? 'bg-gray-700/40' : 'bg-gray-50'
+                              : dm ? 'hover:bg-gray-700/20' : 'hover:bg-gray-50/70'
+                          }`}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <p className={`font-semibold text-sm truncate ${dm ? 'text-white' : 'text-gray-900'}`}>
+                              {appointment.type || 'Appointment'}
                             </p>
-                          )}
-                        </div>
+                            <p className={`text-xs mt-0.5 ${dm ? 'text-gray-400' : 'text-gray-500'}`}>
+                              {formatAppointmentDateTime(appointment.appointment_date, appointment.appointment_time)}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold capitalize ${getStatusColor(appointment.status)}`}>
+                              {appointment.status}
+                            </span>
+                            {isExpanded
+                              ? <ChevronUpIcon className={`h-4 w-4 flex-shrink-0 ${dm ? 'text-gray-400' : 'text-gray-500'}`} />
+                              : <ChevronDownIcon className={`h-4 w-4 flex-shrink-0 ${dm ? 'text-gray-400' : 'text-gray-500'}`} />
+                            }
+                          </div>
+                        </button>
 
-                        {/* Status + Actions row */}
-                        <div className="flex items-center justify-between sm:justify-end gap-2 sm:gap-3">
-                          {/* Status badge */}
-                          <span className={`shrink-0 px-2.5 py-0.5 rounded-full text-xs font-semibold capitalize ${getStatusColor(appointment.status)}`}>
-                            {appointment.status}
-                          </span>
+                        {/* Expanded panel */}
+                        {isExpanded && (
+                          <div className={`border-t ${dm ? 'border-gray-700' : 'border-gray-100'}`}>
 
-                          {/* Actions */}
-                          <div className="flex items-center gap-1.5 shrink-0">
-                          <button
-                            onClick={() => openViewModal(appointment)}
-                            className={`px-2.5 py-1 rounded text-xs font-medium ${dm ? 'text-blue-400 hover:bg-blue-500/10' : 'text-blue-600 hover:bg-blue-50'}`}
-                          >
-                            View
-                          </button>
-                          {appointment.status === 'completed' &&
-                           appointment.payment_status === 'paid' &&
-                           appointment.payment_amount > 0 &&
-                           !appointment.refunds?.some(r => ['pending', 'approved'].includes(r.status)) && (
-                            <button
-                              onClick={() => openRefundDetailsModal(appointment)}
-                              className={`px-2.5 py-1 rounded text-xs font-medium ${dm ? 'text-amber-400 hover:bg-amber-500/10' : 'text-amber-600 hover:bg-amber-50'}`}
-                              title="Request refund"
-                            >
-                              Refund
-                            </button>
-                          )}
-                          {(appointment.status === 'pending' || appointment.status === 'approved') && (
-                            <button
-                              onClick={() => openCancelModal(appointment)}
-                              className={`px-2.5 py-1 rounded text-xs font-medium ${dm ? 'text-red-400 hover:bg-red-500/10' : 'text-red-500 hover:bg-red-50'}`}
-                            >
-                              Cancel
-                            </button>
-                          )}
-                        </div>
-                        </div>
+                            {/* Status Timeline */}
+                            <div className={`px-4 sm:px-5 pt-4 pb-3 ${dm ? 'bg-gray-800/40' : 'bg-gray-50/60'}`}>
+                              <p className={`text-[10px] font-semibold uppercase tracking-wider mb-3 ${dm ? 'text-gray-500' : 'text-gray-400'}`}>
+                                Appointment Progress
+                              </p>
+                              <div className="flex flex-col">
+                                {timeline.map((step, idx) => (
+                                  <div key={step.key} className="flex items-start">
+                                    {/* Dot + line */}
+                                    <div className="flex flex-col items-center flex-shrink-0 mr-3" style={{width:'18px'}}>
+                                      <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-0.5 ${
+                                        step.state === 'done'
+                                          ? 'bg-amber-500 border-amber-500'
+                                          : step.state === 'active'
+                                            ? step.variant === 'red'
+                                              ? 'bg-red-500 border-red-500 ring-4 ring-red-500/20'
+                                              : 'bg-amber-500 border-amber-500 ring-4 ring-amber-500/20'
+                                            : dm ? 'bg-transparent border-gray-600' : 'bg-transparent border-gray-300'
+                                      }`}>
+                                        {step.state === 'done' && (
+                                          <svg className="w-2.5 h-2.5 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                          </svg>
+                                        )}
+                                        {step.state === 'active' && (
+                                          <div className={`w-1.5 h-1.5 rounded-full ${step.variant === 'red' ? 'bg-white' : 'bg-white'}`} />
+                                        )}
+                                      </div>
+                                      {idx < timeline.length - 1 && (
+                                        <div className={`w-px flex-1 min-h-[28px] my-0.5 ${
+                                          step.state === 'done' ? 'bg-amber-500/70' : dm ? 'bg-gray-700' : 'bg-gray-200'
+                                        }`} />
+                                      )}
+                                    </div>
+                                    {/* Label + date row */}
+                                    <div className={`flex-1 min-w-0 flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between ${idx < timeline.length - 1 ? 'pb-4' : 'pb-0'}`}>
+                                      <p className={`text-sm font-semibold leading-tight ${
+                                        step.state === 'done'
+                                          ? dm ? 'text-amber-400' : 'text-amber-600'
+                                          : step.state === 'active'
+                                            ? step.variant === 'red' ? 'text-red-400' : dm ? 'text-white' : 'text-gray-900'
+                                            : dm ? 'text-gray-500' : 'text-gray-400'
+                                      }`}>{step.label}</p>
+                                      {step.desc && (
+                                        <p className={`text-xs font-medium tabular-nums leading-4 sm:ml-3 sm:text-right ${
+                                          step.state === 'done'
+                                            ? dm ? 'text-amber-500/80' : 'text-amber-500/80'
+                                            : step.state === 'active'
+                                              ? dm ? 'text-gray-300' : 'text-gray-600'
+                                              : dm ? 'text-gray-600' : 'text-gray-400'
+                                        }`}>{step.desc}</p>
+                                      )}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+
+                            {/* Details grid */}
+                            <div className={`px-4 sm:px-5 py-4 border-t ${dm ? 'border-gray-700/60' : 'border-gray-100'}`}>
+                              <p className={`text-[10px] font-semibold uppercase tracking-wider mb-3 ${dm ? 'text-gray-500' : 'text-gray-400'}`}>Details</p>
+                              <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-3">
+                                <div>
+                                  <p className={`text-[10px] font-medium uppercase tracking-wide ${dm ? 'text-gray-500' : 'text-gray-400'}`}>Service</p>
+                                  <p className={`text-sm font-medium mt-0.5 ${dm ? 'text-gray-200' : 'text-gray-800'}`}>{appointment.type || 'N/A'}</p>
+                                </div>
+                                <div>
+                                  <p className={`text-[10px] font-medium uppercase tracking-wide ${dm ? 'text-gray-500' : 'text-gray-400'}`}>Date</p>
+                                  <p className={`text-sm font-medium mt-0.5 ${dm ? 'text-gray-200' : 'text-gray-800'}`}>
+                                    {formatDateDisplay(appointment.appointment_date)}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p className={`text-[10px] font-medium uppercase tracking-wide ${dm ? 'text-gray-500' : 'text-gray-400'}`}>Time</p>
+                                  <p className={`text-sm font-medium mt-0.5 ${dm ? 'text-gray-200' : 'text-gray-800'}`}>
+                                    {formatTime12Hour((appointment.appointment_time || '').substring(0, 5))}
+                                  </p>
+                                </div>
+                                {appointment.payment_status === 'paid' && (
+                                  <div>
+                                    <p className={`text-[10px] font-medium uppercase tracking-wide ${dm ? 'text-gray-500' : 'text-gray-400'}`}>Amount Paid</p>
+                                    <p className={`text-sm font-medium mt-0.5 ${dm ? 'text-blue-400' : 'text-blue-600'}`}>
+                                      ₱{parseFloat(appointment.payment_amount || 0).toFixed(2)}
+                                      {appointment.discount_amount > 0 && (
+                                        <span className={`text-xs ml-1 ${dm ? 'text-gray-500' : 'text-gray-400'}`}>(–₱{parseFloat(appointment.discount_amount).toFixed(2)})</span>
+                                      )}
+                                    </p>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Notes / staff notes / completion notes / cancellation / decline reasons */}
+                              {appointment.notes && (
+                                <div className="mt-3">
+                                  <p className={`text-[10px] font-medium uppercase tracking-wide ${dm ? 'text-gray-500' : 'text-gray-400'}`}>Your Notes</p>
+                                  <p className={`text-sm mt-0.5 ${dm ? 'text-gray-300' : 'text-gray-700'}`}>{appointment.notes}</p>
+                                </div>
+                              )}
+                              {appointment.staff_notes && (
+                                <div className="mt-3">
+                                  <p className={`text-[10px] font-medium uppercase tracking-wide ${dm ? 'text-gray-500' : 'text-gray-400'}`}>Staff Notes</p>
+                                  <p className={`text-sm mt-0.5 ${dm ? 'text-gray-300' : 'text-gray-700'}`}>{appointment.staff_notes}</p>
+                                </div>
+                              )}
+                              {appointment.status === 'completed' && appointment.completion_notes && (
+                                <div className="mt-3">
+                                  <p className={`text-[10px] font-medium uppercase tracking-wide ${dm ? 'text-gray-500' : 'text-gray-400'}`}>Completion Notes</p>
+                                  <p className={`text-sm mt-0.5 ${dm ? 'text-green-400' : 'text-green-600'}`}>{appointment.completion_notes}</p>
+                                </div>
+                              )}
+                              {appointment.status === 'completed' && appointment.completed_at && (
+                                <div className="mt-3">
+                                  <p className={`text-[10px] font-medium uppercase tracking-wide ${dm ? 'text-gray-500' : 'text-gray-400'}`}>Completed On</p>
+                                  <p className={`text-sm mt-0.5 ${dm ? 'text-green-400' : 'text-green-600'}`}>
+                                    {formatDateDisplay(appointment.completed_at)} at {new Date(appointment.completed_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                                  </p>
+                                </div>
+                              )}
+                              {appointment.status === 'cancelled' && appointment.cancellation_reason && (
+                                <div className="mt-3">
+                                  <p className={`text-[10px] font-medium uppercase tracking-wide ${dm ? 'text-gray-500' : 'text-gray-400'}`}>Cancellation Reason</p>
+                                  <p className={`text-sm mt-0.5 ${dm ? 'text-red-400' : 'text-red-600'}`}>{appointment.cancellation_reason}</p>
+                                </div>
+                              )}
+                              {appointment.status === 'declined' && appointment.decline_reason && (
+                                <div className="mt-3">
+                                  <p className={`text-[10px] font-medium uppercase tracking-wide ${dm ? 'text-gray-500' : 'text-gray-400'}`}>Decline Reason</p>
+                                  <p className={`text-sm mt-0.5 ${dm ? 'text-red-400' : 'text-red-600'}`}>{appointment.decline_reason}</p>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Fare Summary */}
+                            {(() => {
+                              const aptServices = appointment.services && appointment.services.length > 0
+                                ? appointment.services
+                                : (appointment.service ? [appointment.service] : []);
+                              const hasPrice = aptServices.some(s => parseFloat(s.price || 0) > 0) || parseFloat(appointment.payment_amount || 0) > 0;
+                              if (!hasPrice) return null;
+                              const total = parseFloat(appointment.payment_amount || 0) ||
+                                aptServices.reduce((sum, s) => sum + parseFloat(s.price || 0), 0);
+                              return (
+                                <div className={`mx-4 sm:mx-5 mb-4 rounded-xl px-4 py-3 border ${
+                                  dm ? 'bg-amber-500/5 border-amber-500/20' : 'bg-amber-50 border-amber-200/60'
+                                }`}>
+                                  <p className={`text-[10px] font-semibold uppercase tracking-wider mb-2 ${
+                                    dm ? 'text-amber-500/70' : 'text-amber-600/70'
+                                  }`}>Fare Summary</p>
+                                  {aptServices.filter(s => parseFloat(s.price || 0) > 0).map((s, i) => (
+                                    <div key={i} className="flex items-center justify-between mb-1">
+                                      <p className={`text-xs ${dm ? 'text-gray-400' : 'text-gray-600'}`}>{s.name}</p>
+                                      <p className={`text-xs font-medium tabular-nums ${dm ? 'text-gray-300' : 'text-gray-700'}`}>₱{parseFloat(s.price).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                                    </div>
+                                  ))}
+                                  {appointment.discount_amount > 0 && (
+                                    <div className="flex items-center justify-between mb-1">
+                                      <p className={`text-xs ${dm ? 'text-green-400/80' : 'text-green-600/80'}`}>Discount</p>
+                                      <p className={`text-xs font-medium tabular-nums ${dm ? 'text-green-400/80' : 'text-green-600/80'}`}>-₱{parseFloat(appointment.discount_amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                                    </div>
+                                  )}
+                                  <div className={`flex items-center justify-between pt-2 mt-1 border-t ${
+                                    dm ? 'border-amber-500/20' : 'border-amber-200/60'
+                                  }`}>
+                                    <p className={`text-sm font-semibold ${dm ? 'text-amber-400' : 'text-amber-700'}`}>Total</p>
+                                    <p className={`text-sm font-bold tabular-nums ${dm ? 'text-amber-400' : 'text-amber-700'}`}>₱{total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>
+                                  </div>
+                                  {appointment.payment_status === 'paid' && (
+                                    <p className={`text-[10px] mt-1 text-center ${dm ? 'text-green-400/70' : 'text-green-600/70'}`}>Paid</p>
+                                  )}
+                                </div>
+                              );
+                            })()}
+
+                            {/* Refund status row */}
+                            <AppointmentRefundStatus
+                              appointment={appointment}
+                              onRefundRequested={() => loadAppointments()}
+                            />
+
+                            {/* Action buttons */}
+                            {(canCancel || canRefund) && (
+                              <div className={`px-4 sm:px-5 py-3 border-t flex flex-col sm:flex-row gap-2 ${dm ? 'border-gray-700/60 bg-gray-900/20' : 'border-gray-100 bg-gray-50/80'}`}>
+                                {canRefund && (
+                                  <button
+                                    onClick={() => openRefundDetailsModal(appointment)}
+                                    className={`flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-semibold border transition-colors ${
+                                      dm
+                                        ? 'text-amber-400 border-amber-500/40 hover:bg-amber-500/10'
+                                        : 'text-amber-700 border-amber-300 hover:bg-amber-50'
+                                    }`}
+                                  >
+                                    Request Refund
+                                  </button>
+                                )}
+                                {canCancel && (
+                                  <button
+                                    onClick={() => openCancelModal(appointment)}
+                                    className={`flex-1 sm:flex-none px-4 py-2 rounded-lg text-sm font-semibold border transition-colors ${
+                                      dm
+                                        ? 'text-red-400 border-red-500/40 hover:bg-red-500/10'
+                                        : 'text-red-600 border-red-200 hover:bg-red-50'
+                                    }`}
+                                  >
+                                    Cancel Appointment
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
-
-                      {/* Completion row */}
-                      {appointment.status === 'completed' && appointment.completed_at && (
-                        <div className={`px-5 pb-3 pt-0 border-t text-xs ${dm ? 'border-gray-700 text-green-400' : 'border-gray-100 text-green-600'}`}>
-                          Completed {new Date(appointment.completed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} at {new Date(appointment.completed_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-                          {appointment.completion_notes && <span className="ml-2 opacity-70">· {appointment.completion_notes}</span>}
-                        </div>
-                      )}
-
-                      {/* Payment row */}
-                      {appointment.payment_status === 'paid' && (
-                        <div className={`px-5 pb-3 pt-0 border-t text-xs ${dm ? 'border-gray-700 text-blue-400' : 'border-gray-100 text-blue-600'}`}>
-                          Paid ₱{parseFloat(appointment.payment_amount || 0).toFixed(2)}
-                          {appointment.discount_amount > 0 && <span className="ml-1 opacity-70">(Discount ₱{parseFloat(appointment.discount_amount).toFixed(2)})</span>}
-                        </div>
-                      )}
-
-                      {/* Refund status */}
-                      <AppointmentRefundStatus
-                        appointment={appointment}
-                        onRefundRequested={() => loadAppointments()}
-                      />
-
-                      {/* Risk assessment for active appointments */}
-                      {(appointment.status === 'pending' || appointment.status === 'approved') && (
-                        <div className={`px-5 pb-4 pt-0 border-t ${dm ? 'border-gray-700' : 'border-gray-100'}`}>
-                          <AppointmentRiskAssessment appointmentId={appointment.id} isDarkMode={isDarkMode} />
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
 
                 {/* Pagination */}
@@ -966,7 +1207,7 @@ const ClientAppointments = () => {
         size="md"
       >
         {selectedAppointmentToCancel && (
-          <div className="space-y-4">
+          <div className="space-y-4 max-h-[calc(100vh-12rem)] overflow-y-auto pr-1" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.5rem)' }}>
             <div className={`rounded-lg p-4 ${dm ? 'bg-red-500/10 border border-red-500/20' : 'bg-red-50 border border-red-200'}`}>
               <p className={`text-sm font-medium ${dm ? 'text-red-400' : 'text-red-800'}`}>
                 Are you sure you want to cancel this appointment?
@@ -978,7 +1219,7 @@ const ClientAppointments = () => {
                 <span className="font-medium">Service:</span> {selectedAppointmentToCancel.type || selectedAppointmentToCancel.service_type || 'Appointment'}
               </div>
               <div className={`text-sm ${dm ? 'text-gray-200' : 'text-gray-800'}`}>
-                <span className="font-medium">Date:</span> {formatDateDisplay(selectedAppointmentToCancel.appointment_date)} at {selectedAppointmentToCancel.appointment_time}
+                <span className="font-medium">Date:</span> {formatAppointmentDateTime(selectedAppointmentToCancel.appointment_date, selectedAppointmentToCancel.appointment_time)}
               </div>
               <div className={`text-sm ${dm ? 'text-gray-200' : 'text-gray-800'}`}>
                 <span className="font-medium">Status:</span> <span className="capitalize">{selectedAppointmentToCancel.status}</span>
@@ -1044,7 +1285,7 @@ const ClientAppointments = () => {
               A cancellation notification will be sent to your email, and the admin will be notified.
             </p>
 
-            <div className="flex justify-end gap-3 pt-2">
+            <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 pt-2">
               <button
                 type="button"
                 onClick={() => {
@@ -1126,7 +1367,7 @@ const ClientAppointments = () => {
               <div className={`rounded-lg p-4 space-y-2 ${dm ? 'bg-green-500/10 border border-green-500/20' : 'bg-green-50 border border-green-200'}`}>
                 <p className={`text-xs font-medium uppercase tracking-wide ${dm ? 'text-green-400' : 'text-green-600'}`}>Completed</p>
                 <p className={`text-sm ${dm ? 'text-gray-200' : 'text-gray-800'}`}>
-                  {new Date(selectedAppointmentToView.completed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} at {new Date(selectedAppointmentToView.completed_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                  {formatDateDisplay(selectedAppointmentToView.completed_at)} at {new Date(selectedAppointmentToView.completed_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
                 </p>
                 {selectedAppointmentToView.completion_notes && (
                   <p className={`text-sm ${dm ? 'text-gray-300' : 'text-gray-600'}`}>{selectedAppointmentToView.completion_notes}</p>

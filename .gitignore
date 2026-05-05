@@ -97,6 +97,10 @@ untracked_files.txt
 !web-backend/resources/**/*.php
 !web-backend/tests/**/*.php
 
+# Sensitive snapshots and backups
+competition-snapshots/
+web-backend/storage/backups/
+
 # Specific ignored files
 audit_results.json
 config_dump.php

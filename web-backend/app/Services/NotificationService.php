@@ -14,7 +14,7 @@ class NotificationService
     public static function create(int $userId, string $type, string $title, string $message, array $options = []): ?Notification
     {
         try {
-            return Notification::create([
+            $notification = Notification::create([
                 'user_id' => $userId,
                 'type' => $type,
                 'title' => $title,
@@ -27,6 +27,12 @@ class NotificationService
                 'is_read' => false,
                 'is_sent' => true
             ]);
+
+            if ($notification) {
+                WebPushService::sendNotification($notification);
+            }
+
+            return $notification;
         } catch (\Exception $e) {
             Log::error('Failed to create notification: ' . $e->getMessage());
             return null;
@@ -47,7 +53,12 @@ class NotificationService
                 'icon' => 'check-circle',
                 'color' => 'green',
                 'related_id' => $appointment->id,
-                'related_type' => 'Appointment'
+                'related_type' => 'Appointment',
+                'data' => [
+                    'appointment_id' => $appointment->id,
+                    'status' => 'approved',
+                    'url' => '/appointments',
+                ],
             ]
         );
     }
@@ -71,7 +82,12 @@ class NotificationService
                 'icon' => 'x-circle',
                 'color' => 'red',
                 'related_id' => $appointment->id,
-                'related_type' => 'Appointment'
+                'related_type' => 'Appointment',
+                'data' => [
+                    'appointment_id' => $appointment->id,
+                    'status' => 'declined',
+                    'url' => '/appointments',
+                ],
             ]
         );
     }
@@ -90,7 +106,12 @@ class NotificationService
                 'icon' => 'x-circle',
                 'color' => 'red',
                 'related_id' => $appointment->id,
-                'related_type' => 'Appointment'
+                'related_type' => 'Appointment',
+                'data' => [
+                    'appointment_id' => $appointment->id,
+                    'status' => 'cancelled',
+                    'url' => '/appointments',
+                ],
             ]
         );
     }
@@ -109,9 +130,52 @@ class NotificationService
                 'icon' => 'check',
                 'color' => 'blue',
                 'related_id' => $appointment->id,
-                'related_type' => 'Appointment'
+                'related_type' => 'Appointment',
+                'data' => [
+                    'appointment_id' => $appointment->id,
+                    'status' => 'completed',
+                    'url' => '/appointments',
+                ],
             ]
         );
+    }
+
+    public static function appointmentStatusUpdated($appointment, string $oldStatus, string $newStatus): void
+    {
+        switch ($newStatus) {
+            case 'approved':
+                self::appointmentApproved($appointment);
+                return;
+            case 'declined':
+                self::appointmentDeclined($appointment, (string) ($appointment->decline_reason ?? ''));
+                return;
+            case 'cancelled':
+                self::appointmentCancelled($appointment);
+                return;
+            case 'completed':
+                self::appointmentCompleted($appointment);
+                return;
+            default:
+                self::create(
+                    $appointment->user_id,
+                    'appointment_status_updated',
+                    'Appointment Updated',
+                    "Your appointment status changed from {$oldStatus} to {$newStatus}.",
+                    [
+                        'icon' => 'bell',
+                        'color' => 'blue',
+                        'related_id' => $appointment->id,
+                        'related_type' => 'Appointment',
+                        'data' => [
+                            'appointment_id' => $appointment->id,
+                            'old_status' => $oldStatus,
+                            'status' => $newStatus,
+                            'url' => '/appointments',
+                        ],
+                    ]
+                );
+                return;
+        }
     }
 
     /**
@@ -239,6 +303,7 @@ class NotificationService
                         'amount' => $price,
                         'date' => $appointmentDate,
                         'time' => $appointmentTime,
+                        'url' => '/cashier',
                     ]
                 ]
             );

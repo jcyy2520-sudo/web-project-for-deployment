@@ -15,16 +15,21 @@ class TokenService
     const SHARE_LINK_EXPIRATION = 604800; // 7 days
 
     /**
-     * Generate a tokenized URL for sensitive operations
+     * Generate a tokenized URL payload for sensitive operations.
      */
-    public static function generateTokenizedUrl($userId, $purpose = 'general', $expiresIn = null, $baseUrl = null)
+    public static function generateTokenizedUrl($userId, $purpose = 'general', $expiresIn = null, $metadata = null, $baseUrl = null)
     {
+        if (is_string($metadata) && $baseUrl === null) {
+            $baseUrl = $metadata;
+            $metadata = null;
+        }
+
         if (!$expiresIn) {
             $expiresIn = self::getExpirationForPurpose($purpose);
         }
 
-        $tokenData = AccessToken::createToken($userId, $purpose, $expiresIn);
-        $baseUrl = $baseUrl ?? config('app.url');
+        $tokenData = AccessToken::createToken($userId, $purpose, $expiresIn, $metadata);
+        $baseUrl = rtrim((string) ($baseUrl ?? config('app.url')), '/');
 
         return [
             'token' => $tokenData['token'],
@@ -167,14 +172,9 @@ class TokenService
     public static function getSecureUserData(User $user)
     {
         return [
-            'id' => $user->id,
             'uuid' => $user->uuid,
             'username' => $user->username,
-            'email' => $user->email,
-            'first_name' => $user->first_name,
-            'last_name' => $user->last_name,
-            'role' => $user->role,
-            'is_active' => $user->is_active
+            'display_name' => trim(collect([$user->first_name, $user->last_name])->filter()->implode(' ')),
         ];
     }
 }

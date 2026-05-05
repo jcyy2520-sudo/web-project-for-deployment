@@ -30,7 +30,10 @@ class BookingLimitProductionTest extends TestCase
         parent::setUp();
         
         $this->client = User::factory()->create(['role' => 'client', 'email' => 'client@test.com']);
-        $this->staff = User::factory()->create(['role' => 'staff', 'email' => 'staff@test.com']);
+        $this->client->profile_completed = true;
+        $this->client->save();
+
+        $this->staff = User::factory()->create(['role' => 'staff', 'email' => 'staff@test.com', 'profile_completed' => true]);
         
         $this->settings = AppointmentSettings::create([
             'daily_booking_limit_per_user' => 2,
@@ -38,7 +41,7 @@ class BookingLimitProductionTest extends TestCase
             'description' => 'Production settings'
         ]);
 
-        $this->tomorrow = now()->format('Y-m-d');
+        $this->today = now()->format('Y-m-d');
         $this->tomorrow = now()->addDay()->format('Y-m-d');
         
         $this->createTimeSlots();
@@ -83,7 +86,7 @@ class BookingLimitProductionTest extends TestCase
         // Only 2 should succeed (limit)
         $this->assertEquals(2, $successful);
         $this->assertEquals(2, Appointment::where('user_id', $this->client->id)
-            ->where('appointment_date', $this->today)
+            ->where('appointment_date', $this->tomorrow)
             ->where('status', '!=', 'cancelled')
             ->count());
     }
@@ -123,6 +126,8 @@ class BookingLimitProductionTest extends TestCase
     /** @test CRITICAL: Limit resets at midnight */
     public function booking_limit_resets_at_day_boundary()
     {
+        $dayAfterTomorrow = now()->addDays(2)->format('Y-m-d');
+
         // Book 2 for today
         for ($i = 0; $i < 2; $i++) {
             Appointment::forceCreate([
@@ -139,15 +144,15 @@ class BookingLimitProductionTest extends TestCase
             $response = $this->actingAs($this->client)->postJson('/api/appointments', [
                 'type' => 'consultation',
                 'service_type' => 'Legal',
-                'appointment_date' => $this->tomorrow,
-                'appointment_time' => (8 + $i) . ':00'
+                'appointment_date' => $dayAfterTomorrow,
+                'appointment_time' => sprintf('%02d:00', 8 + $i)
             ]);
             $this->assertTrue($response->json('success'), "Failed to book appointment $i for tomorrow");
         }
     }
 
-    /** @test Cancelled appointments don't count toward limit */
-    public function cancelled_appointment_frees_up_limit()
+    /** @test Cancelled appointments still count toward limit during the same 24-hour window */
+    public function cancelled_appointment_does_not_free_up_limit()
     {
         $apt1 = Appointment::forceCreate([
             'user_id' => $this->client->id,
@@ -172,20 +177,22 @@ class BookingLimitProductionTest extends TestCase
             'appointment_date' => $this->tomorrow,
             'appointment_time' => '10:00'
         ]);
-        $this->assertFalse($response->json('success'));
+        $this->assertTrue(AppointmentSettings::userHasReachedDailyLimit($this->client->id));
+        $response->assertStatus(422);
 
         // Cancel first one
         $apt1->status = 'cancelled';
         $apt1->save();
 
-        // Should be able to book again
+        // Cancellation should not restore quota immediately.
         $response = $this->actingAs($this->client)->postJson('/api/appointments', [
             'type' => 'consultation',
             'service_type' => 'Legal',
             'appointment_date' => $this->tomorrow,
             'appointment_time' => '10:00'
         ]);
-        $this->assertTrue($response->json('success'));
+        $this->assertTrue(AppointmentSettings::userHasReachedDailyLimit($this->client->id));
+        $response->assertStatus(422);
     }
 
     /** @test Time slot capacity enforced independently */

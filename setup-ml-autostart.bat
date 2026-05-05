@@ -2,7 +2,16 @@
 REM ML Service Auto-Start Setup
 REM This creates a Windows Task Scheduler job to run the ML service at startup
 
-schtasks /create /tn "MLService" /tr "C:\Users\ASUS\AppData\Local\Programs\Python\Python313\python.exe c:\laragon\www\web\ml-service\main.py" /sc onstart /ru SYSTEM /rl highest /f
+set "ROOT=%~dp0"
+set "START_SCRIPT=%ROOT%start-ml-service.bat"
+
+if not exist "%START_SCRIPT%" (
+    echo ERROR: ML launcher not found at %START_SCRIPT%
+    pause
+    exit /b 1
+)
+
+schtasks /create /tn "MLService" /tr "%START_SCRIPT%" /sc onstart /ru SYSTEM /rl highest /f
 
 if %errorLevel% equ 0 (
     echo.

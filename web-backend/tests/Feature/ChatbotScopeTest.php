@@ -13,7 +13,7 @@ class ChatbotScopeTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_system_prompt_contains_scope_limitations()
+    public function test_system_prompt_contains_scope_limitations(): void
     {
         // 1. Create a guest user context
         $userContext = [
@@ -33,13 +33,13 @@ class ChatbotScopeTest extends TestCase
         // 4. Assert that the prompt contains the new scope rules
         $this->assertStringContainsString('SCOPE & CAPABILITIES', $prompt);
         $this->assertStringContainsString('SCOPE LIMITATION', $prompt);
-        $this->assertStringContainsString('OUT-OF-SCOPE HANDLING', $prompt);
-        $this->assertStringContainsString('CONTEXTUAL FLEXIBILITY', $prompt);
-        $this->assertStringContainsString('PRIORITY RULE', $prompt);
+        $this->assertStringContainsString('STRICT REFUSAL', $prompt);
+        $this->assertStringContainsString('AMBIGUITY', $prompt);
+        $this->assertStringContainsString('FOCUS', $prompt);
         $this->assertStringContainsString('NO HALLUCINATION', $prompt);
 
         // 5. Assert specific refusal messages
-        $this->assertStringContainsString("I'm sorry, but that question is outside of my capabilities. I can only assist with matters related to this system.", $prompt);
+        $this->assertStringContainsString((string) config('chatbot_unified.safety.refusal_message'), $prompt);
         $this->assertStringContainsString("I don’t have enough information about that within the system.", $prompt);
     }
 }

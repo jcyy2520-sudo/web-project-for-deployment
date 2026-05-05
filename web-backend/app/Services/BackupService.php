@@ -27,11 +27,13 @@ class BackupService
             $backup = DatabaseBackup::create([
                 'filename' => $filename,
                 'path' => $path,
+                'size' => 0,
                 'database_name' => config('database.connections.mysql.database'),
                 'status' => 'pending',
                 'backup_type' => $type,
                 'created_by' => $userId,
                 'started_at' => now(),
+                'is_verified' => false,
             ]);
 
             // Execute backup command
@@ -79,17 +81,15 @@ class BackupService
         $password = config('database.connections.mysql.password');
         $database = escapeshellarg(config('database.connections.mysql.database'));
         $port = escapeshellarg(config('database.connections.mysql.port', 3306));
+        $mysqldumpBinary = $this->resolveMysqlBinary('mysqldump');
 
         // Escape for command line
         $path = escapeshellarg($path);
 
-        // Use MYSQL_PWD env var to avoid password in process list and shell escaping issues
-        // Rollback: revert to inline -p flag if MYSQL_PWD causes compatibility issues
-        $envPrefix = strtoupper(substr(PHP_OS, 0, 3)) === 'WIN'
-            ? 'set MYSQL_PWD=' . escapeshellarg($password) . '&& '
-            : 'MYSQL_PWD=' . escapeshellarg($password) . ' ';
+        // Use MYSQL_PWD env var to avoid password in process list.
+        $envPrefix = $this->buildMysqlPasswordPrefix((string) $password);
 
-        return "{$envPrefix}mysqldump -h {$host} -u {$user} -P {$port} {$database} > {$path}";
+        return "{$envPrefix}{$mysqldumpBinary} -h {$host} -u {$user} -P {$port} {$database} > {$path}";
     }
 
     /**
@@ -108,6 +108,7 @@ class BackupService
             $password = config('database.connections.mysql.password');
             $database = escapeshellarg(config('database.connections.mysql.database'));
             $port = escapeshellarg(config('database.connections.mysql.port', 3306));
+            $mysqlBinary = $this->resolveMysqlBinary('mysql');
 
             // Validate backup path is within expected directory to prevent path traversal
             $realPath = realpath($backup->path);
@@ -119,12 +120,10 @@ class BackupService
 
             $filePath = escapeshellarg($realPath);
 
-            // Use MYSQL_PWD env var to avoid exposing password in process list
-            $envPrefix = strtoupper(substr(PHP_OS, 0, 3)) === 'WIN'
-                ? "set MYSQL_PWD={$password}&& "
-                : "MYSQL_PWD=" . escapeshellarg($password) . " ";
+            // Use MYSQL_PWD env var to avoid exposing password in process list.
+            $envPrefix = $this->buildMysqlPasswordPrefix((string) $password);
 
-            $command = "{$envPrefix}mysql -h{$host} -u{$user} -P{$port} {$database} < {$filePath}";
+            $command = "{$envPrefix}{$mysqlBinary} -h {$host} -u {$user} -P {$port} {$database} < {$filePath}";
 
             exec($command, $output, $returnCode);
 
@@ -413,5 +412,37 @@ class BackupService
             'backups_available' => DatabaseBackup::successful()->count(),
             'total_backup_size_mb' => round(DatabaseBackup::successful()->sum('size') / 1024 / 1024, 2),
         ];
+    }
+
+    private function resolveMysqlBinary(string $binary): string
+    {
+        $envPath = env(strtoupper($binary) . '_PATH');
+        if ($envPath && file_exists($envPath)) {
+            return escapeshellarg($envPath);
+        }
+
+        if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
+            $laragonRoot = dirname(base_path(), 3);
+            $pattern = $laragonRoot . DIRECTORY_SEPARATOR . 'bin' . DIRECTORY_SEPARATOR . 'mysql' . DIRECTORY_SEPARATOR . '*' . DIRECTORY_SEPARATOR . 'bin' . DIRECTORY_SEPARATOR . $binary . '.exe';
+            $matches = glob($pattern) ?: [];
+
+            if ($matches !== []) {
+                rsort($matches, SORT_NATURAL);
+                return escapeshellarg($matches[0]);
+            }
+
+            return escapeshellarg($binary . '.exe');
+        }
+
+        return escapeshellarg($binary);
+    }
+
+    private function buildMysqlPasswordPrefix(string $password): string
+    {
+        if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
+            return 'set "MYSQL_PWD=' . str_replace('"', '\\"', $password) . '" && ';
+        }
+
+        return 'MYSQL_PWD=' . escapeshellarg($password) . ' ';
     }
 }

@@ -34,7 +34,10 @@ class UnavailableDatesUpdated implements ShouldBroadcastNow
      */
     public function broadcastOn()
     {
-        return new Channel('calendar');
+        return [
+            new Channel('calendar'),
+            new Channel('unavailable-dates'),
+        ];
     }
 
     public function broadcastWith()

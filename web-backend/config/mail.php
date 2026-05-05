@@ -1,7 +1,12 @@
 <?php
 
+$configuredMailer = env('MAIL_MAILER', 'smtp');
+$defaultMailer = in_array(env('APP_ENV'), ['local', 'testing'], true) && $configuredMailer === 'smtp'
+    ? 'failover'
+    : $configuredMailer;
+
 return [
-    'default' => env('MAIL_MAILER', 'smtp'),
+    'default' => $defaultMailer,
     
     'mailers' => [
         'smtp' => [

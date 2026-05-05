@@ -6,9 +6,13 @@ use Tests\TestCase;
 use App\Models\User;
 use App\Models\AccessToken;
 use App\Services\TokenService;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Mail;
 
 class TokenizationTest extends TestCase
 {
+    use RefreshDatabase;
+
     public function test_uuid_generated_for_new_user()
     {
         $user = User::factory()->create();
@@ -145,13 +149,16 @@ class TokenizationTest extends TestCase
         $secureData = TokenService::getSecureUserData($user);
         
         $this->assertArrayHasKey('uuid', $secureData);
-        $this->assertArrayHasKey('email', $secureData);
         $this->assertArrayHasKey('username', $secureData);
+        $this->assertArrayHasKey('display_name', $secureData);
+        $this->assertArrayNotHasKey('email', $secureData);
         $this->assertArrayNotHasKey('password', $secureData);
     }
 
     public function test_password_reset_endpoint()
     {
+        Mail::fake();
+
         $user = User::factory()->create([
             'email' => 'user@example.com'
         ]);
@@ -161,11 +168,10 @@ class TokenizationTest extends TestCase
         ]);
 
         $response->assertStatus(200);
-        $response->assertJsonStructure([
+        $response->assertJsonPath(
             'message',
-            'user_uuid',
-            'test_token_url'
-        ]);
+            'If this email is registered, a password reset link has been sent.'
+        );
     }
 
     public function test_verify_email_endpoint()
@@ -202,5 +208,15 @@ class TokenizationTest extends TestCase
             'expires_at',
             'uuid'
         ]);
+
+        $shareUrl = (string) $response->json('share_url');
+        $this->assertStringContainsString('/api/shared-resource/', $shareUrl);
+        $this->assertStringContainsString('token=', $shareUrl);
+
+        $accessToken = AccessToken::query()->sole();
+        $this->assertSame('share_appointment', $accessToken->purpose);
+        $this->assertSame('appointment', data_get($accessToken->metadata, 'resource_type'));
+        $this->assertSame('123', (string) data_get($accessToken->metadata, 'resource_id'));
+        $this->assertSame((string) $user->uuid, (string) data_get($accessToken->metadata, 'created_by'));
     }
 }

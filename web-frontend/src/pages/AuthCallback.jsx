@@ -19,19 +19,6 @@ const AuthCallback = () => {
 
   const { setAuthData } = useAuth();
 
-  const parseOAuthUser = (rawUser) => {
-    if (!rawUser) {
-      return null;
-    }
-
-    try {
-      const parsed = JSON.parse(rawUser);
-      return typeof parsed === 'object' && parsed !== null ? parsed : null;
-    } catch {
-      return null;
-    }
-  };
-
   useEffect(() => {
     const handleCallback = async () => {
       // Parse parameters from hash or search
@@ -41,11 +28,9 @@ const AuthCallback = () => {
       
       // Values can be in hash (preferred) or query string
       const oauthStatus = hashParams.get('oauth') || searchParams.get('oauth');
-      const token = hashParams.get('token') || searchParams.get('token');
       const message = hashParams.get('message') || searchParams.get('message');
       const tab = hashParams.get('tab') || searchParams.get('tab');
       const registrationStatus = hashParams.get('registration') || searchParams.get('registration');
-      const rawUser = hashParams.get('user') || searchParams.get('user');
 
       // 1. Handle registration confirmation (email link)
       if (registrationStatus === 'confirmed') {
@@ -65,51 +50,27 @@ const AuthCallback = () => {
       }
 
       // 3. Handle OAuth Success
-      if (oauthStatus === 'success' && token) {
-        const fallbackUser = parseOAuthUser(rawUser);
-
+      if (oauthStatus === 'success') {
         try {
-          // Initialize auth headers and storage immediately to prevent race conditions
-          localStorage.setItem('token', token);
-          axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-
-          // SECURITY: Clean URL immediately after token extraction
+          // Clean the callback URL before doing follow-up auth requests.
           window.history.replaceState(null, '', window.location.pathname);
 
-          // Fetch fresh user data to ensure role and profile status are synced
+          await axios.get('/sanctum/csrf-cookie');
           const userResp = await axios.get('/api/user');
           const userData = userResp.data?.data || userResp.data;
           
-          // Update global auth state directly (no page reload)
-          setAuthData(userData || fallbackUser, token);
+          setAuthData(userData);
 
           markPostAuthRedirecting();
-          navigate(getDashboardRouteByRole((userData || fallbackUser)?.role), { replace: true });
+          navigate(getDashboardRouteByRole(userData?.role), { replace: true });
         } catch (error) {
           console.error('OAuth finalization failed:', error);
-          
-          if (error.response?.status === 401) {
-            clearPostAuthRedirecting();
-            localStorage.removeItem('token');
-            localStorage.removeItem('user');
-            sessionStorage.setItem('oauth_error_message', 'Session invalid. Please sign in again.');
-            navigate('/?auth_modal=open', { replace: true });
-          } else {
-             // Non-auth failures (network/timeout): proceed with fallback user if available.
-             setAuthData(fallbackUser, token);
-             markPostAuthRedirecting();
-             navigate(getDashboardRouteByRole(fallbackUser?.role), { replace: true });
-          }
+          clearPostAuthRedirecting();
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          sessionStorage.setItem('oauth_error_message', 'Failed to establish a secure session. Please sign in again.');
+          navigate('/?auth_modal=open', { replace: true });
         }
-      } else if (oauthStatus === 'success') {
-        clearPostAuthRedirecting();
-        if (message) {
-          sessionStorage.setItem('oauth_success_message', message);
-        }
-        if (tab) {
-          sessionStorage.setItem('oauth_error_tab', tab);
-        }
-        navigate('/?auth_modal=open', { replace: true });
       } else {
         // No valid oauth state found, go back home
         clearPostAuthRedirecting();

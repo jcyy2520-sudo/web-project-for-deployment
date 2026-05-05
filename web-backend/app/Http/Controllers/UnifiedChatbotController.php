@@ -7,6 +7,7 @@ use App\Models\ChatbotConversation;
 use App\Models\ChatbotRateLimit;
 use App\Models\User;
 use App\Services\UnifiedChatbotService;
+use App\Services\AgentReasoningService;
 use App\Services\ChatbotFeedbackService;
 use App\Services\ChatbotRoleAwarenessService;
 use App\Services\ChatbotActionService;
@@ -42,17 +43,20 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 class UnifiedChatbotController extends Controller
 {
     private UnifiedChatbotService $chatbotService;
+    private AgentReasoningService $agentReasoning;
     private ChatbotFeedbackService $feedbackService;
     private ChatbotRoleAwarenessService $roleService;
     private ChatbotRealTimeDataService $dataService;
 
     public function __construct(
         UnifiedChatbotService $chatbotService,
+        AgentReasoningService $agentReasoning,
         ChatbotFeedbackService $feedbackService,
         ChatbotRoleAwarenessService $roleService,
         ChatbotRealTimeDataService $dataService
     ) {
         $this->chatbotService = $chatbotService;
+        $this->agentReasoning = $agentReasoning;
         $this->feedbackService = $feedbackService;
         $this->roleService = $roleService;
         $this->dataService = $dataService;
@@ -67,6 +71,10 @@ class UnifiedChatbotController extends Controller
     public function sendMessage(Request $request): JsonResponse
     {
         $startTime = microtime(true);
+        $lock = null;
+        $loadReservationToken = null;
+        $loadMode = 'normal';
+        $loadSnapshot = [];
         
         try {
             $request->validate([
@@ -102,11 +110,12 @@ class UnifiedChatbotController extends Controller
                 ?? ($request->hasSession() ? $request->session()->getId() : null)
                 ?? uniqid('sess_', true);
             $ipAddress = $request->ip();
+            $actorKey = $this->buildChatbotActorKey($userId, $sessionId, $ipAddress);
 
             // ── CONCURRENT REQUEST PROTECTION ──
             // Prevent the same user from having multiple in-flight chatbot requests.
             // This avoids duplicate processing, wasted LLM calls, and potential race conditions.
-            $lockIdentity = $userId ? "chatbot_lock_user_{$userId}" : "chatbot_lock_ip_{$ipAddress}";
+            $lockIdentity = "chatbot_lock_{$actorKey}";
             $lock = Cache::lock($lockIdentity, 90); // 90s max (matches LLM timeout)
             if (!$lock->get()) {
                 return response()->json([
@@ -118,7 +127,7 @@ class UnifiedChatbotController extends Controller
 
             // ── REQUEST DEDUPLICATION ──
             // Prevent identical messages sent within 3 seconds (double-click, network retry).
-            $dedupeKey = 'chatbot_dedup_' . md5(($userId ?? $ipAddress) . $userMessage . $conversationId);
+            $dedupeKey = 'chatbot_dedup_' . md5($actorKey . $userMessage . $conversationId);
             if (Cache::has($dedupeKey)) {
                 $lock->release();
                 return response()->json([
@@ -129,6 +138,41 @@ class UnifiedChatbotController extends Controller
             }
             Cache::put($dedupeKey, true, 3); // 3-second dedup window
             
+            // ── GUEST MESSAGE LIMIT ──
+            // Applies ONLY to unauthenticated (guest) users. Authenticated roles are never affected.
+            $guestLimitKey = null;
+            $guestLimitMeta = null;
+            if (!$userId) {
+                $sessionIdHeader = $request->header('X-Session-ID', '');
+                $guestLimitKey = $this->buildGuestLimitKey($ipAddress, $sessionIdHeader);
+                $guestLimitBlock = $this->resolveGuestLimitBlock($guestLimitKey);
+
+                if ($guestLimitBlock !== null) {
+                    if (isset($lock)) {
+                        $lock->release();
+                    }
+
+                    return response()->json($guestLimitBlock, 429);
+                }
+            }
+
+            $requestRole = $this->resolveChatRole($userId);
+            $loadReservation = $this->admitChatRequest($requestRole, $userId, $userMessage, false);
+            $loadReservationToken = $loadReservation['token'] ?? null;
+            $loadMode = $loadReservation['mode'] ?? 'normal';
+            $loadSnapshot = $loadReservation['snapshot'] ?? [];
+
+            if (!($loadReservation['admitted'] ?? false)) {
+                if (isset($lock)) {
+                    $lock->release();
+                }
+
+                return response()->json(
+                    $this->buildBusyChatResponse($conversationId, $userMessage, $requestRole, $loadSnapshot),
+                    200
+                );
+            }
+
             // Rate limiting is handled by ChatbotRateLimitMiddleware — no duplicate check here.
             
             // ALL users — including guests — go through the unified LLM pipeline.
@@ -149,6 +193,8 @@ class UnifiedChatbotController extends Controller
                     'ip_address' => $ipAddress,
                     'user_agent' => $request->userAgent(),
                     'session_id' => $sessionId,
+                    'actor_key' => $actorKey,
+                    'load_shedding_mode' => $loadMode,
                 ]
             );
             
@@ -160,9 +206,14 @@ class UnifiedChatbotController extends Controller
             
             // Rate limit increment is handled by ChatbotRateLimitMiddleware after successful response.
             // Do NOT increment here — it was previously causing double-counting (8 msg/min limit hit at 4 msgs).
-            
+
+            // ── INCREMENT GUEST MESSAGE COUNT ──
+            if (!$userId && $guestLimitKey !== null) {
+                $guestLimitMeta = $this->incrementGuestLimit($guestLimitKey);
+            }
+
             // Role in response metadata is ALWAYS from server-side detection, never from user input
-            $serverRole = $result['meta']['role'] ?? ($userId ? 'client' : 'guest');
+            $serverRole = $result['meta']['role'] ?? $requestRole;
 
             // Enrich response with role-specific contextual actions and pending items
             $roleDisplay = ucfirst($serverRole);
@@ -203,9 +254,13 @@ class UnifiedChatbotController extends Controller
                     'detected_language' => $result['meta']['detected_language'] ?? $this->detectLanguage($userMessage),
                     'quick_actions' => $quickActions,
                     'pending_items' => $pendingItems,
+                    'guest_limit' => $guestLimitMeta, // null for authenticated users
+                    'load_state' => $loadSnapshot['state'] ?? 'normal',
                 ]),
                 'timestamp' => now()->toIso8601String(),
             ]);
+
+            $this->releaseChatRequest($loadReservationToken);
 
             // Release concurrent request lock
             if (isset($lock)) $lock->release();
@@ -213,6 +268,7 @@ class UnifiedChatbotController extends Controller
             return $jsonResponse;
             
         } catch (\Illuminate\Validation\ValidationException $e) {
+            $this->releaseChatRequest($loadReservationToken);
             if (isset($lock)) $lock->release();
             return response()->json([
                 'success' => false,
@@ -220,6 +276,7 @@ class UnifiedChatbotController extends Controller
                 'errors' => $e->errors(),
             ], 422);
         } catch (\Throwable $e) {
+            $this->releaseChatRequest($loadReservationToken);
             if (isset($lock)) $lock->release();
             Log::error('Unified chatbot error: ' . $e->getMessage(), [
                 'trace' => $e->getTraceAsString(),
@@ -256,6 +313,7 @@ class UnifiedChatbotController extends Controller
         $conversationId = $request->input('conversation_id') ?? $this->generateConversationId();
         $userId = auth('sanctum')->id() ?? auth()->id();
         $ipAddress = $request->ip();
+        $userAgent = $request->userAgent();
         
         // Release the session lock EARLY so long-running LLM requests 
         // don't block the user from navigating the rest of the app.
@@ -263,8 +321,17 @@ class UnifiedChatbotController extends Controller
             $request->session()->save();
         }
 
+        // SECURITY: Generate session ID server-side — never trust client-provided X-Session-ID
+        try {
+            $sessionId = $request->hasSession() ? $request->session()->getId() : uniqid('sess_', true);
+        } catch (\Exception $e) {
+            $sessionId = uniqid('sess_', true);
+        }
+
+        $actorKey = $this->buildChatbotActorKey($userId, $sessionId, $ipAddress);
+
         // ── CONCURRENT REQUEST PROTECTION (same as sendMessage) ──
-        $lockIdentity = $userId ? "chatbot_lock_user_{$userId}" : "chatbot_lock_ip_{$ipAddress}";
+        $lockIdentity = "chatbot_lock_{$actorKey}";
         $lock = Cache::lock($lockIdentity, 90);
         if (!$lock->get()) {
             return new StreamedResponse(function () {
@@ -273,7 +340,7 @@ class UnifiedChatbotController extends Controller
         }
 
         // ── REQUEST DEDUPLICATION ──
-        $dedupeKey = 'chatbot_dedup_' . md5(($userId ?? $ipAddress) . $userMessage . $conversationId);
+        $dedupeKey = 'chatbot_dedup_' . md5($actorKey . $userMessage . $conversationId);
         if (Cache::has($dedupeKey)) {
             $lock->release();
             return new StreamedResponse(function () {
@@ -282,25 +349,51 @@ class UnifiedChatbotController extends Controller
         }
         Cache::put($dedupeKey, true, 3);
         
+        // ── GUEST MESSAGE LIMIT (streaming path) ──
+        $guestLimitKey = null;
+        if (!$userId) {
+            $sessionIdHeader = $request->header('X-Session-ID', '');
+            $guestLimitKey = $this->buildGuestLimitKey($ipAddress, $sessionIdHeader);
+            $guestLimitBlock = $this->resolveGuestLimitBlock($guestLimitKey);
+
+            if ($guestLimitBlock !== null) {
+                $lock->release();
+                return new StreamedResponse(function () use ($guestLimitBlock) {
+                    $this->sendSSE('error', $guestLimitBlock);
+                }, 429, ['Content-Type' => 'text/event-stream']);
+            }
+        }
+
         // Ensure PHP doesn't timeout before the LLM
         set_time_limit(120);
-        
-        // SECURITY: Generate session ID server-side — never trust client-provided X-Session-ID
-        try {
-            $sessionId = $request->hasSession() ? $request->session()->getId() : uniqid('sess_', true);
-        } catch (\Exception $e) {
-            $sessionId = uniqid('sess_', true);
+
+        $requestRole = $this->resolveChatRole($userId);
+        $loadReservation = $this->admitChatRequest($requestRole, $userId, $userMessage, true);
+        $loadReservationToken = $loadReservation['token'] ?? null;
+        $loadMode = $loadReservation['mode'] ?? 'normal';
+        $loadSnapshot = $loadReservation['snapshot'] ?? [];
+
+        if (!($loadReservation['admitted'] ?? false)) {
+            if (isset($lock)) {
+                $lock->release();
+            }
+
+            return $this->createBusyStreamedResponse($conversationId, $requestRole, $loadSnapshot);
         }
-        
-        return new StreamedResponse(function () use ($userId, $userMessage, $conversationId, $sessionId, $lock) {
-            // Disable output buffering for streaming
-            if (ob_get_level()) ob_end_clean();
-            
-            // Set SSE headers
-            header('Content-Type: text/event-stream');
-            header('Cache-Control: no-cache');
-            header('Connection: keep-alive');
-            header('X-Accel-Buffering: no');
+
+        return new StreamedResponse(function () use ($userId, $userMessage, $conversationId, $sessionId, $actorKey, $ipAddress, $userAgent, $lock, $guestLimitKey, $loadReservationToken, $loadMode, $loadSnapshot) {
+            if (!app()->runningUnitTests()) {
+                // Disable output buffering for streaming in real HTTP responses.
+                if (ob_get_level()) {
+                    ob_end_clean();
+                }
+
+                // Set SSE headers for direct web streaming.
+                header('Content-Type: text/event-stream');
+                header('Cache-Control: no-cache');
+                header('Connection: keep-alive');
+                header('X-Accel-Buffering: no');
+            }
             
             try {
                 // Send initial status
@@ -323,7 +416,14 @@ class UnifiedChatbotController extends Controller
                     function ($finalResult) {
                         $this->sendSSE('complete', $finalResult);
                     },
-                    ['language' => $this->detectLanguage($userMessage)]
+                    [
+                        'language' => $this->detectLanguage($userMessage),
+                        'ip_address' => $ipAddress,
+                        'user_agent' => $userAgent,
+                        'session_id' => $sessionId,
+                        'actor_key' => $actorKey,
+                        'load_shedding_mode' => $loadMode,
+                    ]
                 );
                 
                 // If not streaming (fallback), send full response
@@ -335,6 +435,12 @@ class UnifiedChatbotController extends Controller
                 // Save assistant response
                 if ($fullResponse) {
                     $this->saveMessage($userId, $conversationId, $fullResponse, 'assistant', 'llm', $sessionId);
+                }
+
+                // ── INCREMENT GUEST MESSAGE COUNT (streaming) ──
+                $guestLimitMeta = null;
+                if (!$userId && $guestLimitKey !== null) {
+                    $guestLimitMeta = $this->incrementGuestLimit($guestLimitKey);
                 }
                 
                 // Build contextual suggestions and role info for the done event
@@ -368,6 +474,11 @@ class UnifiedChatbotController extends Controller
                         $doneData['meta']['requires_confirmation'] = true;
                         $doneData['meta']['confirmation_key'] = $result['meta']['confirmation_key'] ?? null;
                     }
+                    // Include guest limit info
+                    if ($guestLimitMeta !== null) {
+                        $doneData['meta']['guest_limit'] = $guestLimitMeta;
+                    }
+                    $doneData['meta']['load_state'] = $loadSnapshot['state'] ?? 'normal';
                 } catch (\Exception $e) {
                     Log::debug('Streaming role enrichment failed: ' . $e->getMessage());
                 }
@@ -379,6 +490,7 @@ class UnifiedChatbotController extends Controller
                 Log::error('Streaming error: ' . $e->getMessage());
                 $this->sendSSE('error', ['message' => 'An error occurred while generating response']);
             } finally {
+                $this->releaseChatRequest($loadReservationToken);
                 // Release concurrent request lock when streaming completes
                 if (isset($lock)) $lock->release();
             }
@@ -444,11 +556,21 @@ class UnifiedChatbotController extends Controller
     {
         try {
             $health = $this->chatbotService->getHealthStatus();
+            $loadStatus = $this->getPublicLoadStatus();
+            $llmAvailable = !empty($health['llm']['available_provider'] ?? null);
+            $status = !$llmAvailable
+                ? 'degraded'
+                : ($loadStatus['status'] === 'busy' ? 'busy' : $loadStatus['status']);
             
             return response()->json([
                 'success' => true,
-                'status' => 'operational',
-                'services' => $health,
+                'status' => $status,
+                'data' => [
+                    'chatbot' => $status,
+                    'load' => $loadStatus['load'],
+                    'retry_after_seconds' => $loadStatus['retry_after_seconds'],
+                    'streaming_enabled' => (bool) config('chatbot_unified.features.streaming', false),
+                ],
                 'timestamp' => now()->toIso8601String(),
             ]);
             
@@ -468,6 +590,13 @@ class UnifiedChatbotController extends Controller
     {
         try {
             $userId = auth('sanctum')->id() ?? auth()->id();
+            if (!$userId) {
+                return response()->json([
+                    'success' => true,
+                    'data' => [],
+                    'guest_restricted' => true,
+                ]);
+            }
             try {
                 $sessionId = $request->hasSession() ? $request->session()->getId() : null;
             } catch (\Exception $e) {
@@ -560,6 +689,13 @@ class UnifiedChatbotController extends Controller
     {
         try {
             $userId = auth('sanctum')->id() ?? auth()->id();
+            if (!$userId) {
+                return response()->json([
+                    'success' => true,
+                    'data' => [],
+                    'guest_restricted' => true,
+                ]);
+            }
             $sessionId = $request->header('X-Session-ID');
 
             if (!$userId && !$sessionId) {
@@ -635,6 +771,12 @@ class UnifiedChatbotController extends Controller
     {
         try {
             $userId = auth('sanctum')->id() ?? auth()->id();
+            if (!$userId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Please log in to start a new conversation.',
+                ], 403);
+            }
             $sessionId = $request->header('X-Session-ID');
 
             if (!$userId && !$sessionId) {
@@ -717,6 +859,21 @@ class UnifiedChatbotController extends Controller
     {
         try {
             $userId = auth('sanctum')->id() ?? auth()->id();
+            if (!$userId) {
+                return response()->json([
+                    'success' => true,
+                    'data' => [],
+                    'conversation_id' => $conversationId,
+                    'guest_restricted' => true,
+                    'rate_limit' => [
+                        'remaining' => 0,
+                        'limit' => 0,
+                        'used' => 0,
+                        'is_limited' => false,
+                        'must_start_new' => false,
+                    ],
+                ]);
+            }
             $sessionId = $request->header('X-Session-ID');
 
             if (!$userId && !$sessionId) {
@@ -769,6 +926,12 @@ class UnifiedChatbotController extends Controller
     {
         try {
             $userId = auth('sanctum')->id() ?? auth()->id();
+            if (!$userId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Please log in to delete conversations.',
+                ], 403);
+            }
             $sessionId = $request->header('X-Session-ID');
 
             if (!$userId && !$sessionId) {
@@ -813,6 +976,12 @@ class UnifiedChatbotController extends Controller
     {
         try {
             $userId = auth('sanctum')->id() ?? auth()->id();
+            if (!$userId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Please log in to clear chat history.',
+                ], 403);
+            }
             $sessionId = $request->header('X-Session-ID');
             $conversationId = $request->input('conversation_id');
 
@@ -891,6 +1060,7 @@ class UnifiedChatbotController extends Controller
         try {
             $userId = auth('sanctum')->id() ?? auth()->id();
             $roleInfo = $this->roleService->detectUserRole($userId);
+            $loadStatus = $this->getPublicLoadStatus();
 
             return response()->json([
                 'success' => true,
@@ -903,7 +1073,10 @@ class UnifiedChatbotController extends Controller
                     'greeting' => $this->roleService->getRoleGreeting($userId),
                     'suggested_commands' => $this->roleService->getSuggestedCommands($userId),
                     'llm_available' => true,
-                    'llm_status' => ['status' => 'operational', 'pipeline' => 'unified_llm_first'],
+                    'llm_status' => [
+                        'status' => $loadStatus['status'],
+                        'retry_after_seconds' => $loadStatus['retry_after_seconds'],
+                    ],
                 ],
             ]);
         } catch (\Exception $e) {
@@ -954,7 +1127,9 @@ class UnifiedChatbotController extends Controller
                 'cashier' => [
                     'Show pending payments',
                     'What is today\'s collection summary?',
+                    'What is the revenue summary for this month?',
                     'List approved appointments awaiting payment',
+                    'Show approved refunds ready for processing',
                     'Show my shift report',
                     'How many transactions today?',
                 ],
@@ -1046,6 +1221,7 @@ class UnifiedChatbotController extends Controller
                 ],
                 'cashier' => [
                     ['label' => 'Pending Payments', 'message' => 'Show pending payments'],
+                    ['label' => 'Revenue Summary', 'message' => 'What is the revenue summary for this month?'],
                     ['label' => 'Shift Report', 'message' => 'Show my shift report'],
                 ],
                 default => [
@@ -1173,7 +1349,7 @@ class UnifiedChatbotController extends Controller
                     ? $this->dataService->getSystemAnalytics()
                     : ['error' => 'Permission denied'],
                 'shift_report' => $this->roleService->hasFinancialAccess($userId)
-                    ? $this->dataService->getCashierShiftData($params['start_date'] ?? null, $params['end_date'] ?? null)
+                    ? $this->dataService->getCashierShiftData($userId, $params['date'] ?? $params['start_date'] ?? null)
                     : ['error' => 'Permission denied'],
                 'user_stats' => $this->dataService->getUserStats($userId),
                 default => ['error' => 'Unknown data type'],
@@ -1249,6 +1425,8 @@ class UnifiedChatbotController extends Controller
         try {
             $request->validate([
                 'confirmation_key' => 'required|string',
+                'decision' => 'nullable|in:confirm,deny',
+                'conversation_id' => 'nullable|string|max:100|regex:/^[a-zA-Z0-9_-]+$/',
             ]);
 
             $userId = auth('sanctum')->id() ?? auth()->id();
@@ -1259,7 +1437,24 @@ class UnifiedChatbotController extends Controller
                 ], 401);
             }
 
-            $confirmationKey = $request->input('confirmation_key');
+            $confirmationKey = (string) $request->input('confirmation_key');
+            $decision = (string) $request->input('decision', 'confirm');
+            $conversationId = $request->input('conversation_id') ?? $this->generateConversationId();
+            $sessionId = $request->header('X-Session-ID') ?? $request->session()?->getId();
+            $ipAddress = $request->ip();
+            $actorKey = $this->buildChatbotActorKey($userId, $sessionId, $ipAddress);
+
+            if (str_starts_with($confirmationKey, 'agent_confirm_')) {
+                return $this->confirmAgentAction(
+                    $confirmationKey,
+                    $decision,
+                    $userId,
+                    $conversationId,
+                    $sessionId,
+                    $actorKey
+                );
+            }
+
             $pending = ChatbotActionService::getPendingAction($userId, $confirmationKey);
 
             if (!$pending) {
@@ -1271,6 +1466,28 @@ class UnifiedChatbotController extends Controller
 
             $roleInfo = $this->roleService->detectUserRole($userId);
             $role = $roleInfo['primary_role'] ?? 'client';
+            $roleDisplay = $roleInfo['display_name'] ?? ucfirst($role);
+
+            $userMessage = $decision === 'deny' ? 'no' : 'yes';
+            $this->saveMessage($userId, $conversationId, $userMessage, 'user', 'user', $sessionId);
+
+            if ($decision === 'deny') {
+                $responseText = "Understood, I've cancelled the action. How else can I help you?";
+                $this->saveMessage($userId, $conversationId, $responseText, 'assistant', 'action_confirmation_cancel', $sessionId);
+                $this->updateConversation($userId, $conversationId, $sessionId);
+
+                return $this->buildConfirmationResponse(
+                    $conversationId,
+                    $userMessage,
+                    $responseText,
+                    [
+                        'source' => 'action_confirmation_cancel',
+                        'role' => $role,
+                        'role_display' => $roleDisplay,
+                        'role_verified' => true,
+                    ]
+                );
+            }
 
             $result = ChatbotActionService::executeAction(
                 $userId,
@@ -1280,7 +1497,21 @@ class UnifiedChatbotController extends Controller
                 true
             );
 
-            return response()->json($result);
+            $responseText = trim((string) ($result['message'] ?? 'Action processed.'));
+            $this->saveMessage($userId, $conversationId, $responseText, 'assistant', 'action_confirmation', $sessionId);
+            $this->updateConversation($userId, $conversationId, $sessionId);
+
+            return $this->buildConfirmationResponse(
+                $conversationId,
+                $userMessage,
+                $responseText,
+                [
+                    'source' => 'action_confirmation',
+                    'role' => $role,
+                    'role_display' => $roleDisplay,
+                    'role_verified' => true,
+                ]
+            );
         } catch (\Exception $e) {
             Log::error('Chatbot confirmAction error: ' . $e->getMessage());
             return response()->json([
@@ -1288,6 +1519,80 @@ class UnifiedChatbotController extends Controller
                 'message' => 'Failed to confirm action',
             ], 500);
         }
+    }
+
+    private function confirmAgentAction(
+        string $confirmationKey,
+        string $decision,
+        int $userId,
+        string $conversationId,
+        ?string $sessionId,
+        string $actorKey
+    ): JsonResponse {
+        $expectedKey = $this->buildAgentConfirmationKey($actorKey);
+        if (!hash_equals($expectedKey, $confirmationKey)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Confirmation expired or invalid. Please try the action again.',
+            ], 400);
+        }
+
+        $pending = AgentReasoningService::getPendingConfirmation($actorKey);
+        if (!$pending) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Confirmation expired or invalid. Please try the action again.',
+            ], 400);
+        }
+
+        $roleInfo = $this->roleService->detectUserRole($userId);
+        $role = $roleInfo['primary_role'] ?? 'client';
+        $roleDisplay = $roleInfo['display_name'] ?? ucfirst($role);
+        $userMessage = $decision === 'deny' ? 'no' : 'yes';
+
+        $this->saveMessage($userId, $conversationId, $userMessage, 'user', 'user', $sessionId);
+
+        $agentResult = $this->agentReasoning->reason(
+            $userMessage,
+            '',
+            [],
+            $userId,
+            $role,
+            $pending,
+            $actorKey
+        );
+
+        $responseText = trim((string) ($agentResult['response'] ?? 'Action processed.'));
+        $source = $decision === 'deny' ? 'agent_confirmation_cancel' : 'agent_confirmation';
+
+        $this->saveMessage($userId, $conversationId, $responseText, 'assistant', $source, $sessionId);
+        $this->updateConversation($userId, $conversationId, $sessionId);
+
+        $meta = [
+            'source' => $source,
+            'role' => $role,
+            'role_display' => $roleDisplay,
+            'role_verified' => true,
+        ];
+
+        if (!empty($agentResult['action_buttons'])) {
+            $meta['action_buttons'] = $agentResult['action_buttons'];
+        }
+
+        if (!empty($agentResult['requires_confirmation'])) {
+            $meta['requires_confirmation'] = true;
+            $meta['confirmation_key'] = $agentResult['confirmation_key'] ?? null;
+            if (!empty($agentResult['pending_tool'])) {
+                $meta['pending_tool'] = $agentResult['pending_tool'];
+            }
+        }
+
+        return $this->buildConfirmationResponse(
+            $conversationId,
+            $userMessage,
+            $responseText,
+            $meta
+        );
     }
 
     // ==================== MESSAGE CENTER ====================
@@ -1372,6 +1677,14 @@ class UnifiedChatbotController extends Controller
     public function searchKnowledge(Request $request): JsonResponse
     {
         try {
+            $userId = auth('sanctum')->id() ?? auth()->id();
+            if (!$userId) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Please log in to use chatbot search.',
+                ], 403);
+            }
+
             $request->validate([
                 'query' => 'required|string|max:500',
                 'category' => 'nullable|string',
@@ -1623,6 +1936,102 @@ class UnifiedChatbotController extends Controller
             'timestamp' => now()->toIso8601String(),
         ]);
     }
+
+    private function buildGuestLimitKey(string $ipAddress, string $sessionIdHeader): string
+    {
+        return 'guest_chat_limit_' . md5($ipAddress . ':' . $sessionIdHeader);
+    }
+
+    private function getDefaultGuestLimitData(): array
+    {
+        return ['count' => 0, 'cooldown_until' => null];
+    }
+
+    private function normalizeGuestLimitState(string $guestLimitKey): array
+    {
+        $guestLimitData = Cache::get($guestLimitKey, $this->getDefaultGuestLimitData());
+        $cooldownUntilTs = $guestLimitData['cooldown_until'] ?? null;
+
+        if (!empty($cooldownUntilTs) && now()->timestamp >= $cooldownUntilTs) {
+            $guestLimitData = $this->getDefaultGuestLimitData();
+            Cache::put($guestLimitKey, $guestLimitData, now()->addHours(6));
+        }
+
+        return $guestLimitData;
+    }
+
+    private function buildGuestLimitExceededPayload(int $cooldownUntilTs): array
+    {
+        $cooldownUntil = \Carbon\Carbon::createFromTimestamp($cooldownUntilTs);
+
+        return [
+            'success' => false,
+            'guest_limit_exceeded' => true,
+            'message' => 'You\'ve reached the message limit for guest users. You can send messages again on '
+                . $cooldownUntil->format('F j, Y') . ' at ' . $cooldownUntil->format('g:i A')
+                . '. Register now to continue chatting without limits.',
+            'guest_limit' => [
+                'count' => 5,
+                'remaining' => 0,
+                'is_limited' => true,
+                'cooldown_until' => $cooldownUntil->toIso8601String(),
+            ],
+        ];
+    }
+
+    private function resolveGuestLimitBlock(string $guestLimitKey): ?array
+    {
+        $guestLimitData = $this->normalizeGuestLimitState($guestLimitKey);
+
+        if (!empty($guestLimitData['cooldown_until']) && now()->timestamp < $guestLimitData['cooldown_until']) {
+            return $this->buildGuestLimitExceededPayload($guestLimitData['cooldown_until']);
+        }
+
+        return null;
+    }
+
+    private function incrementGuestLimit(string $guestLimitKey): array
+    {
+        $guestLimitData = $this->normalizeGuestLimitState($guestLimitKey);
+        $guestLimitData['count'] = ($guestLimitData['count'] ?? 0) + 1;
+
+        $guestCooldownStr = null;
+        if ($guestLimitData['count'] >= 5) {
+            $cooldownUntilTs = now()->addHours(5)->timestamp;
+            $guestLimitData['cooldown_until'] = $cooldownUntilTs;
+            $guestCooldownStr = \Carbon\Carbon::createFromTimestamp($cooldownUntilTs)->toIso8601String();
+        } else {
+            $guestLimitData['cooldown_until'] = null;
+        }
+
+        Cache::put($guestLimitKey, $guestLimitData, now()->addHours(6));
+
+        return [
+            'count' => $guestLimitData['count'],
+            'remaining' => max(0, 5 - $guestLimitData['count']),
+            'is_limited' => $guestLimitData['count'] >= 5,
+            'cooldown_until' => $guestCooldownStr,
+        ];
+    }
+
+    private function buildConfirmationResponse(string $conversationId, string $userMessage, string $responseText, array $meta = []): JsonResponse
+    {
+        return response()->json([
+            'success' => true,
+            'conversation_id' => $conversationId,
+            'user_message' => $userMessage,
+            'ai_response' => $responseText,
+            'meta' => $meta,
+            'timestamp' => now()->toIso8601String(),
+        ]);
+    }
+
+    private function buildAgentConfirmationKey(string $actorKey): string
+    {
+        $normalizedActorKey = preg_replace('/[^A-Za-z0-9:_-]/', '_', $actorKey);
+
+        return 'agent_confirm_' . $normalizedActorKey . '_pending';
+    }
     
     private function saveMessage(?int $userId, string $conversationId, string $message, string $role, string $source = 'user', ?string $sessionId = null): void
     {
@@ -1646,6 +2055,168 @@ class UnifiedChatbotController extends Controller
         } catch (\Exception $e) {
             Log::warning('Failed to save message: ' . $e->getMessage());
         }
+    }
+
+    private function buildChatbotActorKey(?int $userId, ?string $sessionId, ?string $ipAddress): string
+    {
+        if ($userId) {
+            return "user_{$userId}";
+        }
+
+        if (!empty($sessionId)) {
+            return 'guest_session_' . sha1($sessionId);
+        }
+
+        if (!empty($ipAddress)) {
+            return 'guest_ip_' . sha1($ipAddress);
+        }
+
+        return 'guest_anonymous';
+    }
+
+    private function resolveChatRole(?int $userId): string
+    {
+        if (!$userId) {
+            return 'guest';
+        }
+
+        try {
+            $user = auth('sanctum')->user() ?? auth()->user();
+
+            if (!$user || (int) $user->id !== (int) $userId) {
+                $user = User::find($userId);
+            }
+
+            if (!$user) {
+                return 'client';
+            }
+
+            $dbRole = strtolower(trim((string) ($user->role ?? '')));
+            if (in_array($dbRole, ['admin', 'administrator'], true)) {
+                return 'admin';
+            }
+
+            if ($dbRole === 'staff') {
+                return 'staff';
+            }
+
+            if ($dbRole === 'cashier') {
+                return 'cashier';
+            }
+
+            if (method_exists($user, 'hasRole')) {
+                if ($user->hasRole('admin') || $user->hasRole('administrator')) {
+                    return 'admin';
+                }
+
+                if ($user->hasRole('staff')) {
+                    return 'staff';
+                }
+
+                if ($user->hasRole('cashier')) {
+                    return 'cashier';
+                }
+            }
+
+            if (method_exists($user, 'isAdmin') && $user->isAdmin()) {
+                return 'admin';
+            }
+
+            if (method_exists($user, 'isStaff') && $user->isStaff()) {
+                return 'staff';
+            }
+
+            if (method_exists($user, 'isCashier') && $user->isCashier()) {
+                return 'cashier';
+            }
+
+            return 'client';
+        } catch (\Exception $e) {
+            Log::debug('Failed to resolve request role for load management: ' . $e->getMessage());
+            return 'client';
+        }
+    }
+
+    private function admitChatRequest(string $role, ?int $userId, string $userMessage, bool $streaming = false): array
+    {
+        return app(\App\Services\ChatbotLoadManagerService::class)->admit([
+            'role' => $role,
+            'user_id' => $userId,
+            'message' => $userMessage,
+            'streaming' => $streaming,
+        ]);
+    }
+
+    private function releaseChatRequest(?string $reservationToken): void
+    {
+        if (!$reservationToken) {
+            return;
+        }
+
+        app(\App\Services\ChatbotLoadManagerService::class)->release($reservationToken);
+    }
+
+    private function getPublicLoadStatus(): array
+    {
+        try {
+            return app(\App\Services\ChatbotLoadManagerService::class)->publicStatus();
+        } catch (\Exception $e) {
+            Log::debug('Failed to fetch chatbot public load status: ' . $e->getMessage());
+
+            return [
+                'status' => 'operational',
+                'load' => 'normal',
+                'retry_after_seconds' => 5,
+            ];
+        }
+    }
+
+    private function buildBusyChatResponse(string $conversationId, string $userMessage, string $role, array $snapshot): array
+    {
+        $retryAfter = max(1, (int) ($snapshot['retry_after_seconds'] ?? 5));
+        $message = match ($role) {
+            'guest' => 'I\'m helping a high volume of visitors right now, so there may be a slight delay. I can still help with quick public questions about services, office hours, pricing, and location. Please try again in a few seconds for a fuller reply.',
+            'client' => 'I\'m handling a high volume of requests right now, so there may be a slight delay. Please try again in a few seconds. For the fastest reply, ask one short direct question about your appointments, payments, or services.',
+            default => 'I\'m handling a high volume of requests right now, so there may be a slight delay. Please try again in a few seconds. For the fastest reply, ask one short direct operational question.',
+        };
+
+        return [
+            'success' => true,
+            'conversation_id' => $conversationId,
+            'user_message' => $userMessage,
+            'ai_response' => $message,
+            'meta' => [
+                'source' => 'load_shed_busy',
+                'role' => $role,
+                'role_display' => ucfirst($role),
+                'role_verified' => true,
+                'degraded' => true,
+                'retry_after_seconds' => $retryAfter,
+                'load_state' => $snapshot['state'] ?? 'overloaded',
+            ],
+            'timestamp' => now()->toIso8601String(),
+        ];
+    }
+
+    private function createBusyStreamedResponse(string $conversationId, string $role, array $snapshot): StreamedResponse
+    {
+        $payload = $this->buildBusyChatResponse($conversationId, '', $role, $snapshot);
+
+        return new StreamedResponse(function () use ($payload, $conversationId) {
+            $this->sendSSE('status', ['message' => 'High request volume detected.', 'phase' => 'degraded']);
+            $this->sendSSE('token', [
+                'content' => $payload['ai_response'],
+                'meta' => $payload['meta'],
+            ]);
+            $this->sendSSE('done', [
+                'conversation_id' => $conversationId,
+                'meta' => $payload['meta'],
+            ]);
+        }, 200, [
+            'Content-Type' => 'text/event-stream',
+            'Cache-Control' => 'no-cache',
+            'Connection' => 'keep-alive',
+        ]);
     }
     
     private function updateConversation(?int $userId, string $conversationId, ?string $sessionId): void
@@ -1679,11 +2250,13 @@ class UnifiedChatbotController extends Controller
     {
         echo "event: {$event}\n";
         echo "data: " . json_encode($data) . "\n\n";
-        
-        if (ob_get_level()) {
-            ob_flush();
+
+        if (!app()->runningUnitTests()) {
+            if (ob_get_level()) {
+                ob_flush();
+            }
+            flush();
         }
-        flush();
     }
     
     private function detectLanguage(string $message): string
